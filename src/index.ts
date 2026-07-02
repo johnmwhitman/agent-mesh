@@ -36,6 +36,7 @@ import {
 } from "./templates.js";
 import { notifySubscribers } from "./realtime.js";
 import { startSseServer, stopSseServer, subscribeInboxUrl } from "./sse-server.js";
+import { createHeartbeat } from "./heartbeat.js";
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -105,6 +106,26 @@ async function spawnAgent(input: SpawnAgentInput): Promise<string> {
   child.stdout.on("data", (d) => (stdout += d.toString()));
   child.stderr.on("data", (d) => (stderr += d.toString()));
 
+  // Start the heartbeat watchdog. The v0.7.x semantics are: "after
+  // maxMissed heartbeats have fired, auto-fail the agent." A future
+  // version will use a round-trip pattern with the child process.
+  const heartbeatIntervalMs = 5_000; // 5 seconds
+  const heartbeatMaxMissed = 12; // 60 seconds without a heartbeat
+  const heartbeat = createHeartbeat(agentId, input.fleetId, {
+    intervalMs: heartbeatIntervalMs,
+    onHeartbeat: () => {},
+    maxMissed: heartbeatMaxMissed,
+    onMaxMissed: (reason: string) => {
+      if (!child.killed) child.kill("SIGKILL");
+      markAgentFinished(
+        agentId,
+        "failed",
+        stdout,
+        `Heartbeat watchdog: ${reason}`
+      );
+    },
+  });
+
   const timeout = setTimeout(() => {
     if (!child.killed) child.kill("SIGTERM");
     markAgentFinished(
@@ -117,11 +138,13 @@ async function spawnAgent(input: SpawnAgentInput): Promise<string> {
 
   child.on("error", (err: Error) => {
     clearTimeout(timeout);
+    heartbeat.stop();
     markAgentFinished(agentId, "failed", stdout, err.message);
   });
 
   child.on("close", (code: number | null) => {
     clearTimeout(timeout);
+    heartbeat.stop();
     markAgentFinished(
       agentId,
       code === 0 ? "complete" : "failed",
