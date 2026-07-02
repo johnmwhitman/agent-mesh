@@ -27,7 +27,7 @@ The fleet must be self-healing. A hung agent should not block the whole mesh.
 - [x] **CLI inspector** — `npx agent-mesh inspect <fleet_id>` shows a live TUI of running agents
 - [x] **Fleet metrics** — `get_fleet_metrics` returns avg duration, success rate, message volume per fleet
 - [x] **Heartbeat / watchdog** — periodic heartbeat events + `isAlive` liveness probe; auto-fails agents whose process dies without a close event, never kills healthy long-running agents
-- [ ] **Automatic retry with exponential backoff** — agents that fail with transient errors get retried up to 3 times
+- [x] **Automatic retry with exponential backoff** — agents that fail with transient errors get retried up to 3 times
 - [ ] **Partial result recovery** — if the MCP server crashes mid-fleet, the next start should resume the ledger
 
 ## v0.8.0 — Smart routing (Q3 2026)

@@ -24,6 +24,7 @@ import {
   registerAgentInLedger,
   registerCapability,
   routeWork,
+  saveData,
   sendMessage,
   setFleetTimeout,
 } from "./core.js";
@@ -42,6 +43,11 @@ import {
   agentTimeoutMs,
   buildRunArgs,
 } from "./spawn-config.js";
+import {
+  computeBackoff,
+  scheduleRetry as scheduleAgentRetry,
+  shouldRetry as shouldAgentRetry,
+} from "./retry.js";
 
 // ---------------------------------------------------------------------------
 // Server
@@ -74,7 +80,15 @@ async function spawnAgent(input: SpawnAgentInput): Promise<string> {
     status: "running",
     started_at: Date.now(),
   });
+  trySpawn(input, agentId, 1);
+  return agentId;
+}
 
+/**
+ * Inner spawn loop. attempt is 1-indexed (first attempt = 1).
+ * On any transient failure path, decides retry vs permanent via shouldAgentRetry().
+ */
+function trySpawn(input: SpawnAgentInput, agentId: string, attempt: number): void {
   const child = spawn("opencode", buildRunArgs(input), {
     // stdin MUST be ignored — `opencode run` hangs forever on a piped
     // stdin. Contract + evidence documented in spawn-config.ts.
@@ -86,7 +100,6 @@ async function spawnAgent(input: SpawnAgentInput): Promise<string> {
     const data = loadData();
     if (data.agents[agentId]) {
       data.agents[agentId].pid = child.pid;
-      const { saveData } = await import("./core.js");
       saveData(data);
     }
   }
@@ -106,43 +119,76 @@ async function spawnAgent(input: SpawnAgentInput): Promise<string> {
     isAlive: () => child.exitCode === null && child.signalCode === null,
     onMaxMissed: (reason: string) => {
       if (!child.killed) child.kill("SIGKILL");
-      markAgentFinished(
-        agentId,
-        "failed",
-        stdout,
-        `Heartbeat watchdog: ${reason}`
-      );
+      handleTransientFailure(input, agentId, attempt, stdout, `Heartbeat watchdog: ${reason}`);
     },
   });
 
   const timeout = setTimeout(() => {
     if (!child.killed) child.kill("SIGTERM");
-    markAgentFinished(
-      agentId,
-      "failed",
-      stdout,
-      `Timed out after ${agentTimeoutMs()}ms${stderr ? `\n${stderr}` : ""}`
-    );
+    handleTransientFailure(input, agentId, attempt, stdout, `Timed out after ${agentTimeoutMs()}ms${stderr ? `\n${stderr}` : ""}`);
   }, agentTimeoutMs());
 
   child.on("error", (err: Error) => {
     clearTimeout(timeout);
     heartbeat.stop();
-    markAgentFinished(agentId, "failed", stdout, err.message);
+    handleTransientFailure(input, agentId, attempt, stdout, err.message);
   });
 
   child.on("close", (code: number | null) => {
     clearTimeout(timeout);
     heartbeat.stop();
-    markAgentFinished(
+    if (code === 0) {
+      // Clean success — never retry.
+      markAgentFinished(agentId, "complete", stdout, stderr || undefined);
+      return;
+    }
+    // Non-zero exit = transient failure.
+    handleTransientFailure(
+      input,
       agentId,
-      code === 0 ? "complete" : "failed",
+      attempt,
       stdout,
-      stderr || undefined
+      stderr || `exit code ${code}`
     );
   });
+}
 
-  return agentId;
+function handleTransientFailure(
+  input: SpawnAgentInput,
+  agentId: string,
+  attempt: number,
+  stdout: string,
+  errorDetail: string
+): void {
+  if (!shouldAgentRetry(attempt)) {
+    appendEvent("agent_failed_permanent", {
+      agent_id: agentId,
+      attempts: attempt,
+      last_error: errorDetail,
+      timestamp: Date.now(),
+    });
+    markAgentFinished(
+      agentId,
+      "failed",
+      stdout,
+      `Permanent failure after ${attempt} attempt(s). Last error: ${errorDetail}`
+    );
+    return;
+  }
+  const nextAttempt = attempt + 1;
+  const delayMs = computeBackoff(nextAttempt);
+  appendEvent("agent_retry_scheduled", {
+    agent_id: agentId,
+    from_attempt: attempt,
+    to_attempt: nextAttempt,
+    delay_ms: delayMs,
+    last_error: errorDetail,
+    timestamp: Date.now(),
+  });
+  scheduleAgentRetry(nextAttempt, () => {
+    trySpawn(input, agentId, nextAttempt);
+  });
+  void stdout;
 }
 
 // ---------------------------------------------------------------------------

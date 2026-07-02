@@ -20,6 +20,7 @@ export interface Agent {
   error?: string;
   started_at?: number;
   completed_at?: number;
+  retry_count?: number;
 }
 
 export interface Fleet {
