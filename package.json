@@ -1,6 +1,6 @@
 {
   "name": "agent-mesh",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "OpenCode Agent Mesh — peer-to-peer agent orchestration engine with fleet spawning, P2P messaging, capability routing, and premade agent discovery",
   "main": "dist/index.js",
   "type": "module",

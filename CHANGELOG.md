@@ -11,7 +11,21 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 - Embedding-based capability matching
 - Push notifications via SSE for inboxes
 - `npm publish` to the public registry
-- Fleet templates (save / list / spawn from)
+- Template versioning (save with version, list specific version)
+- Template sharing (export/import as JSON)
+
+## [0.6.0] — 2026-07-02
+
+### Added
+- **Fleet templates** — save, list, and spawn named fleet templates so you don't retype common agent sets
+  - `save_fleet_template(name, agents, description?)` MCP tool: stores a template in the JSON ledger under `templates`. Names: lowercase letters, numbers, dashes, underscores. Max 32 agents per template. Re-saving the same name errors.
+  - `list_fleet_templates()` MCP tool: returns all templates, sorted by name
+  - `spawn_from_template(name)` MCP tool: returns a `SpawnSpec` you can pass directly to `spawn_fleet`
+  - `src/templates.ts`: new module with pure functions, full validation, sorted listing
+  - 15 new unit tests (75 total, all passing)
+
+### Changed
+- Bumped version to 0.6.0
 
 ## [0.5.1] — 2026-07-02
 

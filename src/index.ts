@@ -28,6 +28,12 @@ import {
   setFleetTimeout,
 } from "./core.js";
 import { checkRateLimit, getHealth, ping } from "./health.js";
+import {
+  saveFleetTemplate as saveFleetTemplateFn,
+  listFleetTemplates as listFleetTemplatesFn,
+  spawnFromTemplate as spawnFromTemplateFn,
+  type TemplateAgent,
+} from "./templates.js";
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -47,7 +53,7 @@ function agentTimeoutMs(): number {
 // ---------------------------------------------------------------------------
 
 const server = new Server(
-  { name: "agent-mesh", version: "0.5.1" },
+  { name: "agent-mesh", version: "0.6.0" },
   { capabilities: { tools: {} } }
 );
 
@@ -302,6 +308,46 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         "Health report: ledger size, fleet/agent/message counts, uptime, last event. Use for monitoring and alerting.",
       inputSchema: { type: "object", properties: {} },
     },
+    {
+      name: "save_fleet_template",
+      description:
+        "Save a named fleet template (set of agent specs) for reuse. Names: lowercase letters, numbers, dashes, underscores.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          name: { type: "string" },
+          description: { type: "string" },
+          agents: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                role: { type: "string" },
+                prompt: { type: "string" },
+                agent: { type: "string" },
+              },
+              required: ["role", "prompt"],
+            },
+          },
+        },
+        required: ["name", "agents"],
+      },
+    },
+    {
+      name: "list_fleet_templates",
+      description: "List all saved fleet templates, sorted by name.",
+      inputSchema: { type: "object", properties: {} },
+    },
+    {
+      name: "spawn_from_template",
+      description:
+        "Return a fleet spec from a saved template, ready to pass to spawn_fleet.",
+      inputSchema: {
+        type: "object",
+        properties: { name: { type: "string" } },
+        required: ["name"],
+      },
+    },
   ],
 }));
 
@@ -494,6 +540,33 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
 
   if (name === "get_health") {
     return jsonResult(getHealth());
+  }
+
+  if (name === "save_fleet_template") {
+    const { name: tplName, description, agents } = args as {
+      name: string
+      description?: string
+      agents: TemplateAgent[]
+    };
+    try {
+      const tpl = saveFleetTemplateFn(tplName, agents, description ?? "");
+      return jsonResult({ template: tpl });
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  if (name === "list_fleet_templates") {
+    return jsonResult({ templates: listFleetTemplatesFn() });
+  }
+
+  if (name === "spawn_from_template") {
+    const { name: tplName } = args as { name: string };
+    const spec = spawnFromTemplateFn(tplName);
+    if (!spec) {
+      return jsonError(`Template "${tplName}" not found`);
+    }
+    return jsonResult({ spec });
   }
 
   throw new Error(`Unknown tool: ${name}`);
