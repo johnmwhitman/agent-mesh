@@ -75,7 +75,7 @@ test('createHeartbeat: stop() halts the interval', async () => {
   }
 })
 
-test('createHeartbeat: auto-fails agent after maxMissed heartbeats', async () => {
+test('createHeartbeat: auto-fails a dead agent after maxMissed liveness checks', async () => {
   const { cleanup } = freshLedger()
   try {
     let failCalled = false
@@ -84,6 +84,7 @@ test('createHeartbeat: auto-fails agent after maxMissed heartbeats', async () =>
       intervalMs: 20,
       onHeartbeat: () => {},
       maxMissed: 2,
+      isAlive: () => false,
       onMaxMissed: (reason) => {
         failCalled = true
         failReason = reason
@@ -92,14 +93,58 @@ test('createHeartbeat: auto-fails agent after maxMissed heartbeats', async () =>
     await new Promise((r) => setTimeout(r, 200))
     handle.stop()
     assert.ok(failCalled, "onMaxMissed should have been called")
-    assert.match(failReason, /heartbeat/i)
+    assert.match(failReason, /liveness/i)
     assert.match(failReason, /agent-1/)
   } finally {
     cleanup()
   }
 })
 
-test('createHeartbeat: respects maxMissed setting', async () => {
+test('createHeartbeat: NEVER auto-fails a healthy agent, regardless of runtime', async () => {
+  const { cleanup } = freshLedger()
+  try {
+    let failCalled = false
+    let ticks = 0
+    const handle = createHeartbeat("agent-1", "fleet-1", {
+      intervalMs: 10,
+      onHeartbeat: () => { ticks++ },
+      maxMissed: 2,
+      isAlive: () => true,
+      onMaxMissed: () => { failCalled = true },
+    })
+    await new Promise((r) => setTimeout(r, 200))
+    handle.stop()
+    assert.ok(ticks > 2, `agent should outlive maxMissed ticks (got ${ticks})`)
+    assert.equal(failCalled, false, "healthy agent must not be auto-failed")
+  } finally {
+    cleanup()
+  }
+})
+
+test('createHeartbeat: recovers when agent comes back alive before maxMissed', async () => {
+  const { cleanup } = freshLedger()
+  try {
+    let failCalled = false
+    let alive = false
+    const handle = createHeartbeat("agent-1", "fleet-1", {
+      intervalMs: 10,
+      onHeartbeat: () => {},
+      maxMissed: 5,
+      isAlive: () => {
+        alive = !alive
+        return alive
+      },
+      onMaxMissed: () => { failCalled = true },
+    })
+    await new Promise((r) => setTimeout(r, 200))
+    handle.stop()
+    assert.equal(failCalled, false, "alternating liveness resets the missed counter")
+  } finally {
+    cleanup()
+  }
+})
+
+test('createHeartbeat: without isAlive it is observational and never auto-fails', async () => {
   const { cleanup } = freshLedger()
   try {
     setMaxMissedHeartbeats(5)
@@ -112,9 +157,7 @@ test('createHeartbeat: respects maxMissed setting', async () => {
     })
     await new Promise((r) => setTimeout(r, 200))
     handle.stop()
-    // With maxMissed=3, the agent should fail before the test window ends
-    // (around 100ms / 20ms = 5 heartbeats, so by heartbeat 3 it should be marked failed)
-    assert.ok(failCalled, "onMaxMissed should have been called with maxMissed=3")
+    assert.equal(failCalled, false, "no isAlive probe means no auto-fail")
   } finally {
     cleanup()
   }

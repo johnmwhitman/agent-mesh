@@ -34,10 +34,16 @@ export interface CreateHeartbeatOptions {
   intervalMs: number;
   /** Called on every heartbeat tick. */
   onHeartbeat: (event: HeartbeatEvent) => void;
-  /** Max missed heartbeats before auto-fail. */
+  /** Max consecutive dead liveness checks before auto-fail. */
   maxMissed: number;
   /** Called when the agent is auto-failed due to missed heartbeats. */
-  onMaxMissed: (reason: string) => void;
+  onMaxMissed?: (reason: string) => void;
+  /**
+   * Liveness probe, checked on every tick. Returning true resets the
+   * missed counter; returning false counts as a missed heartbeat. When
+   * omitted, the heartbeat is observational only and never auto-fails.
+   */
+  isAlive?: () => boolean;
 }
 
 export interface HeartbeatHandle {
@@ -74,8 +80,8 @@ export function createHeartbeat(
 ): HeartbeatHandle {
   let tickCount = 0;
   let stopped = false;
-  let maxMissed = options.maxMissed ?? globalMaxMissed;
-  let lastActualAt: number | null = null;
+  const maxMissed = options.maxMissed ?? globalMaxMissed;
+  let missedCount = 0;
   let maxMissedFired = false;
 
   const handle: HeartbeatHandle = {
@@ -116,16 +122,20 @@ export function createHeartbeat(
     }
 
     options.onHeartbeat(event);
-    lastActualAt = now;
 
-    // Auto-fail after maxMissed heartbeats have fired. The semantics
-    // here are: "after N heartbeats have occurred, the agent is
-    // considered failed." This is a v0.7.x simplification — the real
-    // "missed" semantics (agent not responding) would require a
-    // round-trip pattern. See v0.8 for that.
-    if (tickCount >= maxMissed && !maxMissedFired) {
+    // Liveness check: only ticks where the probe reports the agent dead
+    // count as "missed". A healthy long-running agent never auto-fails.
+    // (Pre-fix behavior counted EVERY tick as missed, which SIGKILLed
+    // every agent running longer than intervalMs * maxMissed.)
+    if (options.isAlive === undefined || options.isAlive()) {
+      missedCount = 0;
+      return;
+    }
+    missedCount++;
+
+    if (missedCount >= maxMissed && !maxMissedFired) {
       maxMissedFired = true;
-      const reason = `Agent ${agentId} emitted ${tickCount} heartbeats (max ${maxMissed} before auto-fail)`;
+      const reason = `Agent ${agentId} failed ${missedCount} consecutive liveness checks (max ${maxMissed} before auto-fail)`;
       try {
         appendEvent("heartbeat_max_missed", {
           agent_id: agentId,
@@ -137,7 +147,7 @@ export function createHeartbeat(
       } catch {
         // ignore
       }
-      options.onMaxMissed(reason);
+      options.onMaxMissed?.(reason);
       clearInterval(interval);
       return;
     }

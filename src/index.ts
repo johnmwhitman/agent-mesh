@@ -37,19 +37,11 @@ import {
 import { notifySubscribers } from "./realtime.js";
 import { startSseServer, stopSseServer, subscribeInboxUrl } from "./sse-server.js";
 import { createHeartbeat } from "./heartbeat.js";
-
-// ---------------------------------------------------------------------------
-// Configuration
-// ---------------------------------------------------------------------------
-
-const DEFAULT_AGENT_TIMEOUT_MS = 30 * 60 * 1000;
-
-function agentTimeoutMs(): number {
-  const configured = Number(process.env.AGENT_MESH_AGENT_TIMEOUT_MS);
-  return Number.isFinite(configured) && configured > 0
-    ? configured
-    : DEFAULT_AGENT_TIMEOUT_MS;
-}
+import {
+  AGENT_SPAWN_STDIO,
+  agentTimeoutMs,
+  buildRunArgs,
+} from "./spawn-config.js";
 
 // ---------------------------------------------------------------------------
 // Server
@@ -83,12 +75,10 @@ async function spawnAgent(input: SpawnAgentInput): Promise<string> {
     started_at: Date.now(),
   });
 
-  const runArgs: string[] = ["run"];
-  if (input.agentFile) runArgs.push("--agent", input.agentFile);
-  runArgs.push(input.prompt);
-
-  const child = spawn("opencode", runArgs, {
-    stdio: ["pipe", "pipe", "pipe"],
+  const child = spawn("opencode", buildRunArgs(input), {
+    // stdin MUST be ignored — `opencode run` hangs forever on a piped
+    // stdin. Contract + evidence documented in spawn-config.ts.
+    stdio: AGENT_SPAWN_STDIO,
     env: { ...process.env },
   });
 
@@ -106,15 +96,14 @@ async function spawnAgent(input: SpawnAgentInput): Promise<string> {
   child.stdout.on("data", (d) => (stdout += d.toString()));
   child.stderr.on("data", (d) => (stderr += d.toString()));
 
-  // Start the heartbeat watchdog. The v0.7.x semantics are: "after
-  // maxMissed heartbeats have fired, auto-fail the agent." A future
-  // version will use a round-trip pattern with the child process.
-  const heartbeatIntervalMs = 5_000; // 5 seconds
-  const heartbeatMaxMissed = 12; // 60 seconds without a heartbeat
+  // Watchdog: auto-fail only when the child process is actually gone
+  // (12 consecutive dead checks x 5s = 60s) but "close" never fired.
+  // Healthy long-running agents are never killed by the watchdog.
   const heartbeat = createHeartbeat(agentId, input.fleetId, {
-    intervalMs: heartbeatIntervalMs,
+    intervalMs: 5_000,
     onHeartbeat: () => {},
-    maxMissed: heartbeatMaxMissed,
+    maxMissed: 12,
+    isAlive: () => child.exitCode === null && child.signalCode === null,
     onMaxMissed: (reason: string) => {
       if (!child.killed) child.kill("SIGKILL");
       markAgentFinished(
