@@ -27,16 +27,17 @@ npm run build
 ### Run the test suite
 
 ```bash
-npm test           # 26 unit tests, runs in <200ms
+npm test           # 51 unit tests, runs in <200ms
 npm run typecheck   # tsc --noEmit
 ```
 
-The test suite uses `node --test` with the `tsx` loader. Tests are isolated via an in-memory `setLedgerOverride` pattern — see `test/core.test.ts` for the approach.
+The test suite uses `node --test` with the `tsx` loader. Tests are isolated via an in-memory `setLedgerOverride` pattern — see `test/core.test.ts` and `test/inspector.test.ts` for the approach.
 
 ### Dev workflow
 
 ```bash
 npm run dev        # tsx watch — auto-rebuild on file changes
+npm run inspect    # run the CLI inspector against your real ledger
 ```
 
 ## Pull request process
@@ -63,7 +64,8 @@ npm run dev        # tsx watch — auto-rebuild on file changes
 
 - **TypeScript strict mode.** No `any`, no `@ts-ignore`. Use `unknown` and narrow.
 - **ESM only.** This package is `"type": "module"`. Use `.js` extensions in imports.
-- **Pure data layer in `src/core.ts`.** MCP transport in `src/index.ts`. Keep them separate so the data layer can be unit-tested without spinning up an MCP server.
+- **Pure data layer in `src/core.ts`.** MCP transport in `src/index.ts`. CLI tools in `src/bin/`. Keep them separate so the data layer can be unit-tested without spinning up an MCP server.
+- **Pure formatting in `src/inspector.ts`.** No I/O, no side effects — easy to test.
 - **No external dependencies without discussion.** The current dependency footprint is intentionally small (one runtime dep: `@modelcontextprotocol/sdk`).
 - **Update specs** when you change architecture. `AGENT-MESH-SPEC.md` and `SPEC-P2P.md` are the source of truth.
 
@@ -74,11 +76,38 @@ Open a GitHub issue with:
 - What actually happened
 - Steps to reproduce
 - Environment (Node version, OpenCode version, OS)
-- Relevant logs from `~/.config/opencode/agent-mesh.json` (redact sensitive data)
+- Relevant output from `npx agent-mesh inspect` (redact sensitive data)
+- If related to a fleet crash, include the contents of `~/.config/opencode/agent-mesh.events.log` (last 50 lines)
+
+## Good first issues
+
+Look for issues labeled `good first issue`. These are scoped, well-defined, and a good way to learn the codebase. If you don't see any, open one and ask — there are always more things to build.
 
 ## Security issues
 
 **Do not open a public GitHub issue for security vulnerabilities.** See [SECURITY.md](./SECURITY.md) for the reporting process.
+
+## Architecture overview
+
+```
+src/
+├── core.ts          # Pure data layer: ledger, messages, capabilities, events
+├── inspector.ts     # Pure formatters for CLI output
+├── index.ts         # MCP server: transport, tool handlers
+└── bin/
+    └── inspect.ts   # CLI: `npx agent-mesh inspect`
+```
+
+The data layer (`core.ts`) is the only place that reads/writes the JSON ledger. The MCP server (`index.ts`) imports it for tool handlers. The CLI (`bin/inspect.ts`) imports it directly. This separation lets us test the data layer without spinning up an MCP server, and test the formatters without touching the filesystem.
+
+## Adding a new MCP tool
+
+1. Add the pure function to `src/core.ts` (e.g. `getFleetMetrics`).
+2. Add the tool schema to `src/index.ts` (the `tools` array in `ListToolsRequestSchema`).
+3. Add the handler in `src/index.ts` (the `CallToolRequestSchema` block).
+4. Add unit tests to `test/core.test.ts` (or a new `test/your-feature.test.ts`).
+5. Update `docs/api` on meshfleet.app (or submit a PR to the website repo).
+6. Add a CHANGELOG entry under `[Unreleased]`.
 
 ## License
 
