@@ -9,29 +9,28 @@ Agent Mesh is on a fast iteration cycle. This document tracks what's shipped, wh
 | **0.1.0** | Core fleet orchestration | `spawn_fleet`, `fleet_status`, `collect_results`, JSON ledger, timeout bypass |
 | **0.2.0** | P2P messaging | `send_message`, `get_inbox`, `ack_message`, capability registry, `route_work` |
 | **0.3.0** | Premade agents | `list_agents`, `attach_agent`, timeout watchdog, 26 tests, CI |
+| **0.4.0** | Resilience | `set_fleet_timeout`, structured event log, `list_fleets` |
+| **0.5.0** | Observability | CLI inspector (`npx agent-mesh inspect`), `getFleetMetrics`, formatting helpers |
+| **0.5.1** | Health tools | `ping`, `get_health`, read-side rate limiting |
+| **0.6.0** | Fleet templates | `save_fleet_template`, `list_fleet_templates`, `get_fleet_template`, `delete_fleet_template`, `spawn_from_template` |
+| **0.7.0** | Real-time push | `subscribe_inbox` (SSE), `notifySubscribers` hooked into `send_message`, per-agent connection cap, heartbeat keepalive, 90 tests |
 
-## v0.4.0 — Resilience (next, ~2 weeks)
+## v0.7.x — Hardening (current focus)
 
 The fleet must be self-healing. A hung agent should not block the whole mesh.
 
 - [x] **Per-fleet timeout** — `set_fleet_timeout` overrides global default per-fleet
 - [x] **Structured logging** — every spawn, message, capability registration emits a log line
 - [x] **Fleet summary** — `list_fleets` returns status + agent counts across all fleets
+- [x] **SSE push notifications** — `subscribe_inbox(agent_id, callback)` for real-time message delivery
+- [x] **Fleet events** — emit events on fleet start / agent spawn / agent complete / fleet complete
+- [x] **CLI inspector** — `npx agent-mesh inspect <fleet_id>` shows a live TUI of running agents
+- [x] **Fleet metrics** — `get_fleet_metrics` returns avg duration, success rate, message volume per fleet
 - [ ] **Heartbeat / watchdog** — emit periodic heartbeat events; auto-fail agents that miss N heartbeats
 - [ ] **Automatic retry with exponential backoff** — agents that fail with transient errors get retried up to 3 times
 - [ ] **Partial result recovery** — if the MCP server crashes mid-fleet, the next start should resume the ledger
-- [ ] **Fleet metrics** — `get_fleet_metrics` returns avg duration, success rate, message volume per fleet
 
-## v0.5.0 — Real-time (Q3 2026)
-
-Push instead of poll. The inbox becomes an event stream.
-
-- [ ] **SSE push notifications** — `subscribe_inbox(agent_id, callback)` for real-time message delivery
-- [ ] **Fleet events** — emit events on fleet start / agent spawn / agent complete / fleet complete
-- [ ] **Long-running agent dashboard** — a `web/server.ts` exposes a minimal HTTP surface for fleet observability
-- [ ] **CLI inspector** — `npx agent-mesh inspect <fleet_id>` shows a live TUI of running agents
-
-## v0.6.0 — Smart routing (Q3 2026)
+## v0.8.0 — Smart routing (Q3 2026)
 
 Routing becomes capability-aware, not just keyword-overlap.
 
