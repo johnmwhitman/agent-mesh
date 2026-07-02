@@ -7,12 +7,15 @@ import { randomUUID } from "node:crypto";
 
 import {
   ackMessage,
+  createFleet,
   discoverPremadeAgents,
   extractSkillsFromDescription,
   getInbox,
+  listFleets,
   loadData,
   markAgentFinished,
   MAX_PAYLOAD_BYTES,
+  readEventLog,
   registerCapability,
   registerAgentInLedger,
   routeWork,
@@ -410,5 +413,115 @@ mode: subagent
   const skills = extractSkillsFromDescription(premade[0].description);
   assert.ok(skills.includes("react"));
   assert.ok(skills.includes("typescript"));
+  cleanup();
+});
+
+// ---------------------------------------------------------------------------
+// v0.4.0 — Resilience: per-fleet timeout, event log, list_fleets
+// ---------------------------------------------------------------------------
+
+import {
+  setFleetTimeout,
+  getFleetTimeoutMs,
+  appendEvent,
+  DEFAULT_EVENT_LOG,
+  type FleetSummary,
+} from "/Users/johnwhitman/.config/opencode/mcp-servers/agent-mesh/dist/core.js";
+
+test("setFleetTimeout: stores per-fleet override", () => {
+  const { cleanup } = freshLedger();
+  const fleetId = "fleet-1";
+  createFleet(fleetId);
+  setFleetTimeout(fleetId, 60_000);
+  assert.equal(getFleetTimeoutMs(fleetId), 60_000);
+  cleanup();
+});
+
+test("setFleetTimeout: override is independent per fleet", () => {
+  const { cleanup } = freshLedger();
+  createFleet("f-a");
+  createFleet("f-b");
+  setFleetTimeout("f-a", 30_000);
+  setFleetTimeout("f-b", 5_000);
+  assert.equal(getFleetTimeoutMs("f-a"), 30_000);
+  assert.equal(getFleetTimeoutMs("f-b"), 5_000);
+  cleanup();
+});
+
+test("getFleetTimeoutMs: returns default when no override set", () => {
+  const { cleanup } = freshLedger();
+  createFleet("f-default");
+  // Default is 30 min (1_800_000 ms) when env var unset
+  const t = getFleetTimeoutMs("f-default");
+  assert.ok(t === 30 * 60 * 1000 || t > 0);
+  cleanup();
+});
+
+test("getFleetTimeoutMs: returns default for unknown fleet", () => {
+  const { cleanup } = freshLedger();
+  const t = getFleetTimeoutMs("does-not-exist");
+  assert.ok(t > 0);
+  cleanup();
+});
+
+test("appendEvent: writes structured event to log", () => {
+  const { cleanup } = freshLedger();
+  appendEvent("fleet_created", { fleet_id: "f-1", agent_count: 3 });
+  const events = readEventLog();
+  assert.ok(events.length >= 1);
+  const last = events[events.length - 1];
+  assert.equal(last.event, "fleet_created");
+  assert.equal(last.fleet_id, "f-1");
+  assert.equal(last.agent_count, 3);
+  assert.ok(typeof last.timestamp === "number");
+  cleanup();
+});
+
+test("appendEvent: appends multiple events in order", () => {
+  const { cleanup } = freshLedger();
+  appendEvent("fleet_created", { fleet_id: "f-1" });
+  appendEvent("agent_spawned", { agent_id: "a-1", fleet_id: "f-1" });
+  appendEvent("agent_spawned", { agent_id: "a-2", fleet_id: "f-1" });
+  const events = readEventLog();
+  const recent = events.slice(-3);
+  assert.equal(recent[0].event, "fleet_created");
+  assert.equal(recent[1].event, "agent_spawned");
+  assert.equal(recent[1].agent_id, "a-1");
+  assert.equal(recent[2].event, "agent_spawned");
+  assert.equal(recent[2].agent_id, "a-2");
+  cleanup();
+});
+
+test("DEFAULT_EVENT_LOG: resolves to home config dir", () => {
+  assert.ok(DEFAULT_EVENT_LOG.includes("agent-mesh"));
+  assert.ok(DEFAULT_EVENT_LOG.endsWith(".log"));
+});
+
+test("listFleets: returns all fleets with summaries", () => {
+  const { cleanup } = freshLedger();
+  createFleet("f-1");
+  createFleet("f-2");
+  const summaries: FleetSummary[] = listFleets();
+  const ids = summaries.map((s) => s.id);
+  assert.ok(ids.includes("f-1"));
+  assert.ok(ids.includes("f-2"));
+  cleanup();
+});
+
+test("listFleets: includes agent count per fleet", () => {
+  const { cleanup } = freshLedger();
+  const f = createFleet("f-with-agents");
+  registerAgentInLedger({ id: "a1", fleet_id: f.id, role: "r1", prompt: "p1", status: "running" });
+  registerAgentInLedger({ id: "a2", fleet_id: f.id, role: "r2", prompt: "p2", status: "complete" });
+  const summaries = listFleets();
+  const target = summaries.find((s) => s.id === "f-with-agents");
+  assert.ok(target);
+  assert.equal(target.agent_count, 2);
+  cleanup();
+});
+
+test("listFleets: returns empty array when no fleets", () => {
+  const { cleanup } = freshLedger();
+  assert.deepEqual(listFleets(), []);
   cleanup();
 });

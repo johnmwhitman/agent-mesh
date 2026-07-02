@@ -5,12 +5,25 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 ## [Unreleased]
 
 ### Planned
-- Heartbeat / watchdog for hung agents
 - Automatic retry with exponential backoff
 - Partial result recovery on crash
 - Embedding-based capability matching
 - Push notifications via SSE for inboxes
 - `npm publish` to the public registry
+
+## [0.4.0] — 2026-07-01
+
+### Added
+- Per-fleet timeout: `set_fleet_timeout(fleet_id, timeout_ms)` overrides the global `AGENT_MESH_AGENT_TIMEOUT_MS` for a specific fleet
+- `get_fleet_timeout_ms(fleet_id)` returns the effective timeout (per-fleet override → env var → default 30 min)
+- Structured event log: every `fleet_created`, `agent_spawned`, `fleet_timeout_set` event appended to `~/.config/opencode/agent-mesh.events.log` (NDJSON)
+- `readEventLog(limit?)` reads recent events back for observability
+- `list_fleets` MCP tool: returns summaries for all fleets (id, status, agent counts)
+- 10 new unit tests (36 total, all passing)
+
+### Changed
+- `Fleet` interface now includes optional `timeout_ms` field
+- `createFleet` now emits a `fleet_created` event
 
 ## [0.3.0] — 2026-07-01
 

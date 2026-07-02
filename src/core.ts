@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto";
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, appendFileSync } from "fs";
+import { dirname } from "path";
 import { join, basename, extname } from "path";
 import { homedir } from "os";
 
@@ -26,6 +27,7 @@ export interface Fleet {
   status: "pending" | "running" | "complete" | "failed";
   created_at: number;
   completed_at?: number;
+  timeout_ms?: number;
 }
 
 export const MESSAGE_TYPES = [
@@ -227,8 +229,94 @@ export function extractSkillsFromDescription(description: string): string[] {
 }
 
 // ---------------------------------------------------------------------------
+// Structured Event Log (NDJSON, append-only)
+// ---------------------------------------------------------------------------
+
+export const DEFAULT_EVENT_LOG = join(DEFAULT_DATA_DIR, "agent-mesh.events.log");
+
+let eventLogFile = DEFAULT_EVENT_LOG;
+
+export function setEventLogPath(path: string): void {
+  eventLogFile = path;
+}
+
+export function appendEvent(
+  event: string,
+  data: Record<string, unknown> = {}
+): void {
+  const dir = dirname(eventLogFile);
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  const entry = JSON.stringify({ event, timestamp: Date.now(), ...data }) + "\n";
+  appendFileSync(eventLogFile, entry, "utf-8");
+}
+
+export function readEventLog(limit = 1000): Array<Record<string, unknown>> {
+  if (!existsSync(eventLogFile)) return [];
+  const content = readFileSync(eventLogFile, "utf-8");
+  const lines = content.trim().split("\n").filter(Boolean);
+  const recent = lines.slice(-limit);
+  const events: Array<Record<string, unknown>> = [];
+  for (const line of recent) {
+    try {
+      events.push(JSON.parse(line));
+    } catch {
+      // skip malformed
+    }
+  }
+  return events;
+}
+
+// ---------------------------------------------------------------------------
 // Fleet Operations
 // ---------------------------------------------------------------------------
+
+const DEFAULT_FLEET_TIMEOUT_MS = 30 * 60 * 1000;
+
+export function getFleetTimeoutMs(fleetId: string): number {
+  const fleet = loadData().fleets[fleetId];
+  if (fleet?.timeout_ms !== undefined) return fleet.timeout_ms;
+  const envVal = Number(process.env.AGENT_MESH_AGENT_TIMEOUT_MS);
+  return Number.isFinite(envVal) && envVal > 0 ? envVal : DEFAULT_FLEET_TIMEOUT_MS;
+}
+
+export function setFleetTimeout(fleetId: string, timeoutMs: number): void {
+  const data = loadData();
+  if (!data.fleets[fleetId]) {
+    throw new Error(`Fleet ${fleetId} not found`);
+  }
+  data.fleets[fleetId].timeout_ms = timeoutMs;
+  saveData(data);
+}
+
+export interface FleetSummary {
+  id: string;
+  status: Fleet["status"];
+  created_at: number;
+  completed_at?: number;
+  agent_count: number;
+  agents_complete: number;
+  agents_failed: number;
+  agents_running: number;
+}
+
+export function listFleets(): FleetSummary[] {
+  const data = loadData();
+  return Object.values(data.fleets).map((fleet) => {
+    const fleetAgents = Object.values(data.agents).filter(
+      (a) => a.fleet_id === fleet.id
+    );
+    return {
+      id: fleet.id,
+      status: fleet.status,
+      created_at: fleet.created_at,
+      completed_at: fleet.completed_at,
+      agent_count: fleetAgents.length,
+      agents_complete: fleetAgents.filter((a) => a.status === "complete").length,
+      agents_failed: fleetAgents.filter((a) => a.status === "failed").length,
+      agents_running: fleetAgents.filter((a) => a.status === "running").length,
+    };
+  });
+}
 
 export function createFleet(fleetId: string): Fleet {
   const data = loadData();
@@ -239,6 +327,7 @@ export function createFleet(fleetId: string): Fleet {
   };
   data.fleets[fleetId] = fleet;
   saveData(data);
+  appendEvent("fleet_created", { fleet_id: fleetId });
   return fleet;
 }
 

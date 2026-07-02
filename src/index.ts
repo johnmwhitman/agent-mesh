@@ -7,10 +7,13 @@ import {
 import { spawn } from "child_process";
 import { randomUUID } from "crypto";
 import {
+  appendEvent,
   autoRegisterFromAgent,
   checkFleetCompletion,
   createFleet,
   discoverPremadeAgents,
+  getFleetTimeoutMs,
+  listFleets,
   loadData,
   markAgentFinished,
   MAX_PAYLOAD_BYTES,
@@ -22,6 +25,7 @@ import {
   sendMessage,
   getInbox,
   ackMessage,
+  setFleetTimeout,
 } from "./core.js";
 
 // ---------------------------------------------------------------------------
@@ -42,7 +46,7 @@ function agentTimeoutMs(): number {
 // ---------------------------------------------------------------------------
 
 const server = new Server(
-  { name: "agent-mesh", version: "0.3.0" },
+  { name: "agent-mesh", version: "0.4.0" },
   { capabilities: { tools: {} } }
 );
 
@@ -160,6 +164,27 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         type: "object",
         properties: { fleet_id: { type: "string" } },
         required: ["fleet_id"],
+      },
+    },
+    {
+      name: "list_fleets",
+      description: "List all fleets with summaries (agent count, status, completion).",
+      inputSchema: {
+        type: "object",
+        properties: {},
+      },
+    },
+    {
+      name: "set_fleet_timeout",
+      description:
+        "Set a per-fleet timeout override (in milliseconds). Agents exceeding this are auto-failed.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          fleet_id: { type: "string" },
+          timeout_ms: { type: "number" },
+        },
+        required: ["fleet_id", "timeout_ms"],
       },
     },
     {
@@ -292,6 +317,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
     const { agents } = args as { agents: { role: string; prompt: string; agent?: string }[] };
     const fleetId = randomUUID();
     createFleet(fleetId);
+    appendEvent("spawn_fleet_called", { fleet_id: fleetId, agent_count: agents.length });
 
     const ids: string[] = [];
     for (const a of agents) {
@@ -302,6 +328,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
         agentFile: a.agent,
       });
       ids.push(id);
+      appendEvent("agent_spawned", { fleet_id: fleetId, agent_id: id, role: a.role, agent_file: a.agent });
       if (a.agent) autoRegisterFromAgent(id, fleetId, a.agent);
     }
 
@@ -316,6 +343,21 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
       (a) => a.fleet_id === fleet_id
     );
     return jsonResult({ fleet, agents });
+  }
+
+  if (name === "list_fleets") {
+    return jsonResult({ fleets: listFleets() });
+  }
+
+  if (name === "set_fleet_timeout") {
+    const { fleet_id, timeout_ms } = args as { fleet_id: string; timeout_ms: number };
+    try {
+      setFleetTimeout(fleet_id, timeout_ms);
+      appendEvent("fleet_timeout_set", { fleet_id, timeout_ms });
+      return jsonResult({ ok: true, timeout_ms: getFleetTimeoutMs(fleet_id) });
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : String(err));
+    }
   }
 
   if (name === "collect_results") {

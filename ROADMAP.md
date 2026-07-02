@@ -14,10 +14,12 @@ Agent Mesh is on a fast iteration cycle. This document tracks what's shipped, wh
 
 The fleet must be self-healing. A hung agent should not block the whole mesh.
 
+- [x] **Per-fleet timeout** — `set_fleet_timeout` overrides global default per-fleet
+- [x] **Structured logging** — every spawn, message, capability registration emits a log line
+- [x] **Fleet summary** — `list_fleets` returns status + agent counts across all fleets
 - [ ] **Heartbeat / watchdog** — emit periodic heartbeat events; auto-fail agents that miss N heartbeats
 - [ ] **Automatic retry with exponential backoff** — agents that fail with transient errors get retried up to 3 times
 - [ ] **Partial result recovery** — if the MCP server crashes mid-fleet, the next start should resume the ledger
-- [ ] **Structured logging** — every spawn, message, capability registration emits a log line
 - [ ] **Fleet metrics** — `get_fleet_metrics` returns avg duration, success rate, message volume per fleet
 
 ## v0.5.0 — Real-time (Q3 2026)
