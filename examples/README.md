@@ -38,4 +38,4 @@ Have a scenario we should cover? Open a PR adding a new `examples/<your-scenario
 - Failure modes and how to recover
 - Edge cases that taught you something
 
-See [CONTRIBUTING.md](https://github.com/meshfleet/agent-mesh/blob/main/CONTRIBUTING.md).
+See [CONTRIBUTING.md](https://github.com/johnmwhitman/agent-mesh/blob/main/CONTRIBUTING.md).

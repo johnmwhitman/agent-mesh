@@ -28,6 +28,14 @@
     "model-context-protocol"
   ],
   "license": "MIT",
+  "homepage": "https://meshfleet.app",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/johnmwhitman/agent-mesh.git"
+  },
+  "bugs": {
+    "url": "https://github.com/johnmwhitman/agent-mesh/issues"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0"
   },

@@ -131,7 +131,7 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 - Independent process execution (bypasses OpenCode's 30-minute background task timeout)
 - Schema for Fleet and Agent records
 
-[Unreleased]: https://github.com/meshfleet/agent-mesh/compare/v0.3.0...HEAD
-[0.3.0]: https://github.com/meshfleet/agent-mesh/compare/v0.2.0...v0.3.0
-[0.2.0]: https://github.com/meshfleet/agent-mesh/compare/v0.1.0...v0.2.0
-[0.1.0]: https://github.com/meshfleet/agent-mesh/releases/tag/v0.1.0
+[Unreleased]: https://github.com/johnmwhitman/agent-mesh/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/johnmwhitman/agent-mesh/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/johnmwhitman/agent-mesh/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/johnmwhitman/agent-mesh/releases/tag/v0.1.0

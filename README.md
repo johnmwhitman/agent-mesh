@@ -29,7 +29,7 @@ Three specialists. Three independent processes. They hand off, ask questions, al
 ## Install in 30 seconds
 
 ```bash
-git clone https://github.com/meshfleet/agent-mesh.git \
+git clone https://github.com/johnmwhitman/agent-mesh.git \
   ~/.config/opencode/mcp-servers/agent-mesh
 cd ~/.config/opencode/mcp-servers/agent-mesh
 npm install && npm run build
@@ -179,4 +179,4 @@ MIT. Use it, fork it, ship it in your product. No attribution beyond the license
 
 ## Contributing
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md). Bugs → [issues](https://github.com/meshfleet/agent-mesh/issues). Security → [SECURITY.md](./SECURITY.md). Roadmap → [ROADMAP.md](./ROADMAP.md).
+See [CONTRIBUTING.md](./CONTRIBUTING.md). Bugs → [issues](https://github.com/johnmwhitman/agent-mesh/issues). Security → [SECURITY.md](./SECURITY.md). Roadmap → [ROADMAP.md](./ROADMAP.md).

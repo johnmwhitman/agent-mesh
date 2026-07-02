@@ -18,7 +18,7 @@ This project follows the [Contributor Covenant](https://www.contributor-covenant
 ### Clone and build
 
 ```bash
-git clone https://github.com/meshfleet/agent-mesh.git
+git clone https://github.com/johnmwhitman/agent-mesh.git
 cd agent-mesh
 npm install
 npm run build
