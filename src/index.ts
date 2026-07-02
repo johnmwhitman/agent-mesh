@@ -8,11 +8,13 @@ import { spawn } from "child_process";
 import { randomUUID } from "crypto";
 import {
   appendEvent,
+  ackMessage,
   autoRegisterFromAgent,
   checkFleetCompletion,
   createFleet,
   discoverPremadeAgents,
   getFleetTimeoutMs,
+  getInbox,
   listFleets,
   loadData,
   markAgentFinished,
@@ -23,10 +25,9 @@ import {
   registerCapability,
   routeWork,
   sendMessage,
-  getInbox,
-  ackMessage,
   setFleetTimeout,
 } from "./core.js";
+import { checkRateLimit, getHealth, ping } from "./health.js";
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -46,7 +47,7 @@ function agentTimeoutMs(): number {
 // ---------------------------------------------------------------------------
 
 const server = new Server(
-  { name: "agent-mesh", version: "0.4.0" },
+  { name: "agent-mesh", version: "0.5.1" },
   { capabilities: { tools: {} } }
 );
 
@@ -290,6 +291,17 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         required: ["fleet_id", "role", "prompt"],
       },
     },
+    {
+      name: "ping",
+      description: "Minimal liveness check. Returns { status: 'ok', timestamp }.",
+      inputSchema: { type: "object", properties: {} },
+    },
+    {
+      name: "get_health",
+      description:
+        "Health report: ledger size, fleet/agent/message counts, uptime, last event. Use for monitoring and alerting.",
+      inputSchema: { type: "object", properties: {} },
+    },
   ],
 }));
 
@@ -336,6 +348,10 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
   }
 
   if (name === "fleet_status") {
+    const ip = "global"; // no IP extraction yet; use single bucket
+    if (!checkRateLimit(ip, "read")) {
+      return { content: [{ type: "text", text: JSON.stringify({ error: "Read rate limit exceeded. Slow down." }) }], isError: true };
+    }
     const { fleet_id } = args as { fleet_id: string };
     const data = loadData();
     const fleet = data.fleets[fleet_id];
@@ -346,6 +362,10 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
   }
 
   if (name === "list_fleets") {
+    const ip = "global";
+    if (!checkRateLimit(ip, "read")) {
+      return { content: [{ type: "text", text: JSON.stringify({ error: "Read rate limit exceeded." }) }], isError: true };
+    }
     return jsonResult({ fleets: listFleets() });
   }
 
@@ -466,6 +486,14 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
       agent_file: agent ?? null,
       message: `Agent ${role} attached to fleet ${fleet_id}`,
     });
+  }
+
+  if (name === "ping") {
+    return jsonResult(ping());
+  }
+
+  if (name === "get_health") {
+    return jsonResult(getHealth());
   }
 
   throw new Error(`Unknown tool: ${name}`);

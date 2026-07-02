@@ -11,6 +11,20 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 - Embedding-based capability matching
 - Push notifications via SSE for inboxes
 - `npm publish` to the public registry
+- Fleet templates (save / list / spawn from)
+
+## [0.5.1] — 2026-07-02
+
+### Added
+- **`ping` MCP tool**: minimal liveness check, returns `{ status: 'ok', timestamp }`
+- **`get_health` MCP tool**: deeper health report — ledger size, fleet/agent/message counts, uptime, last event timestamp, status (`ok` / `degraded` if any fleet is stuck > 24h, `error` if ledger is corrupt)
+- **Read-side rate limiting**: `list_fleets` and `fleet_status` are now rate-limited at 600 reads/hour per IP. Write-side was already rate-limited (60/hour). New helpers in `src/health.ts`: `checkRateLimit(ip, 'read'|'write')`, `setRateLimitConfig`, `resetRateLimits`
+- **Storage introspection**: `getLedgerSize()` reports the combined byte size of the JSON ledger and the NDJSON event log. Used internally by `get_health` and available for future size-warning logic
+- **`src/health.ts` module**: new file with `ping`, `getHealth`, `getLedgerSize`, `checkRateLimit`, `setRateLimitConfig`, `resetRateLimits`. Pure functions, easy to test
+- 11 new unit tests (60 total, all passing)
+
+### Changed
+- `fleet_status` and `list_fleets` now apply read-side rate limiting (60 reads/min)
 
 ## [0.5.0] — 2026-07-02
 
