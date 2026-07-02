@@ -6,11 +6,15 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 
 ### Planned
 - Embedding-based capability matching
-- Skill taxonomy (hierarchical matching)
 - Routing feedback loop
 - Template versioning (save with version, list specific version)
 - Template sharing (export/import as JSON)
 - `npm publish` to the public registry
+
+## [0.8.1] — 2026-07-02
+
+### Added
+- **Skill taxonomy (hierarchical matching)** — new `src/skill-taxonomy.ts` module: `parseSkillTaxonomy(json)`, `expandSkillWithAncestors(skill, tree)`, `scoreSkillsAgainstKeywords(keywords, tree)`. Loads a JSON hierarchy like `{ frontend: { react: ["nextjs", "remix"] } }`. Matches a `react` keyword not only to a `react` skill (score 1.0) but also to its parent `frontend` (score 0.5) and its descendants `nextjs`/`remix` (score 0.5) with decaying weight. Wire into `route_work` in v0.9 to augment keyword scoring. + 9 tests (143 total).
 
 ## [0.8.0] — 2026-07-02
 
