@@ -1,11 +1,12 @@
 {
   "name": "agent-mesh",
-  "version": "0.8.6",
+  "version": "0.8.7",
   "description": "Fleet-native agent orchestration for OpenCode \u2014 multi-agent layer with P2P messaging, retry, recovery, and capability routing. 134 tests.",
   "main": "dist/index.js",
   "type": "module",
   "bin": {
-    "agent-mesh": "dist/bin/inspect.js"
+    "agent-mesh": "dist/bin/inspect.js",
+    "agent-mesh-dashboard": "dist/bin/dashboard.js"
   },
   "files": [
     "dist",

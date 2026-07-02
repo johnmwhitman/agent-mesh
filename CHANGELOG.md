@@ -7,7 +7,11 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 ### Planned
 - `npm publish` to the public registry
 - Batch writes (the 3.8ms/message bottleneck in v0.8.3 is a full-ledger rewrite per send — see BENCHMARKS.md)
-- Fleet dashboard TUI (issue #8)
+
+## [0.8.7] — 2026-07-02
+
+### Added
+- **Fleet dashboard TUI** — new `src/bin/dashboard.ts` + `agent-mesh-dashboard` bin. Live view of fleets, recent agents (with retry counts), and recent events. Refreshes every 1s by default (configurable via `--interval <ms>`), or runs once with `--once`. ANSI cursor moves for in-place updates; Ctrl+C to exit. Closes #8.
 
 ## [0.8.6] — 2026-07-02
 

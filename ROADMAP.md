@@ -21,6 +21,7 @@ Agent Mesh is on a fast iteration cycle. This document tracks what's shipped, wh
 | **0.8.4** | Performance benchmarks | Self-contained `benchmark/bench.ts`; v1.0 gates met (spawn 6.4ms p50, 10k msgs no drops) |
 | **0.8.5** | Template versioning | Re-saving a template creates a new version (auto-increment); `getFleetTemplate(name, version?)` returns latest or specific; `listFleetTemplateVersions(name)` and `deleteFleetTemplate(name, version?)` round out the API |
 | **0.8.6** | Template sharing | `exportFleetTemplate(name, file_path, version?)` writes a portable JSON; `importFleetTemplate(file_path, rename?)` reads, validates schema, and inserts (with auto-suffix on conflict) |
+| **0.8.7** | Fleet dashboard TUI | `npx agent-mesh-dashboard` (or `npx agent-mesh dashboard`) shows live fleets, recent agents, and recent events; refreshes every 1s; ANSI in-place updates |
 
 ## v0.7.x — Hardening (current focus)
 
