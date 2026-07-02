@@ -19,6 +19,8 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 
 ### Planned
 - Embedding-based capability matching
+- Skill taxonomy (hierarchical matching)
+- Routing feedback loop
 - Template versioning (save with version, list specific version)
 - Template sharing (export/import as JSON)
 - `npm publish` to the public registry

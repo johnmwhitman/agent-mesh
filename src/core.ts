@@ -148,13 +148,13 @@ export function loadDataFromFile(file: string): MeshData {
   if (!existsSync(file)) return { ...EMPTY_DATA };
   try {
     const raw = JSON.parse(readFileSync(file, "utf-8"));
-    const migrated = migrateLedger(raw);
+    const migrated = migrateLedger(raw) as Record<string, unknown>;
     return {
-      fleets: migrated.fleets || {},
-      agents: migrated.agents || {},
-      messages: migrated.messages || {},
-      inboxes: migrated.inboxes || {},
-      capabilities: migrated.capabilities || {},
+      fleets: (migrated.fleets || {}) as Record<string, Fleet>,
+      agents: (migrated.agents || {}) as Record<string, Agent>,
+      messages: (migrated.messages || {}) as Record<string, Message>,
+      inboxes: (migrated.inboxes || {}) as Record<string, string[]>,
+      capabilities: (migrated.capabilities || {}) as Record<string, Capability>,
     };
   } catch (err) {
     console.error(`Agent Mesh: ledger corrupted at ${file}, resetting. Error: ${err}`);
@@ -506,10 +506,10 @@ export function registerCapability(input: {
   saveData(data);
 }
 
-export function routeWork(description: string): RouteMatch[] {
+export function routeWork(description: string, topN: number = 1): RouteMatch[] {
   const data = loadData();
   const caps = Object.values(data.capabilities);
-  if (caps.length === 0) return [];
+  if (caps.length === 0 || topN <= 0) return [];
 
   const keywords = description
     .toLowerCase()
@@ -537,8 +537,12 @@ export function routeWork(description: string): RouteMatch[] {
     };
   });
 
-  scored.sort((a, b) => b.score - a.score);
-  return scored.filter((s) => s.score > 0);
+  scored.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    return a.agent_id.localeCompare(b.agent_id);
+  });
+
+  return scored.filter((s) => s.score > 0).slice(0, topN);
 }
 
 // ---------------------------------------------------------------------------

@@ -327,10 +327,18 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "route_work",
       description:
-        "Route a work description to the best-matching registered agents by keyword + role overlap scoring.",
+        "Route a work description to the best-matching registered agents by keyword + role overlap scoring. top_n controls how many matches to return (default 1, max = fleet size).",
       inputSchema: {
         type: "object",
-        properties: { description: { type: "string" } },
+        properties: {
+          description: { type: "string" },
+          top_n: {
+            type: "number",
+            description: "Maximum number of matches to return (default 1).",
+            default: 1,
+            minimum: 1,
+          },
+        },
         required: ["description"],
       },
     },
@@ -582,8 +590,8 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
   }
 
   if (name === "route_work") {
-    const { description } = args as { description: string };
-    return jsonResult({ matches: routeWork(description) });
+    const { description, top_n } = args as { description: string; top_n?: number };
+    return jsonResult({ matches: routeWork(description, top_n ?? 1) });
   }
 
   if (name === "list_agents") {
