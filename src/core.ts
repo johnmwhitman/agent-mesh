@@ -71,6 +71,8 @@ export interface MeshData {
   capabilities: Record<string, Capability>;
 }
 
+export const CURRENT_SCHEMA_VERSION = 1;
+
 export interface PremadeAgent {
   filename: string;
   name: string;
@@ -146,12 +148,13 @@ export function loadDataFromFile(file: string): MeshData {
   if (!existsSync(file)) return { ...EMPTY_DATA };
   try {
     const raw = JSON.parse(readFileSync(file, "utf-8"));
+    const migrated = migrateLedger(raw);
     return {
-      fleets: raw.fleets || {},
-      agents: raw.agents || {},
-      messages: raw.messages || {},
-      inboxes: raw.inboxes || {},
-      capabilities: raw.capabilities || {},
+      fleets: migrated.fleets || {},
+      agents: migrated.agents || {},
+      messages: migrated.messages || {},
+      inboxes: migrated.inboxes || {},
+      capabilities: migrated.capabilities || {},
     };
   } catch (err) {
     console.error(`Agent Mesh: ledger corrupted at ${file}, resetting. Error: ${err}`);
@@ -159,9 +162,18 @@ export function loadDataFromFile(file: string): MeshData {
   }
 }
 
+function migrateLedger(raw: Record<string, unknown>): Record<string, unknown> {
+  let version = typeof raw.schema_version === "number" ? raw.schema_version : 0;
+  if (version < 1) {
+    raw.schema_version = 1;
+    version = 1;
+  }
+  return raw;
+}
+
 export function saveDataToFile(data: MeshData, file: string, dir: string): void {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  writeFileSync(file, JSON.stringify(data, null, 2));
+  writeFileSync(file, JSON.stringify({ schema_version: CURRENT_SCHEMA_VERSION, ...data }, null, 2));
 }
 
 // ---------------------------------------------------------------------------

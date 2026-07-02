@@ -43,7 +43,7 @@ Routing becomes capability-aware, not just keyword-overlap.
 
 API freeze. Production-ready. Backward-compatible.
 
-- [ ] **Schema versioning** — ledger includes a `schema_version` field; old ledgers auto-migrate
+- [x] **Schema versioning** — ledger includes a `schema_version` field; old ledgers auto-migrate
 - [ ] **Backward compatibility matrix** — v1.x clients can read v0.9.x fleets
 - [ ] **Performance benchmarks** — sub-100ms overhead per agent spawn, 10k messages per fleet
 - [ ] **Distributed ledger option** — swap JSON for SQLite (single-process) or libSQL (multi-process) behind a feature flag
