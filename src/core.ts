@@ -15,7 +15,7 @@ export interface Agent {
   prompt: string;
   agent_file?: string;
   pid?: number;
-  status: "pending" | "running" | "complete" | "failed";
+  status: "pending" | "running" | "complete" | "failed" | "interrupted";
   output?: string;
   error?: string;
   started_at?: number;
@@ -379,6 +379,28 @@ export function markAgentFinished(
   agent.completed_at = Date.now();
   saveData(data);
   checkFleetCompletion(agent.fleet_id);
+}
+
+/** Mark 'running' agents as 'interrupted' (called at MCP startup). */
+export function recoverInterruptedAgents(): number {
+  const data = loadData();
+  let count = 0;
+  for (const agent of Object.values(data.agents)) {
+    if (agent.status === "running") {
+      agent.status = "interrupted";
+      agent.completed_at = Date.now();
+      agent.error = "MCP server crashed before this agent completed; use retry or respawn to recover";
+      count++;
+      appendEvent("agent_interrupted_recovered", {
+        agent_id: agent.id,
+        fleet_id: agent.fleet_id,
+        started_at: agent.started_at,
+        recovered_at: agent.completed_at,
+      });
+    }
+  }
+  if (count > 0) saveData(data);
+  return count;
 }
 
 // ---------------------------------------------------------------------------

@@ -16,7 +16,6 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 - Spawn args/stdio/timeout extracted into `src/spawn-config.ts` so the spawn contract is unit-testable (110 tests total).
 
 ### Planned
-- Partial result recovery on crash
 - Embedding-based capability matching
 - Template versioning (save with version, list specific version)
 - Template sharing (export/import as JSON)

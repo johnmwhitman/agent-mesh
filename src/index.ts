@@ -21,6 +21,7 @@ import {
   MAX_PAYLOAD_BYTES,
   MESSAGE_TYPES,
   MessageType,
+  recoverInterruptedAgents,
   registerAgentInLedger,
   registerCapability,
   routeWork,
@@ -678,6 +679,13 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
+
+// v0.7.x: recover any agents left in 'running' state from a previous
+// crashed process so fleet_status reflects reality.
+const recoveredCount = recoverInterruptedAgents();
+if (recoveredCount > 0) {
+  console.error(`Agent Mesh v0.7.0 — recovered ${recoveredCount} interrupted agent(s) from previous run`);
+}
 
 // Start the SSE HTTP server for real-time inbox push (v0.7.0)
 try {
