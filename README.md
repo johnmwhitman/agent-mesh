@@ -1,6 +1,8 @@
-# Agent Mesh
+# Agent Mesh — meshfleet.app
 
 Peer-to-peer agent orchestration engine for OpenCode. Spawns agents as independent OS processes, provides P2P messaging between agents, capability-based routing, and dynamic premade agent attachment.
+
+**Website**: [meshfleet.app](https://meshfleet.app) — the fleet-native orchestration platform.
 
 ## Features
 
@@ -95,6 +97,10 @@ const results = await callTool("collect_results", { fleet_id });
 
 - [AGENT-MESH-SPEC.md](AGENT-MESH-SPEC.md) — Core architecture (v0.1)
 - [SPEC-P2P.md](SPEC-P2P.md) — P2P messaging + capability registry (v0.2)
+
+## Branding
+
+Agent Mesh ships as **meshfleet.app** — the fleet-native orchestration platform for OpenCode. Name a mesh, spawn a swarm, route work to specialists.
 
 ## Requirements
 

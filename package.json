@@ -1,14 +1,29 @@
 {
   "name": "agent-mesh",
-  "version": "0.1.0",
-  "description": "OpenCode Agent Mesh — unified peer-to-peer agent orchestration engine",
+  "version": "0.3.0",
+  "description": "OpenCode Agent Mesh — peer-to-peer agent orchestration engine with fleet spawning, P2P messaging, capability routing, and premade agent discovery",
   "main": "dist/index.js",
   "type": "module",
   "scripts": {
     "build": "tsc",
     "dev": "tsx watch src/index.ts",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "test": "node --import tsx --test --test-concurrency=1 test/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
   },
+  "keywords": [
+    "mcp",
+    "opencode",
+    "agent",
+    "orchestration",
+    "swarm",
+    "fleet",
+    "p2p",
+    "peer-to-peer",
+    "model-context-protocol"
+  ],
+  "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0"
   },
@@ -16,5 +31,8 @@
     "@types/node": "^20.0.0",
     "tsx": "^4.0.0",
     "typescript": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=18"
   }
 }

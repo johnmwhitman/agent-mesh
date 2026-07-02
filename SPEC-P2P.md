@@ -1,4 +1,4 @@
-# Agent Mesh P2P Specification (v0.2.0)
+# Agent Mesh P2P Specification (v0.2.0) — meshfleet.app
 
 ## 1. Overview
 
