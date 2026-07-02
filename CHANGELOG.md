@@ -9,10 +9,22 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 - Automatic retry with exponential backoff
 - Partial result recovery on crash
 - Embedding-based capability matching
-- Push notifications via SSE for inboxes
-- `npm publish` to the public registry
 - Template versioning (save with version, list specific version)
 - Template sharing (export/import as JSON)
+- `npm publish` to the public registry
+
+## [0.7.0] — 2026-07-02
+
+### Added
+- **Real-time inbox push via SSE**: `subscribe_inbox(agent_id)` MCP tool returns an SSE stream URL. Agents open an HTTP GET to the stream and receive incoming P2P messages in real-time instead of polling `get_inbox`.
+- `src/sse-server.ts`: standalone HTTP server (default port 13579, bind 127.0.0.1) serving `GET /inbox/:agent_id/stream` SSE endpoints. Heartbeat comments every 30s. Per-agent connection cap (default 5).
+- `src/realtime.ts`: subscriber registry with `addSubscriber`, `removeSubscriber`, `notifySubscribers`, `shutdownServer`. Write failures drop the subscriber (backpressure). `setMaxConnectionsPerAgent` for tests.
+- `notifySubscribers` is called inside the `send_message` handler so every new message is pushed to active SSE clients.
+- 15 new unit tests for the realtime module (90 total, all passing).
+- Bumped version to 0.7.0.
+
+### Changed
+- Startup log now reports the SSE port when the HTTP server starts successfully.
 
 ## [0.6.0] — 2026-07-02
 

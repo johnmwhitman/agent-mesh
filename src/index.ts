@@ -34,6 +34,8 @@ import {
   spawnFromTemplate as spawnFromTemplateFn,
   type TemplateAgent,
 } from "./templates.js";
+import { notifySubscribers } from "./realtime.js";
+import { startSseServer, stopSseServer, subscribeInboxUrl } from "./sse-server.js";
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -53,7 +55,7 @@ function agentTimeoutMs(): number {
 // ---------------------------------------------------------------------------
 
 const server = new Server(
-  { name: "agent-mesh", version: "0.6.0" },
+  { name: "agent-mesh", version: "0.7.0" },
   { capabilities: { tools: {} } }
 );
 
@@ -303,6 +305,21 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       inputSchema: { type: "object", properties: {} },
     },
     {
+      name: "subscribe_inbox",
+      description:
+        "Subscribe to an agent's inbox via Server-Sent Events (SSE). Returns a stream URL that the agent opens to receive real-time push of incoming P2P messages. Falls back to polling get_inbox if SSE is unreachable.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent_id: {
+            type: "string",
+            description: "The agent whose inbox to subscribe to.",
+          },
+        },
+        required: ["agent_id"],
+      },
+    },
+    {
       name: "get_health",
       description:
         "Health report: ledger size, fleet/agent/message counts, uptime, last event. Use for monitoring and alerting.",
@@ -468,6 +485,16 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
         payload,
         correlation_id
       );
+      // v0.7.0: push to any active SSE subscribers
+      notifySubscribers(to_agent_id, [
+        {
+          type: "message",
+          message_id: messageId,
+          from_agent_id,
+          payload: JSON.stringify({ type, payload }),
+          timestamp: Date.now(),
+        },
+      ]);
       return jsonResult({ message_id: messageId });
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : String(err));
@@ -542,6 +569,21 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
     return jsonResult(getHealth());
   }
 
+  if (name === "subscribe_inbox") {
+    const { agent_id } = args as { agent_id: string };
+    const data = loadData();
+    if (!data.agents[agent_id]) {
+      return jsonError(`Agent "${agent_id}" not found`);
+    }
+    const streamUrl = subscribeInboxUrl(agent_id);
+    return jsonResult({
+      agent_id,
+      stream_url: streamUrl,
+      instructions:
+        "Open an HTTP GET to the stream_url. Each event is SSE-formatted: `event: <type>\\ndata: <json>\\n\\n`. Use polling get_inbox as a fallback if SSE is unreachable.",
+    });
+  }
+
   if (name === "save_fleet_template") {
     const { name: tplName, description, agents } = args as {
       name: string
@@ -578,6 +620,11 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
-console.error(
-  "Agent Mesh v0.3.0 started (JSON persistence + P2P messaging + capability routing + premade agent discovery + timeout/resilience)"
-);
+
+// Start the SSE HTTP server for real-time inbox push (v0.7.0)
+try {
+  const { host, port } = await startSseServer();
+  console.error(`Agent Mesh v0.7.0 started (JSON persistence + P2P messaging + capability routing + premade agent discovery + timeout/resilience + SSE push on ${host}:${port})`);
+} catch (err) {
+  console.error(`Agent Mesh v0.7.0 started (JSON persistence + P2P messaging + capability routing + premade agent discovery + timeout/resilience + SSE push) — SSE server failed to start: ${err instanceof Error ? err.message : String(err)}`);
+}
