@@ -6,18 +6,15 @@
  * persist in the same JSON ledger as fleets/agents/messages (under a
  * `templates` key) so they survive restarts and travel with the user.
  *
- * Design choices:
- *   - Names: lowercase letters, numbers, dashes, underscores (validated)
- *   - Storage: same ledger (no new files, no new dirs)
- *   - No versioning yet: re-saving overwrites. v0.7+ will add versions.
+ * Versioning (v0.8.5):
+ *   - Each save creates a new version; old versions are preserved
+ *   - save(name, ...) without an explicit version auto-increments
+ *   - get(name) returns the latest; get(name, version) returns a specific one
+ *   - listFleetTemplateVersions(name) returns all versions sorted newest first
+ *   - delete(name, version) removes one; delete(name) removes all
  *
- * Three MCP tools:
- *   - save_fleet_template(name, agents, description?)
- *   - list_fleet_templates()
- *   - spawn_from_template(name)
- *
- * (delete_fleet_template is a CLI/admin convenience, not exposed as MCP
- * in v0.6.0 — it's available as `deleteFleetTemplate` here for scripts.)
+ * Internal ledger key is `${name}@v${version}` so multiple versions coexist
+ * in the same `templates` dict without collision.
  */
 
 import { randomUUID } from 'node:crypto'
@@ -38,6 +35,7 @@ export interface FleetTemplate {
   description: string
   agents: TemplateAgent[]
   created_at: number
+  version: number
 }
 
 interface TemplateWithMeta extends FleetTemplate {
@@ -106,17 +104,38 @@ function saveTemplates(
 // Public API
 // ---------------------------------------------------------------------------
 
+function key(name: string, version: number): string {
+  return `${name}@v${version}`;
+}
+
+function nextVersion(name: string): number {
+  const templates = loadTemplates();
+  let max = 0;
+  const prefix = `${name}@v`;
+  for (const k of Object.keys(templates)) {
+    if (k.startsWith(prefix)) {
+      const n = Number(k.slice(prefix.length));
+      if (Number.isFinite(n) && n > max) max = n;
+    }
+  }
+  return max + 1;
+}
+
 export function saveFleetTemplate(
   name: string,
   agents: TemplateAgent[],
-  description: string = ''
+  description: string = '',
+  version?: number
 ): FleetTemplate {
-  validateName(name)
-  validateAgents(agents)
+  validateName(name);
+  validateAgents(agents);
 
-  const templates = loadTemplates()
-  if (templates[name]) {
-    throw new Error(`Template "${name}" already exists`)
+  const templates = loadTemplates();
+  const targetVersion = version ?? nextVersion(name);
+  const storageKey = key(name, targetVersion);
+
+  if (templates[storageKey]) {
+    throw new Error(`Template "${name}" version ${targetVersion} already exists`);
   }
 
   const tpl: TemplateWithMeta = {
@@ -129,43 +148,70 @@ export function saveFleetTemplate(
       ...(a.agent ? { agent: a.agent } : {}),
     })),
     created_at: Date.now(),
-  }
+    version: targetVersion,
+  };
 
-  templates[name] = tpl
-  saveTemplates(templates)
+  templates[storageKey] = tpl;
+  saveTemplates(templates);
 
-  return stripMeta(tpl)
+  return stripMeta(tpl);
 }
 
 export function listFleetTemplates(): FleetTemplate[] {
-  const templates = loadTemplates()
+  const templates = loadTemplates();
   return Object.values(templates)
     .map(stripMeta)
-    .sort((a, b) => a.name.localeCompare(b.name))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-export function getFleetTemplate(name: string): FleetTemplate | null {
-  const templates = loadTemplates()
-  const tpl = templates[name]
-  return tpl ? stripMeta(tpl) : null
+export function listFleetTemplateVersions(name: string): FleetTemplate[] {
+  const templates = loadTemplates();
+  const prefix = `${name}@v`;
+  return Object.keys(templates)
+    .filter((k) => k.startsWith(prefix))
+    .map((k) => stripMeta(templates[k]!))
+    .sort((a, b) => b.version - a.version);
 }
 
-export function deleteFleetTemplate(name: string): boolean {
-  const templates = loadTemplates()
-  if (!templates[name]) return false
-  delete templates[name]
-  saveTemplates(templates)
-  return true
+export function getFleetTemplate(name: string, version?: number): FleetTemplate | null {
+  const templates = loadTemplates();
+  if (version !== undefined) {
+    const tpl = templates[key(name, version)];
+    return tpl ? stripMeta(tpl) : null;
+  }
+  const versions = listFleetTemplateVersions(name);
+  return versions.length > 0 ? versions[0]! : null;
+}
+
+export function deleteFleetTemplate(name: string, version?: number): boolean {
+  const templates = loadTemplates();
+  if (version !== undefined) {
+    const k = key(name, version);
+    if (!templates[k]) return false;
+    delete templates[k];
+    saveTemplates(templates);
+    return true;
+  }
+  const prefix = `${name}@v`;
+  let removed = false;
+  for (const k of Object.keys(templates)) {
+    if (k.startsWith(prefix)) {
+      delete templates[k];
+      removed = true;
+    }
+  }
+  if (removed) saveTemplates(templates);
+  return removed;
 }
 
 export interface SpawnSpec {
-  agents: TemplateAgent[]
+  agents: TemplateAgent[];
 }
 
-export function spawnFromTemplate(name: string): SpawnSpec | null {
-  const tpl = getFleetTemplate(name)
-  if (!tpl) return null
-  return { agents: tpl.agents }
+export function spawnFromTemplate(name: string, version?: number): SpawnSpec | null {
+  const tpl = getFleetTemplate(name, version);
+  if (!tpl) return null;
+  return { agents: tpl.agents };
 }
 
 // ---------------------------------------------------------------------------
@@ -178,5 +224,6 @@ function stripMeta(tpl: TemplateWithMeta): FleetTemplate {
     description: tpl.description,
     agents: tpl.agents,
     created_at: tpl.created_at,
-  }
+    version: tpl.version,
+  };
 }

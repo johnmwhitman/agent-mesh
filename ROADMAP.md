@@ -19,6 +19,7 @@ Agent Mesh is on a fast iteration cycle. This document tracks what's shipped, wh
 | **0.8.2** | Routing feedback loop | `record_routing_outcome` + Wilson-style score adjustment on `route_work` |
 | **0.8.3** | Synonym expansion | Curated synonym table for 30+ dev terms; `route_work` now matches "ui" → `frontend` |
 | **0.8.4** | Performance benchmarks | Self-contained `benchmark/bench.ts`; v1.0 gates met (spawn 6.4ms p50, 10k msgs no drops) |
+| **0.8.5** | Template versioning | Re-saving a template creates a new version (auto-increment); `getFleetTemplate(name, version?)` returns latest or specific; `listFleetTemplateVersions(name)` and `deleteFleetTemplate(name, version?)` round out the API |
 
 ## v0.7.x — Hardening (current focus)
 

@@ -5,10 +5,14 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 ## [Unreleased]
 
 ### Planned
-- Template versioning (save with version, list specific version)
 - Template sharing (export/import as JSON)
 - `npm publish` to the public registry
 - Batch writes (the 3.8ms/message bottleneck in v0.8.3 is a full-ledger rewrite per send — see BENCHMARKS.md)
+
+## [0.8.5] — 2026-07-02
+
+### Added
+- **Fleet template versioning** — `saveFleetTemplate(name, agents, description?, version?)` now creates a new version on each save instead of overwriting. `version` defaults to `max(existing) + 1` so re-saving is safe. `getFleetTemplate(name, version?)` returns the latest by default, or a specific version. New `listFleetTemplateVersions(name)` returns all versions of a name sorted newest-first. `deleteFleetTemplate(name, version?)` removes one version or all. `spawnFromTemplate(name, version?)` respects the version argument. Closes #6. `FleetTemplate` interface gained a `version: number` field. + 13 new tests (172 total).
 
 ## [0.8.4] — 2026-07-02
 

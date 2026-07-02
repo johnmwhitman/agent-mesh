@@ -90,13 +90,12 @@ test('saveFleetTemplate: rejects empty agents list', () => {
   cleanup()
 })
 
-test('saveFleetTemplate: rejects duplicate name', () => {
+test('saveFleetTemplate: re-saving same name creates a new version (v0.8.5)', () => {
   const { cleanup } = freshLedger()
-  saveFleetTemplate('review', sampleAgents, 'first')
-  assert.throws(
-    () => saveFleetTemplate('review', sampleAgents, 'second'),
-    /already exists/
-  )
+  const v1 = saveFleetTemplate('review', sampleAgents, 'first')
+  const v2 = saveFleetTemplate('review', sampleAgents, 'second')
+  assert.equal(v1.version, 1, 'first save is v1')
+  assert.equal(v2.version, 2, 'second save is v2')
   cleanup()
 })
 
