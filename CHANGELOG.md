@@ -5,11 +5,27 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 ## [Unreleased]
 
 ### Planned
+- Heartbeat watchdog (auto-fail agents that miss N heartbeats)
 - Automatic retry with exponential backoff
 - Partial result recovery on crash
 - Embedding-based capability matching
 - Push notifications via SSE for inboxes
 - `npm publish` to the public registry
+
+## [0.5.0] — 2026-07-02
+
+### Added
+- **CLI inspector**: `npx agent-mesh inspect` shows all fleets, one fleet, metrics, recent events
+  - `inspect` (no args): list all fleets with status, agent counts, durations
+  - `inspect <fleet_id>`: detailed view of one fleet with agent rows
+  - `inspect --metrics`: summary metrics (total fleets, success rate, avg duration, etc.)
+  - `inspect --events [n]`: recent structured events as a table
+  - `inspect --help`: usage
+- **`getFleetMetrics` function** in `src/inspector.ts` (reused by the CLI and exposed for future dashboard work): total_fleets, completed_fleets, failed_fleets, running_fleets, total_agents, total_messages, avg_fleet_duration_ms, success_rate, total_capabilities
+- **`formatFleetSummary`, `formatAgentRow`, `formatEventLog`**: pure formatting helpers for terminal display
+- `bin` field in `package.json`: `npx agent-mesh` resolves to the inspector
+- `npm run inspect` script for local development
+- 14 new unit tests (51 total, all passing)
 
 ## [0.4.0] — 2026-07-01
 
