@@ -6,7 +6,10 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 
 ### Planned
 - `npm publish` to the public registry
-- Batch writes (the 3.8ms/message bottleneck in v0.8.3 is a full-ledger rewrite per send — see BENCHMARKS.md)
+- v0.9.0 batch writes (the 3.8ms/msg bottleneck at 10k scale — see BENCHMARKS.md)
+- v0.9.0 wire skill-taxonomy into route_work
+- v0.9.0 wire synonyms into role/skill parsing
+- v0.9.0 per-version fixture tests for COMPATIBILITY.md
 
 ## [0.8.7] — 2026-07-02
 
