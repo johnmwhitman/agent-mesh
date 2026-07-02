@@ -4,19 +4,6 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 
 ## [Unreleased]
 
-### Added
-- **Automatic retry with exponential backoff** — agents that fail transiently (non-zero exit, heartbeat watchdog, timeout, spawn error) are respawned up to 3 times with exponential backoff (1s, 2s, 4s + ±20% jitter). After 3 failures the agent is marked permanently failed. Configurable via `AGENT_MESH_RETRY_BASE_MS`. Each retry is logged via `appendEvent("agent_retry_scheduled", ...)`; permanent failure via `appendEvent("agent_failed_permanent", ...)`. Clean exits (code 0) skip retry entirely. `src/retry.ts` (computeBackoff, shouldRetry, scheduleRetry) + 9 new tests (119 total).
-- **Partial result recovery on startup** — if the MCP server crashes mid-fleet, the next start calls `recoverInterruptedAgents()` which transitions any agent left in `running` state to a new `interrupted` status (with `completed_at` and a clear error message). The user sees accurate fleet status instead of stale "running" agents whose OS processes are dead. Emits `agent_interrupted_recovered` events for the event log. New status type value `"interrupted"`. + 4 tests (123 total).
-- **Ledger schema versioning** — the JSON ledger now includes a `schema_version` field on every save (currently `1`). On load, `migrateLedger()` auto-upgrades legacy v0 ledgers (no field) to v1. Missing collections default to empty objects so partial/corrupt files don't crash the server. Exposed `CURRENT_SCHEMA_VERSION` constant. + 6 tests (129 total).
-
-### Fixed
-- **Agent dispatch: stdin hang** — `opencode run` blocks forever when stdin is a pipe, so every spawned agent hung until the timeout. Children are now spawned with `stdio: ["ignore", "pipe", "pipe"]`. Contract + evidence live in `src/spawn-config.ts`, guarded by regression tests.
-- **Heartbeat watchdog killed healthy agents** — the v0.7.0 watchdog counted every tick as a missed heartbeat, SIGKILLing any agent running longer than 60s. `createHeartbeat` now takes an `isAlive` liveness probe; only consecutive dead checks count as missed, and `spawnAgent` probes real child-process liveness. Healthy long-running agents are never auto-failed (verified with a 75s agent run).
-- Default agent timeout restored to 30 minutes (was briefly 5 during hang triage) — with the stdin hang fixed it is a backstop, overridable via `AGENT_MESH_AGENT_TIMEOUT_MS` or `set_fleet_timeout`.
-
-### Changed
-- Spawn args/stdio/timeout extracted into `src/spawn-config.ts` so the spawn contract is unit-testable (110 tests total).
-
 ### Planned
 - Embedding-based capability matching
 - Skill taxonomy (hierarchical matching)
@@ -24,6 +11,33 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 - Template versioning (save with version, list specific version)
 - Template sharing (export/import as JSON)
 - `npm publish` to the public registry
+
+## [0.8.0] — 2026-07-02
+
+### Added
+- **Automatic retry with exponential backoff** — agents that fail transiently (non-zero exit, heartbeat watchdog, timeout, spawn error) are respawned up to 3 times with exponential backoff (1s, 2s, 4s + ±20% jitter). After 3 failures the agent is marked permanently failed. Configurable via `AGENT_MESH_RETRY_BASE_MS`. Each retry is logged via `appendEvent("agent_retry_scheduled", ...)`; permanent failure via `appendEvent("agent_failed_permanent", ...)`. Clean exits (code 0) skip retry entirely. `src/retry.ts` (computeBackoff, shouldRetry, scheduleRetry) + 9 new tests.
+- **Partial result recovery on startup** — if the MCP server crashes mid-fleet, the next start calls `recoverInterruptedAgents()` which transitions any agent left in `running` state to a new `interrupted` status (with `completed_at` and a clear error message). The user sees accurate fleet status instead of stale "running" agents whose OS processes are dead. Emits `agent_interrupted_recovered` events for the structured log. New status type value `"interrupted"`. + 4 tests.
+- **Ledger schema versioning** — the JSON ledger now includes a `schema_version` field on every save (currently `1`). On load, `migrateLedger()` auto-upgrades legacy v0 ledgers (no field) to v1. Missing collections default to empty objects so partial/corrupt files don't crash the server. Exposed `CURRENT_SCHEMA_VERSION` constant. + 6 tests.
+- **`route_work` `top_n` parameter** — call signature is now `route_work(description, top_n?)`. Default `top_n=1` preserves backward compatibility; pass a larger number to fan out work to the N best-scoring agents. Sort is by score (desc) then agent_id (asc) for stable deterministic ordering on ties. MCP tool definition exposes the new `top_n` parameter. + 5 tests.
+- **npm publish prep** — package.json now ships with `files` whitelist (dist + docs + LICENSE), `prepublishOnly` runs build + tests, `repository.url` + `bugs.url` + `homepage` filled in. `npm pack --dry-run` produces a clean 29.3 kB tarball (16 files).
+
+### Fixed
+- **Agent dispatch: stdin hang** — `opencode run` blocks forever when stdin is a pipe, so every spawned agent hung until the timeout. Children are now spawned with `stdio: ["ignore", "pipe", "pipe"]`. Contract + evidence live in `src/spawn-config.ts`, guarded by regression tests.
+- **Heartbeat watchdog killed healthy agents** — the v0.7.0 watchdog counted every tick as a missed heartbeat, SIGKILLing any agent running longer than 60s. `createHeartbeat` now takes an `isAlive` liveness probe; only consecutive dead checks count as missed, and `spawnAgent` probes real child-process liveness. Healthy long-running agents are never auto-failed (verified with a 75s agent run).
+- Default agent timeout restored to 30 minutes (was briefly 5 during hang triage) — with the stdin hang fixed it is a backstop, overridable via `AGENT_MESH_AGENT_TIMEOUT_MS` or `set_fleet_timeout`.
+
+### Changed
+- Spawn args/stdio/timeout extracted into `src/spawn-config.ts` so the spawn contract is unit-testable.
+- 134 total tests across 12 test files, all passing on the 3 OS × 3 Node CI matrix.
+
+### Installation
+```bash
+npm install -g agent-mesh     # once published to the npm registry
+# or from source:
+git clone https://github.com/johnmwhitman/agent-mesh.git \
+  ~/.config/opencode/mcp-servers/agent-mesh
+cd ~/.config/opencode/mcp-servers/agent-mesh && npm install && npm run build
+```
 
 ## [0.7.0] — 2026-07-02
 

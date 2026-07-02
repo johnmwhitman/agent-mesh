@@ -1,12 +1,19 @@
 {
   "name": "agent-mesh",
-  "version": "0.7.0",
-  "description": "OpenCode Agent Mesh — peer-to-peer agent orchestration engine with fleet spawning, P2P messaging, capability routing, and premade agent discovery",
+  "version": "0.8.0",
+  "description": "Fleet-native agent orchestration for OpenCode — multi-agent layer with P2P messaging, retry, recovery, and capability routing. 134 tests.",
   "main": "dist/index.js",
   "type": "module",
   "bin": {
     "agent-mesh": "dist/bin/inspect.js"
   },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "AGENT-MESH-SPEC.md",
+    "SPEC-P2P.md"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsx watch src/index.ts",
@@ -14,7 +21,7 @@
     "inspect": "node dist/bin/inspect.js",
     "test": "node scripts/run-tests.mjs",
     "typecheck": "tsc --noEmit",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build && npm test"
   },
   "keywords": [
     "mcp",
