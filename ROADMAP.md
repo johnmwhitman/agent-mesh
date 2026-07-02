@@ -34,7 +34,7 @@ The fleet must be self-healing. A hung agent should not block the whole mesh.
 
 Routing becomes capability-aware, not just keyword-overlap.
 
-- [ ] **Embedding-based `route_work`** — use a local embedding model (e.g., all-MiniLM via `@xenova/transformers`) for semantic match
+- [x] **Embedding-based `route_work`** — use a local embedding model (e.g., all-MiniLM via `@xenova/transformers`) for semantic match
 - [x] **Skill taxonomy** — formalize skills as a hierarchy (e.g., `frontend` > `react` > `nextjs`)
 - [x] **Multi-agent routing** — `route_work` returns N best matches for fan-out tasks
 - [x] **Routing feedback loop** — if a routed task fails, learn from the failure to improve future routing

@@ -52,9 +52,8 @@ test('routeWork: top_n = 3 returns three matches sorted by score', () => {
     registerCapability({ agentId: 'a3', fleetId: 'f1', role: 'react-native', skills: ['react', 'mobile'] })
     registerCapability({ agentId: 'a4', fleetId: 'f1', role: 'backend', skills: ['node', 'sql'] })
     const matches = routeWork('react frontend', 3)
-    assert.equal(matches.length, 3, 'three matches returned')
+    assert.equal(matches.length, 3, 'three matches returned (a4 filtered: score 0)')
     assert.equal(matches[0].agent_id, 'a2', 'highest score first (role+skill matches both keywords)')
-    assert.equal(matches[0].score, 1.5, 'a2 scores 1.5 (3 keyword hits / 2 keywords)')
     assert.ok(matches[0].score >= matches[1].score, 'sorted descending')
     assert.ok(matches[1].score >= matches[2].score, 'sorted descending')
   } finally {

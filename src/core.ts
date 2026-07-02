@@ -4,6 +4,7 @@ import { dirname } from "path";
 import { join, basename, extname } from "path";
 import { homedir } from "os";
 import { getRoutingAdjustment } from "./routing-feedback.js";
+import { expandKeywordsWithSynonyms } from "./synonyms.js";
 
 // ---------------------------------------------------------------------------
 // Data Models
@@ -513,10 +514,12 @@ export function routeWork(description: string, topN: number = 1): RouteMatch[] {
   const caps = Object.values(data.capabilities);
   if (caps.length === 0 || topN <= 0) return [];
 
-  const keywords = description
-    .toLowerCase()
-    .split(/[\s,;.!?()/]+/)
-    .filter((k) => k.length > 1);
+  const keywords = expandKeywordsWithSynonyms(
+    description
+      .toLowerCase()
+      .split(/[\s,;.!?()/]+/)
+      .filter((k) => k.length > 1)
+  );
   if (keywords.length === 0) return [];
 
   const scored = caps.map((cap) => {

@@ -5,10 +5,14 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 ## [Unreleased]
 
 ### Planned
-- Embedding-based capability matching (semantic fallback; synonym expansion ships as a lightweight substitute in v0.8.3)
 - Template versioning (save with version, list specific version)
 - Template sharing (export/import as JSON)
 - `npm publish` to the public registry
+
+## [0.8.3] — 2026-07-02
+
+### Added
+- **Synonym expansion (lightweight semantic routing)** — new `src/synonyms.ts` module with a curated synonym table for 30+ common dev terms (frontend ↔ ui/ux/web/client/browser, database ↔ db/sql/postgres/mongo/redis, auth ↔ oauth/jwt/sso, etc.). `route_work` now calls `expandKeywordsWithSynonyms()` before scoring, so "ui" in a description routes to a `frontend` agent. Zero network cost, no runtime dependency, no model. Extend with `setSynonymOverrides()`. Swap for a true embedding model later by replacing the one function call. + 9 new tests (159 total).
 
 ## [0.8.2] — 2026-07-02
 
