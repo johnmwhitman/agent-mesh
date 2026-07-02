@@ -25,7 +25,7 @@ import {
   setLedgerOverride,
   loadDataFromFile,
   saveDataToFile,
-} from "/Users/johnwhitman/.config/opencode/mcp-servers/agent-mesh/dist/core.js";
+} from "../src/core.js";
 
 // ---------------------------------------------------------------------------
 // Test isolation: every test gets a fresh in-memory ledger
@@ -35,7 +35,7 @@ function freshLedger(): { dir: string; file: string; cleanup: () => void } {
   const dir = mkdtempSync(join(tmpdir(), "agent-mesh-test-"));
   const file = join(dir, "ledger.json");
   // In-memory state for this test
-  let memory: import("/Users/johnwhitman/.config/opencode/mcp-servers/agent-mesh/dist/core.js").MeshData = {
+  let memory: import("../src/core.js").MeshData = {
     fleets: {},
     agents: {},
     messages: {},
@@ -426,7 +426,7 @@ import {
   appendEvent,
   DEFAULT_EVENT_LOG,
   type FleetSummary,
-} from "/Users/johnwhitman/.config/opencode/mcp-servers/agent-mesh/dist/core.js";
+} from "../src/core.js";
 
 test("setFleetTimeout: stores per-fleet override", () => {
   const { cleanup } = freshLedger();
