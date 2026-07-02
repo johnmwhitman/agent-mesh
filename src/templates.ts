@@ -18,6 +18,8 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { dirname } from 'node:path'
 import { loadData, saveData, type MeshData } from './core.js'
 
 // ---------------------------------------------------------------------------
@@ -212,6 +214,88 @@ export function spawnFromTemplate(name: string, version?: number): SpawnSpec | n
   const tpl = getFleetTemplate(name, version);
   if (!tpl) return null;
   return { agents: tpl.agents };
+}
+
+// ---------------------------------------------------------------------------
+// Export / Import (v0.8.6)
+// ---------------------------------------------------------------------------
+
+export const TEMPLATE_SCHEMA = 'meshfleet-template-v1';
+
+export interface ExportedTemplate {
+  schema: string;
+  name: string;
+  version: number;
+  description: string;
+  agents: TemplateAgent[];
+  exported_at: number;
+}
+
+export function exportFleetTemplate(
+  name: string,
+  filePath: string,
+  version?: number
+): ExportedTemplate {
+  const tpl = getFleetTemplate(name, version);
+  if (!tpl) {
+    throw new Error(`Template "${name}" not found`);
+  }
+  const exported: ExportedTemplate = {
+    schema: TEMPLATE_SCHEMA,
+    name: tpl.name,
+    version: tpl.version,
+    description: tpl.description,
+    agents: tpl.agents,
+    exported_at: Date.now(),
+  };
+  const dir = dirname(filePath);
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  writeFileSync(filePath, JSON.stringify(exported, null, 2));
+  return exported;
+}
+
+export function importFleetTemplate(
+  filePath: string,
+  rename?: string
+): FleetTemplate {
+  if (!existsSync(filePath)) {
+    throw new Error(`Cannot read template file: ${filePath}`);
+  }
+  let raw: ExportedTemplate;
+  try {
+    raw = JSON.parse(readFileSync(filePath, 'utf-8')) as ExportedTemplate;
+  } catch (err) {
+    throw new Error(`Failed to parse template file: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  if (raw.schema !== TEMPLATE_SCHEMA) {
+    throw new Error(
+      `Unknown template schema "${raw.schema}"; expected "${TEMPLATE_SCHEMA}"`
+    );
+  }
+  if (!raw.name || !Array.isArray(raw.agents)) {
+    throw new Error('Template file is missing required fields (name, agents)');
+  }
+  const targetName = rename ?? raw.name;
+  if (rename) {
+    validateName(rename);
+  } else {
+    // If the name already exists, append a timestamp suffix to avoid clobbering
+    const existing = listFleetTemplateVersions(raw.name);
+    if (existing.length > 0) {
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      return importFleetTemplate(filePath, `${raw.name}-${stamp}`);
+    }
+  }
+  return saveFleetTemplate(
+    targetName,
+    raw.agents.map((a) => ({
+      role: a.role,
+      prompt: a.prompt,
+      ...(a.agent ? { agent: a.agent } : {}),
+    })),
+    raw.description ?? '',
+    1
+  );
 }
 
 // ---------------------------------------------------------------------------

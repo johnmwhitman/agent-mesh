@@ -5,9 +5,14 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 ## [Unreleased]
 
 ### Planned
-- Template sharing (export/import as JSON)
 - `npm publish` to the public registry
 - Batch writes (the 3.8ms/message bottleneck in v0.8.3 is a full-ledger rewrite per send — see BENCHMARKS.md)
+- Fleet dashboard TUI (issue #8)
+
+## [0.8.6] — 2026-07-02
+
+### Added
+- **Fleet template sharing** — `exportFleetTemplate(name, file_path, version?)` writes a portable `meshfleet-template-v1` JSON file. `importFleetTemplate(file_path, rename?)` reads, validates the schema, and inserts. On name conflict without `rename`, a timestamp suffix is appended (e.g. `foo-2026-07-02T17-50-00`). Closes #7. + 9 new tests (181 total).
 
 ## [0.8.5] — 2026-07-02
 
