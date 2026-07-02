@@ -8,6 +8,12 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 - Template versioning (save with version, list specific version)
 - Template sharing (export/import as JSON)
 - `npm publish` to the public registry
+- Batch writes (the 3.8ms/message bottleneck in v0.8.3 is a full-ledger rewrite per send — see BENCHMARKS.md)
+
+## [0.8.4] — 2026-07-02
+
+### Added
+- **Performance benchmarks** — new `benchmark/bench.ts` and `BENCHMARKS.md`. Measures `routeWork` at 10/100/1000-agent rosters, `sendMessage` warm and bulk (10k), `saveData`/`loadData`/`getInbox` on a 1k-agent + 10k-message ledger, and spawn-path bookkeeping. v1.0 perf gates met: spawn bookkeeping 6.4ms p50 (target <100ms); 10k messages persisted without drops. Known bottleneck: each `sendMessage` rewrites the full ledger (3.8ms/message at 10k scale) — batch writes are a v0.9+ follow-up.
 
 ## [0.8.3] — 2026-07-02
 
