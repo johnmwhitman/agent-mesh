@@ -156,7 +156,7 @@ async function main() {
 
   ledger.cleanup();
 
-  console.log("\n=== Meshfleet v0.8.3 Performance ===\n");
+  console.log("\n=== Meshfleet Performance ===\n");
   for (const r of results) console.log(fmt(r));
   console.log(`\n[10k messages bulk]   total=${t10k.toFixed(1)}ms  inbox_size=${inboxSize}\n`);
 
