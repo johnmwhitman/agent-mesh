@@ -1,0 +1,9 @@
+node_modules/
+dist/
+*.js
+*.js.map
+*.d.ts
+!jest.config.js
+!jest.config.ts
+agent-mesh.json
+.omo/

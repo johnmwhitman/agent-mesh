@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "agent-mesh": {
+      "command": "node",
+      "args": ["/Users/johnwhitman/.config/opencode/mcp-servers/agent-mesh/dist/index.js"]
+    }
+  }
+}
