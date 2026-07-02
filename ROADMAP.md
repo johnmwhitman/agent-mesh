@@ -14,6 +14,11 @@ Agent Mesh is on a fast iteration cycle. This document tracks what's shipped, wh
 | **0.5.1** | Health tools | `ping`, `get_health`, read-side rate limiting |
 | **0.6.0** | Fleet templates | `save_fleet_template`, `list_fleet_templates`, `get_fleet_template`, `delete_fleet_template`, `spawn_from_template` |
 | **0.7.0** | Real-time push | `subscribe_inbox` (SSE), `notifySubscribers` hooked into `send_message`, per-agent connection cap, heartbeat keepalive, 90 tests |
+| **0.8.0** | Hardening push | Auto-retry with exponential backoff, partial result recovery, ledger schema versioning, `route_work` `top_n` |
+| **0.8.1** | Skill taxonomy | Hierarchical skill matching with ancestor/descendant decay (`src/skill-taxonomy.ts`) |
+| **0.8.2** | Routing feedback loop | `record_routing_outcome` + Wilson-style score adjustment on `route_work` |
+| **0.8.3** | Synonym expansion | Curated synonym table for 30+ dev terms; `route_work` now matches "ui" → `frontend` |
+| **0.8.4** | Performance benchmarks | Self-contained `benchmark/bench.ts`; v1.0 gates met (spawn 6.4ms p50, 10k msgs no drops) |
 
 ## v0.7.x — Hardening (current focus)
 
@@ -44,10 +49,10 @@ Routing becomes capability-aware, not just keyword-overlap.
 API freeze. Production-ready. Backward-compatible.
 
 - [x] **Schema versioning** — ledger includes a `schema_version` field; old ledgers auto-migrate
-- [ ] **Backward compatibility matrix** — v1.x clients can read v0.9.x fleets
+- [x] **Backward compatibility matrix** — `COMPATIBILITY.md` documents the API + ledger schema guarantees per version; per-version fixture tests are a v1.0 follow-up
 - [x] **Performance benchmarks** — sub-100ms overhead per agent spawn, 10k messages per fleet
 - [ ] **Distributed ledger option** — swap JSON for SQLite (single-process) or libSQL (multi-process) behind a feature flag
-- [ ] **npm publish** — `npm install -g @meshfleet/agent-mesh` for a global install
+- [ ] **npm publish** — `npm install -g agent-mesh` for a global install (ready, blocked on user `npm login`)
 - [ ] **Auth token for MCP** — optional bearer token to prevent unauthorized access
 
 ## Future (post-1.0)
