@@ -1,0 +1,7 @@
+{
+  "agents": [
+    { "role": "Explorer",  "prompt": "Map the auth layer and find the JWT refresh path", "agent": "codebase-onboarding-engineer" },
+    { "role": "Planner",   "prompt": "Write a 3-step plan to fix JWT refresh",            "agent": "backend-architect" },
+    { "role": "Engineer",  "prompt": "Implement step 1 of the plan",                      "agent": "backend-developer" }
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "agents": [
+    { "role": "React expert", "prompt": "Hypothesize the React-side cause of the reported UI bug", "agent": "frontend-developer" },
+    { "role": "CSS expert",   "prompt": "Hypothesize the CSS/layout cause", "agent": "frontend-designer" },
+    { "role": "A11y expert",  "prompt": "Hypothesize an accessibility cause", "agent": "accessibility-auditor" }
+  ]
+}

@@ -2,7 +2,7 @@
 
 > **Fleet-native agent orchestration for OpenCode.** Spawn parallel agents as independent OS processes. Route work to specialists. Let agents collaborate peer-to-peer. No timeouts. No markups. Open source.
 
-**Website**: [meshfleet.app](https://meshfleet.app) · **Version**: 0.8.1 · **Tests**: 143/143 passing
+**Website**: [meshfleet.app](https://meshfleet.app) · **Version**: 0.8.4 · **Tests**: 159/159 passing · [CI](https://github.com/johnmwhitman/agent-mesh/actions)
 
 ---
 

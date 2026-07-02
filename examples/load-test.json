@@ -1,0 +1,14 @@
+{
+  "agents": [
+    { "role": "Worker 1",  "prompt": "Reply with exactly: DONE" },
+    { "role": "Worker 2",  "prompt": "Reply with exactly: DONE" },
+    { "role": "Worker 3",  "prompt": "Reply with exactly: DONE" },
+    { "role": "Worker 4",  "prompt": "Reply with exactly: DONE" },
+    { "role": "Worker 5",  "prompt": "Reply with exactly: DONE" },
+    { "role": "Worker 6",  "prompt": "Reply with exactly: DONE" },
+    { "role": "Worker 7",  "prompt": "Reply with exactly: DONE" },
+    { "role": "Worker 8",  "prompt": "Reply with exactly: DONE" },
+    { "role": "Worker 9",  "prompt": "Reply with exactly: DONE" },
+    { "role": "Worker 10", "prompt": "Reply with exactly: DONE" }
+  ]
+}

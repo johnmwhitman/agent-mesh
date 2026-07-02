@@ -21,7 +21,10 @@
     "inspect": "node dist/bin/inspect.js",
     "test": "node scripts/run-tests.mjs",
     "typecheck": "tsc --noEmit",
-    "prepublishOnly": "npm run build && npm test"
+    "prepublishOnly": "npm run build && npm test",
+    "release:pack": "npm pack",
+    "release:verify": "npm run build && npm test && npm pack --dry-run",
+    "release:publish": "npm run release:verify && npm publish"
   },
   "keywords": [
     "mcp",

@@ -1,0 +1,7 @@
+{
+  "agents": [
+    { "role": "Explorer", "prompt": "Summarize what this PR changes", "agent": "codebase-onboarding-engineer" },
+    { "role": "Analyst", "prompt": "List risks, regressions, and missing tests", "agent": "oracle" },
+    { "role": "Engineer", "prompt": "Draft a follow-up commit for the most important issue", "agent": "backend-architect" }
+  ]
+}
