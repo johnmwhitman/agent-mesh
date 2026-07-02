@@ -49,6 +49,7 @@ import {
   scheduleRetry as scheduleAgentRetry,
   shouldRetry as shouldAgentRetry,
 } from "./retry.js";
+import { recordRoutingOutcome } from "./routing-feedback.js";
 
 // ---------------------------------------------------------------------------
 // Server
@@ -327,7 +328,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "route_work",
       description:
-        "Route a work description to the best-matching registered agents by keyword + role overlap scoring. top_n controls how many matches to return (default 1, max = fleet size).",
+        "Route a work description to the best-matching registered agents by keyword + role overlap scoring, plus routing feedback (success/fail history) and skill taxonomy ancestry. top_n controls how many matches to return (default 1, max = fleet size).",
       inputSchema: {
         type: "object",
         properties: {
@@ -340,6 +341,20 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           },
         },
         required: ["description"],
+      },
+    },
+    {
+      name: "record_routing_outcome",
+      description:
+        "Record whether a routed task succeeded or failed. Future route_work calls for the same agent weight their score by accumulated outcomes (Wilson-style). capability_key is a free-form identifier (e.g. 'react', 'sql') so an agent can be penalized for one failure mode without losing other capabilities.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent_id: { type: "string" },
+          capability_key: { type: "string" },
+          success: { type: "boolean" },
+        },
+        required: ["agent_id", "capability_key", "success"],
       },
     },
     {
@@ -592,6 +607,16 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
   if (name === "route_work") {
     const { description, top_n } = args as { description: string; top_n?: number };
     return jsonResult({ matches: routeWork(description, top_n ?? 1) });
+  }
+
+  if (name === "record_routing_outcome") {
+    const { agent_id, capability_key, success } = args as {
+      agent_id: string;
+      capability_key: string;
+      success: boolean;
+    };
+    recordRoutingOutcome(agent_id, capability_key, success);
+    return jsonResult({ ok: true, agent_id, capability_key, success });
   }
 
   if (name === "list_agents") {

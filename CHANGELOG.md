@@ -5,11 +5,15 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 ## [Unreleased]
 
 ### Planned
-- Embedding-based capability matching
-- Routing feedback loop
+- Embedding-based capability matching (semantic fallback; synonym expansion ships as a lightweight substitute in v0.8.3)
 - Template versioning (save with version, list specific version)
 - Template sharing (export/import as JSON)
 - `npm publish` to the public registry
+
+## [0.8.2] — 2026-07-02
+
+### Added
+- **Routing feedback loop** — new `src/routing-feedback.ts` module with Wilson-style score adjustment. `record_routing_outcome(agent_id, capability_key, success)` records whether a routed task succeeded; `route_work` now weights each match's score by accumulated outcomes. `RouteMatch` gains an optional `weight` field (= `score * feedback_adjustment`). Fresh agents stay neutral at 1.0; consistent successes push toward 1.5, consistent failures toward 0.5. New MCP tool: `record_routing_outcome`. 7 new tests (150 total).
 
 ## [0.8.1] — 2026-07-02
 

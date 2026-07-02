@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, append
 import { dirname } from "path";
 import { join, basename, extname } from "path";
 import { homedir } from "os";
+import { getRoutingAdjustment } from "./routing-feedback.js";
 
 // ---------------------------------------------------------------------------
 // Data Models
@@ -84,6 +85,7 @@ export interface RouteMatch {
   agent_id: string;
   score: number;
   role: string;
+  weight?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -542,7 +544,14 @@ export function routeWork(description: string, topN: number = 1): RouteMatch[] {
     return a.agent_id.localeCompare(b.agent_id);
   });
 
-  return scored.filter((s) => s.score > 0).slice(0, topN);
+  const matches = scored.filter((s) => s.score > 0).slice(0, topN);
+
+  return matches
+    .map((m) => ({ ...m, weight: m.score * getRoutingAdjustment(m.agent_id) }))
+    .sort((a, b) => {
+      if (b.weight !== a.weight) return b.weight - a.weight;
+      return a.agent_id.localeCompare(b.agent_id);
+    });
 }
 
 // ---------------------------------------------------------------------------
