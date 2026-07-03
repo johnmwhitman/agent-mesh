@@ -1,8 +1,12 @@
 # Agent Mesh — meshfleet.app
 
+[![CI](https://github.com/johnmwhitman/agent-mesh/actions/workflows/ci.yml/badge.svg)](https://github.com/johnmwhitman/agent-mesh/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
+[![Node](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](https://nodejs.org)
+
 > **Auditable multi-agent coordination for OpenCode.** Spawn parallel agents as independent OS processes. Route work to specialists. Let agents collaborate peer-to-peer — with witnessed receipts and quorum ratification, so you can answer: *who saw this, who approved it, prove it.* The core is MIT and free.
 
-**Website**: [meshfleet.app](https://meshfleet.app) · **Version**: 0.11.1 · **Tests**: 207/207 passing · [CI](https://github.com/johnmwhitman/agent-mesh/actions)
+**Website**: [meshfleet.app](https://meshfleet.app) · **Version**: 0.11.1 · **Tests**: 207/207 passing
 
 ---
 
