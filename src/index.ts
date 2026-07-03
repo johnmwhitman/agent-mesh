@@ -44,6 +44,7 @@ import {
   castVote,
   tallyRatification,
   resolveRatification,
+  sweepRatifications,
 } from "./ratify.js";
 import { notifySubscribers } from "./realtime.js";
 import { startSseServer, stopSseServer, subscribeInboxUrl } from "./sse-server.js";
@@ -390,6 +391,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         },
         required: ["message_id"],
       },
+    },
+    {
+      name: "sweep_ratifications",
+      description:
+        "Evaluate every open ratification now and persist any that reached a terminal state (deadline expiry, silent-approval, unreachable quorum). The server also sweeps automatically every AGENT_MESH_RATIFY_SWEEP_MS (default 60s).",
+      inputSchema: { type: "object", properties: {} },
     },
     {
       name: "register_capability",
@@ -760,6 +767,10 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
     return jsonResult({ status, tally: tallyRatification(message_id) });
   }
 
+  if (name === "sweep_ratifications") {
+    return jsonResult(sweepRatifications());
+  }
+
   if (name === "register_capability") {
     registerCapability(args as Parameters<typeof registerCapability>[0]);
     return jsonResult({ ok: true });
@@ -879,6 +890,22 @@ await server.connect(transport);
 const recoveredCount = recoverInterruptedAgents();
 if (recoveredCount > 0) {
   console.error(`Agent Mesh v0.7.0 — recovered ${recoveredCount} interrupted agent(s) from previous run`);
+}
+
+// v0.11: periodic ratification deadline sweep (0 disables)
+const sweepMs = Number(process.env.AGENT_MESH_RATIFY_SWEEP_MS ?? 60_000);
+if (Number.isFinite(sweepMs) && sweepMs > 0) {
+  const sweeper = setInterval(() => {
+    try {
+      const { resolved } = sweepRatifications();
+      for (const [id, status] of Object.entries(resolved)) {
+        appendEvent("ratification_resolved", { message_id: id, status, via: "sweep" });
+      }
+    } catch {
+      // sweep must never take the server down
+    }
+  }, sweepMs);
+  sweeper.unref();
 }
 
 // Start the SSE HTTP server for real-time inbox push (v0.7.0)

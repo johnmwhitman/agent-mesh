@@ -91,10 +91,16 @@ const id = open_ratification({
 // after the deadline, tally_ratification(id) → "ratified"
 ```
 
-## Not in v0.10
+## Deadline sweeping (v0.11)
+
+The server sweeps every open ratification on an interval
+(`AGENT_MESH_RATIFY_SWEEP_MS`, default 60s, `0` disables), persisting any that
+reached a terminal state and appending a `ratification_resolved` event. So
+deadlines and "silent = PASS" fire on their own; `sweep_ratifications` forces a
+sweep on demand, and `tally_ratification` still evaluates a single proposal.
+
+## Not in scope yet
 
 - No tiered councils (HOOL's Council 1/2/3) — model that by choosing `quorum`
   and `required_signoffs` per proposal.
-- No automatic deadline sweeps — call `tally_ratification` to force evaluation
-  (a scheduled sweeper can loop over open ratifications).
 - No vote weighting — one agent, one vote.

@@ -203,3 +203,26 @@ export function resolveRatification(
 export function getRatification(messageId: string): Ratification | null {
   return loadData().ratifications?.[messageId] ?? null;
 }
+
+export interface SweepResult {
+  checked: number;
+  resolved: Record<string, Ratification["status"]>;
+}
+
+/**
+ * Deadline sweeper (v0.11): evaluate every open ratification and persist any
+ * that have reached a terminal state — the mechanism that makes deadlines and
+ * "silent = PASS" actually fire without waiting for someone to call tally.
+ * Runs periodically in the server (AGENT_MESH_RATIFY_SWEEP_MS, default 60s,
+ * 0 disables) and on demand via the sweep_ratifications tool.
+ */
+export function sweepRatifications(now: number = Date.now()): SweepResult {
+  const data = loadData();
+  const open = Object.values(data.ratifications ?? {}).filter((r) => r.status === "open");
+  const resolved: Record<string, Ratification["status"]> = {};
+  for (const r of open) {
+    const status = resolveRatification(r.message_id, now);
+    if (status && status !== "open") resolved[r.message_id] = status;
+  }
+  return { checked: open.length, resolved };
+}

@@ -12,6 +12,7 @@ import {
   getRatification,
   openRatification,
   resolveRatification,
+  sweepRatifications,
   tallyRatification,
 } from "../src/ratify.js";
 
@@ -230,6 +231,40 @@ test("required signoff must be an eligible voter", () => {
         }),
       /not among voters/
     );
+  } finally {
+    l.cleanup();
+  }
+});
+
+test("sweep resolves expired and silent-approve ratifications, leaves live ones open", () => {
+  const l = freshLedger();
+  try {
+    const peers = fleet(9);
+    // r1: deadline passed, silence=approve → should ratify on sweep
+    const r1 = openRatification({
+      proposer: "proposer", fleetId: "f1", subject: "r1", quorum: 6,
+      deadline: 1000, silencePolicy: "approve",
+    });
+    // r2: deadline passed, silence=abstain, short → should expire on sweep
+    const r2 = openRatification({
+      proposer: "proposer", fleetId: "f1", subject: "r2", quorum: 6, deadline: 1000,
+    });
+    // r3: no deadline, still short → stays open
+    const r3 = openRatification({
+      proposer: "proposer", fleetId: "f1", subject: "r3", quorum: 6,
+    });
+    castVote(peers[0], r2, true);
+    const result = sweepRatifications(2000);
+    assert.equal(result.checked, 3);
+    assert.deepEqual(
+      Object.fromEntries(Object.entries(result.resolved).sort()),
+      { [r1]: "ratified", [r2]: "expired" }
+    );
+    assert.equal(getRatification(r3)!.status, "open");
+    // second sweep: nothing open with a passed deadline resolves again
+    const again = sweepRatifications(3000);
+    assert.equal(again.checked, 1); // only r3 still open
+    assert.deepEqual(again.resolved, {});
   } finally {
     l.cleanup();
   }

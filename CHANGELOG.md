@@ -10,7 +10,12 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 - wire skill-taxonomy into route_work
 - wire synonyms into role/skill parsing
 - per-version fixture tests for COMPATIBILITY.md
-- scheduled deadline sweeper for open ratifications
+- tiered councils / vote weighting (if real usage demands them)
+
+## [0.11.0] — 2026-07-03
+
+### Added
+- **Ratification deadline sweeper** — the server now evaluates every open ratification every `AGENT_MESH_RATIFY_SWEEP_MS` (default 60s, `0` disables) and persists terminal states, so deadlines and "silent = PASS" fire without anyone calling tally. Each resolution appends a `ratification_resolved` event (`via: "sweep"`). New `sweep_ratifications` tool for on-demand sweeps. + 1 test (205 total).
 
 ## [0.10.0] — 2026-07-03
 
