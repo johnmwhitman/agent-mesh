@@ -30,13 +30,7 @@ And when an agent's action matters, Meshfleet can prove what happened. Every mes
 
 ## Install in 30 seconds
 
-From npm (the package is `meshfleet`; the `agent-mesh` npm name is squatted by a placeholder):
-
-```bash
-npm install -g meshfleet
-```
-
-Or from source:
+**From source** (works today — no dependencies beyond Node 18+):
 
 ```bash
 git clone https://github.com/johnmwhitman/agent-mesh.git \
@@ -45,21 +39,7 @@ cd ~/.config/opencode/mcp-servers/agent-mesh
 npm install && npm run build
 ```
 
-Add to `~/.config/opencode/opencode.jsonc` (npm install):
-
-```jsonc
-{
-  "mcp": {
-    "agent-mesh": {
-      "type": "local",
-      "enabled": true,
-      "command": ["npx", "meshfleet"]
-    }
-  }
-}
-```
-
-or, if you built from source:
+Add to `~/.config/opencode/opencode.jsonc`:
 
 ```jsonc
 {
@@ -72,6 +52,14 @@ or, if you built from source:
   }
 }
 ```
+
+**From npm** — *publishing shortly.* The package name is `meshfleet` (the `agent-mesh` npm name is squatted by a placeholder). Once it's live:
+
+```bash
+npm install -g meshfleet
+```
+
+then swap the config command above for `["npx", "meshfleet"]`.
 
 Restart OpenCode. Spawn a fleet. [Full install guide →](docs/install)
 
