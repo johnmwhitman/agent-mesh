@@ -1,0 +1,7 @@
+{
+  "agents": [
+    { "role": "Doc reader", "prompt": "Read the module under src/ and produce a structured outline of its public API surface (exports, types, params, returns)", "agent": "codebase-onboarding-engineer" },
+    { "role": "Doc writer", "prompt": "Write a README.md for the module based on the outline: purpose, install, usage examples, API reference", "agent": "documentation-engineer" },
+    { "role": "Doc reviewer", "prompt": "Review the generated README for accuracy against the actual code, flag any claims that don't match the implementation", "agent": "code-reviewer" }
+  ]
+}

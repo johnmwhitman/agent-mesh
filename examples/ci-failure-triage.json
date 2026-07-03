@@ -1,0 +1,7 @@
+{
+  "agents": [
+    { "role": "Categorizer", "prompt": "Read the CI failure output and categorize it: regression, flaky test, infrastructure, or real bug", "agent": "code-reviewer" },
+    { "role": "Investigator", "prompt": "For each real-bug or regression failure, hypothesize the root cause and identify the most likely file", "agent": "backend-architect" },
+    { "role": "Fixer", "prompt": "For the highest-confidence real-bug, draft a minimal patch that addresses the root cause", "agent": "backend-developer" }
+  ]
+}

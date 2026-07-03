@@ -1,0 +1,7 @@
+{
+  "agents": [
+    { "role": "Test reader", "prompt": "Read the module under test, identify the public functions, and list behaviors that should be covered by tests", "agent": "codebase-onboarding-engineer" },
+    { "role": "Test writer", "prompt": "For each behavior identified, write a test using node:test that covers the happy path and at least one edge case", "agent": "qa-engineer" },
+    { "role": "Coverage checker", "prompt": "Run the new tests and report which behaviors are now covered and which still lack coverage", "agent": "qa-engineer" }
+  ]
+}
