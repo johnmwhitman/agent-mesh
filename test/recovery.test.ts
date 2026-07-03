@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import {
   setLedgerOverride,
   recoverInterruptedAgents,
+  isPidAlive,
   loadData,
 } from '../src/core.js'
 
@@ -84,6 +85,39 @@ test('recovery: idempotent within same ledger state', () => {
     recoverInterruptedAgents()
     const second = recoverInterruptedAgents()
     assert.equal(second, 0, 'second call finds nothing to recover')
+  } finally {
+    ledger.cleanup()
+  }
+})
+
+test('isPidAlive: our own process is alive, an absurd pid is not', () => {
+  assert.equal(isPidAlive(process.pid), true)
+  // kernel pid limits make this pid unallocatable on macOS/Linux
+  assert.equal(isPidAlive(2 ** 30), false)
+})
+
+test('recovery: liveness probe — running agent with a LIVE pid is left alone', () => {
+  // Regression for the 2026-07-03 validation failure: every spawned child
+  // boots a nested agent-mesh instance (its `opencode run` loads the user's
+  // MCP config), and pre-fix recovery flipped the parent's healthy running
+  // agents to interrupted within seconds (31/52 agents on the 2026-07-02
+  // field ledger). A running agent whose pid is alive must survive recovery.
+  const ledger = freshLedger({
+    fleets: {},
+    agents: {
+      alive: { id: 'alive', fleet_id: 'f1', role: 'r', prompt: 'p', status: 'running', started_at: 1, pid: process.pid },
+      dead: { id: 'dead', fleet_id: 'f1', role: 'r', prompt: 'p', status: 'running', started_at: 2, pid: 2 ** 30 },
+      pidless: { id: 'pidless', fleet_id: 'f1', role: 'r', prompt: 'p', status: 'running', started_at: 3 },
+    },
+    messages: {}, inboxes: {}, capabilities: {},
+  })
+  try {
+    const count = recoverInterruptedAgents()
+    assert.equal(count, 2, 'only dead-pid and pid-less agents recovered')
+    const data = loadData()
+    assert.equal(data.agents.alive.status, 'running', 'live agent untouched')
+    assert.equal(data.agents.dead.status, 'interrupted', 'dead-pid agent flipped')
+    assert.equal(data.agents.pidless.status, 'interrupted', 'pid-less agent flipped')
   } finally {
     ledger.cleanup()
   }

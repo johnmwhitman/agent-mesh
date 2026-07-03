@@ -470,12 +470,33 @@ export function markAgentFinished(
   checkFleetCompletion(agent.fleet_id);
 }
 
-/** Mark 'running' agents as 'interrupted' (called at MCP startup). */
+/** True when a pid refers to a live process we can signal. */
+export function isPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    // EPERM = alive but not ours; anything else (ESRCH) = dead.
+    return (err as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/**
+ * Mark 'running' agents as 'interrupted' (called at MCP startup).
+ *
+ * Liveness-probed (2026-07-03): an agent is only flipped when its recorded
+ * pid is missing or dead. Without the probe, ANY second agent-mesh instance
+ * on the same ledger — which every spawned child creates, because its
+ * `opencode run` loads the user's MCP config including agent-mesh — marked
+ * the parent's healthy running agents as interrupted within seconds
+ * (field data: 31/52 agents on the 2026-07-02 ledger).
+ */
 export function recoverInterruptedAgents(): number {
   const data = loadData();
   let count = 0;
   for (const agent of Object.values(data.agents)) {
     if (agent.status === "running") {
+      if (agent.pid !== undefined && isPidAlive(agent.pid)) continue;
       agent.status = "interrupted";
       agent.completed_at = Date.now();
       agent.error = "MCP server crashed before this agent completed; use retry or respawn to recover";

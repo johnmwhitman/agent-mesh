@@ -105,7 +105,13 @@ function trySpawn(input: SpawnAgentInput, agentId: string, attempt: number): voi
     // stdin MUST be ignored — `opencode run` hangs forever on a piped
     // stdin. Contract + evidence documented in spawn-config.ts.
     stdio: AGENT_SPAWN_STDIO,
-    env: { ...process.env },
+    // AGENT_MESH_CHILD marks nested agent-mesh instances: the child's
+    // opencode loads the user's MCP config (agent-mesh included), and
+    // without the marker that nested instance runs startup recovery on the
+    // SAME ledger and flips the parent's live agents to "interrupted"
+    // within seconds of spawn (verified 2026-07-03: events.log shows
+    // agent_interrupted_recovered 2s after agent_spawned).
+    env: { ...process.env, AGENT_MESH_CHILD: "1" },
   });
 
   if (child.pid !== undefined) {
@@ -885,33 +891,45 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
 const transport = new StdioServerTransport();
 await server.connect(transport);
 
-// v0.7.x: recover any agents left in 'running' state from a previous
-// crashed process so fleet_status reflects reality.
-const recoveredCount = recoverInterruptedAgents();
-if (recoveredCount > 0) {
-  console.error(`Agent Mesh v0.7.0 — recovered ${recoveredCount} interrupted agent(s) from previous run`);
-}
+// A nested instance booted by a spawned agent's own opencode session
+// (spawn env sets AGENT_MESH_CHILD=1). It shares the parent's ledger, so it
+// must not run startup recovery (it would flip the parent's live agents),
+// must not bind the SSE port the parent already holds, and must not run a
+// competing ratification sweeper.
+const isChildInstance = process.env.AGENT_MESH_CHILD === "1";
 
-// v0.11: periodic ratification deadline sweep (0 disables)
-const sweepMs = Number(process.env.AGENT_MESH_RATIFY_SWEEP_MS ?? 60_000);
-if (Number.isFinite(sweepMs) && sweepMs > 0) {
-  const sweeper = setInterval(() => {
-    try {
-      const { resolved } = sweepRatifications();
-      for (const [id, status] of Object.entries(resolved)) {
-        appendEvent("ratification_resolved", { message_id: id, status, via: "sweep" });
+if (!isChildInstance) {
+  // v0.7.x: recover any agents left in 'running' state from a previous
+  // crashed process so fleet_status reflects reality. Liveness-probed since
+  // 2026-07-03 — only agents with a missing/dead pid are flipped.
+  const recoveredCount = recoverInterruptedAgents();
+  if (recoveredCount > 0) {
+    console.error(`Agent Mesh v0.7.0 — recovered ${recoveredCount} interrupted agent(s) from previous run`);
+  }
+
+  // v0.11: periodic ratification deadline sweep (0 disables)
+  const sweepMs = Number(process.env.AGENT_MESH_RATIFY_SWEEP_MS ?? 60_000);
+  if (Number.isFinite(sweepMs) && sweepMs > 0) {
+    const sweeper = setInterval(() => {
+      try {
+        const { resolved } = sweepRatifications();
+        for (const [id, status] of Object.entries(resolved)) {
+          appendEvent("ratification_resolved", { message_id: id, status, via: "sweep" });
+        }
+      } catch {
+        // sweep must never take the server down
       }
-    } catch {
-      // sweep must never take the server down
-    }
-  }, sweepMs);
-  sweeper.unref();
-}
+    }, sweepMs);
+    sweeper.unref();
+  }
 
-// Start the SSE HTTP server for real-time inbox push (v0.7.0)
-try {
-  const { host, port } = await startSseServer();
-  console.error(`Agent Mesh v0.7.0 started (JSON persistence + P2P messaging + capability routing + premade agent discovery + timeout/resilience + SSE push on ${host}:${port})`);
-} catch (err) {
-  console.error(`Agent Mesh v0.7.0 started (JSON persistence + P2P messaging + capability routing + premade agent discovery + timeout/resilience + SSE push) — SSE server failed to start: ${err instanceof Error ? err.message : String(err)}`);
+  // Start the SSE HTTP server for real-time inbox push (v0.7.0)
+  try {
+    const { host, port } = await startSseServer();
+    console.error(`Agent Mesh v0.7.0 started (JSON persistence + P2P messaging + capability routing + premade agent discovery + timeout/resilience + SSE push on ${host}:${port})`);
+  } catch (err) {
+    console.error(`Agent Mesh v0.7.0 started (JSON persistence + P2P messaging + capability routing + premade agent discovery + timeout/resilience + SSE push) — SSE server failed to start: ${err instanceof Error ? err.message : String(err)}`);
+  }
+} else {
+  console.error("Agent Mesh started in child mode (AGENT_MESH_CHILD=1) — recovery, sweeper, and SSE skipped");
 }
