@@ -7,6 +7,11 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { spawn } from "child_process";
 import { randomUUID } from "crypto";
+import { createRequire } from "module";
+
+// Single source of truth for the advertised version — package.json.
+// (The literal here drifted to 0.7.0 while releases moved to 0.11.x.)
+const MESH_VERSION: string = createRequire(import.meta.url)("../package.json").version;
 import {
   appendEvent,
   ackMessage,
@@ -67,7 +72,7 @@ import { recordRoutingOutcome } from "./routing-feedback.js";
 // ---------------------------------------------------------------------------
 
 const server = new Server(
-  { name: "agent-mesh", version: "0.7.0" },
+  { name: "agent-mesh", version: MESH_VERSION },
   { capabilities: { tools: {} } }
 );
 
@@ -905,7 +910,7 @@ if (!isChildInstance) {
   // 2026-07-03 — only agents with a missing/dead pid are flipped.
   const recoveredCount = recoverInterruptedAgents();
   if (recoveredCount > 0) {
-    console.error(`Agent Mesh v0.7.0 — recovered ${recoveredCount} interrupted agent(s) from previous run`);
+    console.error(`Agent Mesh v${MESH_VERSION} — recovered ${recoveredCount} interrupted agent(s) from previous run`);
   }
 
   // v0.11: periodic ratification deadline sweep (0 disables)
@@ -927,9 +932,9 @@ if (!isChildInstance) {
   // Start the SSE HTTP server for real-time inbox push (v0.7.0)
   try {
     const { host, port } = await startSseServer();
-    console.error(`Agent Mesh v0.7.0 started (JSON persistence + P2P messaging + capability routing + premade agent discovery + timeout/resilience + SSE push on ${host}:${port})`);
+    console.error(`Agent Mesh v${MESH_VERSION} started (JSON persistence + P2P messaging + capability routing + premade agent discovery + timeout/resilience + SSE push on ${host}:${port})`);
   } catch (err) {
-    console.error(`Agent Mesh v0.7.0 started (JSON persistence + P2P messaging + capability routing + premade agent discovery + timeout/resilience + SSE push) — SSE server failed to start: ${err instanceof Error ? err.message : String(err)}`);
+    console.error(`Agent Mesh v${MESH_VERSION} started (JSON persistence + P2P messaging + capability routing + premade agent discovery + timeout/resilience + SSE push) — SSE server failed to start: ${err instanceof Error ? err.message : String(err)}`);
   }
 } else {
   console.error("Agent Mesh started in child mode (AGENT_MESH_CHILD=1) — recovery, sweeper, and SSE skipped");
