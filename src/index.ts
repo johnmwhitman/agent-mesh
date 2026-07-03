@@ -9,6 +9,9 @@ import { randomUUID } from "crypto";
 import {
   appendEvent,
   ackMessage,
+  getReceipts,
+  messageRecipients,
+  writeReceipt,
   autoRegisterFromAgent,
   checkFleetCompletion,
   createFleet,
@@ -268,12 +271,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "send_message",
       description:
-        "Send a P2P message from one agent to another within the same fleet.",
+        'Send a P2P message from one agent to another within the same fleet. Set to_agent_id to "*" to broadcast to every other agent in the fleet (each recipient acks independently; see get_receipts).',
       inputSchema: {
         type: "object",
         properties: {
           from_agent_id: { type: "string" },
-          to_agent_id: { type: "string" },
+          to_agent_id: { type: "string", description: 'Recipient agent id, or "*" for fleet broadcast' },
           fleet_id: { type: "string" },
           type: { type: "string", enum: [...MESSAGE_TYPES] },
           payload: { type: "string" },
@@ -298,7 +301,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "ack_message",
       description:
-        "Acknowledge a message, removing it from the agent's inbox.",
+        "Acknowledge a message, removing it from the agent's inbox. Writes an 'ack' receipt (per-recipient — a broadcast is acked independently by each recipient).",
       inputSchema: {
         type: "object",
         properties: {
@@ -306,6 +309,33 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           message_id: { type: "string" },
         },
         required: ["agent_id", "message_id"],
+      },
+    },
+    {
+      name: "receipt",
+      description:
+        "Write a non-consuming receipt on a message — the audit primitive. Use actions like 'seen', 'r-ack' (approve), 'retracted'. Unlike ack_message, the message stays in the inbox. One receipt per (message, agent, action); repeat calls are idempotent.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent_id: { type: "string" },
+          message_id: { type: "string" },
+          action: { type: "string", description: "e.g. 'seen', 'r-ack', 'retracted' — any label except 'ack' (use ack_message to consume)" },
+          note: { type: "string" },
+        },
+        required: ["agent_id", "message_id", "action"],
+      },
+    },
+    {
+      name: "get_receipts",
+      description:
+        "Get the full receipt trail for a message: who acked, who annotated, when. Answers 'who saw this and who acted on it'.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          message_id: { type: "string" },
+        },
+        required: ["message_id"],
       },
     },
     {
@@ -568,16 +598,21 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
         correlation_id
       );
       // v0.7.0: push to any active SSE subscribers
-      notifySubscribers(to_agent_id, [
-        {
-          type: "message",
-          message_id: messageId,
-          from_agent_id,
-          payload: JSON.stringify({ type, payload }),
-          timestamp: Date.now(),
-        },
-      ]);
-      return jsonResult({ message_id: messageId });
+      // v0.9.0: broadcasts push to every resolved recipient
+      const sent = loadData().messages[messageId];
+      const recipients = sent ? messageRecipients(sent) : [to_agent_id];
+      for (const recipient of recipients) {
+        notifySubscribers(recipient, [
+          {
+            type: "message",
+            message_id: messageId,
+            from_agent_id,
+            payload: JSON.stringify({ type, payload }),
+            timestamp: Date.now(),
+          },
+        ]);
+      }
+      return jsonResult({ message_id: messageId, recipients });
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : String(err));
     }
@@ -597,6 +632,26 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
       message_id: string;
     };
     return jsonResult({ ok: ackMessage(agent_id, message_id) });
+  }
+
+  if (name === "receipt") {
+    const { agent_id, message_id, action, note } = args as {
+      agent_id: string;
+      message_id: string;
+      action: string;
+      note?: string;
+    };
+    if (action === "ack") {
+      return jsonError("Use ack_message to consume a message; receipt is for non-consuming actions");
+    }
+    const receipt = writeReceipt(agent_id, message_id, action, note);
+    if (!receipt) return jsonError(`No such message: ${message_id}`);
+    return jsonResult({ receipt });
+  }
+
+  if (name === "get_receipts") {
+    const { message_id } = args as { message_id: string };
+    return jsonResult({ receipts: getReceipts(message_id) });
   }
 
   if (name === "register_capability") {

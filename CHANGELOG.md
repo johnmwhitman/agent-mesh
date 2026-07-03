@@ -6,10 +6,20 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 
 ### Planned
 - `npm publish` to the public registry
-- v0.9.0 batch writes (the 3.8ms/msg bottleneck at 10k scale — see BENCHMARKS.md)
-- v0.9.0 wire skill-taxonomy into route_work
-- v0.9.0 wire synonyms into role/skill parsing
-- v0.9.0 per-version fixture tests for COMPATIBILITY.md
+- batch writes (the 3.8ms/msg bottleneck at 10k scale — see BENCHMARKS.md)
+- wire skill-taxonomy into route_work
+- wire synonyms into role/skill parsing
+- per-version fixture tests for COMPATIBILITY.md
+- quorum ratification helpers over receipts (R-ASK deadline + floor(n/2)+1 tally)
+
+## [0.9.0] — 2026-07-03
+
+### Added
+- **Witnessed messaging (receipts ledger)** — every ack now writes a timestamped receipt keyed `(message, agent, action)`; new `receipt` tool writes non-consuming annotations (`seen`, `r-ack`, `retracted`, …) and new `get_receipts` tool returns the full trail for a message: who saw it, who acted on it, when. Ledger schema v2 with automatic migration (v1 `acknowledged` flags are backfilled as receipts, so existing audit history has no gap). Design ported from a production fleet bus (18,404 messages / 10+ agents / 40 days) via its clean-room reference implementation; the 12 new tests mirror that implementation's acceptance suite. + 12 new tests (192 total).
+- **Fleet broadcast** — `send_message` accepts `to_agent_id: "*"`, delivering to every other agent in the fleet. Recipient list is resolved and captured at send time; SSE push notifies every recipient; each recipient acks independently and `acknowledged` becomes true only when all have acked (per-recipient tracking a single boolean flag could not represent). `send_message` now returns `recipients` alongside `message_id`.
+
+### Changed
+- `Message.acknowledged` is now a derived field (true when every addressed recipient holds an `ack` receipt). Existing single-recipient behavior is unchanged.
 
 ## [0.8.7] — 2026-07-02
 

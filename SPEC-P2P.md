@@ -46,10 +46,16 @@ Escalate when an agent is stuck and needs orchestrator or peer intervention.
 
 - **At-least-once delivery** via the JSON ledger. Messages are appended to the recipient's inbox (array of message IDs).
 - **Explicit acknowledgment** via `ack_message` — messages remain in inbox until acked.
+- **Receipts (v0.9 "witnessed messaging")** — every ack writes a timestamped receipt row keyed `(message, agent, action)`. Non-consuming receipts (`seen`, `r-ack`, `retracted`, …) annotate a message without removing it from the inbox. The receipt trail answers *who saw this, who acted on it, and when* — the audit layer that a boolean `acknowledged` flag cannot provide.
+- **Broadcast** — `to_agent_id: "*"` delivers to every other agent in the fleet. The recipient list is resolved and captured at send time; each recipient acks independently, and the message counts as acknowledged only when **all** recipients have acked.
 - **No retries or dead-letter queue** in v0.2.
 - **Payload size limit**: 64 KB (enforced at MCP tool layer).
-- **No push notifications** — agents must poll `get_inbox` on their own schedule.
 - **Correlation IDs** — optional `correlation_id` links request/response pairs for conversation tracking.
+
+> Lineage note: the receipts design is a port of a bus that coordinated a 10-agent
+> fleet in production for 40 days (18,404 messages). Its single consumed-flag
+> per message could not audit broadcast consumption; per-recipient receipts are
+> the tested fix.
 
 ---
 
@@ -59,12 +65,12 @@ Escalate when an agent is stuck and needs orchestrator or peer intervention.
 ```typescript
 send_message(
   from_agent_id: string,
-  to_agent_id: string,
+  to_agent_id: string,   // agent id, or "*" for fleet broadcast
   fleet_id: string,
   type: "handoff" | "question" | "result" | "alert" | "request_help",
   payload: string,
   correlation_id?: string
-) → { message_id: string }
+) → { message_id: string, recipients: string[] }
 ```
 
 ### get_inbox
@@ -81,6 +87,27 @@ ack_message(
   agent_id: string,
   message_id: string
 ) → { ok: boolean }
+// Writes an 'ack' receipt and removes the message from this agent's inbox.
+// Idempotent. A broadcast is acked independently by each recipient.
+```
+
+### receipt
+```typescript
+receipt(
+  agent_id: string,
+  message_id: string,
+  action: string,    // 'seen', 'r-ack', 'retracted', ... — anything except 'ack'
+  note?: string
+) → { receipt: Receipt }
+// Non-consuming: annotates the message, leaves it in the inbox.
+// One receipt per (message, agent, action); repeat calls are idempotent.
+```
+
+### get_receipts
+```typescript
+get_receipts(
+  message_id: string
+) → { receipts: Receipt[] }  // oldest first: who acked, who annotated, when
 ```
 
 ### register_capability

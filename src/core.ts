@@ -46,13 +46,34 @@ export type MessageType = (typeof MESSAGE_TYPES)[number];
 export interface Message {
   id: string;
   from_agent_id: string;
-  to_agent_id: string;
+  to_agent_id: string; // agent id, or "*" for fleet broadcast
   fleet_id: string;
   type: MessageType;
   payload: string;
   correlation_id?: string;
   timestamp: number;
+  /** Derived since v0.9: true once every addressed recipient has an 'ack' receipt. */
   acknowledged: boolean;
+  /** Resolved recipient list for broadcasts; absent on direct messages. */
+  recipients?: string[];
+}
+
+export const BROADCAST = "*";
+
+/**
+ * A receipt is the audit primitive (v0.9 "witnessed messaging"): one row per
+ * (message, agent, action), timestamped. The 'ack' action consumes the message
+ * from that agent's inbox; any other action ('seen', 'r-ack', 'retracted', ...)
+ * annotates without consuming. A broadcast to N agents therefore carries N
+ * independent, queryable acks — a single acknowledged flag cannot represent
+ * that (the defect that motivated this design in the Hermes production fleet).
+ */
+export interface Receipt {
+  message_id: string;
+  agent_id: string;
+  action: string;
+  timestamp: number;
+  note?: string;
 }
 
 export interface Capability {
@@ -71,9 +92,11 @@ export interface MeshData {
   messages: Record<string, Message>;
   inboxes: Record<string, string[]>;
   capabilities: Record<string, Capability>;
+  /** Keyed `${message_id}:${agent_id}:${action}` — the key is the idempotency guarantee. Optional for pre-v2 ledgers; lazily initialized. */
+  receipts?: Record<string, Receipt>;
 }
 
-export const CURRENT_SCHEMA_VERSION = 1;
+export const CURRENT_SCHEMA_VERSION = 2;
 
 export interface PremadeAgent {
   filename: string;
@@ -102,6 +125,7 @@ const EMPTY_DATA: MeshData = {
   messages: {},
   inboxes: {},
   capabilities: {},
+  receipts: {},
 };
 
 let dataDir = DEFAULT_DATA_DIR;
@@ -158,6 +182,7 @@ export function loadDataFromFile(file: string): MeshData {
       messages: (migrated.messages || {}) as Record<string, Message>,
       inboxes: (migrated.inboxes || {}) as Record<string, string[]>,
       capabilities: (migrated.capabilities || {}) as Record<string, Capability>,
+      receipts: (migrated.receipts || {}) as Record<string, Receipt>,
     };
   } catch (err) {
     console.error(`Agent Mesh: ledger corrupted at ${file}, resetting. Error: ${err}`);
@@ -170,6 +195,29 @@ function migrateLedger(raw: Record<string, unknown>): Record<string, unknown> {
   if (version < 1) {
     raw.schema_version = 1;
     version = 1;
+  }
+  if (version < 2) {
+    // v2: receipts ledger. Backfill an 'ack' receipt for every message the
+    // v1 boolean recorded as acknowledged, so the audit trail has no gap.
+    const receipts = (raw.receipts || {}) as Record<string, Receipt>;
+    const messages = (raw.messages || {}) as Record<string, Message>;
+    for (const msg of Object.values(messages)) {
+      if (msg.acknowledged) {
+        const key = `${msg.id}:${msg.to_agent_id}:ack`;
+        if (!receipts[key]) {
+          receipts[key] = {
+            message_id: msg.id,
+            agent_id: msg.to_agent_id,
+            action: "ack",
+            timestamp: msg.timestamp,
+            note: "backfilled_from_v1_acknowledged_flag",
+          };
+        }
+      }
+    }
+    raw.receipts = receipts;
+    raw.schema_version = 2;
+    version = 2;
   }
   return raw;
 }
@@ -441,6 +489,18 @@ export function sendMessage(
   const messageId = randomUUID();
   const data = loadData();
 
+  let recipients: string[] | undefined;
+  if (toAgentId === BROADCAST) {
+    recipients = Object.values(data.agents)
+      .filter((a) => a.fleet_id === fleetId && a.id !== fromAgentId)
+      .map((a) => a.id);
+    if (recipients.length === 0) {
+      throw new Error(
+        `Broadcast in fleet ${fleetId} has no recipients (no other agents registered)`
+      );
+    }
+  }
+
   const message: Message = {
     id: messageId,
     from_agent_id: fromAgentId,
@@ -451,13 +511,21 @@ export function sendMessage(
     correlation_id: correlationId,
     timestamp: Date.now(),
     acknowledged: false,
+    ...(recipients ? { recipients } : {}),
   };
 
   data.messages[messageId] = message;
-  if (!data.inboxes[toAgentId]) data.inboxes[toAgentId] = [];
-  data.inboxes[toAgentId].push(messageId);
+  for (const recipient of recipients ?? [toAgentId]) {
+    if (!data.inboxes[recipient]) data.inboxes[recipient] = [];
+    data.inboxes[recipient].push(messageId);
+  }
   saveData(data);
   return messageId;
+}
+
+/** The agents a message is addressed to (broadcasts resolve to their captured recipient list). */
+export function messageRecipients(msg: Message): string[] {
+  return msg.recipients ?? [msg.to_agent_id];
 }
 
 export function getInbox(agentId: string, since?: number): Message[] {
@@ -471,17 +539,69 @@ export function getInbox(agentId: string, since?: number): Message[] {
 }
 
 export function ackMessage(agentId: string, messageId: string): boolean {
+  return writeReceipt(agentId, messageId, "ack") !== null;
+}
+
+/**
+ * Write a receipt (v0.9 witnessed messaging). Idempotent per
+ * (message, agent, action). Returns the receipt, the existing receipt on a
+ * repeat call, or null if the message doesn't exist.
+ *
+ * action 'ack' consumes: removes the message from that agent's inbox and
+ * recomputes the message's derived `acknowledged` flag (true only when every
+ * addressed recipient has acked). Other actions annotate without consuming.
+ */
+export function writeReceipt(
+  agentId: string,
+  messageId: string,
+  action: string,
+  note?: string
+): Receipt | null {
   const data = loadData();
   const msg = data.messages[messageId];
-  if (!msg) return false;
-  msg.acknowledged = true;
-  if (data.inboxes[agentId]) {
-    data.inboxes[agentId] = data.inboxes[agentId].filter(
-      (id) => id !== messageId
+  if (!msg) return null;
+
+  if (!data.receipts) data.receipts = {};
+  const key = `${messageId}:${agentId}:${action}`;
+  const existing = data.receipts[key];
+  if (existing) return existing;
+
+  const receipt: Receipt = {
+    message_id: messageId,
+    agent_id: agentId,
+    action,
+    timestamp: Date.now(),
+    ...(note !== undefined ? { note } : {}),
+  };
+  data.receipts[key] = receipt;
+
+  if (action === "ack") {
+    if (data.inboxes[agentId]) {
+      data.inboxes[agentId] = data.inboxes[agentId].filter(
+        (id) => id !== messageId
+      );
+    }
+    msg.acknowledged = messageRecipients(msg).every(
+      (r) => data.receipts![`${messageId}:${r}:ack`] !== undefined
     );
   }
+
   saveData(data);
-  return true;
+  appendEvent("receipt_written", {
+    message_id: messageId,
+    agent_id: agentId,
+    action,
+    fleet_id: msg.fleet_id,
+  });
+  return receipt;
+}
+
+/** All receipts for a message, oldest first. */
+export function getReceipts(messageId: string): Receipt[] {
+  const data = loadData();
+  return Object.values(data.receipts ?? {})
+    .filter((r) => r.message_id === messageId)
+    .sort((a, b) => a.timestamp - b.timestamp || a.agent_id.localeCompare(b.agent_id));
 }
 
 // ---------------------------------------------------------------------------
