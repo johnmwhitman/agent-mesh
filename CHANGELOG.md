@@ -4,11 +4,7 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 
 ## [Unreleased]
 
-### Fixed
-- **CRITICAL: spawned children corrupted the parent's fleet state.** Every spawned agent's `opencode run` loads the user's MCP config — agent-mesh included — so each child booted a second server instance on the same ledger, whose liveness-blind startup recovery flipped the parent's healthy `running` agents to `interrupted` within ~2s of spawn (field data: 31/52 agents on the 2026-07-02 ledger; 0/2 trivial validation fleets completed). Two-part fix: (A) `recoverInterruptedAgents()` now probes liveness and only flips agents whose recorded pid is missing or dead (`isPidAlive`, `process.kill(pid,0)` + EPERM handling); (B) spawn env sets `AGENT_MESH_CHILD=1` and child-mode instances skip startup recovery, the ratification sweeper, and the SSE bind (which also collided on port 13579). Validation re-run after fix: 2/2 trivial agents complete in 6s each, fleet `complete`. + 2 regression tests (207 total).
-
 ### Planned
-- `npm publish` to the public registry
 - batch writes (the 3.8ms/msg bottleneck at 10k scale — see BENCHMARKS.md)
 - wire skill-taxonomy into route_work
 - wire synonyms into role/skill parsing
@@ -19,6 +15,10 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 
 ### Added
 - **Ratification deadline sweeper** — the server now evaluates every open ratification every `AGENT_MESH_RATIFY_SWEEP_MS` (default 60s, `0` disables) and persists terminal states, so deadlines and "silent = PASS" fire without anyone calling tally. Each resolution appends a `ratification_resolved` event (`via: "sweep"`). New `sweep_ratifications` tool for on-demand sweeps. + 1 test (205 total).
+- **Release-gate runner** (`scripts/validate-gates.mjs`) — spawns real `opencode run` children on an isolated ledger: 10 sequential fleets + 3 concurrent fleets, asserting zero interrupted agents ledger-wide. This is the test class that catches process-topology bugs unit tests can't.
+
+### Fixed
+- **CRITICAL: spawned children corrupted the parent's fleet state.** Every spawned agent's `opencode run` loads the user's MCP config — agent-mesh included — so each child booted a second server instance on the same ledger, whose liveness-blind startup recovery flipped the parent's healthy `running` agents to `interrupted` within ~2s of spawn (field data: 31/52 agents on the 2026-07-02 ledger; 0/2 trivial validation fleets completed). Two-part fix: (A) `recoverInterruptedAgents()` now probes liveness and only flips agents whose recorded pid is missing or dead (`isPidAlive`, `process.kill(pid,0)` + EPERM handling); (B) spawn env sets `AGENT_MESH_CHILD=1` and child-mode instances skip startup recovery, the ratification sweeper, and the SSE bind (which also collided on port 13579). Validation re-run after fix: 10/10 sequential + 3/3 concurrent real-spawn fleets green, zero interrupted. + 2 regression tests (207 total).
 
 ## [0.10.0] — 2026-07-03
 
