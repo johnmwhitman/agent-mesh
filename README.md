@@ -1,8 +1,8 @@
 # Agent Mesh — meshfleet.app
 
-> **Fleet-native agent orchestration for OpenCode.** Spawn parallel agents as independent OS processes. Route work to specialists. Let agents collaborate peer-to-peer. No timeouts. No markups. Open source.
+> **Auditable multi-agent coordination for OpenCode.** Spawn parallel agents as independent OS processes. Route work to specialists. Let agents collaborate peer-to-peer — with witnessed receipts and quorum ratification, so you can answer: *who saw this, who approved it, prove it.* The core is MIT and free.
 
-**Website**: [meshfleet.app](https://meshfleet.app) · **Version**: 0.8.4 · **Tests**: 159/159 passing · [CI](https://github.com/johnmwhitman/agent-mesh/actions)
+**Website**: [meshfleet.app](https://meshfleet.app) · **Version**: 0.11.0 · **Tests**: 207/207 passing · [CI](https://github.com/johnmwhitman/agent-mesh/actions)
 
 ---
 
@@ -23,6 +23,8 @@ const { fleet_id } = await callTool("spawn_fleet", {
 ```
 
 Three specialists. Three independent processes. They hand off, ask questions, alert on problems. You read the result.
+
+And when an agent's action matters, Meshfleet can prove what happened. Every message writes **per-recipient receipts** (delivered, seen, acked). Decisions can go through **councils** — quorum-based ratification with required sign-offs, recorded on the same ledger. The design is a port of a bus that ran a 10+ agent fleet in production for 40 days and 18,404 messages, including quorum-ratified decisions.
 
 ---
 
@@ -55,7 +57,7 @@ Restart OpenCode. Spawn a fleet. [Full install guide →](docs/install)
 
 ## The CLI
 
-Once Meshfleet is installed, the `agent-mesh` CLI gives you terminal visibility into your running fleets.
+Once Meshfleet is installed, the `agent-mesh` CLI gives you terminal visibility into your running fleets, and `agent-mesh-dashboard` gives you a live TUI.
 
 ```bash
 $ npx agent-mesh inspect
@@ -83,23 +85,48 @@ TIMESTAMP            EVENT              DETAIL
 
 ---
 
-## 10 MCP tools
+## 25 MCP tools
+
+**Fleets**
 
 | Tool | What it does |
 |---|---|
 | `spawn_fleet` | Spawn N parallel agents as independent OS processes |
-| `list_fleets` | List all fleets with status + agent counts |
-| `fleet_status` | Check one fleet's full state |
+| `spawn_from_template` | Spawn a fleet from a saved template |
+| `save_fleet_template` / `list_fleet_templates` | Reusable, versioned fleet configs |
+| `list_fleets` / `fleet_status` | All fleets, or one fleet's full state |
+| `collect_results` | Gather every agent's final output in one call |
 | `set_fleet_timeout` | Per-fleet timeout override (in ms) |
-| `send_message` | P2P message between agents (5 types) |
-| `get_inbox` | Agent polls for incoming messages |
-| `ack_message` | Acknowledge and remove a message from inbox |
-| `register_capability` | Self-describe role + skills for routing |
-| `route_work` | Match a task to the best agent by keyword + role overlap |
-| `list_agents` | Discover 100+ premade agent personalities |
 | `attach_agent` | Dynamically attach a premade agent to a running fleet |
 
-That's 11, not 10. The math is hard.
+**Messaging & receipts**
+
+| Tool | What it does |
+|---|---|
+| `send_message` | P2P message (5 types) — or `to_agent_id: "*"` to broadcast to the whole fleet |
+| `get_inbox` / `ack_message` | Poll and acknowledge; every ack writes a per-recipient receipt |
+| `subscribe_inbox` | Push delivery over SSE instead of polling |
+| `receipt` / `get_receipts` | Write and query the witnessed-delivery ledger: who saw what, when |
+
+**Councils (quorum ratification)**
+
+| Tool | What it does |
+|---|---|
+| `open_ratification` | Put a decision to the fleet: quorum size, deadline, required sign-offs |
+| `cast_vote` | An agent votes, on the record |
+| `tally_ratification` / `sweep_ratifications` | Resolve outcomes; expire past-deadline votes |
+
+**Routing & ops**
+
+| Tool | What it does |
+|---|---|
+| `register_capability` | Self-describe role + skills for routing |
+| `route_work` | Match a task to the best agent by keyword + role overlap |
+| `record_routing_outcome` | Feed results back to improve routing |
+| `list_agents` | Discover 100+ premade agent personalities |
+| `get_health` / `ping` | Fleet health and liveness |
+
+That's 25. We counted twice this time.
 
 [Full API reference →](docs/api)
 
@@ -115,15 +142,16 @@ That's 11, not 10. The math is hard.
 | `alert` | Broadcasting a problem to all fleet peers |
 | `request_help` | Escalating when stuck (target a specific peer with relevant skills) |
 
-64 KB payload cap. The default encoding is JSON, but payloads are strings — send whatever you want.
+64 KB payload cap. The default encoding is JSON, but payloads are strings — send whatever you want. Broadcasts (`to_agent_id: "*"`) fan out to every fleet peer, and each recipient acks independently — the receipts ledger shows exactly who saw it.
 
 ---
 
-## 3 collaboration patterns
+## 4 collaboration patterns
 
 - **Pipeline handoff**: A → B → C. Each specialist hands context to the next. No orchestrator in the loop.
 - **Debate consensus**: A and B review the same artifact, debate via questions, converge before reporting.
 - **Failure recovery**: C hits a blocker, broadcasts `alert`, peers with relevant skills respond with fixes.
+- **Ratified decision**: a council votes on a risky action — quorum, deadline, required sign-off — and the outcome (including who stayed silent) is on the ledger.
 
 [More use cases →](https://meshfleet.app/use-cases)
 
@@ -138,7 +166,9 @@ That's 11, not 10. The math is hard.
 | **CrewAI** | Role-based Python agents | Python-only, hosted |
 | **AutoGen** | Research projects | Heavy, Python-only |
 | **Hand-rolled cron** | Specific one-off workflows | No shared abstractions |
-| **Meshfleet** | OpenCode + multi-agent, local-first | TypeScript-only (for now) |
+| **Meshfleet** | OpenCode + multi-agent, local-first, auditable | TypeScript-only (for now) |
+
+None of them answer "who saw this, who approved it, prove it." That's the lane.
 
 [Full comparison →](https://meshfleet.app/comparison)
 
@@ -148,11 +178,17 @@ That's 11, not 10. The math is hard.
 
 ```
 src/
-├── core.ts          # Pure data layer: ledger, messages, capabilities, events
-├── inspector.ts     # Pure formatters for CLI output
-├── index.ts         # MCP server: transport + tool handlers
+├── core.ts              # Pure data layer: ledger, messages, receipts, capabilities, events
+├── ratify.ts            # Councils: quorum ratification over the receipts substrate
+├── templates.ts         # Versioned fleet templates
+├── routing-feedback.ts  # Outcome-informed work routing
+├── health.ts            # Fleet health scoring
+├── realtime.ts          # SSE push delivery (subscribe_inbox)
+├── inspector.ts         # Pure formatters for CLI output
+├── index.ts             # MCP server: transport + tool handlers
 └── bin/
-    └── inspect.ts   # CLI: npx agent-mesh inspect
+    ├── inspect.ts       # CLI: npx agent-mesh inspect
+    └── dashboard.ts     # Live TUI: npx agent-mesh-dashboard
 ```
 
 The data layer is the only place that reads/writes the JSON ledger. The MCP server imports it for tool handlers. The CLI imports it directly. Pure formatters live in `inspector.ts` — easy to test, no I/O.
@@ -173,7 +209,7 @@ The ledger lives at `~/.config/opencode/agent-mesh.json`. The event log at `~/.c
 
 ## License
 
-MIT. Use it, fork it, ship it in your product. No attribution beyond the license file.
+The core is MIT — use it, fork it, ship it in your product. No attribution beyond the license file. (A commercial assurance layer, [Meshfleet Pro](https://meshfleet.app/pro), lives in a separate repo and doesn't change what's here.)
 
 ---
 
