@@ -48,6 +48,18 @@ Sequential handoff via `send_message`. Agent A finishes, hands off to B, B hands
 
 After the first agent returns, your orchestrator reads the result and calls `send_message` to the next agent with the previous output as context.
 
+## [CI failure triage](ci-failure-triage.json)
+
+Three specialists process a CI failure: categorizer (regression / flaky / infrastructure / real bug), investigator (root cause + most likely file), fixer (minimal patch for the highest-confidence real bug). Piped sequentially — the fixer only runs if the categorizer flags a real bug.
+
+## [Doc generation](doc-generation.json)
+
+Three specialists generate docs for a module: doc reader (structured outline of the public API surface), doc writer (README based on the outline), doc reviewer (checks claims against the actual code and flags drift).
+
+## [Test generation](test-generation.json)
+
+Three specialists generate tests for a module: test reader (list of behaviors that should be covered), test writer (node:test cases for each behavior), coverage checker (runs the tests and reports gaps).
+
 ## [Load test](load-test.json)
 
 Spawn 10 short-running agents in parallel. Useful for verifying the retry + heartbeat machinery works at modest scale.
