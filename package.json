@@ -1,7 +1,7 @@
 {
   "name": "agent-mesh",
-  "version": "0.9.0",
-  "description": "Fleet-native agent orchestration for OpenCode \u2014 multi-agent layer with P2P messaging, retry, recovery, and capability routing. 192 tests.",
+  "version": "0.10.0",
+  "description": "Fleet-native agent orchestration for OpenCode \u2014 multi-agent layer with P2P messaging, retry, recovery, and capability routing. 204 tests.",
   "main": "dist/index.js",
   "type": "module",
   "bin": {
@@ -13,7 +13,8 @@
     "README.md",
     "LICENSE",
     "AGENT-MESH-SPEC.md",
-    "SPEC-P2P.md"
+    "SPEC-P2P.md",
+    "SPEC-COUNCILS.md"
   ],
   "scripts": {
     "build": "tsc",

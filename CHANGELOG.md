@@ -10,7 +10,12 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 - wire skill-taxonomy into route_work
 - wire synonyms into role/skill parsing
 - per-version fixture tests for COMPATIBILITY.md
-- quorum ratification helpers over receipts (R-ASK deadline + floor(n/2)+1 tally)
+- scheduled deadline sweeper for open ratifications
+
+## [0.10.0] — 2026-07-03
+
+### Added
+- **Councils — quorum ratification** (see SPEC-COUNCILS.md). New tools `open_ratification`, `cast_vote`, `tally_ratification` let a fleet ratify a proposal by vote, entirely over the v0.9 receipts substrate (votes are `r-ack`/`r-decline` receipts on a broadcast proposal). Supports a quorum threshold, mandatory named sign-offs (a decision can require a specific agent's approval regardless of quorum), an optional SLA deadline, and a silence policy (`abstain` default, or `approve` for "silent = PASS"). Terminal status (ratified / rejected / expired) is computed live and persisted once reached; unreachable-quorum and required-signoff-declined both short-circuit to rejected. Design generalized from a production governance framework (6/9 councils with a human sign-off lane). + 12 new tests (204 total). New `src/ratify.ts`; `MeshData` gained an optional `ratifications` collection (additive, no migration needed).
 
 ## [0.9.0] — 2026-07-03
 

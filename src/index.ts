@@ -39,6 +39,12 @@ import {
   spawnFromTemplate as spawnFromTemplateFn,
   type TemplateAgent,
 } from "./templates.js";
+import {
+  openRatification,
+  castVote,
+  tallyRatification,
+  resolveRatification,
+} from "./ratify.js";
 import { notifySubscribers } from "./realtime.js";
 import { startSseServer, stopSseServer, subscribeInboxUrl } from "./sse-server.js";
 import { createHeartbeat } from "./heartbeat.js";
@@ -330,6 +336,53 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       name: "get_receipts",
       description:
         "Get the full receipt trail for a message: who acked, who annotated, when. Answers 'who saw this and who acted on it'.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          message_id: { type: "string" },
+        },
+        required: ["message_id"],
+      },
+    },
+    {
+      name: "open_ratification",
+      description:
+        "Open a quorum vote ('council') over the fleet. Broadcasts a proposal; peers vote with cast_vote. Ratifies when approvals reach the quorum and every required signoff approves. Returns the proposal message_id.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          proposer: { type: "string" },
+          fleet_id: { type: "string" },
+          subject: { type: "string" },
+          payload: { type: "string", description: "Full proposal text (defaults to subject)" },
+          quorum: { type: "number", description: "Approvals required to ratify" },
+          voters: { type: "array", items: { type: "string" }, description: "Eligible voters; defaults to every other agent in the fleet" },
+          required_signoffs: { type: "array", items: { type: "string" }, description: "Agents whose approval is mandatory regardless of quorum (e.g. a T5 authority)" },
+          deadline: { type: "number", description: "Epoch ms; after it, silence_policy applies" },
+          silence_policy: { type: "string", enum: ["abstain", "approve"], description: "How non-voters count once the deadline passes (default abstain)" },
+        },
+        required: ["proposer", "fleet_id", "subject", "quorum"],
+      },
+    },
+    {
+      name: "cast_vote",
+      description:
+        "Cast a vote on an open ratification. approve=true writes an r-ack receipt, approve=false an r-decline. Idempotent per voter.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent_id: { type: "string" },
+          message_id: { type: "string" },
+          approve: { type: "boolean" },
+          note: { type: "string" },
+        },
+        required: ["agent_id", "message_id", "approve"],
+      },
+    },
+    {
+      name: "tally_ratification",
+      description:
+        "Read the live vote tally and current status (open / ratified / rejected / expired) of a ratification, and persist the status if it has reached a terminal state.",
       inputSchema: {
         type: "object",
         properties: {
@@ -652,6 +705,59 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
   if (name === "get_receipts") {
     const { message_id } = args as { message_id: string };
     return jsonResult({ receipts: getReceipts(message_id) });
+  }
+
+  if (name === "open_ratification") {
+    const a = args as {
+      proposer: string;
+      fleet_id: string;
+      subject: string;
+      payload?: string;
+      quorum: number;
+      voters?: string[];
+      required_signoffs?: string[];
+      deadline?: number;
+      silence_policy?: "abstain" | "approve";
+    };
+    try {
+      const messageId = openRatification({
+        proposer: a.proposer,
+        fleetId: a.fleet_id,
+        subject: a.subject,
+        payload: a.payload,
+        quorum: a.quorum,
+        voters: a.voters,
+        requiredSignoffs: a.required_signoffs,
+        deadline: a.deadline,
+        silencePolicy: a.silence_policy,
+      });
+      return jsonResult({ message_id: messageId, tally: tallyRatification(messageId) });
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  if (name === "cast_vote") {
+    const { agent_id, message_id, approve, note } = args as {
+      agent_id: string;
+      message_id: string;
+      approve: boolean;
+      note?: string;
+    };
+    try {
+      const ok = castVote(agent_id, message_id, approve, note);
+      if (!ok) return jsonError(`No such ratification: ${message_id}`);
+      return jsonResult({ ok, status: resolveRatification(message_id), tally: tallyRatification(message_id) });
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  if (name === "tally_ratification") {
+    const { message_id } = args as { message_id: string };
+    const status = resolveRatification(message_id);
+    if (status === null) return jsonError(`No such ratification: ${message_id}`);
+    return jsonResult({ status, tally: tallyRatification(message_id) });
   }
 
   if (name === "register_capability") {

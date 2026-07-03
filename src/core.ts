@@ -94,6 +94,30 @@ export interface MeshData {
   capabilities: Record<string, Capability>;
   /** Keyed `${message_id}:${agent_id}:${action}` — the key is the idempotency guarantee. Optional for pre-v2 ledgers; lazily initialized. */
   receipts?: Record<string, Receipt>;
+  /** Keyed by the proposal message id. Optional; lazily initialized. See ratify.ts. */
+  ratifications?: Record<string, Ratification>;
+}
+
+/**
+ * A ratification is a quorum vote over the receipts substrate (v0.10 "councils").
+ * The proposal is a broadcast message; votes are `r-ack` (approve) / `r-decline`
+ * (reject) receipts on it. Generalized from the HOOL fleet's council doctrine:
+ * quorum threshold (their 6/9), mandatory named sign-offs (their T5), an SLA
+ * deadline, and a "silence = approve" default for peers who don't respond in time.
+ */
+export interface Ratification {
+  message_id: string; // the proposal (a broadcast message)
+  proposer: string;
+  fleet_id: string;
+  subject: string;
+  quorum: number; // approvals required to ratify
+  voters: string[]; // eligible voters, resolved at open time
+  required_signoffs: string[]; // agents whose approval is mandatory regardless of quorum
+  opened_at: number;
+  deadline?: number; // epoch ms; undefined = stays open until resolved
+  silence_policy: "abstain" | "approve"; // how non-voters count once the deadline passes
+  status: "open" | "ratified" | "rejected" | "expired";
+  resolved_at?: number;
 }
 
 export const CURRENT_SCHEMA_VERSION = 2;
@@ -126,6 +150,7 @@ const EMPTY_DATA: MeshData = {
   inboxes: {},
   capabilities: {},
   receipts: {},
+  ratifications: {},
 };
 
 let dataDir = DEFAULT_DATA_DIR;
@@ -183,6 +208,7 @@ export function loadDataFromFile(file: string): MeshData {
       inboxes: (migrated.inboxes || {}) as Record<string, string[]>,
       capabilities: (migrated.capabilities || {}) as Record<string, Capability>,
       receipts: (migrated.receipts || {}) as Record<string, Receipt>,
+      ratifications: (migrated.ratifications || {}) as Record<string, Ratification>,
     };
   } catch (err) {
     console.error(`Agent Mesh: ledger corrupted at ${file}, resetting. Error: ${err}`);
