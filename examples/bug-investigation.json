@@ -1,0 +1,8 @@
+{
+  "agents": [
+    { "role": "Bug reproducer", "prompt": "Read the bug report and the relevant code paths. Write a minimal failing test that reproduces the bug. Commit the failing test BEFORE fixing the bug", "agent": "qa-engineer" },
+    { "role": "Root cause investigator", "prompt": "Use git blame, the codebase history, and code analysis to find the original commit that introduced the bug. Identify the root cause (not just the symptom)", "agent": "backend-architect" },
+    { "role": "Fix applier", "prompt": "Write the minimal fix that addresses the root cause. The failing test from step 1 should now pass. Add a regression test if the original fix didn't include one", "agent": "backend-developer" },
+    { "role": "Postmortem writer", "prompt": "Write a brief postmortem: what was the bug, what was the root cause, why did it slip through, what process change would have caught it earlier. Keep it blameless and focused on systemic improvement", "agent": "code-reviewer" }
+  ]
+}

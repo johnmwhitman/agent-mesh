@@ -60,6 +60,18 @@ Three specialists generate docs for a module: doc reader (structured outline of 
 
 Three specialists generate tests for a module: test reader (list of behaviors that should be covered), test writer (node:test cases for each behavior), coverage checker (runs the tests and reports gaps).
 
+## [Security audit](security-audit.json)
+
+Four specialists run a security review: threat modeler (trust boundaries, input vectors), vulnerability scanner (common vuln patterns), severity rater (CVSS-style), fix recommender (minimal patches). Pipeline runs sequentially; output is a structured finding list.
+
+## [Refactor](refactor.json)
+
+Four specialists run a code-health pass: smell detector (long functions, deep nesting, duplication), pattern proposer (extract method, parameter object, etc.), risk assessor (rates proposed refactors by reversibility and scope), refactor executor (applies low-risk ones one at a time).
+
+## [Bug investigation](bug-investigation.json)
+
+Four specialists run a structured bug fix: bug reproducer (failing test first), root cause investigator (git blame + code analysis), fix applier (minimal fix), postmortem writer (blameless retrospective on what process change would catch this earlier).
+
 ## [Load test](load-test.json)
 
 Spawn 10 short-running agents in parallel. Useful for verifying the retry + heartbeat machinery works at modest scale.

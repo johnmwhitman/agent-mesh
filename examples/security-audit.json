@@ -1,0 +1,8 @@
+{
+  "agents": [
+    { "role": "Threat modeler", "prompt": "Read the module under src/ and identify trust boundaries, input vectors, and any code that handles secrets, network, file I/O, or subprocess execution", "agent": "security-auditor" },
+    { "role": "Vulnerability scanner", "prompt": "Look for common vulnerability patterns: SQL injection, XSS, path traversal, SSRF, command injection, insecure deserialization, hardcoded secrets, missing input validation, missing auth checks", "agent": "security-auditor" },
+    { "role": "Severity rater", "prompt": "For each finding, rate severity (critical / high / medium / low / info) using CVSS-style criteria: exploitability, impact, attack vector, auth required", "agent": "security-auditor" },
+    { "role": "Fix recommender", "prompt": "For each medium-or-higher finding, propose a minimal patch. Prefer existing patterns from the codebase over introducing new dependencies", "agent": "backend-developer" }
+  ]
+}

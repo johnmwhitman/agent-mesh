@@ -1,0 +1,8 @@
+{
+  "agents": [
+    { "role": "Smell detector", "prompt": "Read the module under src/ and identify code smells: long functions (>50 lines), deep nesting (>3 levels), duplicate code, god objects, feature envy, primitive obsession, magic numbers, long parameter lists", "agent": "code-reviewer" },
+    { "role": "Pattern proposer", "prompt": "For each smell, propose a refactor pattern: extract method/class, replace conditional with polymorphism, replace magic numbers with named constants, introduce parameter object, etc.", "agent": "backend-architect" },
+    { "role": "Risk assessor", "prompt": "For each proposed refactor, assess the risk (low / medium / high) based on: scope of change, test coverage, public API impact, and how reversible it is. Prefer low-risk refactors", "agent": "code-reviewer" },
+    { "role": "Refactor executor", "prompt": "Apply the low-risk refactors from the risk assessment, one at a time, with a clear commit message. Keep the public API unchanged", "agent": "backend-developer" }
+  ]
+}
