@@ -2,14 +2,12 @@
 
 ## Supported versions
 
-| Version | Supported          |
-|---------|--------------------|
-| 0.3.x   | :white_check_mark: |
-| 0.2.x   | :white_check_mark: |
-| 0.1.x   | :x:                |
-| < 0.1   | :x:                |
+| Version  | Supported          |
+|----------|--------------------|
+| 0.11.x   | :white_check_mark: |
+| < 0.11   | :x:                |
 
-Security fixes are backported to the latest minor version. Older versions are not patched.
+Security fixes land on the latest minor version (`meshfleet` on npm). Older versions are not patched.
 
 ## Reporting a vulnerability
 
@@ -36,7 +34,6 @@ We aim to acknowledge within 48 hours and ship a fix within 7 days for critical 
 
 - Local-only code execution (this is an MCP server that spawns `opencode run` — by design it runs code on your machine)
 - Lack of authentication (the mesh assumes a trusted local environment; the MCP transport is the trust boundary)
-- The `meshfleet.app` domain being purchased by someone other than us (we don't own it yet)
 
 ## Out of scope
 

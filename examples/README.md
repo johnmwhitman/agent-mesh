@@ -2,6 +2,23 @@
 
 Working fleet configs you can drop into `spawn_fleet` or save as templates.
 
+## [Receipted fleet — the full loop, runnable](receipted-fleet.mjs)
+
+The whole point of Meshfleet in one script: `spawn_fleet` → real agent work →
+`get_receipts` → `open_ratification` → `cast_vote` → `tally_ratification`.
+Three reviewers independently judge the same API-change proposal, each emits a
+machine-readable verdict, and a council ratifies the call — with every message,
+delivery receipt, and vote left as a queryable row in the ledger file. When it
+finishes you can answer *who saw what, who approved it* from the record.
+
+```bash
+npm run build && node examples/receipted-fleet.mjs
+# output + ledger land in ./out-receipted-fleet/
+```
+
+Self-contained (the subject is an inline proposal) — swap the `PROPOSAL` text
+and agent prompts for your real work.
+
 ## [Code review trio](code-review-trio.json)
 
 Three specialists, one job: review a PR. Explorer maps the diff, analyst flags risks, engineer drafts a fix.
