@@ -120,8 +120,8 @@ for (;;) {
   await sleep(10000);
 }
 
-// --------------------------------------------- 3. receipts + parsed verdicts
-step("get_receipts — who saw what, from the record");
+// -------------------------------------------------------- 3. parsed verdicts
+step("collect each agent's verdict from its output");
 const verdicts = {};
 for (const [i, a] of final.entries()) {
   const id = agentIds[i];
@@ -132,8 +132,6 @@ for (const [i, a] of final.entries()) {
     ? { approve: /APPROVE/i.test(m[1]), note: m[2].slice(0, 200) }
     : { approve: false, note: "no VERDICT line found — treated as reject" };
   console.log(`  ${agents[i].role}: ${verdicts[id].approve ? "APPROVE" : "REJECT"} — ${verdicts[id].note}`);
-  const receipts = await call("get_receipts", { agent_id: id });
-  console.log(`  receipts: ${JSON.stringify(receipts).slice(0, 120)}`);
 }
 
 // -------------------------------------------------- 4. council ratification
@@ -161,6 +159,12 @@ for (const id of agentIds) {
 step("tally_ratification");
 const tally = await call("tally_ratification", { message_id: proposalId });
 console.log(JSON.stringify(tally, null, 2));
+
+// Receipts attach to MESSAGES (get_receipts takes message_id, not agent_id).
+// The proposal's trail is the interesting record: every vote is a receipt row.
+step("get_receipts on the proposal — who saw it, who acted, from the record");
+const trail = await call("get_receipts", { message_id: proposalId });
+console.log(JSON.stringify(trail, null, 2));
 
 console.log(`\nDone. The ledger at ${LEDGER} is the receipt:`);
 console.log("  every message, delivery receipt, and vote above is a queryable row in it.");
