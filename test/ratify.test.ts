@@ -280,3 +280,54 @@ test("castVote / tally / getRatification return null for unknown proposal", () =
     l.cleanup();
   }
 });
+
+// --- Regression: real-raid-01 vote-polarity incident (2026-07) -------------
+// Agents answered "REVISE-NEEDED" and the relay mapped that to approve=false,
+// inverting every vote's meaning against the subject-as-stated. Recovery
+// depended on two core behaviors that were never pinned by tests until now.
+
+test("polarity recovery: re-cast vote wins, an agent is never double-counted", () => {
+  const l = freshLedger();
+  try {
+    const peers = fleet(3);
+    const mid = openRatification({ proposer: "proposer", fleetId: "f1", subject: "revise the copy", quorum: 2 });
+    // The inverted relay: everyone 'declines' the subject they actually agree with.
+    for (const p of peers) castVote(p, mid, false);
+    assert.equal(tallyRatification(mid)!.status, "rejected", "unanimous declines read as rejected");
+    // Corrected relay re-casts the true polarity while the ratification is still open.
+    for (const p of peers) castVote(p, mid, true);
+    const t = tallyRatification(mid)!;
+    // Latest vote wins; both receipt rows exist, but each agent lands in exactly one bucket.
+    assert.equal(t.status, "ratified");
+    assert.deepEqual(t.declines, []);
+    assert.equal(t.approvals.length, 3);
+    assert.equal(
+      t.approvals.length + t.declines.length + t.pending.length,
+      3,
+      "buckets must partition the voter set — no double-counting from paired r-ack/r-decline rows"
+    );
+    for (const p of peers) {
+      assert.ok(!(t.approvals.includes(p) && t.declines.includes(p)), `${p} in both buckets`);
+    }
+  } finally {
+    l.cleanup();
+  }
+});
+
+test("polarity recovery: a RESOLVED ratification is sticky — re-votes cannot flip it", () => {
+  const l = freshLedger();
+  try {
+    const peers = fleet(3);
+    const mid = openRatification({ proposer: "proposer", fleetId: "f1", subject: "revise the copy", quorum: 2 });
+    for (const p of peers) castVote(p, mid, false);
+    assert.equal(resolveRatification(mid), "rejected", "terminal status persisted");
+    // Corrected votes arrive too late: terminal status must hold.
+    for (const p of peers) castVote(p, mid, true);
+    assert.equal(tallyRatification(mid)!.status, "rejected", "terminal status is immutable");
+    assert.equal(getRatification(mid)!.status, "rejected");
+    // This is why real-raid-01's fix script opened a FRESH ratification: after
+    // resolution, the only honest correction is a new proposal on the record.
+  } finally {
+    l.cleanup();
+  }
+});

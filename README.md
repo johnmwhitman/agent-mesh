@@ -2,7 +2,21 @@
 
 > **Auditable multi-agent coordination for OpenCode.** Spawn parallel agents as independent OS processes. Route work to specialists. Let agents collaborate peer-to-peer — with witnessed receipts and quorum ratification, so you can answer: *who saw this, who approved it, prove it.* The core is MIT and free.
 
-**Website**: [meshfleet.app](https://meshfleet.app) · **Version**: 0.11.1 · **Tests**: 207/207 passing · [CI](https://github.com/johnmwhitman/agent-mesh/actions)
+**Website**: [meshfleet.app](https://meshfleet.app) · **Version**: 0.11.1 · **Tests**: 209/209 passing · [CI](https://github.com/johnmwhitman/agent-mesh/actions)
+
+> **Project status — deliberately pre-1.0, actively maintained.** Releases are intentionally
+> infrequent (we cut versions when something is worth shipping, not on a calendar); the repo
+> carries a monthly maintenance heartbeat and issues get a first response within 48 hours.
+>
+> **The boundary, as a covenant:** the mechanisms are free and stay free — coordination,
+> receipts, councils, and the ability to *run* verification are MIT, forever. Cryptographic
+> **signing** and auditor-grade attestation are the paid layer ([meshfleet-pro](https://meshfleet.app/pro));
+> signatures never enter this core. The developer's question (*what happened?*) is answered
+> here; the auditor's question (*could anyone have changed this?*) is what you pay for.
+>
+> **Host portability:** this is an agent audit trail, **OpenCode first** — not an
+> OpenCode-only idea. The core is a standard MCP server; broader host support tracks
+> real demand.
 
 ---
 
