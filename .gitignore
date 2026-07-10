@@ -6,4 +6,5 @@ dist/
 !jest.config.js
 !jest.config.ts
 agent-mesh.json
-.omo/out-receipted-fleet/
+.omo/
+out-receipted-fleet/
