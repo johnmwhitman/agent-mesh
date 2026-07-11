@@ -96,6 +96,13 @@ export interface MeshData {
   receipts?: Record<string, Receipt>;
   /** Keyed by the proposal message id. Optional; lazily initialized. See ratify.ts. */
   ratifications?: Record<string, Ratification>;
+  /**
+   * Named fleet templates (see templates.ts), keyed `${name}@v${version}`. Carried
+   * as an opaque record so core stays decoupled from the template types. MUST be in
+   * loadDataFromFile's whitelist below — omitting it silently drops templates on a
+   * real-file load (the v0.11 data-loss bug), then the next core saveData wipes them.
+   */
+  templates?: Record<string, unknown>;
 }
 
 /**
@@ -151,6 +158,7 @@ const EMPTY_DATA: MeshData = {
   capabilities: {},
   receipts: {},
   ratifications: {},
+  templates: {},
 };
 
 let dataDir = DEFAULT_DATA_DIR;
@@ -209,6 +217,7 @@ export function loadDataFromFile(file: string): MeshData {
       capabilities: (migrated.capabilities || {}) as Record<string, Capability>,
       receipts: (migrated.receipts || {}) as Record<string, Receipt>,
       ratifications: (migrated.ratifications || {}) as Record<string, Ratification>,
+      templates: (migrated.templates || {}) as Record<string, unknown>,
     };
   } catch (err) {
     // Corrupt ledger: QUARANTINE the bad file (preserve it for recovery) and fail
