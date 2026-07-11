@@ -3,7 +3,8 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync, readFileSync, existsSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { setLedgerOverride, loadData, saveData } from '../src/core.js'
+import { loadData, saveData } from '../src/core.js'
+import { withTempDb } from './helpers/with-temp-db.js'
 import {
   saveFleetTemplate,
   exportFleetTemplate,
@@ -11,25 +12,7 @@ import {
 } from '../src/templates.js'
 
 function freshLedger(): { cleanup: () => void } {
-  const dir = mkdtempSync(join(tmpdir(), 'meshfleet-tplshare-'))
-  let memory: any = {
-    fleets: {},
-    agents: {},
-    messages: {},
-    inboxes: {},
-    capabilities: {},
-    templates: {},
-  }
-  setLedgerOverride(
-    () => JSON.parse(JSON.stringify(memory)),
-    (data) => { memory = data }
-  )
-  return {
-    cleanup: () => {
-      setLedgerOverride(null, null)
-      try { rmSync(dir, { recursive: true, force: true }) } catch {}
-    },
-  }
+  return withTempDb()
 }
 
 test('export: writes portable JSON to file', () => {

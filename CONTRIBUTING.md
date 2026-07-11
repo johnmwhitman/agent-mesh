@@ -66,7 +66,7 @@ npm run inspect    # run the CLI inspector against your real ledger
 - **ESM only.** This package is `"type": "module"`. Use `.js` extensions in imports.
 - **Pure data layer in `src/core.ts`.** MCP transport in `src/index.ts`. CLI tools in `src/bin/`. Keep them separate so the data layer can be unit-tested without spinning up an MCP server.
 - **Pure formatting in `src/inspector.ts`.** No I/O, no side effects — easy to test.
-- **No external dependencies without discussion.** The current dependency footprint is intentionally small (one runtime dep: `@modelcontextprotocol/sdk`).
+- **Deliberate dependency selection.** _(The old "no external dependencies" rule is **RETIRED** — John, 2026-07-10. It was justified for a "single MCP server process" that turned out to be multi-process, and it was forcing us to hand-roll correctness-critical infrastructure — a bigger risk than a vetted dependency.)_ Add a well-maintained, widely-used dependency when it solves a **hard or correctness-critical** problem you'd otherwise get wrong (locking, crypto, parsing); don't add one for a few lines you can own and audit (the left-pad trap). This is an **audit product** — prefer dependencies that are minimal-transitive, widely-vetted, and pinned/reviewed.
 - **Update specs** when you change architecture. `AGENT-MESH-SPEC.md` and `SPEC-P2P.md` are the source of truth.
 
 ## Reporting issues

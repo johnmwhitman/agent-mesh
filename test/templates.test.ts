@@ -1,8 +1,5 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 
 import {
   saveFleetTemplate,
@@ -13,35 +10,15 @@ import {
   type FleetTemplate,
   type TemplateAgent,
 } from '../src/templates.js'
-import { setLedgerOverride, listFleets } from '../src/core.js'
+import { listFleets } from '../src/core.js'
+import { withTempDb } from './helpers/with-temp-db.js'
 
 // ---------------------------------------------------------------------------
 // Test isolation
 // ---------------------------------------------------------------------------
 
-function freshLedger() {
-  const dir = mkdtempSync(join(tmpdir(), 'meshfleet-templates-'))
-  let memory: any = {
-    fleets: {},
-    agents: {},
-    messages: {},
-    inboxes: {},
-    capabilities: {},
-    templates: {},
-  }
-  setLedgerOverride(
-    () => JSON.parse(JSON.stringify(memory)),
-    (data) => { memory = data }
-  )
-  return {
-    dir,
-    cleanup: () => {
-      setLedgerOverride(null, null)
-      try {
-        rmSync(dir, { recursive: true, force: true })
-      } catch {}
-    },
-  }
+function freshLedger(): { cleanup: () => void } {
+  return withTempDb()
 }
 
 const sampleAgents: TemplateAgent[] = [

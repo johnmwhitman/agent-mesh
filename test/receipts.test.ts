@@ -14,33 +14,10 @@ import {
   messageRecipients,
   registerAgentInLedger,
   sendMessage,
-  setLedgerOverride,
   writeReceipt,
   type Agent,
-  type MeshData,
 } from "../src/core.js";
-
-// ---------------------------------------------------------------------------
-// Test isolation: every test gets a fresh in-memory ledger
-// ---------------------------------------------------------------------------
-
-function freshLedger(): { cleanup: () => void } {
-  let memory: MeshData = {
-    fleets: {},
-    agents: {},
-    messages: {},
-    inboxes: {},
-    capabilities: {},
-    receipts: {},
-  };
-  setLedgerOverride(
-    () => JSON.parse(JSON.stringify(memory)),
-    (data) => {
-      memory = data;
-    }
-  );
-  return { cleanup: () => setLedgerOverride(null, null) };
-}
+import { withTempDb } from "./helpers/with-temp-db.js";
 
 function agent(id: string, fleetId: string): Agent {
   return { id, fleet_id: fleetId, role: "worker", prompt: "p", status: "running" };
@@ -51,9 +28,9 @@ function agent(id: string, fleetId: string): Agent {
 // ---------------------------------------------------------------------------
 
 test("ack writes a timestamped receipt", () => {
-  const l = freshLedger();
+  const l = withTempDb();
   try {
-    const msgId = sendMessage("a1", "a2", "f1", "handoff", "x");
+    const { messageId: msgId } = sendMessage("a1", "a2", "f1", "handoff", "x");
     assert.equal(ackMessage("a2", msgId), true);
     const receipts = getReceipts(msgId);
     assert.equal(receipts.length, 1);
@@ -66,9 +43,9 @@ test("ack writes a timestamped receipt", () => {
 });
 
 test("double ack is idempotent: one receipt", () => {
-  const l = freshLedger();
+  const l = withTempDb();
   try {
-    const msgId = sendMessage("a1", "a2", "f1", "handoff", "x");
+    const { messageId: msgId } = sendMessage("a1", "a2", "f1", "handoff", "x");
     ackMessage("a2", msgId);
     ackMessage("a2", msgId);
     assert.equal(getReceipts(msgId).length, 1);
@@ -78,7 +55,7 @@ test("double ack is idempotent: one receipt", () => {
 });
 
 test("ack of unknown message returns false", () => {
-  const l = freshLedger();
+  const l = withTempDb();
   try {
     assert.equal(ackMessage("a2", "nope"), false);
     assert.equal(writeReceipt("a2", "nope", "seen"), null);
@@ -88,9 +65,9 @@ test("ack of unknown message returns false", () => {
 });
 
 test("direct message: acknowledged flag set by recipient ack", () => {
-  const l = freshLedger();
+  const l = withTempDb();
   try {
-    const msgId = sendMessage("a1", "a2", "f1", "handoff", "x");
+    const { messageId: msgId } = sendMessage("a1", "a2", "f1", "handoff", "x");
     ackMessage("a2", msgId);
     assert.equal(loadData().messages[msgId].acknowledged, true);
     assert.equal(getInbox("a2").length, 0);
@@ -104,9 +81,9 @@ test("direct message: acknowledged flag set by recipient ack", () => {
 // ---------------------------------------------------------------------------
 
 test("non-ack receipt annotates without consuming", () => {
-  const l = freshLedger();
+  const l = withTempDb();
   try {
-    const msgId = sendMessage("a1", "a2", "f1", "question", "ratify?");
+    const { messageId: msgId } = sendMessage("a1", "a2", "f1", "question", "ratify?");
     const r = writeReceipt("a2", msgId, "r-ack", "approved");
     assert.ok(r);
     assert.equal(r.note, "approved");
@@ -118,9 +95,9 @@ test("non-ack receipt annotates without consuming", () => {
 });
 
 test("same agent can hold multiple receipt actions on one message", () => {
-  const l = freshLedger();
+  const l = withTempDb();
   try {
-    const msgId = sendMessage("a1", "a2", "f1", "handoff", "x");
+    const { messageId: msgId } = sendMessage("a1", "a2", "f1", "handoff", "x");
     writeReceipt("a2", msgId, "seen");
     ackMessage("a2", msgId);
     const actions = getReceipts(msgId).map((r) => r.action).sort();
@@ -135,13 +112,13 @@ test("same agent can hold multiple receipt actions on one message", () => {
 // ---------------------------------------------------------------------------
 
 test("broadcast delivers to every other fleet agent", () => {
-  const l = freshLedger();
+  const l = withTempDb();
   try {
     registerAgentInLedger(agent("a1", "f1"));
     registerAgentInLedger(agent("a2", "f1"));
     registerAgentInLedger(agent("a3", "f1"));
     registerAgentInLedger(agent("b1", "f2")); // other fleet, excluded
-    const msgId = sendMessage("a1", BROADCAST, "f1", "alert", "fleet notice");
+    const { messageId: msgId } = sendMessage("a1", BROADCAST, "f1", "alert", "fleet notice");
     const msg = loadData().messages[msgId];
     assert.deepEqual(messageRecipients(msg).sort(), ["a2", "a3"]);
     assert.equal(getInbox("a2").length, 1);
@@ -154,12 +131,12 @@ test("broadcast delivers to every other fleet agent", () => {
 });
 
 test("broadcast acknowledged only when ALL recipients ack", () => {
-  const l = freshLedger();
+  const l = withTempDb();
   try {
     registerAgentInLedger(agent("a1", "f1"));
     registerAgentInLedger(agent("a2", "f1"));
     registerAgentInLedger(agent("a3", "f1"));
-    const msgId = sendMessage("a1", BROADCAST, "f1", "alert", "x");
+    const { messageId: msgId } = sendMessage("a1", BROADCAST, "f1", "alert", "x");
     ackMessage("a2", msgId);
     assert.equal(loadData().messages[msgId].acknowledged, false, "one ack is not enough");
     assert.equal(getInbox("a3").length, 1, "a3 still has it");
@@ -172,7 +149,7 @@ test("broadcast acknowledged only when ALL recipients ack", () => {
 });
 
 test("broadcast with no other agents throws", () => {
-  const l = freshLedger();
+  const l = withTempDb();
   try {
     registerAgentInLedger(agent("a1", "f1"));
     assert.throws(() => sendMessage("a1", BROADCAST, "f1", "alert", "x"), /no recipients/);
@@ -234,9 +211,9 @@ test("v1 ledger migration backfills receipts for acknowledged messages", () => {
 });
 
 test("receipts survive a save/load round-trip through the ledger", () => {
-  const l = freshLedger();
+  const l = withTempDb();
   try {
-    const msgId = sendMessage("a1", "a2", "f1", "handoff", "x");
+    const { messageId: msgId } = sendMessage("a1", "a2", "f1", "handoff", "x");
     writeReceipt("a2", msgId, "seen");
     ackMessage("a2", msgId);
     // loadData round-trips through JSON in the override; receipts must persist

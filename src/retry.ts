@@ -12,6 +12,8 @@
  * - We deliberately do NOT retry clean exits (code 0). Those are successes.
  */
 
+import { resolveEnv } from "./env.js";
+
 export const DEFAULT_MAX_ATTEMPTS = 3;
 export const DEFAULT_BASE_MS = 1000;
 
@@ -28,7 +30,7 @@ let config: RetryConfig = {
 };
 
 function readEnv(): void {
-  const envBase = Number(process.env.AGENT_MESH_RETRY_BASE_MS);
+  const envBase = Number(resolveEnv(process.env, "MESHFLEET_RETRY_BASE_MS", "AGENT_MESH_RETRY_BASE_MS"));
   if (Number.isFinite(envBase) && envBase > 0) {
     config.baseMs = envBase;
   }

@@ -1,8 +1,5 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 
 import {
   formatFleetSummary,
@@ -17,37 +14,15 @@ import {
   loadData,
   registerAgentInLedger,
   saveData,
-  setLedgerOverride,
 } from '../src/core.js'
+import { withTempDb } from './helpers/with-temp-db.js'
 
 // ---------------------------------------------------------------------------
 // Test isolation: in-memory ledger
 // ---------------------------------------------------------------------------
 
-function freshLedger() {
-  const dir = mkdtempSync(join(tmpdir(), 'meshfleet-inspector-'))
-  let memory: any = {
-    fleets: {},
-    agents: {},
-    messages: {},
-    inboxes: {},
-    capabilities: {},
-  }
-  setLedgerOverride(
-    () => JSON.parse(JSON.stringify(memory)),
-    (data) => { memory = data }
-  )
-  return {
-    dir,
-    cleanup: () => {
-      setLedgerOverride(null, null)
-      try {
-        rmSync(dir, { recursive: true, force: true })
-      } catch {
-        // best-effort
-      }
-    },
-  }
+function freshLedger(): { cleanup: () => void } {
+  return withTempDb()
 }
 
 // ---------------------------------------------------------------------------

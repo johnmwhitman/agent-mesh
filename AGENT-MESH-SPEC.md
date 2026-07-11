@@ -70,7 +70,7 @@ The result: orchestrators cannot reliably delegate to specialist agents without 
 
 - **File**: `~/.config/opencode/agent-mesh.json`
 - **Format**: `{ fleets, agents, messages, inboxes, capabilities }`
-- **Why JSON, not SQLite**: Zero native dependencies, works in restricted environments, human-readable for debugging. Tradeoff: no concurrent writes (acceptable — single MCP server process).
+- **Storage**: JSON file today (human-readable, debuggable, portable). ⚠️ **The original rationale — "single MCP server process → no concurrent writes (acceptable)" — is FALSE.** The runtime is inherently **multi-process** (every spawned agent's `opencode run` boots a nested mesh on the *same* file); concurrent writes silently lose data (**measured: 57/120 receipts lost**). Being fixed by a cross-process transaction seam (`withLedger`) and, per roadmap, migration to an embedded store (SQLite/libSQL) — the old "zero native dependencies" objection is retired with the no-deps rule (John, 2026-07-10). See `SUCCESSION/MESHFLEET-WITHLEDGER-SPEC.md`.
 
 ### 3.2 Agent Lifecycle
 
@@ -201,7 +201,7 @@ interface Capability {
 
 | Decision | Rationale | Tradeoff |
 |---|---|---|
-| JSON ledger | Zero deps, debuggable, portable | No concurrent writes (acceptable) |
+| JSON ledger | Debuggable, portable | ⚠️ Lost-update under concurrent multi-process writes (measured 57/120 lost) — being fixed by `withLedger`; SQLite/libSQL on the roadmap |
 | `opencode run` child processes | Inherits all agent prompts, models, permissions from host config | Slight startup overhead (~1-2s per agent) |
 | No built-in message bus in v0.1 | Core timeout bypass is 80% of value; message bus is additive | Agents cannot collaborate until v0.2 |
 | Role strings are free-form | Matches existing `oh-my-openagent.json` agent definitions | No validation — caller responsible for sensible roles |

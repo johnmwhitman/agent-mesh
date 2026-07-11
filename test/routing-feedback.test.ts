@@ -1,9 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { setLedgerOverride } from '../src/core.js'
+import { withTempDb } from './helpers/with-temp-db.js'
 import {
   recordRoutingOutcome,
   getRoutingAdjustment,
@@ -11,23 +8,11 @@ import {
 } from '../src/routing-feedback.js'
 
 function freshLedger(): { cleanup: () => void } {
-  const dir = mkdtempSync(join(tmpdir(), 'meshfleet-feedback-'))
-  let memory: any = {
-    fleets: {},
-    agents: {},
-    messages: {},
-    inboxes: {},
-    capabilities: {},
-  }
-  setLedgerOverride(
-    () => JSON.parse(JSON.stringify(memory)),
-    (data) => { memory = data }
-  )
+  const db = withTempDb()
   return {
     cleanup: () => {
       resetRoutingFeedback()
-      setLedgerOverride(null, null)
-      try { rmSync(dir, { recursive: true, force: true }) } catch {}
+      db.cleanup()
     },
   }
 }

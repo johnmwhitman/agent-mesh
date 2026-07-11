@@ -1,35 +1,15 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import {
-  setLedgerOverride,
   recoverInterruptedAgents,
   isPidAlive,
   loadData,
+  type MeshData,
 } from '../src/core.js'
+import { withTempDb } from './helpers/with-temp-db.js'
 
-function freshLedger(initial?: any): { cleanup: () => void; set: (d: any) => void } {
-  const dir = mkdtempSync(join(tmpdir(), 'meshfleet-recovery-'))
-  let memory = initial ?? {
-    fleets: {},
-    agents: {},
-    messages: {},
-    inboxes: {},
-    capabilities: {},
-  }
-  setLedgerOverride(
-    () => JSON.parse(JSON.stringify(memory)),
-    (data) => { memory = data }
-  )
-  return {
-    cleanup: () => {
-      setLedgerOverride(null, null)
-      try { rmSync(dir, { recursive: true, force: true }) } catch {}
-    },
-    set: (d: any) => { memory = d },
-  }
+function freshLedger(initial?: Partial<MeshData>): { cleanup: () => void } {
+  return withTempDb(initial)
 }
 
 test('recovery: transitions running agents to interrupted', () => {

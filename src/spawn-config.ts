@@ -5,6 +5,8 @@
  * booting the MCP server (index.ts connects a stdio transport on import).
  */
 
+import { resolveEnv } from "./env.js";
+
 type AgentSpawnStdio = ["ignore", "pipe", "pipe"];
 
 /**
@@ -21,7 +23,7 @@ export const DEFAULT_AGENT_TIMEOUT_MS = 30 * 60 * 1000;
 export function agentTimeoutMs(
   env: NodeJS.ProcessEnv = process.env
 ): number {
-  const configured = Number(env.AGENT_MESH_AGENT_TIMEOUT_MS);
+  const configured = Number(resolveEnv(env, "MESHFLEET_AGENT_TIMEOUT_MS", "AGENT_MESH_AGENT_TIMEOUT_MS"));
   return Number.isFinite(configured) && configured > 0
     ? configured
     : DEFAULT_AGENT_TIMEOUT_MS;
