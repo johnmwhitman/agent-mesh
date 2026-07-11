@@ -21,7 +21,10 @@ const WRITER = join(here, "helpers", "withledger-writer.mjs");
 
 function runWriter(dbFile: string, agentId: string, count: number): Promise<void> {
   return new Promise((resolve, reject) => {
-    const p = spawn("npx", ["tsx", WRITER, agentId, String(count)], {
+    // Spawn the same node with the tsx loader directly (not `npx`): on Windows
+    // `spawn("npx", …)` is ENOENT (npx is npx.cmd, needs a shell), and this is
+    // faster + matches how the suite itself runs.
+    const p = spawn(process.execPath, ["--import", "tsx", WRITER, agentId, String(count)], {
       stdio: "inherit",
       env: { ...process.env, MESHFLEET_DB_FILE: dbFile },
     });
