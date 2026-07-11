@@ -1,8 +1,8 @@
 {
   "mcpServers": {
-    "agent-mesh": {
-      "command": "node",
-      "args": ["~/.config/opencode/mcp-servers/agent-mesh/dist/index.js"]
+    "meshfleet": {
+      "command": "npx",
+      "args": ["meshfleet"]
     }
   }
 }
