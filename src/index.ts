@@ -430,7 +430,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "route_work",
       description:
-        "Route a work description to the best-matching registered agents by keyword + role overlap scoring, plus routing feedback (success/fail history) and skill taxonomy ancestry. top_n controls how many matches to return (default 1, max = fleet size).",
+        "Route a work description to the best-matching registered agents by keyword + role/skill overlap scoring (with synonym expansion), weighted by routing feedback (success/fail history). top_n controls how many matches to return (default 1, max = fleet size).",
       inputSchema: {
         type: "object",
         properties: {
