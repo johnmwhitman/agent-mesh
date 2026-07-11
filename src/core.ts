@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, appendFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, appendFileSync, renameSync, openSync, writeSync, fsyncSync, closeSync, unlinkSync } from "fs";
 import { dirname } from "path";
 import { join, basename, extname } from "path";
 import { homedir } from "os";
@@ -211,7 +211,23 @@ export function loadDataFromFile(file: string): MeshData {
       ratifications: (migrated.ratifications || {}) as Record<string, Ratification>,
     };
   } catch (err) {
-    console.error(`Agent Mesh: ledger corrupted at ${file}, resetting. Error: ${err}`);
+    // Corrupt ledger: QUARANTINE the bad file (preserve it for recovery) and fail
+    // LOUDLY, then start empty — never silently overwrite unrecoverable data. The
+    // old behavior returned empty and left the corrupt file in place, so the next
+    // saveData silently wiped it with no operator signal.
+    const quarantine = `${file}.corrupt-${Date.now()}`;
+    try {
+      renameSync(file, quarantine);
+      console.error(
+        `Agent Mesh: ledger at ${file} is CORRUPT and was quarantined to ${quarantine}. ` +
+        `Starting with an empty ledger — inspect the quarantine file to recover. Error: ${err}`
+      );
+    } catch (renameErr) {
+      console.error(
+        `Agent Mesh: ledger at ${file} is CORRUPT and could NOT be quarantined (${renameErr}). ` +
+        `Starting with an empty ledger. Original parse error: ${err}`
+      );
+    }
     return { ...EMPTY_DATA };
   }
 }
@@ -250,7 +266,26 @@ function migrateLedger(raw: Record<string, unknown>): Record<string, unknown> {
 
 export function saveDataToFile(data: MeshData, file: string, dir: string): void {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  writeFileSync(file, JSON.stringify({ schema_version: CURRENT_SCHEMA_VERSION, ...data }, null, 2));
+  const payload = JSON.stringify({ schema_version: CURRENT_SCHEMA_VERSION, ...data }, null, 2);
+  // Atomic write: write a SAME-DIRECTORY temp file, fsync it, then rename over the
+  // target. rename(2) is atomic within a filesystem, so a crash mid-write leaves the
+  // previous ledger fully intact (worst case: an orphaned .tmp) — never a truncated
+  // ledger. The temp MUST be same-dir (never /tmp) or the rename crosses filesystems
+  // and silently degrades to a non-atomic copy.
+  const tmp = `${file}.tmp-${process.pid}-${randomUUID()}`;
+  const fd = openSync(tmp, "w");
+  try {
+    writeSync(fd, payload);
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+  }
+  try {
+    renameSync(tmp, file);
+  } catch (err) {
+    try { unlinkSync(tmp); } catch { /* best-effort cleanup */ }
+    throw err;
+  }
 }
 
 // ---------------------------------------------------------------------------

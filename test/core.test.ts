@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -75,11 +75,13 @@ test("loadData: returns empty data when file does not exist", () => {
   cleanup();
 });
 
-test("loadData: returns empty data when file is corrupt JSON", () => {
+test("loadDataFromFile: corrupt ledger is quarantined, not silently wiped", () => {
   const { dir, file, cleanup } = freshLedger();
   writeFileSync(file, "this is not json{{{");
-  const data = loadData();
+  const data = loadDataFromFile(file);
   assert.deepEqual(data.fleets, {});
+  const quarantined = readdirSync(dir).filter((n) => n.includes(".corrupt-"));
+  assert.equal(quarantined.length, 1, "corrupt file preserved for recovery, not wiped");
   cleanup();
 });
 
