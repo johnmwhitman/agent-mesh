@@ -25,7 +25,7 @@ import {
   statSync,
 } from 'node:fs'
 import { join, dirname } from 'node:path'
-import { loadData } from './core.js'
+import { loadData, resolveEventLogFile } from './core.js'
 import { resolveDbFile } from './db.js'
 
 // ---------------------------------------------------------------------------
@@ -164,31 +164,18 @@ function readStorageStats(): StorageStats {
 }
 
 function findLedgerFile(): string | null {
-  // The live ledger is the SQLite db; prefer it. Fall back to a legacy JSON
-  // ledger (pre-migration) so storage stats stay honest during the transition.
+  // The canonical ledger path (SQLite db). Returns null when it doesn't exist
+  // yet (fresh install / isolated test) → 0 bytes. No real-file fallback scan:
+  // that read the developer's real ledger under test and made sizes nondeterministic.
   const dbFile = resolveDbFile()
-  if (dbFile && dbFile !== ':memory:' && existsSync(dbFile)) return dbFile
-  const candidates = [
-    join(process.cwd(), 'agent-mesh.json'),
-    join(process.cwd(), '.config', 'opencode', 'agent-mesh.json'),
-    join(process.env.HOME ?? '', '.config', 'opencode', 'agent-mesh.json'),
-  ]
-  for (const c of candidates) {
-    if (c && existsSync(c)) return c
-  }
-  return null
+  return dbFile && dbFile !== ':memory:' && existsSync(dbFile) ? dbFile : null
 }
 
 function findEventsLogFile(): string | null {
-  const candidates = [
-    join(process.cwd(), 'agent-mesh.events.log'),
-    join(process.cwd(), '.config', 'opencode', 'agent-mesh.events.log'),
-    join(process.env.HOME ?? '', '.config', 'opencode', 'agent-mesh.events.log'),
-  ]
-  for (const c of candidates) {
-    if (c && existsSync(c)) return c
-  }
-  return null
+  // The configured event-log path — the same one appendEvent writes to (and the
+  // isolated temp path under test). Null when it doesn't exist yet → 0 bytes.
+  const f = resolveEventLogFile()
+  return f && existsSync(f) ? f : null
 }
 
 // ---------------------------------------------------------------------------

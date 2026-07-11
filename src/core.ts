@@ -356,6 +356,11 @@ export function setEventLogPath(path: string): void {
   eventLogFile = path;
 }
 
+/** The active event-log path (honors setEventLogPath — the isolated path under test). */
+export function resolveEventLogFile(): string {
+  return eventLogFile;
+}
+
 export function appendEvent(
   event: string,
   data: Record<string, unknown> = {}
