@@ -100,71 +100,95 @@ const EMPTY: MeshData = {
   templates: {},
 };
 
-interface Row {
-  id?: string;
-  agent_id?: string;
-  message_id?: string;
-  key?: string;
-  data: string;
+// One table per MeshData collection: entity stored as a JSON blob + extracted,
+// indexed columns for query paths. `cols` is the insert order (pk, extra indexed
+// cols, then `data`); `extract` yields the extra indexed column values.
+interface CollSpec {
+  table: string;
+  pk: string;
+  cols: string[];
+  extract: (v: unknown) => (string | null)[];
+  get: (d: MeshData) => Record<string, unknown>;
+}
+
+const COLLECTIONS: CollSpec[] = [
+  { table: "fleets", pk: "id", cols: ["id", "data"], extract: () => [], get: (d) => d.fleets },
+  { table: "agents", pk: "id", cols: ["id", "fleet_id", "data"], extract: (v) => [(v as Agent).fleet_id], get: (d) => d.agents },
+  { table: "messages", pk: "id", cols: ["id", "fleet_id", "data"], extract: (v) => [(v as Message).fleet_id], get: (d) => d.messages },
+  { table: "inboxes", pk: "agent_id", cols: ["agent_id", "data"], extract: () => [], get: (d) => d.inboxes },
+  { table: "capabilities", pk: "agent_id", cols: ["agent_id", "data"], extract: () => [], get: (d) => d.capabilities },
+  { table: "receipts", pk: "key", cols: ["key", "message_id", "data"], extract: (v) => [(v as Receipt).message_id], get: (d) => d.receipts ?? {} },
+  { table: "ratifications", pk: "message_id", cols: ["message_id", "fleet_id", "data"], extract: (v) => [(v as Ratification).fleet_id], get: (d) => d.ratifications ?? {} },
+  { table: "templates", pk: "key", cols: ["key", "data"], extract: () => [], get: (d) => d.templates ?? {} },
+];
+
+function emptyData(): MeshData {
+  return { fleets: {}, agents: {}, messages: {}, inboxes: {}, capabilities: {}, receipts: {}, ratifications: {}, templates: {} };
 }
 
 function readState(db: Database.Database): MeshData {
-  const all = (t: string) => db.prepare(`SELECT * FROM ${t}`).all() as Row[];
-  const dict = (rows: Row[], k: keyof Row) =>
-    Object.fromEntries(rows.map((r) => [r[k] as string, JSON.parse(r.data)]));
-  return {
-    fleets: dict(all("fleets"), "id"),
-    agents: dict(all("agents"), "id"),
-    messages: dict(all("messages"), "id"),
-    inboxes: dict(all("inboxes"), "agent_id"),
-    capabilities: dict(all("capabilities"), "agent_id"),
-    receipts: dict(all("receipts"), "key"),
-    ratifications: dict(all("ratifications"), "message_id"),
-    templates: dict(all("templates"), "key"),
-  };
+  const data = emptyData();
+  for (const c of COLLECTIONS) {
+    const dict = c.get(data);
+    for (const r of db.prepare(`SELECT ${c.pk} AS k, data FROM ${c.table}`).all() as { k: string; data: string }[]) {
+      dict[r.k] = JSON.parse(r.data);
+    }
+  }
+  return data;
 }
 
-function writeState(db: Database.Database, data: MeshData): void {
-  // v1: reconcile-all — delete then insert every collection. Correct and simple;
-  // the whole thing is inside one IMMEDIATE transaction, so it is atomic.
-  const replace = (
-    table: string,
-    entries: [string, unknown][],
-    cols: string,
-    row: (k: string, v: unknown) => unknown[]
-  ) => {
-    db.prepare(`DELETE FROM ${table}`).run();
-    if (entries.length === 0) return;
-    const ins = db.prepare(`INSERT INTO ${table} (${cols}) VALUES (${cols.split(",").map(() => "?").join(",")})`);
-    for (const [k, v] of entries) ins.run(...row(k, v));
-  };
+/**
+ * Read state for a transaction: parsed MeshData PLUS the raw JSON string per key,
+ * so the commit writes only NEW/CHANGED rows and deletes removed ones — O(changed),
+ * not O(N) (the reconcile-all approach regressed past ~1-2k rows; see the spike).
+ */
+function loadForTxn(db: Database.Database): { data: MeshData; raw: Map<string, Map<string, string>> } {
+  const data = emptyData();
+  const raw = new Map<string, Map<string, string>>();
+  for (const c of COLLECTIONS) {
+    const dict = c.get(data);
+    const rawMap = new Map<string, string>();
+    for (const r of db.prepare(`SELECT ${c.pk} AS k, data FROM ${c.table}`).all() as { k: string; data: string }[]) {
+      dict[r.k] = JSON.parse(r.data);
+      rawMap.set(r.k, r.data);
+    }
+    raw.set(c.table, rawMap);
+  }
+  return { data, raw };
+}
 
-  replace("fleets", Object.entries(data.fleets), "id,data", (k, v) => [k, JSON.stringify(v)]);
-  replace("agents", Object.entries(data.agents), "id,fleet_id,data", (k, v) => [k, (v as Agent).fleet_id, JSON.stringify(v)]);
-  replace("messages", Object.entries(data.messages), "id,fleet_id,data", (k, v) => [k, (v as Message).fleet_id, JSON.stringify(v)]);
-  replace("inboxes", Object.entries(data.inboxes), "agent_id,data", (k, v) => [k, JSON.stringify(v)]);
-  replace("capabilities", Object.entries(data.capabilities), "agent_id,data", (k, v) => [k, JSON.stringify(v)]);
-  replace("receipts", Object.entries(data.receipts ?? {}), "key,message_id,data", (k, v) => [k, (v as Receipt).message_id, JSON.stringify(v)]);
-  replace("ratifications", Object.entries(data.ratifications ?? {}), "message_id,fleet_id,data", (k, v) => [k, (v as Ratification).fleet_id, JSON.stringify(v)]);
-  replace("templates", Object.entries(data.templates ?? {}), "key,data", (k, v) => [k, JSON.stringify(v)]);
+function persistDiff(db: Database.Database, data: MeshData, raw: Map<string, Map<string, string>>): void {
+  for (const c of COLLECTIONS) {
+    const cur = c.get(data);
+    const rawMap = raw.get(c.table) ?? new Map<string, string>();
+    const upsert = db.prepare(`INSERT OR REPLACE INTO ${c.table} (${c.cols.join(",")}) VALUES (${c.cols.map(() => "?").join(",")})`);
+    const del = db.prepare(`DELETE FROM ${c.table} WHERE ${c.pk} = ?`);
+    const seen = new Set<string>();
+    for (const [k, v] of Object.entries(cur)) {
+      seen.add(k);
+      const s = JSON.stringify(v);
+      if (rawMap.get(k) !== s) upsert.run(k, ...c.extract(v), s); // new or changed only
+    }
+    for (const k of rawMap.keys()) if (!seen.has(k)) del.run(k);
+  }
 }
 
 /**
  * Run a mutator inside a single BEGIN IMMEDIATE transaction: read fresh state
- * under the write lock, mutate in memory, persist, commit. SQLite serializes
- * concurrent writers (busy_timeout waits, doesn't lose), so no update is lost.
- * The mutator MUST be synchronous and free of side effects (spawns/network/IO);
- * an async return is rejected and rolls the transaction back.
+ * under the write lock, mutate in memory, persist the diff, commit. SQLite
+ * serializes concurrent writers (busy_timeout waits, doesn't lose), so no update
+ * is lost. The mutator MUST be synchronous and side-effect-free (spawns/network/
+ * IO/nested withLedger); an async return is rejected and rolls the txn back.
  */
 export function withLedger<T>(mutator: (data: MeshData) => T): T {
   const db = getDb();
   const run = db.transaction((m: (data: MeshData) => T): T => {
-    const data = readState(db);
+    const { data, raw } = loadForTxn(db);
     const result = m(data);
     if (result != null && typeof (result as { then?: unknown }).then === "function") {
       throw new Error("withLedger: mutator must be synchronous (it returned a Promise)");
     }
-    writeState(db, data);
+    persistDiff(db, data, raw);
     return result;
   }).immediate;
   return run(mutator);
@@ -178,5 +202,6 @@ export function readLedger(): MeshData {
 /** Bulk-load a full MeshData snapshot (used by the JSON→SQLite migrator). */
 export function importSnapshot(data: MeshData): void {
   const db = getDb();
-  db.transaction(() => writeState(db, { ...EMPTY, ...data })).immediate();
+  const full = { ...emptyData(), ...data };
+  db.transaction(() => persistDiff(db, full, new Map())).immediate();
 }
