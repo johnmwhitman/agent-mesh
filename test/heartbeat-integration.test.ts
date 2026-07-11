@@ -1,9 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { setLedgerOverride } from '../src/core.js'
+import { withTempDb } from './helpers/with-temp-db.js'
 import {
   createHeartbeat,
   setMaxMissedHeartbeats,
@@ -11,25 +8,7 @@ import {
 } from '../src/heartbeat.js'
 
 function freshLedger(): { cleanup: () => void } {
-  const dir = mkdtempSync(join(tmpdir(), 'meshfleet-hb-integration-'))
-  let memory: any = {
-    fleets: {},
-    agents: {},
-    messages: {},
-    inboxes: {},
-    capabilities: {},
-  }
-  setLedgerOverride(
-    () => JSON.parse(JSON.stringify(memory)),
-    (data) => { memory = data }
-  )
-  return {
-    cleanup: () => {
-      resetHeartbeatState()
-      setLedgerOverride(null, null)
-      try { rmSync(dir, { recursive: true, force: true }) } catch {}
-    },
-  }
+  return withTempDb()
 }
 
 test('heartbeat integration: setMaxMissedHeartbeats is configurable', () => {

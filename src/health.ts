@@ -26,6 +26,7 @@ import {
 } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { loadData } from './core.js'
+import { resolveDbFile } from './db.js'
 
 // ---------------------------------------------------------------------------
 // Process startup time (for uptime)
@@ -122,14 +123,10 @@ function readStorageStats(): StorageStats {
     lastTimestamp: undefined,
   }
 
-  // Ledger file: dataFile from core.ts. Resolve relative to dataDir.
-  // In a test context with setLedgerOverride, the dataFile may be virtual.
-  // Try resolving it; if it doesn't exist on disk, skip.
+  // Ledger file: the live SQLite db (via the withLedger seam). Falls back to a
+  // legacy agent-mesh.json only when the db doesn't exist yet (pre-migration).
+  // Either may be absent on disk (fresh install / test temp dir) — skip if so.
   try {
-    // dataFile is a module-private variable in core.ts. We can only read
-    // the file path if we know it. The simplest approach: read from the
-    // process-level data file path.
-    // For now, scan the parent dir for agent-mesh.json.
     const ledgerPath = findLedgerFile()
     if (ledgerPath) {
       const stat = statSync(ledgerPath)
@@ -167,7 +164,10 @@ function readStorageStats(): StorageStats {
 }
 
 function findLedgerFile(): string | null {
-  // Walk up from cwd looking for the canonical ledger
+  // The live ledger is the SQLite db; prefer it. Fall back to a legacy JSON
+  // ledger (pre-migration) so storage stats stay honest during the transition.
+  const dbFile = resolveDbFile()
+  if (dbFile && dbFile !== ':memory:' && existsSync(dbFile)) return dbFile
   const candidates = [
     join(process.cwd(), 'agent-mesh.json'),
     join(process.cwd(), '.config', 'opencode', 'agent-mesh.json'),

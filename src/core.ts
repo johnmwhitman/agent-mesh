@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import { existsSync, mkdirSync, readFileSync, readdirSync, appendFileSync, renameSync, openSync, writeSync, fsyncSync, closeSync, unlinkSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, appendFileSync, renameSync } from "fs";
 import { dirname } from "path";
 import { join, basename, extname } from "path";
 import { homedir } from "os";
@@ -182,8 +182,8 @@ export function setLedgerPath(dir: string, file: string): void {
  * - `saveData()` is a transactional FULL-REPLACE, kept for seeding/compat only —
  *   it is NOT concurrency-safe for writers (it read-outside-then-replaces). Every
  *   WRITER uses `withLedger` directly so its read+mutate+write is one transaction.
- * The JSON functions below (`loadDataFromFile`/`saveDataToFile`/`migrateLedger`) are
- * now MIGRATION-ONLY — the one-time JSON→SQLite import path, not the live ledger.
+ * The JSON functions below (`loadDataFromFile`/`migrateLedger`) are now
+ * MIGRATION-ONLY — the one-time JSON→SQLite import path, not the live ledger.
  */
 export function loadData(): MeshData {
   return readLedger();
@@ -277,30 +277,6 @@ function migrateLedger(raw: Record<string, unknown>): Record<string, unknown> {
     version = 2;
   }
   return raw;
-}
-
-export function saveDataToFile(data: MeshData, file: string, dir: string): void {
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  const payload = JSON.stringify({ schema_version: CURRENT_SCHEMA_VERSION, ...data }, null, 2);
-  // Atomic write: write a SAME-DIRECTORY temp file, fsync it, then rename over the
-  // target. rename(2) is atomic within a filesystem, so a crash mid-write leaves the
-  // previous ledger fully intact (worst case: an orphaned .tmp) — never a truncated
-  // ledger. The temp MUST be same-dir (never /tmp) or the rename crosses filesystems
-  // and silently degrades to a non-atomic copy.
-  const tmp = `${file}.tmp-${process.pid}-${randomUUID()}`;
-  const fd = openSync(tmp, "w");
-  try {
-    writeSync(fd, payload);
-    fsyncSync(fd);
-  } finally {
-    closeSync(fd);
-  }
-  try {
-    renameSync(tmp, file);
-  } catch (err) {
-    try { unlinkSync(tmp); } catch { /* best-effort cleanup */ }
-    throw err;
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -457,12 +433,15 @@ export function listFleets(): FleetSummary[] {
   });
 }
 
+/** In-transaction helper: create the fleet row in place and return it. */
+export function _createFleet(data: MeshData, fleetId: string): Fleet {
+  const f: Fleet = { id: fleetId, status: "running", created_at: Date.now() };
+  data.fleets[fleetId] = f;
+  return f;
+}
+
 export function createFleet(fleetId: string): Fleet {
-  const fleet = withLedger((data): Fleet => {
-    const f: Fleet = { id: fleetId, status: "running", created_at: Date.now() };
-    data.fleets[fleetId] = f;
-    return f;
-  });
+  const fleet = withLedger((data): Fleet => _createFleet(data, fleetId));
   appendEvent("fleet_created", { fleet_id: fleetId }); // hoisted: side-effect outside the txn
   return fleet;
 }
@@ -487,14 +466,21 @@ export function checkFleetCompletion(fleetId: string): void {
 // Agent Operations
 // ---------------------------------------------------------------------------
 
+/** In-transaction helper: register an agent row + its inbox in place. */
+export function _registerAgent(
+  data: MeshData,
+  agent: Agent,
+  inbox: string[] = []
+): void {
+  data.agents[agent.id] = agent;
+  data.inboxes[agent.id] = inbox;
+}
+
 export function registerAgentInLedger(
   agent: Agent,
   inbox: string[] = []
 ): void {
-  withLedger((data) => {
-    data.agents[agent.id] = agent;
-    data.inboxes[agent.id] = inbox;
-  });
+  withLedger((data) => _registerAgent(data, agent, inbox));
 }
 
 export function markAgentFinished(
@@ -578,7 +564,7 @@ export function _sendMessage(
   type: MessageType,
   payload: string,
   correlationId?: string
-): string {
+): { messageId: string; recipients: string[] } {
   const messageId = randomUUID();
   let recipients: string[] | undefined;
   if (toAgentId === BROADCAST) {
@@ -604,11 +590,12 @@ export function _sendMessage(
     ...(recipients ? { recipients } : {}),
   };
   data.messages[messageId] = message;
-  for (const recipient of recipients ?? [toAgentId]) {
+  const delivered = recipients ?? [toAgentId];
+  for (const recipient of delivered) {
     if (!data.inboxes[recipient]) data.inboxes[recipient] = [];
     data.inboxes[recipient].push(messageId);
   }
-  return messageId;
+  return { messageId, recipients: delivered };
 }
 
 export function sendMessage(
@@ -618,7 +605,7 @@ export function sendMessage(
   type: MessageType,
   payload: string,
   correlationId?: string
-): string {
+): { messageId: string; recipients: string[] } {
   if (Buffer.byteLength(payload, "utf-8") > MAX_PAYLOAD_BYTES) {
     throw new Error(
       `Payload too large: ${Buffer.byteLength(payload)} bytes (limit ${MAX_PAYLOAD_BYTES})`

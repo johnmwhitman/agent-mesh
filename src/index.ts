@@ -18,28 +18,26 @@ import {
   appendEvent,
   ackMessage,
   getReceipts,
-  messageRecipients,
   writeReceipt,
   autoRegisterFromAgent,
-  checkFleetCompletion,
-  createFleet,
+  _createFleet,
+  _registerAgent,
   discoverPremadeAgents,
   getFleetTimeoutMs,
   getInbox,
   listFleets,
-  loadData,
   markAgentFinished,
   MAX_PAYLOAD_BYTES,
   MESSAGE_TYPES,
   MessageType,
   recoverInterruptedAgents,
-  registerAgentInLedger,
   registerCapability,
   routeWork,
-  saveData,
   sendMessage,
   setFleetTimeout,
 } from "./core.js";
+import { readLedger, withLedger } from "./db.js";
+import { migrateJsonToSqlite } from "./migrate.js";
 import { checkRateLimit, getHealth, ping } from "./health.js";
 import {
   saveFleetTemplate as saveFleetTemplateFn,
@@ -89,21 +87,6 @@ interface SpawnAgentInput {
   agentFile?: string;
 }
 
-async function spawnAgent(input: SpawnAgentInput): Promise<string> {
-  const agentId = randomUUID();
-  registerAgentInLedger({
-    id: agentId,
-    fleet_id: input.fleetId,
-    role: input.role,
-    prompt: input.prompt,
-    agent_file: input.agentFile,
-    status: "running",
-    started_at: Date.now(),
-  });
-  trySpawn(input, agentId, 1);
-  return agentId;
-}
-
 /**
  * Inner spawn loop. attempt is 1-indexed (first attempt = 1).
  * On any transient failure path, decides retry vs permanent via shouldAgentRetry().
@@ -123,11 +106,11 @@ function trySpawn(input: SpawnAgentInput, agentId: string, attempt: number): voi
   });
 
   if (child.pid !== undefined) {
-    const data = loadData();
-    if (data.agents[agentId]) {
-      data.agents[agentId].pid = child.pid;
-      saveData(data);
-    }
+    const pid = child.pid;
+    withLedger((data) => {
+      const a = data.agents[agentId];
+      if (a) a.pid = pid;
+    });
   }
 
   let stdout = "";
@@ -579,23 +562,42 @@ const toolHandlers: Record<
 toolHandlers["spawn_fleet"] = async (args) => {
     const { agents } = args as { agents: { role: string; prompt: string; agent?: string }[] };
     const fleetId = randomUUID();
-    createFleet(fleetId);
+    const specs = agents.map((a) => ({
+      agentId: randomUUID(),
+      role: a.role,
+      prompt: a.prompt,
+      agent: a.agent,
+    }));
+
+    // Phase 1 — ONE txn: create the fleet + pre-register every agent row.
+    // spawn() is a side-effect, so it cannot live in the txn; committing the
+    // rows first means a crash after commit leaves recoverable "running" agents,
+    // never a fleet with phantom-missing members.
+    withLedger((data) => {
+      _createFleet(data, fleetId);
+      for (const s of specs) {
+        _registerAgent(data, {
+          id: s.agentId,
+          fleet_id: fleetId,
+          role: s.role,
+          prompt: s.prompt,
+          agent_file: s.agent,
+          status: "running",
+          started_at: Date.now(),
+        });
+      }
+    });
+    appendEvent("fleet_created", { fleet_id: fleetId });
     appendEvent("spawn_fleet_called", { fleet_id: fleetId, agent_count: agents.length });
 
-    const ids: string[] = [];
-    for (const a of agents) {
-      const id = await spawnAgent({
-        fleetId,
-        role: a.role,
-        prompt: a.prompt,
-        agentFile: a.agent,
-      });
-      ids.push(id);
-      appendEvent("agent_spawned", { fleet_id: fleetId, agent_id: id, role: a.role, agent_file: a.agent });
-      if (a.agent) autoRegisterFromAgent(id, fleetId, a.agent);
+    // Phase 2 — spawn each child after commit; per-child pid write-back is in trySpawn.
+    for (const s of specs) {
+      trySpawn({ fleetId, role: s.role, prompt: s.prompt, agentFile: s.agent }, s.agentId, 1);
+      appendEvent("agent_spawned", { fleet_id: fleetId, agent_id: s.agentId, role: s.role, agent_file: s.agent });
+      if (s.agent) autoRegisterFromAgent(s.agentId, fleetId, s.agent);
     }
 
-    return jsonResult({ fleet_id: fleetId, agent_ids: ids });
+    return jsonResult({ fleet_id: fleetId, agent_ids: specs.map((s) => s.agentId) });
 };
 
 toolHandlers["fleet_status"] = async (args) => {
@@ -604,7 +606,7 @@ toolHandlers["fleet_status"] = async (args) => {
       return { content: [{ type: "text", text: JSON.stringify({ error: "Read rate limit exceeded. Slow down." }) }], isError: true };
     }
     const { fleet_id } = args as { fleet_id: string };
-    const data = loadData();
+    const data = readLedger();
     const fleet = data.fleets[fleet_id];
     const agents = Object.values(data.agents).filter(
       (a) => a.fleet_id === fleet_id
@@ -633,7 +635,7 @@ toolHandlers["set_fleet_timeout"] = async (args) => {
 
 toolHandlers["collect_results"] = async (args) => {
     const { fleet_id } = args as { fleet_id: string };
-    const data = loadData();
+    const data = readLedger();
     const agents = Object.values(data.agents).filter(
       (a) => a.fleet_id === fleet_id
     );
@@ -665,7 +667,10 @@ toolHandlers["send_message"] = async (args) => {
       correlation_id?: string;
     };
     try {
-      const messageId = sendMessage(
+      // The writer returns the resolved recipient list from inside the txn, so
+      // SSE notification needs no post-commit re-read (that read was a TOCTOU:
+      // a concurrent write could change the message between commit and re-read).
+      const { messageId, recipients } = sendMessage(
         from_agent_id,
         to_agent_id,
         fleet_id,
@@ -675,8 +680,6 @@ toolHandlers["send_message"] = async (args) => {
       );
       // v0.7.0: push to any active SSE subscribers
       // v0.9.0: broadcasts push to every resolved recipient
-      const sent = loadData().messages[messageId];
-      const recipients = sent ? messageRecipients(sent) : [to_agent_id];
       for (const recipient of recipients) {
         notifySubscribers(recipient, [
           {
@@ -819,17 +822,32 @@ toolHandlers["attach_agent"] = async (args) => {
       prompt: string;
       agent?: string;
     };
-    const data = loadData();
-    if (!data.fleets[fleet_id]) {
-      return jsonError(`Fleet ${fleet_id} not found`);
-    }
-    if (data.fleets[fleet_id].status !== "running") {
-      return jsonError(
-        `Fleet ${fleet_id} is ${data.fleets[fleet_id].status}, not running`
-      );
-    }
+    const agentId = randomUUID();
+    // Re-check exists && running INSIDE the txn and pre-register the row in the
+    // same transaction. Checking outside (as before) let a concurrent
+    // checkFleetCompletion flip the fleet to complete between check and write —
+    // a live agent attached to a dead fleet (the red-team's exact case).
+    const check = withLedger((data): { error?: string } => {
+      const fleet = data.fleets[fleet_id];
+      if (!fleet) return { error: `Fleet ${fleet_id} not found` };
+      if (fleet.status !== "running") {
+        return { error: `Fleet ${fleet_id} is ${fleet.status}, not running` };
+      }
+      _registerAgent(data, {
+        id: agentId,
+        fleet_id,
+        role,
+        prompt,
+        agent_file: agent,
+        status: "running",
+        started_at: Date.now(),
+      });
+      return {};
+    });
+    if (check.error) return jsonError(check.error);
 
-    const agentId = await spawnAgent({ fleetId: fleet_id, role, prompt, agentFile: agent });
+    // Spawn after commit; capability auto-register is its own txn.
+    trySpawn({ fleetId: fleet_id, role, prompt, agentFile: agent }, agentId, 1);
     if (agent) autoRegisterFromAgent(agentId, fleet_id, agent);
 
     return jsonResult({
@@ -851,7 +869,7 @@ toolHandlers["get_health"] = async (args) => {
 
 toolHandlers["subscribe_inbox"] = async (args) => {
     const { agent_id } = args as { agent_id: string };
-    const data = loadData();
+    const data = readLedger();
     if (!data.agents[agent_id]) {
       return jsonError(`Agent "${agent_id}" not found`);
     }
@@ -915,6 +933,22 @@ await server.connect(transport);
 const isChildInstance = process.env.AGENT_MESH_CHILD === "1";
 
 if (!isChildInstance) {
+  // Phase 2: one-shot JSON→SQLite migration. Stop-the-world, parent-only, BEFORE
+  // any ledger read/write — a fresh getDb() would otherwise create an empty db
+  // and strand the JSON. Fails-closed: a validation mismatch aborts startup with
+  // the JSON left authoritative (never run on a partial/empty ledger).
+  try {
+    const migration = migrateJsonToSqlite();
+    if (migration.migrated) {
+      console.error(
+        `Agent Mesh v${MESH_VERSION} — migrated ${migration.rowCount} ledger entr${migration.rowCount === 1 ? "y" : "ies"} JSON→SQLite; JSON backed up to ${migration.backupPath}`
+      );
+    }
+  } catch (err) {
+    console.error(`Agent Mesh v${MESH_VERSION} — FATAL: ${err instanceof Error ? err.message : String(err)}`);
+    throw err; // fail-closed
+  }
+
   // v0.7.x: recover any agents left in 'running' state from a previous
   // crashed process so fleet_status reflects reality. Liveness-probed since
   // 2026-07-03 — only agents with a missing/dead pid are flipped.

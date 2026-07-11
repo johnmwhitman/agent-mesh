@@ -4,6 +4,21 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 
 ## [Unreleased]
 
+### Changed
+- **The ledger moved from a single JSON file to SQLite — because the JSON store silently lost writes under real concurrency.** Every spawned agent's `opencode run` boots its own agent-mesh instance on the *same* ledger, so writes are genuinely multi-process. The old split `loadData → mutate → saveData` cycle (atomic file writes included — atomicity is not isolation) races: a reproducing two-process test **lost 57 of 120 receipts**. The fix is `withLedger(mutator)`, a single transaction seam on `better-sqlite3` (`BEGIN IMMEDIATE` + WAL + `busy_timeout`) — SQLite owns cross-process write exclusion, so agent-mesh owns *no* locking protocol and lost-update is impossible by construction. The same two-process test now passes **200/200, zero lost**. Persistence is diff-based (only changed rows are written), which also made SQLite faster than the JSON store at every ledger size measured.
+- **`sendMessage()` now returns `{ messageId, recipients }`** (was `string`). The resolved recipient list comes back from inside the write transaction, so the `send_message` handler no longer re-reads the ledger after committing to find broadcast recipients (that re-read was itself a TOCTOU). The `send_message` MCP tool's JSON result is unchanged.
+- **Node floor is now `>=20`** (better-sqlite3 v12 requires it); CI matrix is Node 20/22/24 × macOS/Linux/Windows.
+
+### Added
+- **One-shot JSON→SQLite migrator** (`src/migrate.ts`, run once at startup, parent-only, stop-the-world). On the first boot after upgrading it imports an existing `agent-mesh.json` ledger into SQLite, **validates the round-trip (row counts + content hash) before retiring the JSON**, then renames the JSON to `agent-mesh.json.migrated.<ts>` (kept as a backup). A v1 ledger is backfilled to v2 and a *corrupt* ledger is quarantined + logged, never silently dropped. Fails **closed**: any validation mismatch tears down the partial db and leaves the JSON authoritative — no data loss, never a half-written db. Idempotent.
+- **`inspect --export [file]`** — dump the full ledger as pretty JSON (stdout, or to a file). The human-readable "prove it" audit path we keep despite the binary store.
+
+### Fixed
+- **Five check-outside-the-write (TOCTOU) races in the tool handlers**, each of which would have passed tests but raced in production: (1) `attach_agent` now re-checks the fleet is `running` **inside** the transaction that pre-registers the agent — a concurrent completion can no longer attach a live agent to a just-closed fleet; (2) `spawn_fleet` pre-registers the fleet + every agent row in one transaction, then spawns after commit (3-phase); (3) `markAgentFinished` folds the fleet-completion decision into the same transaction as the agent write, so two finishers can't both miss "all done"; (4) `send_message` gets recipients from the writer instead of a post-commit re-read; (5) the ratify family (`open`/`cast`/`tally`/`sweep`) each resolve within a single transaction.
+
+### Removed
+- **Dead code:** `saveDataToFile` (the JSON write path — SQLite is now the live store; the migrator only *reads* JSON). Retired three test suites superseded by the new architecture (the JSON `concurrency` gate → `db-concurrency`; `schema`/`templates-persistence` file-mechanics → the migrator suite).
+
 ### Planned
 - batch writes (the 3.8ms/msg bottleneck at 10k scale — see BENCHMARKS.md)
 - wire skill-taxonomy into route_work

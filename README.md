@@ -214,7 +214,9 @@ None of them answer "who saw this, who approved it, prove it." That's the lane.
 
 ```
 src/
-├── core.ts              # Pure data layer: ledger, messages, receipts, capabilities, events
+├── db.ts                # The withLedger transaction seam over SQLite (the write boundary)
+├── core.ts              # Data layer: ledger, messages, receipts, capabilities, events
+├── migrate.ts           # One-shot JSON→SQLite migration (runs once at startup)
 ├── ratify.ts            # Councils: quorum ratification over the receipts substrate
 ├── templates.ts         # Versioned fleet templates
 ├── routing-feedback.ts  # Outcome-informed work routing
@@ -227,9 +229,9 @@ src/
     └── dashboard.ts     # Live TUI: npx agent-mesh-dashboard
 ```
 
-The data layer is the only place that reads/writes the JSON ledger. The MCP server imports it for tool handlers. The CLI imports it directly. Pure formatters live in `inspector.ts` — easy to test, no I/O.
+Every write goes through **one** function — `withLedger(mutator)` in `db.ts` — which runs the mutation inside a single SQLite `BEGIN IMMEDIATE` transaction. Agents are real OS processes that each boot their own agent-mesh instance on the same ledger, so writes are genuinely concurrent; SQLite (WAL + `busy_timeout`) provides cross-process write exclusion, so this codebase owns no locking protocol and lost-update is impossible by construction. (An earlier JSON read-modify-write store silently lost 57 of 120 receipts under a two-process test; the SQLite seam passes the same test 200/200.) Readers use a lock-free `readLedger()`. Pure formatters live in `inspector.ts` — easy to test, no I/O.
 
-The ledger lives at `~/.config/opencode/agent-mesh.json`. The event log at `~/.config/opencode/agent-mesh.events.log` (NDJSON).
+The ledger lives at `~/.config/opencode/agent-mesh.db` (SQLite); the event log at `~/.config/opencode/agent-mesh.events.log` (NDJSON). Dump the ledger as human-readable JSON any time with `npx agent-mesh inspect --export`. On first run after upgrading from a JSON ledger, the server migrates it once (validated, with a `.migrated.<ts>` backup kept).
 
 [Full spec →](AGENT-MESH-SPEC.md) · [P2P messaging spec →](SPEC-P2P.md)
 
@@ -237,7 +239,7 @@ The ledger lives at `~/.config/opencode/agent-mesh.json`. The event log at `~/.c
 
 ## Requirements
 
-- Node.js >= 18
+- Node.js >= 20
 - OpenCode CLI in `$PATH` (any model provider OpenCode supports)
 - That's it
 

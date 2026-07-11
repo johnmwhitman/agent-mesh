@@ -14,34 +14,15 @@ import {
   type HealthReport,
 } from '../src/health.js'
 
-import { registerAgentInLedger, setLedgerOverride, appendEvent } from '../src/core.js'
+import { registerAgentInLedger, appendEvent } from '../src/core.js'
+import { withTempDb } from './helpers/with-temp-db.js'
 
 // ---------------------------------------------------------------------------
 // Test isolation
 // ---------------------------------------------------------------------------
 
-function freshLedger() {
-  const dir = mkdtempSync(join(tmpdir(), 'meshfleet-health-'))
-  let memory: any = {
-    fleets: {},
-    agents: {},
-    messages: {},
-    inboxes: {},
-    capabilities: {},
-  }
-  setLedgerOverride(
-    () => JSON.parse(JSON.stringify(memory)),
-    (data) => { memory = data }
-  )
-  return {
-    dir,
-    cleanup: () => {
-      setLedgerOverride(null, null)
-      try {
-        rmSync(dir, { recursive: true, force: true })
-      } catch {}
-    },
-  }
+function freshLedger(): { cleanup: () => void } {
+  return withTempDb()
 }
 
 // ---------------------------------------------------------------------------

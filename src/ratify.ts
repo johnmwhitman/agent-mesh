@@ -47,7 +47,7 @@ export interface OpenRatificationInput {
 export function openRatification(input: OpenRatificationInput): string {
   if (input.quorum < 1) throw new Error("quorum must be at least 1");
   return withLedger((data): string => {
-    const messageId = _sendMessage(data, input.proposer, BROADCAST, input.fleetId, "question", input.payload ?? input.subject);
+    const { messageId } = _sendMessage(data, input.proposer, BROADCAST, input.fleetId, "question", input.payload ?? input.subject);
     const msg = data.messages[messageId];
     const voters = input.voters ?? messageRecipients(msg);
     if (input.quorum > voters.length) {

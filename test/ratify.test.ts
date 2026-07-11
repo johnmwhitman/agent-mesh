@@ -3,10 +3,10 @@ import assert from "node:assert/strict";
 
 import {
   registerAgentInLedger,
-  setLedgerOverride,
   type Agent,
   type MeshData,
 } from "../src/core.js";
+import { withTempDb } from "./helpers/with-temp-db.js";
 import {
   castVote,
   getRatification,
@@ -17,22 +17,7 @@ import {
 } from "../src/ratify.js";
 
 function freshLedger(): { cleanup: () => void } {
-  let memory: MeshData = {
-    fleets: {},
-    agents: {},
-    messages: {},
-    inboxes: {},
-    capabilities: {},
-    receipts: {},
-    ratifications: {},
-  };
-  setLedgerOverride(
-    () => JSON.parse(JSON.stringify(memory)),
-    (data) => {
-      memory = data;
-    }
-  );
-  return { cleanup: () => setLedgerOverride(null, null) };
+  return withTempDb();
 }
 
 function agent(id: string, fleetId: string): Agent {

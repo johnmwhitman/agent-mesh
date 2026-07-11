@@ -1,36 +1,16 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import {
   createHeartbeat,
   setMaxMissedHeartbeats,
   resetHeartbeatState,
   type HeartbeatEvent,
 } from '../src/heartbeat.js'
-import { setLedgerOverride, appendEvent, type MeshData } from '../src/core.js'
+import { appendEvent, type MeshData } from '../src/core.js'
+import { withTempDb } from './helpers/with-temp-db.js'
 
 function freshLedger(): { cleanup: () => void } {
-  const dir = mkdtempSync(join(tmpdir(), 'meshfleet-heartbeat-'))
-  let memory: MeshData = {
-    fleets: {},
-    agents: {},
-    messages: {},
-    inboxes: {},
-    capabilities: {},
-  }
-  setLedgerOverride(
-    () => JSON.parse(JSON.stringify(memory)),
-    (data) => { memory = data }
-  )
-  return {
-    cleanup: () => {
-      resetHeartbeatState()
-      setLedgerOverride(null, null)
-      try { rmSync(dir, { recursive: true, force: true }) } catch {}
-    },
-  }
+  return withTempDb()
 }
 
 test('createHeartbeat: emits periodic heartbeat events', async () => {

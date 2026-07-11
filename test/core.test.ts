@@ -1,7 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 
@@ -21,43 +20,17 @@ import {
   routeWork,
   saveData,
   sendMessage,
-  setLedgerPath,
-  setLedgerOverride,
-  loadDataFromFile,
-  saveDataToFile,
 } from "../src/core.js";
+import { withTempDb } from "./helpers/with-temp-db.js";
 
 // ---------------------------------------------------------------------------
-// Test isolation: every test gets a fresh in-memory ledger
+// Test isolation: every test gets a fresh SQLite ledger in a temp dir.
+// (File-migration behaviour — corrupt quarantine, v0.1 back-compat — moved to
+// migrator.test.ts, which exercises the JSON→SQLite path directly.)
 // ---------------------------------------------------------------------------
 
-function freshLedger(): { dir: string; file: string; cleanup: () => void } {
-  const dir = mkdtempSync(join(tmpdir(), "agent-mesh-test-"));
-  const file = join(dir, "ledger.json");
-  // In-memory state for this test
-  let memory: import("../src/core.js").MeshData = {
-    fleets: {},
-    agents: {},
-    messages: {},
-    inboxes: {},
-    capabilities: {},
-  };
-  setLedgerOverride(
-    () => JSON.parse(JSON.stringify(memory)),
-    (data) => { memory = data; }
-  );
-  return {
-    dir,
-    file,
-    cleanup: () => {
-      setLedgerOverride(null, null);
-      try {
-        rmSync(dir, { recursive: true, force: true });
-      } catch {
-        // best-effort
-      }
-    },
-  };
+function freshLedger(): { dir: string; cleanup: () => void } {
+  return withTempDb();
 }
 
 // ---------------------------------------------------------------------------
@@ -72,16 +45,6 @@ test("loadData: returns empty data when file does not exist", () => {
   assert.deepEqual(data.messages, {});
   assert.deepEqual(data.inboxes, {});
   assert.deepEqual(data.capabilities, {});
-  cleanup();
-});
-
-test("loadDataFromFile: corrupt ledger is quarantined, not silently wiped", () => {
-  const { dir, file, cleanup } = freshLedger();
-  writeFileSync(file, "this is not json{{{");
-  const data = loadDataFromFile(file);
-  assert.deepEqual(data.fleets, {});
-  const quarantined = readdirSync(dir).filter((n) => n.includes(".corrupt-"));
-  assert.equal(quarantined.length, 1, "corrupt file preserved for recovery, not wiped");
   cleanup();
 });
 
@@ -101,32 +64,13 @@ test("loadData: round-trips through saveData", () => {
   cleanup();
 });
 
-test("loadData: backward compat with v0.1 ledger (no messages/inboxes/capabilities keys)", () => {
-  const { dir, file, cleanup } = freshLedger();
-  writeFileSync(
-    file,
-    JSON.stringify({
-      fleets: { abc: { id: "abc", status: "complete", created_at: 1 } },
-      agents: { agent1: { id: "agent1", fleet_id: "abc", role: "r", prompt: "p", status: "complete" } },
-    })
-  );
-  // Use file-based loader to read the raw v0.1 ledger (override is in-memory)
-  const data = loadDataFromFile(file);
-  assert.ok(data.fleets.abc);
-  assert.ok(data.agents.agent1);
-  assert.deepEqual(data.messages, {});
-  assert.deepEqual(data.inboxes, {});
-  assert.deepEqual(data.capabilities, {});
-  cleanup();
-});
-
 // ---------------------------------------------------------------------------
 // sendMessage / getInbox / ackMessage
 // ---------------------------------------------------------------------------
 
 test("sendMessage: creates message and appends to recipient inbox", () => {
   const { cleanup } = freshLedger();
-  const msgId = sendMessage("a1", "a2", "f1", "handoff", '{"context":"x"}');
+  const { messageId: msgId } = sendMessage("a1", "a2", "f1", "handoff", '{"context":"x"}');
   assert.ok(msgId);
   const inbox = getInbox("a2");
   assert.equal(inbox.length, 1);
@@ -148,18 +92,18 @@ test("sendMessage: rejects payload exceeding 64KB", () => {
 test("sendMessage: accepts payload exactly at 64KB limit", () => {
   const { cleanup } = freshLedger();
   const exact = "x".repeat(MAX_PAYLOAD_BYTES);
-  const msgId = sendMessage("a1", "a2", "f1", "handoff", exact);
+  const { messageId: msgId } = sendMessage("a1", "a2", "f1", "handoff", exact);
   assert.ok(msgId);
   cleanup();
 });
 
 test("getInbox: filters by since timestamp", async () => {
   const { cleanup } = freshLedger();
-  const m1 = sendMessage("a1", "a2", "f1", "handoff", "first");
+  sendMessage("a1", "a2", "f1", "handoff", "first");
   await new Promise((r) => setTimeout(r, 5));
   const cutoff = Date.now();
   await new Promise((r) => setTimeout(r, 5));
-  const m2 = sendMessage("a1", "a2", "f1", "question", "second");
+  const { messageId: m2 } = sendMessage("a1", "a2", "f1", "question", "second");
   const recent = getInbox("a2", cutoff);
   // Only the second message should pass the since filter
   assert.equal(recent.length, 1);
@@ -175,7 +119,7 @@ test("getInbox: returns empty array for agent with no inbox", () => {
 
 test("ackMessage: marks acknowledged and removes from inbox", () => {
   const { cleanup } = freshLedger();
-  const msgId = sendMessage("a1", "a2", "f1", "handoff", "x");
+  const { messageId: msgId } = sendMessage("a1", "a2", "f1", "handoff", "x");
   assert.equal(getInbox("a2").length, 1);
   const ok = ackMessage("a2", msgId);
   assert.equal(ok, true);
