@@ -4,6 +4,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
+  type CallToolResult,
 } from "@modelcontextprotocol/sdk/types.js";
 import { spawn } from "child_process";
 import { randomUUID } from "crypto";
@@ -569,10 +570,12 @@ function jsonError(message: string) {
   };
 }
 
-server.setRequestHandler(CallToolRequestSchema, async (req) => {
-  const { name, arguments: args } = req.params;
+const toolHandlers: Record<
+  string,
+  (args: any) => Promise<CallToolResult> | CallToolResult
+> = {};
 
-  if (name === "spawn_fleet") {
+toolHandlers["spawn_fleet"] = async (args) => {
     const { agents } = args as { agents: { role: string; prompt: string; agent?: string }[] };
     const fleetId = randomUUID();
     createFleet(fleetId);
@@ -592,9 +595,9 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
     }
 
     return jsonResult({ fleet_id: fleetId, agent_ids: ids });
-  }
+};
 
-  if (name === "fleet_status") {
+toolHandlers["fleet_status"] = async (args) => {
     const ip = "global"; // no IP extraction yet; use single bucket
     if (!checkRateLimit(ip, "read")) {
       return { content: [{ type: "text", text: JSON.stringify({ error: "Read rate limit exceeded. Slow down." }) }], isError: true };
@@ -606,17 +609,17 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
       (a) => a.fleet_id === fleet_id
     );
     return jsonResult({ fleet, agents });
-  }
+};
 
-  if (name === "list_fleets") {
+toolHandlers["list_fleets"] = async (args) => {
     const ip = "global";
     if (!checkRateLimit(ip, "read")) {
       return { content: [{ type: "text", text: JSON.stringify({ error: "Read rate limit exceeded." }) }], isError: true };
     }
     return jsonResult({ fleets: listFleets() });
-  }
+};
 
-  if (name === "set_fleet_timeout") {
+toolHandlers["set_fleet_timeout"] = async (args) => {
     const { fleet_id, timeout_ms } = args as { fleet_id: string; timeout_ms: number };
     try {
       setFleetTimeout(fleet_id, timeout_ms);
@@ -625,9 +628,9 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : String(err));
     }
-  }
+};
 
-  if (name === "collect_results") {
+toolHandlers["collect_results"] = async (args) => {
     const { fleet_id } = args as { fleet_id: string };
     const data = loadData();
     const agents = Object.values(data.agents).filter(
@@ -642,9 +645,9 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
         error: a.error,
       })),
     });
-  }
+};
 
-  if (name === "send_message") {
+toolHandlers["send_message"] = async (args) => {
     const {
       from_agent_id,
       to_agent_id,
@@ -688,25 +691,25 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : String(err));
     }
-  }
+};
 
-  if (name === "get_inbox") {
+toolHandlers["get_inbox"] = async (args) => {
     const { agent_id, since } = args as {
       agent_id: string;
       since?: number;
     };
     return jsonResult({ messages: getInbox(agent_id, since) });
-  }
+};
 
-  if (name === "ack_message") {
+toolHandlers["ack_message"] = async (args) => {
     const { agent_id, message_id } = args as {
       agent_id: string;
       message_id: string;
     };
     return jsonResult({ ok: ackMessage(agent_id, message_id) });
-  }
+};
 
-  if (name === "receipt") {
+toolHandlers["receipt"] = async (args) => {
     const { agent_id, message_id, action, note } = args as {
       agent_id: string;
       message_id: string;
@@ -719,14 +722,14 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
     const receipt = writeReceipt(agent_id, message_id, action, note);
     if (!receipt) return jsonError(`No such message: ${message_id}`);
     return jsonResult({ receipt });
-  }
+};
 
-  if (name === "get_receipts") {
+toolHandlers["get_receipts"] = async (args) => {
     const { message_id } = args as { message_id: string };
     return jsonResult({ receipts: getReceipts(message_id) });
-  }
+};
 
-  if (name === "open_ratification") {
+toolHandlers["open_ratification"] = async (args) => {
     const a = args as {
       proposer: string;
       fleet_id: string;
@@ -754,9 +757,9 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : String(err));
     }
-  }
+};
 
-  if (name === "cast_vote") {
+toolHandlers["cast_vote"] = async (args) => {
     const { agent_id, message_id, approve, note } = args as {
       agent_id: string;
       message_id: string;
@@ -770,30 +773,30 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : String(err));
     }
-  }
+};
 
-  if (name === "tally_ratification") {
+toolHandlers["tally_ratification"] = async (args) => {
     const { message_id } = args as { message_id: string };
     const status = resolveRatification(message_id);
     if (status === null) return jsonError(`No such ratification: ${message_id}`);
     return jsonResult({ status, tally: tallyRatification(message_id) });
-  }
+};
 
-  if (name === "sweep_ratifications") {
+toolHandlers["sweep_ratifications"] = async (args) => {
     return jsonResult(sweepRatifications());
-  }
+};
 
-  if (name === "register_capability") {
+toolHandlers["register_capability"] = async (args) => {
     registerCapability(args as Parameters<typeof registerCapability>[0]);
     return jsonResult({ ok: true });
-  }
+};
 
-  if (name === "route_work") {
+toolHandlers["route_work"] = async (args) => {
     const { description, top_n } = args as { description: string; top_n?: number };
     return jsonResult({ matches: routeWork(description, top_n ?? 1) });
-  }
+};
 
-  if (name === "record_routing_outcome") {
+toolHandlers["record_routing_outcome"] = async (args) => {
     const { agent_id, capability_key, success } = args as {
       agent_id: string;
       capability_key: string;
@@ -801,14 +804,14 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
     };
     recordRoutingOutcome(agent_id, capability_key, success);
     return jsonResult({ ok: true, agent_id, capability_key, success });
-  }
+};
 
-  if (name === "list_agents") {
+toolHandlers["list_agents"] = async (args) => {
     const agents = discoverPremadeAgents();
     return jsonResult({ count: agents.length, agents });
-  }
+};
 
-  if (name === "attach_agent") {
+toolHandlers["attach_agent"] = async (args) => {
     const { fleet_id, role, prompt, agent } = args as {
       fleet_id: string;
       role: string;
@@ -835,17 +838,17 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
       agent_file: agent ?? null,
       message: `Agent ${role} attached to fleet ${fleet_id}`,
     });
-  }
+};
 
-  if (name === "ping") {
+toolHandlers["ping"] = async (args) => {
     return jsonResult(ping());
-  }
+};
 
-  if (name === "get_health") {
+toolHandlers["get_health"] = async (args) => {
     return jsonResult(getHealth());
-  }
+};
 
-  if (name === "subscribe_inbox") {
+toolHandlers["subscribe_inbox"] = async (args) => {
     const { agent_id } = args as { agent_id: string };
     const data = loadData();
     if (!data.agents[agent_id]) {
@@ -858,9 +861,9 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
       instructions:
         "Open an HTTP GET to the stream_url. Each event is SSE-formatted: `event: <type>\\ndata: <json>\\n\\n`. Use polling get_inbox as a fallback if SSE is unreachable.",
     });
-  }
+};
 
-  if (name === "save_fleet_template") {
+toolHandlers["save_fleet_template"] = async (args) => {
     const { name: tplName, description, agents } = args as {
       name: string
       description?: string
@@ -872,22 +875,28 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : String(err));
     }
-  }
+};
 
-  if (name === "list_fleet_templates") {
+toolHandlers["list_fleet_templates"] = async (args) => {
     return jsonResult({ templates: listFleetTemplatesFn() });
-  }
+};
 
-  if (name === "spawn_from_template") {
+toolHandlers["spawn_from_template"] = async (args) => {
     const { name: tplName } = args as { name: string };
     const spec = spawnFromTemplateFn(tplName);
     if (!spec) {
       return jsonError(`Template "${tplName}" not found`);
     }
     return jsonResult({ spec });
-  }
+};
 
-  throw new Error(`Unknown tool: ${name}`);
+server.setRequestHandler(CallToolRequestSchema, async (req) => {
+  const { name, arguments: args } = req.params;
+  const handler = toolHandlers[name];
+  if (!handler) {
+    throw new Error(`Unknown tool: ${name}`);
+  }
+  return await handler(args);
 });
 
 // ---------------------------------------------------------------------------
