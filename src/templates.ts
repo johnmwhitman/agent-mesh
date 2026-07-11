@@ -1,117 +1,99 @@
 /**
  * Templates — save, list, retrieve, and spawn fleet templates.
  *
- * A template is a named collection of agent specs. Once saved, you can
- * spawn a fresh fleet from it without re-typing the prompts. Templates
- * persist in the same JSON ledger as fleets/agents/messages (under a
- * `templates` key) so they survive restarts and travel with the user.
- *
- * Versioning (v0.8.5):
- *   - Each save creates a new version; old versions are preserved
- *   - save(name, ...) without an explicit version auto-increments
- *   - get(name) returns the latest; get(name, version) returns a specific one
- *   - listFleetTemplateVersions(name) returns all versions sorted newest first
- *   - delete(name, version) removes one; delete(name) removes all
- *
- * Internal ledger key is `${name}@v${version}` so multiple versions coexist
- * in the same `templates` dict without collision.
+ * A template is a named collection of agent specs. Once saved, you can spawn a
+ * fresh fleet from it without re-typing the prompts. Templates persist in the
+ * SQLite ledger under the `templates` collection (keyed `${name}@v${version}`),
+ * so they survive restarts and travel with the user. Every write runs inside a
+ * single withLedger transaction; reads use readLedger.
  */
 
-import { randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname } from 'node:path'
-import { loadData, saveData, type MeshData } from './core.js'
+import { randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
+import { withLedger, readLedger } from "./db.js";
+import type { MeshData } from "./core.js";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 export interface TemplateAgent {
-  role: string
-  prompt: string
-  agent?: string
+  role: string;
+  prompt: string;
+  agent?: string;
 }
 
 export interface FleetTemplate {
-  name: string
-  description: string
-  agents: TemplateAgent[]
-  created_at: number
-  version: number
+  name: string;
+  description: string;
+  agents: TemplateAgent[];
+  created_at: number;
+  version: number;
 }
 
 interface TemplateWithMeta extends FleetTemplate {
-  id: string // internal UUID for the ledger key
+  id: string; // internal UUID for the ledger key
 }
+
+type TemplateDict = Record<string, TemplateWithMeta>;
 
 // ---------------------------------------------------------------------------
 // Validation
 // ---------------------------------------------------------------------------
 
-const NAME_PATTERN = /^[a-z0-9_-]+$/
+const NAME_PATTERN = /^[a-z0-9_-]+$/;
 
 function validateName(name: string): void {
   if (!name || name.trim().length === 0) {
-    throw new Error('Template name is required')
+    throw new Error("Template name is required");
   }
   if (!NAME_PATTERN.test(name)) {
     throw new Error(
-      'Template name must contain only lowercase letters, numbers, dashes, and underscores'
-    )
+      "Template name must contain only lowercase letters, numbers, dashes, and underscores"
+    );
   }
   if (name.length > 64) {
-    throw new Error('Template name must be 64 characters or fewer')
+    throw new Error("Template name must be 64 characters or fewer");
   }
 }
 
 function validateAgents(agents: TemplateAgent[]): void {
   if (!agents || agents.length === 0) {
-    throw new Error('Template must have at least one agent')
+    throw new Error("Template must have at least one agent");
   }
   if (agents.length > 32) {
-    throw new Error('Template must have 32 or fewer agents')
+    throw new Error("Template must have 32 or fewer agents");
   }
   for (const a of agents) {
     if (!a.role || a.role.trim().length === 0) {
-      throw new Error('Each template agent must have a non-empty role')
+      throw new Error("Each template agent must have a non-empty role");
     }
     if (!a.prompt || a.prompt.trim().length === 0) {
-      throw new Error(`Template agent "${a.role}" must have a non-empty prompt`)
+      throw new Error(`Template agent "${a.role}" must have a non-empty prompt`);
     }
   }
 }
 
 // ---------------------------------------------------------------------------
-// Ledger access (templates stored under .templates)
+// Ledger access (templates stored under the `templates` collection)
 // ---------------------------------------------------------------------------
 
-function loadTemplates(): Record<string, TemplateWithMeta> {
-  const data = loadData() as MeshData & {
-    templates?: Record<string, TemplateWithMeta>
-  }
-  return data.templates ?? {}
+function currentTemplates(): TemplateDict {
+  return (readLedger().templates ?? {}) as TemplateDict;
 }
 
-function saveTemplates(
-  templates: Record<string, TemplateWithMeta>
-): void {
-  const data = loadData() as MeshData & {
-    templates?: Record<string, TemplateWithMeta>
-  }
-  data.templates = templates
-  saveData(data as MeshData)
+/** The templates dict inside a withLedger mutator's `data` (lazily initialized). */
+function templatesOf(data: MeshData): TemplateDict {
+  if (!data.templates) data.templates = {};
+  return data.templates as TemplateDict;
 }
-
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
 
 function key(name: string, version: number): string {
   return `${name}@v${version}`;
 }
 
-function nextVersion(name: string): number {
-  const templates = loadTemplates();
+function nextVersion(templates: TemplateDict, name: string): number {
   let max = 0;
   const prefix = `${name}@v`;
   for (const k of Object.keys(templates)) {
@@ -123,51 +105,54 @@ function nextVersion(name: string): number {
   return max + 1;
 }
 
+function normalizeAgents(agents: TemplateAgent[]): TemplateAgent[] {
+  return agents.map((a) => ({
+    role: a.role.trim(),
+    prompt: a.prompt.trim(),
+    ...(a.agent ? { agent: a.agent } : {}),
+  }));
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
 export function saveFleetTemplate(
   name: string,
   agents: TemplateAgent[],
-  description: string = '',
+  description: string = "",
   version?: number
 ): FleetTemplate {
   validateName(name);
   validateAgents(agents);
-
-  const templates = loadTemplates();
-  const targetVersion = version ?? nextVersion(name);
-  const storageKey = key(name, targetVersion);
-
-  if (templates[storageKey]) {
-    throw new Error(`Template "${name}" version ${targetVersion} already exists`);
-  }
-
-  const tpl: TemplateWithMeta = {
-    id: randomUUID(),
-    name,
-    description: description.trim(),
-    agents: agents.map((a) => ({
-      role: a.role.trim(),
-      prompt: a.prompt.trim(),
-      ...(a.agent ? { agent: a.agent } : {}),
-    })),
-    created_at: Date.now(),
-    version: targetVersion,
-  };
-
-  templates[storageKey] = tpl;
-  saveTemplates(templates);
-
-  return stripMeta(tpl);
+  return withLedger((data): FleetTemplate => {
+    const templates = templatesOf(data);
+    const targetVersion = version ?? nextVersion(templates, name);
+    const storageKey = key(name, targetVersion);
+    if (templates[storageKey]) {
+      throw new Error(`Template "${name}" version ${targetVersion} already exists`);
+    }
+    const tpl: TemplateWithMeta = {
+      id: randomUUID(),
+      name,
+      description: description.trim(),
+      agents: normalizeAgents(agents),
+      created_at: Date.now(),
+      version: targetVersion,
+    };
+    templates[storageKey] = tpl;
+    return stripMeta(tpl);
+  });
 }
 
 export function listFleetTemplates(): FleetTemplate[] {
-  const templates = loadTemplates();
-  return Object.values(templates)
+  return Object.values(currentTemplates())
     .map(stripMeta)
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export function listFleetTemplateVersions(name: string): FleetTemplate[] {
-  const templates = loadTemplates();
+  const templates = currentTemplates();
   const prefix = `${name}@v`;
   return Object.keys(templates)
     .filter((k) => k.startsWith(prefix))
@@ -176,7 +161,7 @@ export function listFleetTemplateVersions(name: string): FleetTemplate[] {
 }
 
 export function getFleetTemplate(name: string, version?: number): FleetTemplate | null {
-  const templates = loadTemplates();
+  const templates = currentTemplates();
   if (version !== undefined) {
     const tpl = templates[key(name, version)];
     return tpl ? stripMeta(tpl) : null;
@@ -186,24 +171,24 @@ export function getFleetTemplate(name: string, version?: number): FleetTemplate 
 }
 
 export function deleteFleetTemplate(name: string, version?: number): boolean {
-  const templates = loadTemplates();
-  if (version !== undefined) {
-    const k = key(name, version);
-    if (!templates[k]) return false;
-    delete templates[k];
-    saveTemplates(templates);
-    return true;
-  }
-  const prefix = `${name}@v`;
-  let removed = false;
-  for (const k of Object.keys(templates)) {
-    if (k.startsWith(prefix)) {
+  return withLedger((data): boolean => {
+    const templates = templatesOf(data);
+    if (version !== undefined) {
+      const k = key(name, version);
+      if (!templates[k]) return false;
       delete templates[k];
-      removed = true;
+      return true;
     }
-  }
-  if (removed) saveTemplates(templates);
-  return removed;
+    const prefix = `${name}@v`;
+    let removed = false;
+    for (const k of Object.keys(templates)) {
+      if (k.startsWith(prefix)) {
+        delete templates[k];
+        removed = true;
+      }
+    }
+    return removed;
+  });
 }
 
 export interface SpawnSpec {
@@ -220,7 +205,7 @@ export function spawnFromTemplate(name: string, version?: number): SpawnSpec | n
 // Export / Import (v0.8.6)
 // ---------------------------------------------------------------------------
 
-export const TEMPLATE_SCHEMA = 'meshfleet-template-v1';
+export const TEMPLATE_SCHEMA = "meshfleet-template-v1";
 
 export interface ExportedTemplate {
   schema: string;
@@ -258,44 +243,55 @@ export function importFleetTemplate(
   filePath: string,
   rename?: string
 ): FleetTemplate {
+  // File I/O + schema validation OUTSIDE the transaction.
   if (!existsSync(filePath)) {
     throw new Error(`Cannot read template file: ${filePath}`);
   }
   let raw: ExportedTemplate;
   try {
-    raw = JSON.parse(readFileSync(filePath, 'utf-8')) as ExportedTemplate;
+    raw = JSON.parse(readFileSync(filePath, "utf-8")) as ExportedTemplate;
   } catch (err) {
     throw new Error(`Failed to parse template file: ${err instanceof Error ? err.message : String(err)}`);
   }
   if (raw.schema !== TEMPLATE_SCHEMA) {
-    throw new Error(
-      `Unknown template schema "${raw.schema}"; expected "${TEMPLATE_SCHEMA}"`
-    );
+    throw new Error(`Unknown template schema "${raw.schema}"; expected "${TEMPLATE_SCHEMA}"`);
   }
   if (!raw.name || !Array.isArray(raw.agents)) {
-    throw new Error('Template file is missing required fields (name, agents)');
+    throw new Error("Template file is missing required fields (name, agents)");
   }
-  const targetName = rename ?? raw.name;
-  if (rename) {
-    validateName(rename);
-  } else {
-    // If the name already exists, append a timestamp suffix to avoid clobbering
-    const existing = listFleetTemplateVersions(raw.name);
-    if (existing.length > 0) {
-      const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-      return importFleetTemplate(filePath, `${raw.name}-${stamp}`);
+  if (rename) validateName(rename);
+  const agents = normalizeAgents(raw.agents.map((a) => ({ role: a.role, prompt: a.prompt, ...(a.agent ? { agent: a.agent } : {}) })));
+  validateAgents(agents);
+  const description = (raw.description ?? "").trim();
+
+  // Collision check + insert in ONE transaction (was a TOCTOU across a read + save).
+  return withLedger((data): FleetTemplate => {
+    const templates = templatesOf(data);
+    let targetName = rename ?? raw.name;
+    if (!rename) {
+      // Non-rename import: if the name already exists, suffix a timestamp to avoid clobbering.
+      const exists = Object.keys(templates).some((k) => k.startsWith(`${raw.name}@v`));
+      if (exists) {
+        const stamp = new Date().toISOString().replace(/[:.tz]/gi, "-").slice(0, 19);
+        targetName = `${raw.name}-${stamp}`;
+      }
     }
-  }
-  return saveFleetTemplate(
-    targetName,
-    raw.agents.map((a) => ({
-      role: a.role,
-      prompt: a.prompt,
-      ...(a.agent ? { agent: a.agent } : {}),
-    })),
-    raw.description ?? '',
-    1
-  );
+    validateName(targetName);
+    const storageKey = key(targetName, 1);
+    if (templates[storageKey]) {
+      throw new Error(`Template "${targetName}" version 1 already exists`);
+    }
+    const tpl: TemplateWithMeta = {
+      id: randomUUID(),
+      name: targetName,
+      description,
+      agents,
+      created_at: Date.now(),
+      version: 1,
+    };
+    templates[storageKey] = tpl;
+    return stripMeta(tpl);
+  });
 }
 
 // ---------------------------------------------------------------------------
