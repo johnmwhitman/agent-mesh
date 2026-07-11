@@ -6,6 +6,7 @@ import { homedir } from "os";
 import { getRoutingAdjustment } from "./routing-feedback.js";
 import { expandKeywordsWithSynonyms } from "./synonyms.js";
 import { resolveEnv } from "./env.js";
+import { withLedger, readLedger, importSnapshot } from "./db.js";
 
 // ---------------------------------------------------------------------------
 // Data Models
@@ -175,26 +176,30 @@ export function setLedgerPath(dir: string, file: string): void {
   ensureDataDir();
 }
 
-// Override primitives for test isolation
-let loadOverride: ((() => MeshData) | null) = null;
-let saveOverride: ((d: MeshData) => void) | null = null;
-
-export function setLedgerOverride(
-  load: (() => MeshData) | null,
-  save: ((d: MeshData) => void) | null
-): void {
-  loadOverride = load;
-  saveOverride = save;
-}
-
+/**
+ * loadData / saveData are now thin SQLite shims over the withLedger seam (db.ts).
+ * - `loadData()` is a lock-free read (read-only callers unchanged).
+ * - `saveData()` is a transactional FULL-REPLACE, kept for seeding/compat only —
+ *   it is NOT concurrency-safe for writers (it read-outside-then-replaces). Every
+ *   WRITER uses `withLedger` directly so its read+mutate+write is one transaction.
+ * The JSON functions below (`loadDataFromFile`/`saveDataToFile`/`migrateLedger`) are
+ * now MIGRATION-ONLY — the one-time JSON→SQLite import path, not the live ledger.
+ */
 export function loadData(): MeshData {
-  if (loadOverride) return loadOverride();
-  return loadDataFromFile(resolveDataFile());
+  return readLedger();
 }
 
 export function saveData(data: MeshData): void {
-  if (saveOverride) return saveOverride(data);
-  saveDataToFile(data, resolveDataFile(), resolveDataDir());
+  withLedger((cur) => {
+    cur.fleets = data.fleets;
+    cur.agents = data.agents;
+    cur.messages = data.messages;
+    cur.inboxes = data.inboxes;
+    cur.capabilities = data.capabilities;
+    cur.receipts = data.receipts ?? {};
+    cur.ratifications = data.ratifications ?? {};
+    cur.templates = data.templates ?? {};
+  });
 }
 
 export function resolveDataFile(): string {
@@ -415,12 +420,11 @@ export function getFleetTimeoutMs(fleetId: string): number {
 }
 
 export function setFleetTimeout(fleetId: string, timeoutMs: number): void {
-  const data = loadData();
-  if (!data.fleets[fleetId]) {
-    throw new Error(`Fleet ${fleetId} not found`);
-  }
-  data.fleets[fleetId].timeout_ms = timeoutMs;
-  saveData(data);
+  withLedger((data) => {
+    const fleet = data.fleets[fleetId];
+    if (!fleet) throw new Error(`Fleet ${fleetId} not found`);
+    fleet.timeout_ms = timeoutMs;
+  });
 }
 
 export interface FleetSummary {
@@ -454,34 +458,29 @@ export function listFleets(): FleetSummary[] {
 }
 
 export function createFleet(fleetId: string): Fleet {
-  const data = loadData();
-  const fleet: Fleet = {
-    id: fleetId,
-    status: "running",
-    created_at: Date.now(),
-  };
-  data.fleets[fleetId] = fleet;
-  saveData(data);
-  appendEvent("fleet_created", { fleet_id: fleetId });
+  const fleet = withLedger((data): Fleet => {
+    const f: Fleet = { id: fleetId, status: "running", created_at: Date.now() };
+    data.fleets[fleetId] = f;
+    return f;
+  });
+  appendEvent("fleet_created", { fleet_id: fleetId }); // hoisted: side-effect outside the txn
   return fleet;
 }
 
-export function checkFleetCompletion(fleetId: string): void {
-  const data = loadData();
-  const agents = Object.values(data.agents).filter(
-    (a) => a.fleet_id === fleetId
-  );
-  const allDone = agents.every(
-    (a) => a.status === "complete" || a.status === "failed"
-  );
-
+/** In-transaction helper: decide fleet completion from `data` and set it in place. */
+export function _checkFleetCompletion(data: MeshData, fleetId: string): void {
+  const agents = Object.values(data.agents).filter((a) => a.fleet_id === fleetId);
+  const allDone = agents.every((a) => a.status === "complete" || a.status === "failed");
   if (allDone && data.fleets[fleetId]) {
     const hasFail = agents.some((a) => a.status === "failed");
     const fleet = data.fleets[fleetId];
     fleet.status = hasFail ? "failed" : "complete";
     fleet.completed_at = Date.now();
-    saveData(data);
   }
+}
+
+export function checkFleetCompletion(fleetId: string): void {
+  withLedger((data) => _checkFleetCompletion(data, fleetId));
 }
 
 // ---------------------------------------------------------------------------
@@ -492,10 +491,10 @@ export function registerAgentInLedger(
   agent: Agent,
   inbox: string[] = []
 ): void {
-  const data = loadData();
-  data.agents[agent.id] = agent;
-  data.inboxes[agent.id] = inbox;
-  saveData(data);
+  withLedger((data) => {
+    data.agents[agent.id] = agent;
+    data.inboxes[agent.id] = inbox;
+  });
 }
 
 export function markAgentFinished(
@@ -504,15 +503,17 @@ export function markAgentFinished(
   output: string,
   error: string | undefined
 ): void {
-  const data = loadData();
-  const agent = data.agents[agentId];
-  if (!agent || agent.completed_at !== undefined) return;
-  agent.status = status;
-  agent.output = output;
-  agent.error = error;
-  agent.completed_at = Date.now();
-  saveData(data);
-  checkFleetCompletion(agent.fleet_id);
+  // ONE transaction: mark the agent AND decide+set fleet completion from the same
+  // snapshot (was two RMW cycles — two finishers could both read "not all done").
+  withLedger((data) => {
+    const agent = data.agents[agentId];
+    if (!agent || agent.completed_at !== undefined) return;
+    agent.status = status;
+    agent.output = output;
+    agent.error = error;
+    agent.completed_at = Date.now();
+    _checkFleetCompletion(data, agent.fleet_id);
+  });
 }
 
 /** True when a pid refers to a live process we can signal. */
@@ -537,25 +538,29 @@ export function isPidAlive(pid: number): boolean {
  * (field data: 31/52 agents on the 2026-07-02 ledger).
  */
 export function recoverInterruptedAgents(): number {
-  const data = loadData();
-  let count = 0;
-  for (const agent of Object.values(data.agents)) {
-    if (agent.status === "running") {
-      if (agent.pid !== undefined && isPidAlive(agent.pid)) continue;
-      agent.status = "interrupted";
-      agent.completed_at = Date.now();
-      agent.error = "MCP server crashed before this agent completed; use retry or respawn to recover";
-      count++;
-      appendEvent("agent_interrupted_recovered", {
-        agent_id: agent.id,
-        fleet_id: agent.fleet_id,
-        started_at: agent.started_at,
-        recovered_at: agent.completed_at,
-      });
+  // Startup-only, parent-only (CHILD guard). isPidAlive is a read-only syscall so
+  // it stays in the mutator; the recovery events are hoisted OUT of the txn.
+  const recovered: Agent[] = [];
+  withLedger((data) => {
+    for (const agent of Object.values(data.agents)) {
+      if (agent.status === "running") {
+        if (agent.pid !== undefined && isPidAlive(agent.pid)) continue;
+        agent.status = "interrupted";
+        agent.completed_at = Date.now();
+        agent.error = "MCP server crashed before this agent completed; use retry or respawn to recover";
+        recovered.push(agent);
+      }
     }
+  });
+  for (const agent of recovered) {
+    appendEvent("agent_interrupted_recovered", {
+      agent_id: agent.id,
+      fleet_id: agent.fleet_id,
+      started_at: agent.started_at,
+      recovered_at: agent.completed_at,
+    });
   }
-  if (count > 0) saveData(data);
-  return count;
+  return recovered.length;
 }
 
 // ---------------------------------------------------------------------------
@@ -563,6 +568,48 @@ export function recoverInterruptedAgents(): number {
 // ---------------------------------------------------------------------------
 
 export const MAX_PAYLOAD_BYTES = 64 * 1024;
+
+/** In-transaction helper: append a message + inbox entries to `data`; returns the id. */
+export function _sendMessage(
+  data: MeshData,
+  fromAgentId: string,
+  toAgentId: string,
+  fleetId: string,
+  type: MessageType,
+  payload: string,
+  correlationId?: string
+): string {
+  const messageId = randomUUID();
+  let recipients: string[] | undefined;
+  if (toAgentId === BROADCAST) {
+    recipients = Object.values(data.agents)
+      .filter((a) => a.fleet_id === fleetId && a.id !== fromAgentId)
+      .map((a) => a.id);
+    if (recipients.length === 0) {
+      throw new Error(
+        `Broadcast in fleet ${fleetId} has no recipients (no other agents registered)`
+      );
+    }
+  }
+  const message: Message = {
+    id: messageId,
+    from_agent_id: fromAgentId,
+    to_agent_id: toAgentId,
+    fleet_id: fleetId,
+    type,
+    payload,
+    correlation_id: correlationId,
+    timestamp: Date.now(),
+    acknowledged: false,
+    ...(recipients ? { recipients } : {}),
+  };
+  data.messages[messageId] = message;
+  for (const recipient of recipients ?? [toAgentId]) {
+    if (!data.inboxes[recipient]) data.inboxes[recipient] = [];
+    data.inboxes[recipient].push(messageId);
+  }
+  return messageId;
+}
 
 export function sendMessage(
   fromAgentId: string,
@@ -577,42 +624,7 @@ export function sendMessage(
       `Payload too large: ${Buffer.byteLength(payload)} bytes (limit ${MAX_PAYLOAD_BYTES})`
     );
   }
-
-  const messageId = randomUUID();
-  const data = loadData();
-
-  let recipients: string[] | undefined;
-  if (toAgentId === BROADCAST) {
-    recipients = Object.values(data.agents)
-      .filter((a) => a.fleet_id === fleetId && a.id !== fromAgentId)
-      .map((a) => a.id);
-    if (recipients.length === 0) {
-      throw new Error(
-        `Broadcast in fleet ${fleetId} has no recipients (no other agents registered)`
-      );
-    }
-  }
-
-  const message: Message = {
-    id: messageId,
-    from_agent_id: fromAgentId,
-    to_agent_id: toAgentId,
-    fleet_id: fleetId,
-    type,
-    payload,
-    correlation_id: correlationId,
-    timestamp: Date.now(),
-    acknowledged: false,
-    ...(recipients ? { recipients } : {}),
-  };
-
-  data.messages[messageId] = message;
-  for (const recipient of recipients ?? [toAgentId]) {
-    if (!data.inboxes[recipient]) data.inboxes[recipient] = [];
-    data.inboxes[recipient].push(messageId);
-  }
-  saveData(data);
-  return messageId;
+  return withLedger((data) => _sendMessage(data, fromAgentId, toAgentId, fleetId, type, payload, correlationId));
 }
 
 /** The agents a message is addressed to (broadcasts resolve to their captured recipient list). */
@@ -643,21 +655,20 @@ export function ackMessage(agentId: string, messageId: string): boolean {
  * recomputes the message's derived `acknowledged` flag (true only when every
  * addressed recipient has acked). Other actions annotate without consuming.
  */
-export function writeReceipt(
+/** In-transaction helper: write a receipt into `data`; returns receipt | existing | null. */
+export function _writeReceipt(
+  data: MeshData,
   agentId: string,
   messageId: string,
   action: string,
   note?: string
 ): Receipt | null {
-  const data = loadData();
   const msg = data.messages[messageId];
   if (!msg) return null;
-
   if (!data.receipts) data.receipts = {};
   const key = `${messageId}:${agentId}:${action}`;
   const existing = data.receipts[key];
   if (existing) return existing;
-
   const receipt: Receipt = {
     message_id: messageId,
     agent_id: agentId,
@@ -666,25 +677,35 @@ export function writeReceipt(
     ...(note !== undefined ? { note } : {}),
   };
   data.receipts[key] = receipt;
-
   if (action === "ack") {
     if (data.inboxes[agentId]) {
-      data.inboxes[agentId] = data.inboxes[agentId].filter(
-        (id) => id !== messageId
-      );
+      data.inboxes[agentId] = data.inboxes[agentId].filter((id) => id !== messageId);
     }
     msg.acknowledged = messageRecipients(msg).every(
       (r) => data.receipts![`${messageId}:${r}:ack`] !== undefined
     );
   }
+  return receipt;
+}
 
-  saveData(data);
-  appendEvent("receipt_written", {
-    message_id: messageId,
-    agent_id: agentId,
-    action,
-    fleet_id: msg.fleet_id,
+export function writeReceipt(
+  agentId: string,
+  messageId: string,
+  action: string,
+  note?: string
+): Receipt | null {
+  let event: { fleet_id: string } | null = null;
+  const receipt = withLedger((data): Receipt | null => {
+    const msg = data.messages[messageId];
+    const key = `${messageId}:${agentId}:${action}`;
+    const wasNew = !!msg && !(data.receipts?.[key]);
+    const r = _writeReceipt(data, agentId, messageId, action, note);
+    if (r && wasNew && msg) event = { fleet_id: msg.fleet_id };
+    return r;
   });
+  if (event) {
+    appendEvent("receipt_written", { message_id: messageId, agent_id: agentId, action, fleet_id: (event as { fleet_id: string }).fleet_id });
+  }
   return receipt;
 }
 
@@ -700,15 +721,17 @@ export function getReceipts(messageId: string): Receipt[] {
 // Capability Registry & Routing
 // ---------------------------------------------------------------------------
 
-export function registerCapability(input: {
+interface CapabilityInput {
   agentId: string;
   fleetId: string;
   role: string;
   skills: string[];
   model?: string;
   contextWindow?: number;
-}): void {
-  const data = loadData();
+}
+
+/** In-transaction helper. */
+export function _registerCapability(data: MeshData, input: CapabilityInput): void {
   data.capabilities[input.agentId] = {
     agent_id: input.agentId,
     fleet_id: input.fleetId,
@@ -718,7 +741,10 @@ export function registerCapability(input: {
     context_window: input.contextWindow,
     registered_at: Date.now(),
   };
-  saveData(data);
+}
+
+export function registerCapability(input: CapabilityInput): void {
+  withLedger((data) => _registerCapability(data, input));
 }
 
 export function routeWork(description: string, topN: number = 1): RouteMatch[] {
@@ -774,14 +800,9 @@ export function routeWork(description: string, topN: number = 1): RouteMatch[] {
 // ---------------------------------------------------------------------------
 
 export function autoRegisterFromAgent(agentId: string, fleetId: string, agentFile: string): boolean {
-  const premade = discoverPremadeAgents().find((p) => p.filename === agentFile);
+  const premade = discoverPremadeAgents().find((p) => p.filename === agentFile); // FS read, outside the txn
   if (!premade) return false;
   const skills = extractSkillsFromDescription(premade.description);
-  registerCapability({
-    agentId,
-    fleetId,
-    role: premade.name,
-    skills,
-  });
+  withLedger((data) => _registerCapability(data, { agentId, fleetId, role: premade.name, skills }));
   return true;
 }
