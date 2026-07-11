@@ -8,7 +8,7 @@
  * The actual CLI binary lives in src/bin/inspect.ts (added in a follow-up).
  */
 
-import { loadData, FleetSummary, MessageType } from './core.js'
+import { loadData, messageRecipients, FleetSummary, MessageType, type Message, type Receipt, type Ratification } from './core.js'
 
 // ---------------------------------------------------------------------------
 // Time formatting
@@ -208,7 +208,85 @@ function formatEventDetail(e: Record<string, unknown>): string {
   if (e.role) parts.push(`role=${truncate(String(e.role), 16)}`)
   if (e.agent_file) parts.push(`file=${truncate(String(e.agent_file), 16)}`)
   if (e.timeout_ms) parts.push(`timeout=${e.timeout_ms}ms`)
+  // v0.12: surface receipt/ratification detail so the audit trail isn't blind
+  if (e.message_id) parts.push(`msg=${truncate(String(e.message_id), 8)}`)
+  if (e.action) parts.push(`action=${String(e.action)}`)
+  if (e.subject) parts.push(`subject=${truncate(String(e.subject), 24)}`)
   return parts.join(' ') || '-'
+}
+
+// ---------------------------------------------------------------------------
+// Receipts & councils — the "prove it" read surface
+//
+// These are the first shipped surfaces that render who-saw-this / who-approved-it
+// from the ledger. Rendering is INTEGRITY-FIRST: addressed recipients or eligible
+// voters with no receipt/vote are marked with ⚠ so a partial trail can never read
+// as complete. Honestly PROVISIONAL until the withLedger seam lands (see
+// PROVISIONAL_NOTE) — under concurrent writes today a receipt can be lost, so the
+// surface says so rather than presenting a possibly-undercounted tally as truth.
+// ---------------------------------------------------------------------------
+
+export const PROVISIONAL_NOTE =
+  '⚠ Provisional: this ledger predates the withLedger transaction seam — under ' +
+  'concurrent writes, receipts/votes may be undercounted. Integrity gaps are marked ⚠.'
+
+const RECEIPT_ICON: Record<string, string> = {
+  ack: '✓',
+  'r-ack': '✓',
+  seen: '·',
+  'r-decline': '✗',
+  retracted: '⌀',
+}
+
+export function receiptActionIcon(action: string): string {
+  return RECEIPT_ICON[action] ?? '•'
+}
+
+/** Render one message's receipt trail, flagging addressed recipients with no receipt. */
+export function formatReceiptTrail(msg: Message, receipts: Receipt[]): string {
+  const recipients = messageRecipients(msg)
+  const to =
+    msg.to_agent_id === '*'
+      ? `* (${recipients.length})`
+      : truncate(msg.to_agent_id, 8)
+  const lines: string[] = [
+    `${truncate(msg.id, 8)}  ${msg.type}  ${truncate(msg.from_agent_id, 8)} → ${to}  [${msg.acknowledged ? 'acknowledged' : 'pending'}]`,
+  ]
+  for (const r of [...receipts].sort((a, b) => a.timestamp - b.timestamp)) {
+    const note = r.note ? `  (${truncate(r.note, 40)})` : ''
+    lines.push(
+      `  ${receiptActionIcon(r.action)} ${r.action.padEnd(9)} ${truncate(r.agent_id, 8)}  ${formatTimestamp(r.timestamp)}${note}`
+    )
+  }
+  const receiptedAgents = new Set(receipts.map((r) => r.agent_id))
+  for (const rcpt of recipients) {
+    if (!receiptedAgents.has(rcpt)) {
+      lines.push(`  ⚠ no receipt  ${truncate(rcpt, 8)}`)
+    }
+  }
+  return lines.join('\n')
+}
+
+/** Render a council (ratification) with a receipt-derived vote breakdown + integrity gaps. */
+export function formatCouncil(rat: Ratification, votes: Receipt[]): string {
+  const approvals = votes.filter((v) => v.action === 'r-ack').map((v) => v.agent_id)
+  const declines = votes.filter((v) => v.action === 'r-decline').map((v) => v.agent_id)
+  const voted = new Set([...approvals, ...declines])
+  const lines: string[] = [
+    `Council: ${truncate(rat.subject, 48)}  [${rat.status}]`,
+    `  proposal ${truncate(rat.message_id, 8)}  fleet ${truncate(rat.fleet_id, 8)}  by ${truncate(rat.proposer, 8)}`,
+    `  approvals ${approvals.length}/${rat.quorum} needed` +
+      (rat.required_signoffs.length
+        ? `  · required: ${rat.required_signoffs.map((s) => truncate(s, 8)).join(', ')}`
+        : ''),
+    `  deadline: ${rat.deadline ? formatTimestamp(rat.deadline) : 'none'}  · silence: ${rat.silence_policy}`,
+  ]
+  for (const a of approvals) lines.push(`    ✓ approve  ${truncate(a, 8)}`)
+  for (const d of declines) lines.push(`    ✗ decline  ${truncate(d, 8)}`)
+  for (const voter of rat.voters) {
+    if (!voted.has(voter)) lines.push(`    ⚠ no vote  ${truncate(voter, 8)}`)
+  }
+  return lines.join('\n')
 }
 
 // ---------------------------------------------------------------------------

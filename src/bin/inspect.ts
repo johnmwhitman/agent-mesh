@@ -17,9 +17,12 @@ import {
   formatEventLog,
   formatFleetSummary,
   getFleetMetrics,
+  formatReceiptTrail,
+  formatCouncil,
+  PROVISIONAL_NOTE,
   type AgentRow,
 } from '../inspector.js'
-import { listFleets, loadData, readEventLog, type Agent } from '../core.js'
+import { listFleets, loadData, readEventLog, getReceipts, type Agent } from '../core.js'
 
 const USAGE = `agent-mesh inspect — CLI inspector for running fleets
 
@@ -28,6 +31,8 @@ Usage:
   npx agent-mesh inspect <fleet_id>         Show one fleet and its agents
   npx agent-mesh inspect --metrics          Show summary metrics
   npx agent-mesh inspect --events [n]      Show recent events (default 20)
+  npx agent-mesh inspect --receipts [fleet] Show message receipts (who saw / acked)
+  npx agent-mesh inspect --councils [fleet] Show councils (tally vs quorum, who voted)
   npx agent-mesh inspect --help             This help
 `
 
@@ -52,12 +57,57 @@ function main(): void {
   }
 
   const positional = args.filter((a) => !a.startsWith('-'))
+
+  if (args.includes('--receipts')) {
+    printReceipts(positional[0])
+    return
+  }
+
+  if (args.includes('--councils')) {
+    printCouncils(positional[0])
+    return
+  }
+
   if (positional.length === 0) {
     printAllFleets()
     return
   }
 
   printOneFleet(positional[0] as string)
+}
+
+function printReceipts(fleetId?: string): void {
+  const data = loadData()
+  process.stdout.write(PROVISIONAL_NOTE + '\n\n')
+  const messages = Object.values(data.messages)
+    .filter((m) => !fleetId || m.fleet_id === fleetId)
+    .sort((a, b) => a.timestamp - b.timestamp)
+  if (messages.length === 0) {
+    process.stdout.write(
+      fleetId ? `No messages in fleet ${fleetId}.\n` : 'No messages recorded.\n'
+    )
+    return
+  }
+  for (const m of messages) {
+    process.stdout.write(formatReceiptTrail(m, getReceipts(m.id)) + '\n\n')
+  }
+}
+
+function printCouncils(fleetId?: string): void {
+  const data = loadData()
+  process.stdout.write(PROVISIONAL_NOTE + '\n\n')
+  const councils = Object.values(data.ratifications ?? {})
+    .filter((r) => !fleetId || r.fleet_id === fleetId)
+    .sort((a, b) => a.opened_at - b.opened_at)
+  if (councils.length === 0) {
+    process.stdout.write(
+      fleetId ? `No councils in fleet ${fleetId}.\n` : 'No councils opened.\n'
+    )
+    return
+  }
+  for (const r of councils) {
+    process.stdout.write(formatCouncil(r, getReceipts(r.message_id)) + '\n\n')
+  }
 }
 
 function printAllFleets(): void {
