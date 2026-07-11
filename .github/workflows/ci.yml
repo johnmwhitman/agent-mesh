@@ -13,7 +13,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # windows-2022 (VS2022), not windows-latest: the latest image ships
+        # Visual Studio 18, which node-gyp 10 can't detect ("unknown version"),
+        # breaking the better-sqlite3 native build when no prebuilt binary is fetched.
+        os: [ubuntu-latest, macos-latest, windows-2022]
         node: [20, 22, 24]
 
     steps:
@@ -37,11 +40,11 @@ jobs:
         run: npm run build
 
       - name: CLI smoke (unix)
-        if: matrix.os != 'windows-latest'
+        if: matrix.os != 'windows-2022'
         run: node dist/bin/inspect.js --metrics
 
       # On Windows we just verify the binary exists; full TTY testing needs
       # a real Windows runner or WSL.
       - name: CLI binary present (windows)
-        if: matrix.os == 'windows-latest'
+        if: matrix.os == 'windows-2022'
         run: if (Test-Path dist/bin/inspect.js) { Write-Host "OK" } else { Write-Error "missing" }
