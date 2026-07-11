@@ -9,6 +9,7 @@ import {
 import { spawn } from "child_process";
 import { randomUUID } from "crypto";
 import { createRequire } from "module";
+import { resolveEnv } from "./env.js";
 
 // Single source of truth for the advertised version — package.json.
 // (The literal here drifted to 0.7.0 while releases moved to 0.11.x.)
@@ -923,7 +924,7 @@ if (!isChildInstance) {
   }
 
   // v0.11: periodic ratification deadline sweep (0 disables)
-  const sweepMs = Number(process.env.AGENT_MESH_RATIFY_SWEEP_MS ?? 60_000);
+  const sweepMs = Number(resolveEnv(process.env, "MESHFLEET_RATIFY_SWEEP_MS", "AGENT_MESH_RATIFY_SWEEP_MS") ?? 60_000);
   if (Number.isFinite(sweepMs) && sweepMs > 0) {
     const sweeper = setInterval(() => {
       try {

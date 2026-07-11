@@ -5,6 +5,7 @@ import { join, basename, extname } from "path";
 import { homedir } from "os";
 import { getRoutingAdjustment } from "./routing-feedback.js";
 import { expandKeywordsWithSynonyms } from "./synonyms.js";
+import { resolveEnv } from "./env.js";
 
 // ---------------------------------------------------------------------------
 // Data Models
@@ -197,11 +198,11 @@ export function saveData(data: MeshData): void {
 }
 
 export function resolveDataFile(): string {
-  return process.env.AGENT_MESH_DATA_FILE || dataFile;
+  return resolveEnv(process.env, "MESHFLEET_DATA_FILE", "AGENT_MESH_DATA_FILE") ?? dataFile;
 }
 
 export function resolveDataDir(): string {
-  return process.env.AGENT_MESH_DATA_DIR || dataDir;
+  return resolveEnv(process.env, "MESHFLEET_DATA_DIR", "AGENT_MESH_DATA_DIR") ?? dataDir;
 }
 
 export function loadDataFromFile(file: string): MeshData {
@@ -409,7 +410,7 @@ const DEFAULT_FLEET_TIMEOUT_MS = 30 * 60 * 1000;
 export function getFleetTimeoutMs(fleetId: string): number {
   const fleet = loadData().fleets[fleetId];
   if (fleet?.timeout_ms !== undefined) return fleet.timeout_ms;
-  const envVal = Number(process.env.AGENT_MESH_AGENT_TIMEOUT_MS);
+  const envVal = Number(resolveEnv(process.env, "MESHFLEET_AGENT_TIMEOUT_MS", "AGENT_MESH_AGENT_TIMEOUT_MS"));
   return Number.isFinite(envVal) && envVal > 0 ? envVal : DEFAULT_FLEET_TIMEOUT_MS;
 }
 
