@@ -4,6 +4,17 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 
 ## [Unreleased]
 
+### Planned
+- batch writes (the 3.8ms/msg bottleneck at 10k scale — see BENCHMARKS.md)
+- wire skill-taxonomy into route_work
+- wire synonyms into role/skill parsing
+- per-version fixture tests for COMPATIBILITY.md
+- tiered councils / vote weighting (if real usage demands them)
+
+## [0.12.0] — 2026-07-11
+
+**The ledger moved from a JSON file to SQLite — lost-update is now impossible by construction.** Multi-process writes to the shared ledger silently dropped ~half the receipts on the old read-modify-write store (57/120 in a two-process test); every write now runs through one SQLite transaction that passes the same test 200/200. Requires Node >= 20. First run after upgrading migrates the JSON ledger once (validated, fails-closed, keeps a backup).
+
 ### Changed
 - **The ledger moved from a single JSON file to SQLite — because the JSON store silently lost writes under real concurrency.** Every spawned agent's `opencode run` boots its own agent-mesh instance on the *same* ledger, so writes are genuinely multi-process. The old split `loadData → mutate → saveData` cycle (atomic file writes included — atomicity is not isolation) races: a reproducing two-process test **lost 57 of 120 receipts**. The fix is `withLedger(mutator)`, a single transaction seam on `better-sqlite3` (`BEGIN IMMEDIATE` + WAL + `busy_timeout`) — SQLite owns cross-process write exclusion, so agent-mesh owns *no* locking protocol and lost-update is impossible by construction. The same two-process test now passes **200/200, zero lost**. Persistence is diff-based (only changed rows are written), which also made SQLite faster than the JSON store at every ledger size measured.
 - **`sendMessage()` now returns `{ messageId, recipients }`** (was `string`). The resolved recipient list comes back from inside the write transaction, so the `send_message` handler no longer re-reads the ledger after committing to find broadcast recipients (that re-read was itself a TOCTOU). The `send_message` MCP tool's JSON result is unchanged.
@@ -18,13 +29,6 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 
 ### Removed
 - **Dead code:** `saveDataToFile` (the JSON write path — SQLite is now the live store; the migrator only *reads* JSON). Retired three test suites superseded by the new architecture (the JSON `concurrency` gate → `db-concurrency`; `schema`/`templates-persistence` file-mechanics → the migrator suite).
-
-### Planned
-- batch writes (the 3.8ms/msg bottleneck at 10k scale — see BENCHMARKS.md)
-- wire skill-taxonomy into route_work
-- wire synonyms into role/skill parsing
-- per-version fixture tests for COMPATIBILITY.md
-- tiered councils / vote weighting (if real usage demands them)
 
 ## [0.11.1] — 2026-07-03
 
