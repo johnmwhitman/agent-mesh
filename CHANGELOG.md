@@ -4,10 +4,18 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 
 ## [Unreleased]
 
+### Added
+- **`route_work` uses the skill taxonomy.** A taxonomy tree (set via `setSkillTaxonomy()`
+  or the `AGENT_MESH_TAXONOMY` env — a file path or inline JSON) credits a capability for
+  being an ancestor/relative of a description keyword: a `react` agent now scores for a
+  `nextjs` task. Empty by default — routing is unchanged until a taxonomy is set.
+- **Bidirectional synonym matching in `route_work`.** When a capability has no literal
+  keyword match, its own role+skills are synonym-expanded and retried (weighted below any
+  literal match). Closes the key-also-value gap where a task described as `api` never
+  reached a `backend` agent. Rescue-only, so existing rankings are unchanged.
+
 ### Planned
 - batch writes (the 3.8ms/msg bottleneck at 10k scale — see BENCHMARKS.md)
-- wire skill-taxonomy into route_work
-- wire synonyms into role/skill parsing
 - per-version fixture tests for COMPATIBILITY.md
 - tiered councils / vote weighting (if real usage demands them)
 

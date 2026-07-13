@@ -10,6 +10,8 @@
  * model at runtime.
  */
 
+import { readFileSync } from "node:fs";
+
 export type Taxonomy = Record<string, Record<string, string[]>>;
 
 export interface SkillScore {
@@ -17,6 +19,51 @@ export interface SkillScore {
   score: number;
   /** Number of hops from the matched keyword to this skill. 0 = direct hit. */
   distance: number;
+}
+
+// ---------------------------------------------------------------------------
+// In-memory taxonomy store (mirrors synonyms' override pattern).
+//
+// route_work reads the active taxonomy through getSkillTaxonomy(). It is empty
+// by default, so routing is byte-for-byte unchanged until a taxonomy is set —
+// programmatically via setSkillTaxonomy(), or once from the environment:
+//   AGENT_MESH_TAXONOMY=/path/to/taxonomy.json   (a file), or
+//   AGENT_MESH_TAXONOMY='{"frontend":{"react":["nextjs"]}}'   (inline JSON).
+// ---------------------------------------------------------------------------
+
+let activeTaxonomy: Taxonomy | null = null;
+let envChecked = false;
+
+export function setSkillTaxonomy(input: string | Taxonomy): void {
+  activeTaxonomy = parseSkillTaxonomy(input);
+  envChecked = true; // an explicit set wins over the env; don't reload it later
+}
+
+export function resetSkillTaxonomy(): void {
+  activeTaxonomy = {};
+  envChecked = true; // an explicit reset means "empty on purpose" — ignore env
+}
+
+export function getSkillTaxonomy(): Taxonomy {
+  if (activeTaxonomy === null && !envChecked) {
+    envChecked = true;
+    const raw = process.env.AGENT_MESH_TAXONOMY;
+    if (raw && raw.trim().length > 0) {
+      const looksInline = raw.trimStart().startsWith("{");
+      if (looksInline) {
+        activeTaxonomy = parseSkillTaxonomy(raw);
+      } else {
+        try {
+          activeTaxonomy = parseSkillTaxonomy(readFileSync(raw, "utf8"));
+        } catch {
+          activeTaxonomy = {};
+        }
+      }
+    } else {
+      activeTaxonomy = {};
+    }
+  }
+  return activeTaxonomy ?? {};
 }
 
 export function parseSkillTaxonomy(input: string | Taxonomy): Taxonomy {

@@ -5,6 +5,7 @@ import { join, basename, extname } from "path";
 import { homedir } from "os";
 import { getRoutingAdjustment } from "./routing-feedback.js";
 import { expandKeywordsWithSynonyms } from "./synonyms.js";
+import { getSkillTaxonomy, scoreSkillsAgainstKeywords } from "./skill-taxonomy.js";
 import { resolveEnv } from "./env.js";
 import { withLedger, readLedger, importSnapshot } from "./db.js";
 
@@ -744,30 +745,81 @@ export function routeWork(description: string, topN: number = 1): RouteMatch[] {
   const caps = Object.values(data.capabilities);
   if (caps.length === 0 || topN <= 0) return [];
 
-  const keywords = expandKeywordsWithSynonyms(
-    description
+  const tokenize = (s: string) =>
+    s
       .toLowerCase()
       .split(/[\s,;.!?()/]+/)
-      .filter((k) => k.length > 1)
-  );
+      .filter((k) => k.length > 1);
+
+  const keywords = expandKeywordsWithSynonyms(tokenize(description));
   if (keywords.length === 0) return [];
+
+  // ROADMAP #55: taxonomy scoring. Empty by default → zero effect on routing
+  // until a taxonomy is set (see skill-taxonomy.ts). When set, a capability is
+  // credited for being an ancestor/relative of a description keyword in the
+  // tree (a 'react' agent gets partial credit for a 'nextjs' task).
+  const taxonomy = getSkillTaxonomy();
+  const taxScores =
+    Object.keys(taxonomy).length > 0
+      ? new Map(
+          scoreSkillsAgainstKeywords(keywords, taxonomy).map((s) => [s.skill.toLowerCase(), s.score])
+        )
+      : null;
+  // Weight taxonomy credit below a direct keyword hit so exact matches still lead.
+  const TAX_WEIGHT = 0.5;
+
+  // A literal keyword match must always outrank a pure synonym-rescue or
+  // taxonomy-only match. We guarantee that STRUCTURALLY (not with fragile
+  // weights): any agent with ≥1 literal hit gets a tier base above the max any
+  // non-literal agent can reach. Non-literal max = TAX_WEIGHT(0.5) +
+  // RESCUE_WEIGHT(0.5) = 1.0 < LITERAL_TIER(2.0).
+  const LITERAL_TIER = 2.0;
+  const RESCUE_WEIGHT = 0.5;
+
+  const capTaxTerms = (roleLower: string, skillsLower: string[]) =>
+    [...tokenize(roleLower), ...skillsLower.flatMap(tokenize)];
 
   const scored = caps.map((cap) => {
     const roleLower = cap.role.toLowerCase();
     const skillsLower = cap.skills.map((s) => s.toLowerCase());
-    let matches = 0;
+
+    // Literal pass — EXACTLY the original scoring: a role hit and a skill hit
+    // for the same keyword count independently (preserved for compatibility).
+    let literal = 0;
     for (const kw of keywords) {
-      if (roleLower.includes(kw)) matches++;
-      for (const sk of skillsLower) {
-        if (sk.includes(kw)) {
-          matches++;
-          break;
-        }
+      if (roleLower.includes(kw)) literal++;
+      if (skillsLower.some((sk) => sk.includes(kw))) literal++;
+    }
+
+    // ROADMAP #55: taxonomy credit (0 unless a taxonomy is set). Tokenize the
+    // role/skills so a compound label like "react engineer" still matches key "react".
+    let taxBonus = 0;
+    if (taxScores) {
+      for (const term of capTaxTerms(roleLower, skillsLower)) {
+        const b = taxScores.get(term);
+        if (typeof b === "number" && Number.isFinite(b)) taxBonus = Math.max(taxBonus, b);
       }
     }
+
+    let score: number;
+    if (literal > 0) {
+      score = LITERAL_TIER + literal / keywords.length + TAX_WEIGHT * taxBonus;
+    } else {
+      // ROADMAP #56: only when nothing matched literally, expand the capability's
+      // OWN role+skills with synonyms and retry. Closes the key-also-value
+      // collision where getSynonyms returns early on a key ('api') and never
+      // reaches its parent ('backend'). Rescue-only → cannot perturb literals.
+      const capTerms = new Set(
+        expandKeywordsWithSynonyms([...tokenize(roleLower), ...skillsLower.flatMap(tokenize)])
+      );
+      let rescued = 0;
+      for (const kw of keywords) if (capTerms.has(kw)) rescued++;
+      score = TAX_WEIGHT * taxBonus + RESCUE_WEIGHT * (rescued / keywords.length);
+    }
+
     return {
       agent_id: cap.agent_id,
-      score: matches / keywords.length,
+      score,
       role: cap.role,
     };
   });

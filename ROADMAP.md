@@ -52,8 +52,8 @@ Routing becomes capability-aware, not just keyword-overlap.
 Bridge release between v0.8.x and v1.0. Targeted at the known bottleneck.
 
 - [ ] **Batch writes for `sendMessage`** — the 3.8ms/msg overhead at 10k scale comes from a full-ledger rewrite per call. Coalesce writes or use an append-only log. Target: 10k messages in < 5s (currently 35s).
-- [ ] **Wire `skill-taxonomy` into `route_work`** — the taxonomy module is built but `route_work` doesn't use it yet. Score each capability by its position in the user's taxonomy tree.
-- [ ] **Wire `synonyms` into the `route_work` description parser** — currently synonyms are only applied to keywords from `description`. Apply the same expansion to role and skill names.
+- [x] **Wire `skill-taxonomy` into `route_work`** — DONE (2026-07-13). `route_work` reads the active taxonomy (`setSkillTaxonomy()` / `AGENT_MESH_TAXONOMY`) and credits each capability by its position in the tree (ancestor scoring, decaying weight). Empty-by-default keeps routing unchanged until a taxonomy is set.
+- [x] **Wire `synonyms` into the `route_work` description parser** — DONE (2026-07-13). Capability role+skills are now synonym-expanded as a rescue when nothing matched literally, closing the key-also-value collision (`api`→`backend`). Rescue-only, so existing rankings are preserved.
 - [ ] **Per-version fixture tests for COMPATIBILITY.md** — generate a fixture ledger per released `schema_version` and run `loadDataFromFile` against each in CI.
 
 ## v1.0.0 — Stable (Q4 2026)
