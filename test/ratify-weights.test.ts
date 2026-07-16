@@ -189,7 +189,7 @@ test("open validates weights: non-voter key, non-positive, non-integer, unsafe, 
   }
 });
 
-test("grk deltas: NaN/Infinity weights, total-weight cap, non-integer quorum all throw; empty weights persists no field; tally echoes weights", () => {
+test("design-review deltas: NaN/Infinity weights, total-weight cap, non-integer quorum all throw; empty weights persists no field; tally echoes weights", () => {
   const l = withTempDb();
   try {
     council(["a", "b"]);

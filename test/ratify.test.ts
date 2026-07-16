@@ -266,7 +266,7 @@ test("castVote / tally / getRatification return null for unknown proposal", () =
   }
 });
 
-// --- Regression: real-raid-01 vote-polarity incident (2026-07) -------------
+// --- Regression: production vote-polarity incident (2026-07) -------------
 // Agents answered "REVISE-NEEDED" and the relay mapped that to approve=false,
 // inverting every vote's meaning against the subject-as-stated. Recovery
 // depended on two core behaviors that were never pinned by tests until now.
@@ -310,7 +310,7 @@ test("polarity recovery: a RESOLVED ratification is sticky — re-votes cannot f
     for (const p of peers) castVote(p, mid, true);
     assert.equal(tallyRatification(mid)!.status, "rejected", "terminal status is immutable");
     assert.equal(getRatification(mid)!.status, "rejected");
-    // This is why real-raid-01's fix script opened a FRESH ratification: after
+    // This is why the production fix opened a FRESH ratification: after
     // resolution, the only honest correction is a new proposal on the record.
   } finally {
     l.cleanup();

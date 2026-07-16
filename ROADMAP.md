@@ -79,13 +79,13 @@ API freeze. Production-ready. Backward-compatible.
   voted once reuses the original receipt — the tally's latest-wins rule sees the middle
   vote as newest. Pre-existing since v0.10 councils (flagged independently by two review
   models, 2026-07-16). An honest fix needs re-cast events that don't mutate receipt
-  history; design open. Workaround: open a fresh ratification (the real-raid-01 doctrine).
+  history; design open. Workaround: open a fresh ratification on the record.
 
 ## Future (post-1.0)
 
 - **Cloud relay** — optional hosted mesh for teams that want fleet orchestration across machines
 - **VS Code extension** — fleet inspector in the editor sidebar
-- **Agent Mesh Protocol (AMP)** — a wire format for cross-runtime agent coordination (not just MCP). **v0.1 DRAFT written 2026-07-16** (`SPEC-AMP-DRAFT.md`) — envelopes, receipt semantics, councils-as-receipts, conformance checklist; implementation unscheduled.
+- **Agent Mesh Protocol (AMP)** — a wire format for cross-runtime agent coordination (not just MCP); a v0.1 draft exists and will be published when it stabilizes.
 
 ## Contributing to the roadmap
 

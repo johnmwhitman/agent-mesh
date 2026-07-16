@@ -247,7 +247,7 @@ test("an agent holding both polarities on one proposal is a re-cast WARNING, not
 });
 
 test("polarity recovery through the real API verifies with zero errors", () => {
-  // The real-raid-01 recovery scenario ratify.test.ts pins: everyone declines
+  // The production-incident recovery scenario ratify.test.ts pins: everyone declines
   // (inverted relay), then re-casts approve while open. Both receipt rows per
   // agent legitimately exist; verification must not call that corruption.
   const l = withTempDb();

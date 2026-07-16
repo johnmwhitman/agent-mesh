@@ -177,7 +177,7 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
       (receipt.action === APPROVE ? approved : declined).add(receipt.agent_id);
     }
     // Both polarities from one agent = a legitimate re-cast (latest wins —
-    // the pinned real-raid-01 recovery semantics). Surface it for the auditor
+    // the pinned production-incident recovery semantics). Surface it for the auditor
     // without failing verification.
     for (const agentId of approved) {
       if (declined.has(agentId)) {

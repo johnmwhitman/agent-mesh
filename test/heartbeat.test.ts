@@ -155,7 +155,7 @@ test('createHeartbeat: appends heartbeat event to the ledger', async () => {
     handle.stop()
     // The heartbeat events should have been appended to the event log
     // via appendEvent. We can't directly inspect the event log here
-    // (it's at ~/.routeplane/agent-mesh.events.log), but we can verify
+    // (it's at the user-level agent-mesh.events.log), but we can verify
     // the function was called by checking the call count.
     // In this test we verify the callback was called, not the log file.
     // (A separate integration test could verify the log file.)

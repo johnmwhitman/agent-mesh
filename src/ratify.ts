@@ -7,7 +7,7 @@
  *
  * Generalized from the HOOL fleet's council doctrine, which ran in production:
  *   - quorum threshold        (their "6/9")
- *   - mandatory named signoffs (their "T5 sign-off" — John / Auren)
+ *   - mandatory named signoffs (their "T5 sign-off" lane)
  *   - an SLA deadline         (their "24h SLA / 30min swarm")
  *   - silence = approve        (their "silent = PASS" default)
  *

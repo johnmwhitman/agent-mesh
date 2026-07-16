@@ -17,10 +17,10 @@ const result = await client.callTool({
   name: "spawn_fleet",
   arguments: {
     agents: [
-      { role: "explore", prompt: "List all .md files in /tmp/routeplane-source/website/src/content/docs and count them." },
+      { role: "explore", prompt: "List all .md files in /tmp/demo-source/docs and count them." },
       { role: "explore", prompt: "Describe the hero section structure on openrouter.ai homepage." },
       { role: "librarian", prompt: "Summarize best practices for combining marketing and docs sites from Tailscale and OpenRouter." },
-      { role: "explore", prompt: "What is the current version in /tmp/routeplane-source/Cargo.toml workspace?" },
+      { role: "explore", prompt: "What is the current version in /tmp/demo-source/Cargo.toml workspace?" },
     ],
   },
 });

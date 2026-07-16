@@ -59,10 +59,10 @@ weighted quorums, and the compatibility promise is executable via per-schema fix
   lends pending WEIGHT to quorum (never to signoffs), and a heavy decline can make quorum
   unreachable. Tallies expose approval/decline/pending/total weight and echo the map;
   `verify_ledger` gains weight checks (non-voter keys, invalid values, weighted reachability).
-  Design adversarially reviewed (grk-4.5): weights are proposal-config in the SAME trust model
+  Design adversarially reviewed by an independent model before build: weights are proposal-config in the SAME trust model
   as today's proposer-chosen voters/quorum — identity gates belong to required_signoffs.
-- **SPEC-AMP-DRAFT.md — Agent Mesh Protocol v0.1 draft.** The post-1.0 "AMP" roadmap item now
-  has a written wire format: transport-agnostic JSON envelopes for the five message types and
+- **Agent Mesh Protocol (AMP) v0.1 draft written.** The post-1.0 "AMP" roadmap item now
+  has a drafted wire format (kept private while it stabilizes): transport-agnostic JSON envelopes for the five message types and
   receipts (payload stays an opaque <=64 KiB string, exactly like the shipped ledger), receipt
   idempotency and broadcast-accounting semantics preserved, councils expressed as receipts, a
   5-point conformance checklist, and explicit v0.1 non-goals (no crypto/signing — that layer is

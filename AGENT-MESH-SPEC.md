@@ -70,7 +70,7 @@ The result: orchestrators cannot reliably delegate to specialist agents without 
 
 - **File**: `~/.config/opencode/agent-mesh.json`
 - **Format**: `{ fleets, agents, messages, inboxes, capabilities }`
-- **Storage**: JSON file today (human-readable, debuggable, portable). ⚠️ **The original rationale — "single MCP server process → no concurrent writes (acceptable)" — is FALSE.** The runtime is inherently **multi-process** (every spawned agent's `opencode run` boots a nested mesh on the *same* file); concurrent writes silently lose data (**measured: 57/120 receipts lost**). Being fixed by a cross-process transaction seam (`withLedger`) and, per roadmap, migration to an embedded store (SQLite/libSQL) — the old "zero native dependencies" objection is retired with the no-deps rule (John, 2026-07-10). See `SUCCESSION/MESHFLEET-WITHLEDGER-SPEC.md`.
+- **Storage**: JSON file today (human-readable, debuggable, portable). ⚠️ **The original rationale — "single MCP server process → no concurrent writes (acceptable)" — is FALSE.** The runtime is inherently **multi-process** (every spawned agent's `opencode run` boots a nested mesh on the *same* file); concurrent writes silently lose data (**measured: 57/120 receipts lost**). Being fixed by a cross-process transaction seam (`withLedger`) and, per roadmap, migration to an embedded store (SQLite/libSQL) — the old "zero native dependencies" objection was retired by maintainer decision (2026-07-10); the SQLite migration shipped in 0.12.0.
 
 ### 3.2 Agent Lifecycle
 
