@@ -76,7 +76,7 @@ API freeze. Production-ready. Backward-compatible.
 ## Future (post-1.0)
 
 - **Cloud relay** — optional hosted mesh for teams that want fleet orchestration across machines
-- **VS Code extension** — fleet inspector in the editor sidebar
+- **VS Code extension** — fleet inspector in the editor sidebar. **MVP BUILT (2026-07-16, `editors/vscode/`)**: Fleets + Councils tree views, one-click ledger verify in the status bar, JSON export — read-only by design, all ledger access through the shipped CLI (no native-module coupling to VS Code's Electron). Packaged as a .vsix; marketplace publishing pending.
 - **Agent Mesh Protocol (AMP)** — a wire format for cross-runtime agent coordination (not just MCP); a v0.1 draft exists and will be published when it stabilizes.
 
 ## Contributing to the roadmap

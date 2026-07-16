@@ -1,0 +1,62 @@
+{
+  "name": "meshfleet-inspector",
+  "displayName": "Meshfleet Inspector",
+  "description": "See your agent fleets, receipts, and council votes in the sidebar — the read side of 'your agents did the work, prove it'.",
+  "version": "0.1.0",
+  "publisher": "meshfleet",
+  "license": "MIT",
+  "repository": { "type": "git", "url": "https://github.com/johnmwhitman/agent-mesh", "directory": "editors/vscode" },
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Visualization", "Other"],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        { "id": "meshfleet", "title": "Meshfleet", "icon": "$(organization)" }
+      ]
+    },
+    "views": {
+      "meshfleet": [
+        { "id": "meshfleet.fleets", "name": "Fleets" },
+        { "id": "meshfleet.councils", "name": "Councils" }
+      ]
+    },
+    "commands": [
+      { "command": "meshfleet.refresh", "title": "Meshfleet: Refresh", "icon": "$(refresh)" },
+      { "command": "meshfleet.verify", "title": "Meshfleet: Verify Ledger Integrity" },
+      { "command": "meshfleet.export", "title": "Meshfleet: Open Ledger Export (JSON)" }
+    ],
+    "menus": {
+      "view/title": [
+        { "command": "meshfleet.refresh", "when": "view == meshfleet.fleets || view == meshfleet.councils", "group": "navigation" }
+      ]
+    },
+    "configuration": {
+      "title": "Meshfleet",
+      "properties": {
+        "meshfleet.cliCommand": {
+          "type": "string",
+          "default": "npx agent-mesh",
+          "description": "How to invoke the meshfleet CLI (the agent-mesh bin). Works with a workspace or global `npm install meshfleet`."
+        },
+        "meshfleet.refreshIntervalSeconds": {
+          "type": "number",
+          "default": 0,
+          "description": "Auto-refresh the views every N seconds (0 = manual refresh only)."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc",
+    "test": "tsx --test src/model.test.ts",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.4.0"
+  }
+}

@@ -9,6 +9,12 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
   scale target ~100x; unpark only if per-call bulk matters)
 - tiered vote-weighting in the attestation/report layer (pro follow-on)
 
+## [0.13.1] — 2026-07-16
+
+Docs-only patch: the README that shipped inside the 0.13.0 tarball predated the release
+(stale version/tool/test counts, dead links) — npmjs.com renders the packaged README, so
+this republish fixes the package page. No code changes.
+
 ## [0.13.0] — 2026-07-16
 
 **Trust, scale, and tiered councils.** The ledger can now prove itself (`verify_ledger` +
