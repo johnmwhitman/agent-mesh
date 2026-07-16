@@ -54,7 +54,7 @@ Bridge release between v0.8.x and v1.0. Targeted at the known bottleneck.
 - [ ] **Batch writes for `sendMessage`** — the 3.8ms/msg overhead at 10k scale comes from a full-ledger rewrite per call. Coalesce writes or use an append-only log. Target: 10k messages in < 5s (currently 35s).
 - [x] **Wire `skill-taxonomy` into `route_work`** — DONE (2026-07-13). `route_work` reads the active taxonomy (`setSkillTaxonomy()` / `AGENT_MESH_TAXONOMY`) and credits each capability by its position in the tree (ancestor scoring, decaying weight). Empty-by-default keeps routing unchanged until a taxonomy is set.
 - [x] **Wire `synonyms` into the `route_work` description parser** — DONE (2026-07-13). Capability role+skills are now synonym-expanded as a rescue when nothing matched literally, closing the key-also-value collision (`api`→`backend`). Rescue-only, so existing rankings are preserved.
-- [ ] **Per-version fixture tests for COMPATIBILITY.md** — generate a fixture ledger per released `schema_version` and run `loadDataFromFile` against each in CI.
+- [x] **Per-version fixture tests for COMPATIBILITY.md** — DONE (2026-07-16). `test/fixtures/ledger-v{0,1,2}.json`, one per released `schema_version`; CI loads each through `loadDataFromFile` and requires the result to pass `verify_ledger` clean (including the v0/v1→v2 ack-receipt backfill).
 
 ## v1.0.0 — Stable (Q4 2026)
 

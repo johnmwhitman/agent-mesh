@@ -1,0 +1,55 @@
+{
+  "schema_version": 2,
+  "fleets": {
+    "fleet-v2": { "id": "fleet-v2", "status": "running", "created_at": 1720000000000 }
+  },
+  "agents": {
+    "c1": { "id": "c1", "fleet_id": "fleet-v2", "role": "lead", "prompt": "coordinate", "status": "complete", "output": "coordinated", "started_at": 1720000010000, "completed_at": 1720000400000 },
+    "c2": { "id": "c2", "fleet_id": "fleet-v2", "role": "reviewer", "prompt": "review", "status": "running", "started_at": 1720000010000 },
+    "c3": { "id": "c3", "fleet_id": "fleet-v2", "role": "tester", "prompt": "test", "status": "running", "started_at": 1720000010000 }
+  },
+  "messages": {
+    "m-direct": { "id": "m-direct", "from_agent_id": "c1", "to_agent_id": "c2", "fleet_id": "fleet-v2", "type": "handoff", "payload": "please review the diff", "timestamp": 1720000100000, "acknowledged": true },
+    "m-proposal": { "id": "m-proposal", "from_agent_id": "c1", "to_agent_id": "*", "fleet_id": "fleet-v2", "type": "question", "payload": "adopt release plan?", "timestamp": 1720000200000, "acknowledged": false, "recipients": ["c2", "c3"] }
+  },
+  "inboxes": {
+    "c1": [],
+    "c2": ["m-proposal"],
+    "c3": ["m-proposal"]
+  },
+  "capabilities": {
+    "c2": { "agent_id": "c2", "fleet_id": "fleet-v2", "role": "reviewer", "skills": ["review", "security"], "registered_at": 1720000010000 }
+  },
+  "receipts": {
+    "m-direct:c2:ack": { "message_id": "m-direct", "agent_id": "c2", "action": "ack", "timestamp": 1720000110000 },
+    "m-proposal:c2:r-ack": { "message_id": "m-proposal", "agent_id": "c2", "action": "r-ack", "timestamp": 1720000210000, "note": "lgtm" },
+    "m-proposal:c3:seen": { "message_id": "m-proposal", "agent_id": "c3", "action": "seen", "timestamp": 1720000205000 }
+  },
+  "ratifications": {
+    "m-proposal": {
+      "message_id": "m-proposal",
+      "proposer": "c1",
+      "fleet_id": "fleet-v2",
+      "subject": "adopt release plan",
+      "quorum": 1,
+      "voters": ["c2", "c3"],
+      "required_signoffs": [],
+      "opened_at": 1720000200000,
+      "silence_policy": "abstain",
+      "status": "ratified",
+      "resolved_at": 1720000220000
+    }
+  },
+  "templates": {
+    "review-fleet@v1": {
+      "name": "review-fleet",
+      "version": 1,
+      "description": "two-seat review fleet",
+      "agents": [
+        { "role": "reviewer", "prompt": "review the diff" },
+        { "role": "tester", "prompt": "exercise the change" }
+      ],
+      "created_at": 1720000000000
+    }
+  }
+}

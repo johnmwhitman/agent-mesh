@@ -1,0 +1,20 @@
+{
+  "fleets": {
+    "fleet-legacy": { "id": "fleet-legacy", "status": "complete", "created_at": 1700000000000, "completed_at": 1700000300000 }
+  },
+  "agents": {
+    "a1": { "id": "a1", "fleet_id": "fleet-legacy", "role": "researcher", "prompt": "research the thing", "status": "complete", "output": "done", "started_at": 1700000010000, "completed_at": 1700000200000 },
+    "a2": { "id": "a2", "fleet_id": "fleet-legacy", "role": "writer", "prompt": "write it up", "status": "complete", "output": "done", "started_at": 1700000010000, "completed_at": 1700000290000 }
+  },
+  "messages": {
+    "m1": { "id": "m1", "from_agent_id": "a1", "to_agent_id": "a2", "fleet_id": "fleet-legacy", "type": "handoff", "payload": "findings attached", "timestamp": 1700000100000, "acknowledged": true },
+    "m2": { "id": "m2", "from_agent_id": "a2", "to_agent_id": "a1", "fleet_id": "fleet-legacy", "type": "question", "payload": "which source?", "timestamp": 1700000150000, "acknowledged": false }
+  },
+  "inboxes": {
+    "a1": ["m2"],
+    "a2": []
+  },
+  "capabilities": {
+    "a1": { "agent_id": "a1", "fleet_id": "fleet-legacy", "role": "researcher", "skills": ["research", "summarize"], "registered_at": 1700000010000 }
+  }
+}

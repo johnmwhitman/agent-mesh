@@ -13,10 +13,27 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
   keyword match, its own role+skills are synonym-expanded and retried (weighted below any
   literal match). Closes the key-also-value gap where a task described as `api` never
   reached a `backend` agent. Rescue-only, so existing rankings are unchanged.
+- **`verify_ledger` — receipt-chain integrity audit.** The read side of "prove it":
+  re-derives every write-path invariant from a ledger snapshot so a ledger can be audited
+  after the fact (hand-edited, migrated, copied, or written by an older version). Checks
+  receipt idempotency keys, orphan message/agent references, receipt-before-message
+  timestamps, the derived `acknowledged` flag, ack-consumes-inbox, and ratification
+  coherence (quorum vs voters, signoff membership, conflicting vote polarity,
+  terminal-status recompute via the canonical tally). Errors mean the ledger asserts
+  something its own records do not support; warnings surprise without overclaiming.
+  Library API `verifyMeshData`/`verifyLedger` + a read-only `verify_ledger` MCP tool.
+- **Optional SSE auth token.** Set `MESHFLEET_AUTH_TOKEN` (legacy `AGENT_MESH_AUTH_TOKEN`
+  honored) and every SSE endpoint except `/healthz` requires `Authorization: Bearer <token>`
+  (or `?token=` — EventSource cannot set headers). Constant-time comparison; read
+  per-request so a change takes effect without a restart; unset keeps the open
+  local-trust default.
+- **Per-version compatibility fixtures.** `test/fixtures/ledger-v{0,1,2}.json` — one ledger
+  per released schema version. CI loads each through `loadDataFromFile` and requires the
+  result to pass `verify_ledger` clean, making COMPATIBILITY.md's read-old-ledgers promise
+  executable (including the v0/v1 → v2 ack-receipt backfill).
 
 ### Planned
 - batch writes (the 3.8ms/msg bottleneck at 10k scale — see BENCHMARKS.md)
-- per-version fixture tests for COMPATIBILITY.md
 - tiered councils / vote weighting (if real usage demands them)
 
 ## [0.12.0] — 2026-07-11

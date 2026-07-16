@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "fleets": {
+    "fleet-v1": { "id": "fleet-v1", "status": "complete", "created_at": 1710000000000, "completed_at": 1710000300000 }
+  },
+  "agents": {
+    "b1": { "id": "b1", "fleet_id": "fleet-v1", "role": "backend", "prompt": "build the api", "status": "complete", "output": "shipped", "started_at": 1710000010000, "completed_at": 1710000200000 },
+    "b2": { "id": "b2", "fleet_id": "fleet-v1", "role": "frontend", "prompt": "build the ui", "status": "complete", "output": "shipped", "started_at": 1710000010000, "completed_at": 1710000290000 }
+  },
+  "messages": {
+    "n1": { "id": "n1", "from_agent_id": "b1", "to_agent_id": "b2", "fleet_id": "fleet-v1", "type": "result", "payload": "api contract v1", "timestamp": 1710000100000, "acknowledged": true },
+    "n2": { "id": "n2", "from_agent_id": "b2", "to_agent_id": "b1", "fleet_id": "fleet-v1", "type": "alert", "payload": "cors error on /health", "timestamp": 1710000150000, "acknowledged": false }
+  },
+  "inboxes": {
+    "b1": ["n2"],
+    "b2": []
+  },
+  "capabilities": {
+    "b1": { "agent_id": "b1", "fleet_id": "fleet-v1", "role": "backend", "skills": ["api", "node"], "registered_at": 1710000010000 },
+    "b2": { "agent_id": "b2", "fleet_id": "fleet-v1", "role": "frontend", "skills": ["react", "css"], "registered_at": 1710000010000 }
+  }
+}

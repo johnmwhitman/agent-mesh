@@ -8,7 +8,8 @@ This document tracks what each version guarantees and what changes break it.
 | Version | `schema_version` | Notes |
 |---|---|---|
 | 0.1.0 – 0.7.x | (none) | Legacy. `migrateLedger()` upgrades on load. |
-| 0.8.0+ | `1` | Stamped on every save. Missing field → auto-upgrade to 1. |
+| 0.8.0 – 0.11.x | `1` | Stamped on every save. Missing field → auto-upgrade to 1. |
+| 0.12.0+ | `2` | Receipts ledger. v1 `acknowledged` booleans are backfilled as `ack` receipts on load (no audit-trail gap). Storage moved to SQLite; a JSON ledger still loads via `loadDataFromFile` and migrates once. |
 
 Future versions will increment `CURRENT_SCHEMA_VERSION` and add a migration step to `migrateLedger()`. The contract: **older clients can always read newer ledgers** (forward-only field additions, never renames or type changes without migration).
 
