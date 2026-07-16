@@ -316,3 +316,39 @@ test("polarity recovery: a RESOLVED ratification is sticky — re-votes cannot f
     l.cleanup();
   }
 });
+
+// --- Duplicate voters (verify-audit finding, 2026-07-16) --------------------
+// A duplicated voter id would be counted once per occurrence by the tally's
+// voters.filter(...), letting one agent satisfy a quorum of 2 alone.
+
+test("open dedupes the voter set so one agent cannot double-count toward quorum", () => {
+  const l = freshLedger();
+  try {
+    fleet(2);
+    assert.throws(
+      () =>
+        openRatification({
+          proposer: "proposer",
+          fleetId: "f1",
+          subject: "s",
+          quorum: 2,
+          voters: ["p1", "p1"],
+        }),
+      /quorum 2 exceeds 1 eligible voters/,
+      "after dedupe there is one voter, so quorum 2 must be rejected"
+    );
+    const mid = openRatification({
+      proposer: "proposer",
+      fleetId: "f1",
+      subject: "s",
+      quorum: 2,
+      voters: ["p1", "p1", "p2"],
+    });
+    assert.deepEqual(getRatification(mid)!.voters, ["p1", "p2"]);
+    castVote("p1", mid, true);
+    assert.equal(tallyRatification(mid)!.approvals.length, 1);
+    assert.equal(tallyRatification(mid)!.status, "open", "one distinct approval must not satisfy quorum 2");
+  } finally {
+    l.cleanup();
+  }
+});

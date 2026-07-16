@@ -21,7 +21,7 @@
  *
  * Read-only by design: verification never mutates the ledger it audits.
  */
-import { messageRecipients, type MeshData, type Message, type Receipt } from "./core.js";
+import { BROADCAST, messageRecipients, type MeshData, type Message, type Receipt } from "./core.js";
 import { APPROVE, DECLINE, computeTally } from "./ratify.js";
 import { readLedger } from "./db.js";
 
@@ -92,7 +92,10 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
       error("receipt.orphan_message", key, `receipt ${key} points at message ${r.message_id}, which this ledger does not hold`);
       continue;
     }
-    if (!data.agents[r.agent_id]) {
+    // "*" is the legacy-broadcast placeholder: the v1→v2 migration backfills
+    // `${id}:*:ack` for an acknowledged broadcast whose recipients were never
+    // captured (schema v1 predates the recipients field). Not an unknown agent.
+    if (!data.agents[r.agent_id] && r.agent_id !== BROADCAST) {
       warning("receipt.unknown_agent", key, `receipt ${key} was written by ${r.agent_id}, which this ledger has not registered as an agent`);
     }
     if (r.timestamp < msg.timestamp) {
@@ -133,6 +136,9 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
     if (r.quorum > r.voters.length) {
       error("ratification.quorum_exceeds_voters", r.message_id, `ratification ${r.message_id} requires quorum ${r.quorum} from only ${r.voters.length} eligible voters — unreachable by construction`);
     }
+    if (new Set(r.voters).size !== r.voters.length) {
+      error("ratification.duplicate_voters", r.message_id, `ratification ${r.message_id} lists a voter more than once — the tally counts each occurrence, so one agent could satisfy the quorum alone`);
+    }
     const outsideSignoffs = r.required_signoffs.filter((s) => !r.voters.includes(s));
     for (const s of outsideSignoffs) {
       error("ratification.signoff_not_voter", r.message_id, `required signoff ${s} on ${r.message_id} is not among the eligible voters`);
@@ -149,16 +155,26 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
       }
       (receipt.action === APPROVE ? approved : declined).add(receipt.agent_id);
     }
+    // Both polarities from one agent = a legitimate re-cast (latest wins —
+    // the pinned real-raid-01 recovery semantics). Surface it for the auditor
+    // without failing verification.
     for (const agentId of approved) {
       if (declined.has(agentId)) {
-        error("ratification.conflicting_vote", `${r.message_id}:${agentId}`, `${agentId} holds BOTH an approve and a decline receipt on ${r.message_id} — the effective vote is undefined`);
+        warning("ratification.vote_recast", `${r.message_id}:${agentId}`, `${agentId} holds both an approve and a decline receipt on ${r.message_id} — a re-cast vote; the later receipt is the effective one`);
       }
     }
 
     if (r.status !== "open") {
-      const recomputed = computeTally(data, { ...r, status: "open" }, r.resolved_at ?? now);
+      // Recompute from the receipts that existed AT resolution. Votes cast
+      // after a sticky terminal status are legitimate ledger content (pinned
+      // by ratify.test.ts) and must not read as a mismatch.
+      const asOf = r.resolved_at ?? now;
+      const receiptsAtResolution = Object.fromEntries(
+        Object.entries(receipts).filter(([, rec]) => rec.timestamp <= asOf),
+      );
+      const recomputed = computeTally({ ...data, receipts: receiptsAtResolution }, { ...r, status: "open" }, asOf);
       if (recomputed.status !== r.status) {
-        warning("ratification.status_mismatch", r.message_id, `ratification ${r.message_id} is recorded ${r.status}, but the receipts recompute to ${recomputed.status} (votes may have changed after resolution)`);
+        warning("ratification.status_mismatch", r.message_id, `ratification ${r.message_id} is recorded ${r.status}, but the receipts as of resolution recompute to ${recomputed.status}`);
       }
     }
   }

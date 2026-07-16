@@ -234,15 +234,71 @@ test("ratification whose proposal message is missing is an error", () => {
   assert.equal(found(report, "ratification.orphan_proposal").length, 1);
 });
 
-test("an agent holding both an approve and a decline receipt on one proposal is an error", () => {
+test("an agent holding both polarities on one proposal is a re-cast WARNING, not an error (pinned recovery semantics)", () => {
   const data = withRatification();
   data.receipts = {
-    "p1:a2:r-ack": receiptRow("p1", "a2", "r-ack"),
-    "p1:a2:r-decline": receiptRow("p1", "a2", "r-decline"),
+    "p1:a2:r-decline": receiptRow("p1", "a2", "r-decline", 2_000),
+    "p1:a2:r-ack": receiptRow("p1", "a2", "r-ack", 2_500),
   };
   const report = verifyMeshData(data);
-  assert.equal(found(report, "ratification.conflicting_vote").length, 1);
-  assert.equal(found(report, "ratification.conflicting_vote")[0].severity, "error");
+  assert.equal(found(report, "ratification.vote_recast").length, 1);
+  assert.equal(found(report, "ratification.vote_recast")[0].severity, "warning");
+  assert.equal(report.ok, true);
+});
+
+test("polarity recovery through the real API verifies with zero errors", () => {
+  // The real-raid-01 recovery scenario ratify.test.ts pins: everyone declines
+  // (inverted relay), then re-casts approve while open. Both receipt rows per
+  // agent legitimately exist; verification must not call that corruption.
+  const l = withTempDb();
+  try {
+    createFleet("f1");
+    for (const id of ["proposer", "v1", "v2", "v3"]) registerAgentInLedger(agent(id, "f1"));
+    const mid = openRatification({ proposer: "proposer", fleetId: "f1", subject: "revise", quorum: 2 });
+    for (const v of ["v1", "v2", "v3"]) castVote(v, mid, false);
+    for (const v of ["v1", "v2", "v3"]) castVote(v, mid, true);
+    assert.equal(resolveRatification(mid), "ratified");
+    const report = verifyLedger();
+    assert.equal(report.errors, 0, JSON.stringify(report.findings));
+    assert.equal(report.ok, true);
+    assert.equal(found(report, "ratification.vote_recast").length, 3);
+  } finally {
+    l.cleanup();
+  }
+});
+
+test("late votes after a sticky resolution do not trigger a status warning", () => {
+  // ratify.test.ts pins that a resolved ratification is immutable and re-votes
+  // after resolution are legitimate ledger content. The recompute must only
+  // consider receipts that existed at resolved_at.
+  const data = withRatification({ status: "rejected", quorum: 2, resolved_at: 3_000 });
+  data.receipts = {
+    "p1:a2:r-decline": receiptRow("p1", "a2", "r-decline", 2_000),
+    "p1:a3:r-decline": receiptRow("p1", "a3", "r-decline", 2_100),
+    // corrected votes arrive AFTER resolution — sticky status holds
+    "p1:a2:r-ack": receiptRow("p1", "a2", "r-ack", 4_000),
+    "p1:a3:r-ack": receiptRow("p1", "a3", "r-ack", 4_100),
+  };
+  const report = verifyMeshData(data);
+  assert.equal(found(report, "ratification.status_mismatch").length, 0, JSON.stringify(report.findings));
+});
+
+test("duplicate voters in the voter set are an error (they double-count toward quorum)", () => {
+  const data = withRatification({ voters: ["a2", "a2", "a3"], quorum: 2 });
+  const report = verifyMeshData(data);
+  assert.equal(found(report, "ratification.duplicate_voters").length, 1);
+  assert.equal(found(report, "ratification.duplicate_voters")[0].severity, "error");
+});
+
+test("the legacy '*' backfill receipt from v1 migration is not flagged as an unknown agent", () => {
+  const data = consistent();
+  data.messages.m1 = msg("m1", "a1", "*", "f1", { acknowledged: true, recipients: undefined });
+  data.inboxes.a2 = [];
+  data.receipts = {
+    "m1:*:ack": { message_id: "m1", agent_id: "*", action: "ack", timestamp: 1_000, note: "backfilled_from_v1_acknowledged_flag" },
+  };
+  const report = verifyMeshData(data);
+  assert.deepEqual(report.findings, []);
 });
 
 test("quorum larger than the voter set is an error", () => {

@@ -47,6 +47,8 @@ const HEARTBEAT_INTERVAL_MS = 30_000;
 let httpServer: ReturnType<typeof createServer> | null = null;
 let heartbeatTimer: NodeJS.Timeout | null = null;
 const activeStreams = new Set<ServerResponse>();
+/** Per-stream: who it serves + the credential it was admitted with, for re-auth on token change. */
+const streamCredentials = new Map<ServerResponse, { agentId: string; credential: string | undefined }>();
 
 export function ssePort(): number {
   const v = Number(process.env.MESHFLEET_SSE_PORT);
@@ -98,17 +100,43 @@ function tokenMatches(expected: string, provided: string): boolean {
 }
 
 /**
- * True when the request may proceed: no token configured, or the request
- * carries it — `Authorization: Bearer <token>` preferred; `?token=` accepted
- * because EventSource cannot set headers.
+ * The credential a request presented — `Authorization: Bearer <token>` preferred
+ * (scheme case-insensitive per RFC 7235); `?token=` accepted because EventSource
+ * cannot set headers.
  */
-function isAuthorized(req: IncomingMessage, url: URL): boolean {
+function providedToken(req: IncomingMessage, url: URL): string | undefined {
+  const m = req.headers.authorization?.match(/^Bearer\s+(.+)$/i);
+  return m?.[1] ?? url.searchParams.get("token") ?? undefined;
+}
+
+/** True when the given credential passes the CURRENT token config. */
+function credentialAuthorized(provided: string | undefined): boolean {
   const expected = authToken();
   if (expected === undefined) return true;
-  const header = req.headers.authorization;
-  const bearer = header?.startsWith("Bearer ") ? header.slice("Bearer ".length) : undefined;
-  const provided = bearer ?? url.searchParams.get("token") ?? undefined;
   return provided !== undefined && tokenMatches(expected, provided);
+}
+
+/**
+ * Re-check every live stream against the current token config and end those
+ * that no longer authorize — enabling or rotating MESHFLEET_AUTH_TOKEN must
+ * revoke streams admitted under the old (or no) token, not only new requests.
+ * Runs on every heartbeat tick; exported for direct use and tests.
+ */
+export function enforceStreamAuth(): void {
+  for (const [res, { agentId, credential }] of streamCredentials) {
+    if (!credentialAuthorized(credential)) {
+      try {
+        res.end();
+      } catch {
+        // already broken; the close handler still cleans up
+      }
+      // end() fires the close handler's cleanup, but don't rely on event
+      // timing for revocation — drop the subscription now.
+      removeSubscriber(agentId, res);
+      streamCredentials.delete(res);
+      activeStreams.delete(res);
+    }
+  }
 }
 
 function handle401(res: ServerResponse): void {
@@ -116,15 +144,17 @@ function handle401(res: ServerResponse): void {
   res.end("unauthorized");
 }
 
-function handleSseConnection(agentId: string, res: ServerResponse): void {
+function handleSseConnection(agentId: string, res: ServerResponse, credential: string | undefined): void {
   setSseHeaders(res);
   const sub: Subscriber = { agent_id: agentId, res, connected_at: Date.now() };
   addSubscriber(agentId, res);
   activeStreams.add(res);
+  streamCredentials.set(res, { agentId, credential });
 
   const cleanup = () => {
     removeSubscriber(agentId, res);
     activeStreams.delete(res);
+    streamCredentials.delete(res);
   };
 
   res.on("close", cleanup);
@@ -174,7 +204,8 @@ export function startSseServer(): Promise<{ host: string; port: number }> {
         return;
       }
 
-      if (!isAuthorized(req, url)) {
+      const credential = providedToken(req, url);
+      if (!credentialAuthorized(credential)) {
         handle401(res);
         return;
       }
@@ -186,7 +217,7 @@ export function startSseServer(): Promise<{ host: string; port: number }> {
           res.end("method not allowed");
           return;
         }
-        handleSseConnection(agentId, res);
+        handleSseConnection(agentId, res, credential);
         return;
       }
 
@@ -200,8 +231,10 @@ export function startSseServer(): Promise<{ host: string; port: number }> {
 
     server.listen(port, host, () => {
       httpServer = server;
-      // Heartbeat: send a comment to all active streams to keep them alive
+      // Heartbeat: re-check auth (a rotated token revokes stale streams within
+      // one interval), then keep the surviving streams alive
       heartbeatTimer = setInterval(() => {
+        enforceStreamAuth();
         for (const res of activeStreams) {
           try {
             res.write(":hb\n\n");
@@ -230,6 +263,7 @@ export function stopSseServer(): Promise<void> {
       }
     }
     activeStreams.clear();
+    streamCredentials.clear();
     shutdownSubscribers();
     if (httpServer) {
       const server = httpServer;

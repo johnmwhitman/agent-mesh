@@ -9,7 +9,8 @@
   },
   "messages": {
     "n1": { "id": "n1", "from_agent_id": "b1", "to_agent_id": "b2", "fleet_id": "fleet-v1", "type": "result", "payload": "api contract v1", "timestamp": 1710000100000, "acknowledged": true },
-    "n2": { "id": "n2", "from_agent_id": "b2", "to_agent_id": "b1", "fleet_id": "fleet-v1", "type": "alert", "payload": "cors error on /health", "timestamp": 1710000150000, "acknowledged": false }
+    "n2": { "id": "n2", "from_agent_id": "b2", "to_agent_id": "b1", "fleet_id": "fleet-v1", "type": "alert", "payload": "cors error on /health", "timestamp": 1710000150000, "acknowledged": false },
+    "n3": { "id": "n3", "from_agent_id": "b1", "to_agent_id": "*", "fleet_id": "fleet-v1", "type": "alert", "payload": "deploy window opens", "timestamp": 1710000180000, "acknowledged": true }
   },
   "inboxes": {
     "b1": ["n2"],

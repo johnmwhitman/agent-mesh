@@ -49,7 +49,9 @@ export function openRatification(input: OpenRatificationInput): string {
   return withLedger((data): string => {
     const { messageId } = _sendMessage(data, input.proposer, BROADCAST, input.fleetId, "question", input.payload ?? input.subject);
     const msg = data.messages[messageId];
-    const voters = input.voters ?? messageRecipients(msg);
+    // Dedupe: the tally counts every occurrence in `voters`, so a duplicated id
+    // would let one agent satisfy the quorum alone.
+    const voters = [...new Set(input.voters ?? messageRecipients(msg))];
     if (input.quorum > voters.length) {
       throw new Error(`quorum ${input.quorum} exceeds ${voters.length} eligible voters`);
     }

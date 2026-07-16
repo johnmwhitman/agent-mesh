@@ -18,19 +18,30 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
   after the fact (hand-edited, migrated, copied, or written by an older version). Checks
   receipt idempotency keys, orphan message/agent references, receipt-before-message
   timestamps, the derived `acknowledged` flag, ack-consumes-inbox, and ratification
-  coherence (quorum vs voters, signoff membership, conflicting vote polarity,
-  terminal-status recompute via the canonical tally). Errors mean the ledger asserts
-  something its own records do not support; warnings surprise without overclaiming.
+  coherence (quorum vs voters, duplicate voters, signoff membership, re-cast votes,
+  terminal-status recompute via the canonical tally using only the receipts that
+  existed at resolution). Errors mean the ledger asserts something its own records do
+  not support; warnings surprise without overclaiming — a re-cast vote (both polarities,
+  latest wins) and the legacy `*` broadcast backfill are recognized as legitimate.
   Library API `verifyMeshData`/`verifyLedger` + a read-only `verify_ledger` MCP tool.
 - **Optional SSE auth token.** Set `MESHFLEET_AUTH_TOKEN` (legacy `AGENT_MESH_AUTH_TOKEN`
   honored) and every SSE endpoint except `/healthz` requires `Authorization: Bearer <token>`
-  (or `?token=` — EventSource cannot set headers). Constant-time comparison; read
-  per-request so a change takes effect without a restart; unset keeps the open
-  local-trust default.
+  (scheme case-insensitive) or `?token=` — EventSource cannot set headers. Constant-time
+  comparison; read per-request so a change takes effect without a restart; unset keeps
+  the open local-trust default. Enabling or rotating the token also revokes already-open
+  streams that no longer authorize, within one heartbeat interval.
 - **Per-version compatibility fixtures.** `test/fixtures/ledger-v{0,1,2}.json` — one ledger
   per released schema version. CI loads each through `loadDataFromFile` and requires the
   result to pass `verify_ledger` clean, making COMPATIBILITY.md's read-old-ledgers promise
   executable (including the v0/v1 → v2 ack-receipt backfill).
+
+### Fixed
+- **`open_ratification` dedupes the voter set.** A duplicated voter id was counted once
+  per occurrence by the tally, letting one agent satisfy a quorum alone. Duplicates are
+  now collapsed at open (and `verify_ledger` flags pre-existing duplicate-voter records).
+- **`readLedger()` snapshots are consistent across collections.** The per-table reads now
+  run inside one read transaction; previously a concurrent writer committing mid-read
+  could hand a reader an inbox id whose message it couldn't yet see.
 
 ### Planned
 - batch writes (the 3.8ms/msg bottleneck at 10k scale — see BENCHMARKS.md)

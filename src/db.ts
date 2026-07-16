@@ -194,9 +194,16 @@ export function withLedger<T>(mutator: (data: MeshData) => T): T {
   return run(mutator);
 }
 
-/** Lock-free read for read-only callers. WAL readers never block writers. */
+/**
+ * Lock-free read for read-only callers. WAL readers never block writers.
+ * The per-table SELECTs run inside ONE read transaction so the snapshot is
+ * consistent ACROSS collections — without it, a writer committing between the
+ * messages and inboxes queries hands the reader an inbox id whose message it
+ * cannot see (a torn read verify_ledger would misreport as corruption).
+ */
 export function readLedger(): MeshData {
-  return readState(getDb());
+  const db = getDb();
+  return db.transaction(() => readState(db))();
 }
 
 /** Bulk-load a full MeshData snapshot (used by the JSON→SQLite migrator). */
