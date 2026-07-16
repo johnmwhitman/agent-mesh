@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   registerCapability,
+  sendMessages,
   routeWork,
   sendMessage,
   getInbox,
@@ -118,6 +119,22 @@ async function main() {
   const inboxSize = data.inboxes["receiver"]?.length ?? 0;
   console.log(`\n[10k messages bulk]   total=${t10k.toFixed(1)}ms  inbox_size=${inboxSize}`);
 
+  // 10k messages batched (send_messages, 1000 per call — the coalesced path)
+  const tb0 = performance.now();
+  for (let c = 0; c < 10; c++) {
+    sendMessages(
+      Array.from({ length: 1000 }, (_, i) => ({
+        fromAgentId: "sender",
+        toAgentId: "receiver",
+        fleetId: "f1",
+        type: "result" as const,
+        payload: `batched-${c}-${i}`,
+      }))
+    );
+  }
+  const t10kBatched = performance.now() - tb0;
+  console.log(`[10k messages batched] total=${t10kBatched.toFixed(1)}ms  (10 × 1000-message send_messages calls)`);
+
   // Ledger save/load with full data
   const fullData = {
     fleets: { f1: { id: "f1", status: "running", created_at: 1 } },
@@ -177,6 +194,7 @@ async function main() {
     md.push(`| \`${r.name}\` | ${r.p50_ms.toFixed(2)} | ${r.p95_ms.toFixed(2)} | ${r.p99_ms.toFixed(2)} |`);
   }
   md.push(`| \`sendMessage × 10000 (bulk)\` | ${(t10k / 10000).toFixed(3)} | — | ${t10k.toFixed(1)} (total) |`);
+  md.push(`| \`send_messages × 10 batches of 1000\` | ${(t10kBatched / 10000).toFixed(3)} | — | ${t10kBatched.toFixed(1)} (total) |`);
   md.push("");
   md.push("## v1.0 perf gates");
   md.push("");

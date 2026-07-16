@@ -620,6 +620,45 @@ export function sendMessage(
   return withLedger((data) => _sendMessage(data, fromAgentId, toAgentId, fleetId, type, payload, correlationId));
 }
 
+export const MAX_BATCH_MESSAGES = 1000;
+
+export interface BatchMessageInput {
+  fromAgentId: string;
+  toAgentId: string;
+  fleetId: string;
+  type: MessageType;
+  payload: string;
+  correlationId?: string;
+}
+
+/**
+ * Send a batch of messages in ONE transaction (v0.9 "coalesced writes").
+ * A per-message sendMessage pays the recipient's inbox-row parse+rewrite every
+ * call — O(inbox) per message; the batch pays it once. Atomic: any invalid
+ * item (oversized payload, empty broadcast) rejects the whole batch. Bounded
+ * at MAX_BATCH_MESSAGES so one call cannot hold the write lock indefinitely.
+ */
+export function sendMessages(
+  batch: BatchMessageInput[]
+): Array<{ messageId: string; recipients: string[] }> {
+  if (batch.length === 0) return [];
+  if (batch.length > MAX_BATCH_MESSAGES) {
+    throw new Error(`Batch too large: ${batch.length} messages (limit ${MAX_BATCH_MESSAGES})`);
+  }
+  for (const m of batch) {
+    if (Buffer.byteLength(m.payload, "utf-8") > MAX_PAYLOAD_BYTES) {
+      throw new Error(
+        `Payload too large: ${Buffer.byteLength(m.payload)} bytes (limit ${MAX_PAYLOAD_BYTES})`
+      );
+    }
+  }
+  return withLedger((data) =>
+    batch.map((m) =>
+      _sendMessage(data, m.fromAgentId, m.toAgentId, m.fleetId, m.type, m.payload, m.correlationId)
+    )
+  );
+}
+
 /** The agents a message is addressed to (broadcasts resolve to their captured recipient list). */
 export function messageRecipients(msg: Message): string[] {
   return msg.recipients ?? [msg.to_agent_id];

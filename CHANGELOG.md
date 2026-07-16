@@ -49,6 +49,12 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
   normalizing inboxes into their own table is the tracked follow-up. The benchmark
   harness itself was ported off the removed `setLedgerOverride` seam onto the SQLite
   ledger.
+- **`send_messages` — batched sends, one transaction per batch.** The coalesced-write
+  half of the v0.9 scale item: repeated `send_message` calls pay the recipient's
+  inbox-row parse+rewrite per message; a batch pays it once. Atomic (one invalid
+  message rejects the whole batch), bounded at 1000 messages per call, same per-
+  recipient SSE push after the single commit. Measured: **10k messages in 52ms**
+  (per-call path: ~5-8s), ~100x under the roadmap's < 5s target.
 
 ### Fixed
 - **`open_ratification` dedupes the voter set.** A duplicated voter id was counted once
@@ -59,8 +65,8 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
   could hand a reader an inbox id whose message it couldn't yet see.
 
 ### Planned
-- batch writes (the 3.8ms/msg bottleneck at 10k scale — see BENCHMARKS.md)
 - tiered councils / vote weighting (if real usage demands them)
+- normalized per-row inbox storage (schema v3), only if per-call bulk sends ever matter
 
 ## [0.12.0] — 2026-07-11
 

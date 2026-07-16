@@ -34,6 +34,7 @@ import {
   registerCapability,
   routeWork,
   sendMessage,
+  sendMessages,
   setFleetTimeout,
 } from "./core.js";
 import { readLedger, withLedger } from "./db.js";
@@ -288,6 +289,33 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           correlation_id: { type: "string" },
         },
         required: ["from_agent_id", "to_agent_id", "fleet_id", "type", "payload"],
+      },
+    },
+    {
+      name: "send_messages",
+      description:
+        "Send a batch of P2P messages in ONE ledger transaction — use instead of repeated send_message calls for bulk fan-out (much faster: the recipient inbox is updated once per batch, not once per message). Atomic: one invalid message rejects the whole batch. Max 1000 messages per call.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          messages: {
+            type: "array",
+            maxItems: 1000,
+            items: {
+              type: "object",
+              properties: {
+                from_agent_id: { type: "string" },
+                to_agent_id: { type: "string", description: 'Recipient agent id, or "*" for fleet broadcast' },
+                fleet_id: { type: "string" },
+                type: { type: "string", enum: [...MESSAGE_TYPES] },
+                payload: { type: "string" },
+                correlation_id: { type: "string" },
+              },
+              required: ["from_agent_id", "to_agent_id", "fleet_id", "type", "payload"],
+            },
+          },
+        },
+        required: ["messages"],
       },
     },
     {
@@ -699,6 +727,51 @@ toolHandlers["send_message"] = async (args) => {
         ]);
       }
       return jsonResult({ message_id: messageId, recipients });
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : String(err));
+    }
+};
+
+toolHandlers["send_messages"] = async (args) => {
+    const { messages } = args as {
+      messages: Array<{
+        from_agent_id: string;
+        to_agent_id: string;
+        fleet_id: string;
+        type: MessageType;
+        payload: string;
+        correlation_id?: string;
+      }>;
+    };
+    try {
+      const results = sendMessages(
+        messages.map((m) => ({
+          fromAgentId: m.from_agent_id,
+          toAgentId: m.to_agent_id,
+          fleetId: m.fleet_id,
+          type: m.type,
+          payload: m.payload,
+          correlationId: m.correlation_id,
+        }))
+      );
+      // Same per-recipient SSE push as send_message, after the single commit.
+      results.forEach(({ messageId, recipients }, i) => {
+        const src = messages[i]!;
+        for (const recipient of recipients) {
+          notifySubscribers(recipient, [
+            {
+              type: "message",
+              message_id: messageId,
+              from_agent_id: src.from_agent_id,
+              payload: JSON.stringify({ type: src.type, payload: src.payload }),
+              timestamp: Date.now(),
+            },
+          ]);
+        }
+      });
+      return jsonResult({
+        results: results.map((r) => ({ message_id: r.messageId, recipients: r.recipients })),
+      });
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : String(err));
     }
