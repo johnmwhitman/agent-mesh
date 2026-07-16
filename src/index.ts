@@ -52,6 +52,7 @@ import {
   resolveRatification,
   sweepRatifications,
 } from "./ratify.js";
+import { verifyLedger } from "./verify.js";
 import { notifySubscribers } from "./realtime.js";
 import { startSseServer, stopSseServer, subscribeInboxUrl } from "./sse-server.js";
 import { createHeartbeat } from "./heartbeat.js";
@@ -341,6 +342,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         },
         required: ["message_id"],
       },
+    },
+    {
+      name: "verify_ledger",
+      description:
+        "Audit the ledger's internal consistency: every receipt points at a real message and honors the idempotency key, acknowledged flags are supported by ack receipts, inboxes hold no consumed or dangling messages, and ratification tallies (quorum, signoffs, vote polarity, terminal status) recompute from the receipts. Read-only. Returns ok, error/warning counts, and per-finding detail — errors mean the ledger asserts something its own records do not support.",
+      inputSchema: { type: "object", properties: {} },
     },
     {
       name: "open_ratification",
@@ -731,6 +738,10 @@ toolHandlers["receipt"] = async (args) => {
 toolHandlers["get_receipts"] = async (args) => {
     const { message_id } = args as { message_id: string };
     return jsonResult({ receipts: getReceipts(message_id) });
+};
+
+toolHandlers["verify_ledger"] = async () => {
+    return jsonResult(verifyLedger());
 };
 
 toolHandlers["open_ratification"] = async (args) => {

@@ -124,7 +124,7 @@ export interface Tally {
  *   - past the deadline: if silence_policy is "approve", pending voters count as
  *     approvals for quorum (never for signoffs). Otherwise a still-short vote expires.
  */
-function computeTally(data: MeshData, r: Ratification, now: number): Tally {
+export function computeTally(data: MeshData, r: Ratification, now: number): Tally {
   const voteByAgent = new Map<string, boolean>(); // true=approve
   for (const receipt of Object.values(data.receipts ?? {})) {
     if (receipt.message_id !== r.message_id) continue;
