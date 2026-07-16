@@ -73,11 +73,29 @@ API freeze. Production-ready. Backward-compatible.
 - [x] **`verify_ledger` + `send_messages` + SSE auth + surgical reads** — see the CHANGELOG.
 - [x] **Vote re-casting is fully honest (A→B→A fix)** — DONE (2026-07-16). Every polarity change appends a sequence-suffixed receipt (`r-ack:1`, `r-decline:2`, …); the effective vote is derived from ledger content (highest seq, then timestamp, then decline-wins — fail-closed), never from row order. Same-polarity re-casts are no-ops; history is never mutated; legacy bare-vote ledgers tally identically. `verify_ledger` checks seq uniqueness/contiguity and flags malformed vote-like actions.
 
-## Future (post-1.0)
+## Now / Next / Later (post-0.13)
 
-- **Cloud relay** — optional hosted mesh for teams that want fleet orchestration across machines
-- **VS Code extension** — fleet inspector in the editor sidebar. **MVP BUILT (2026-07-16, `editors/vscode/`)**: Fleets + Councils tree views, one-click ledger verify in the status bar, JSON export — read-only by design, all ledger access through the shipped CLI (no native-module coupling to VS Code's Electron). Packaged as a .vsix; marketplace publishing pending.
-- **Agent Mesh Protocol (AMP)** — a wire format for cross-runtime agent coordination (not just MCP); a v0.1 draft exists and will be published when it stabilizes.
+Direction, not commitment — items ship when real usage pulls them.
+
+**Now**
+- Provenance-signed npm releases (the "prove it" project practicing its own thesis at the package layer)
+- VS Code extension marketplace listing (the read-only inspector MVP already lives in `editors/vscode/`)
+- `verify --explain` — failure triage for the ledger auditor
+
+**Next**
+- Zero-install ledger verification (`npx` against any ledger file someone sends you)
+- A quickstart demo that ends with a verification, not a wall of text
+- `agent-mesh doctor` — 30-second diagnosis of broken installs
+- Machine-readable `--json` output across every inspect subcommand
+- A published corpus of tampered-ledger fixtures the verifier must catch
+- Per-entry provenance confidence bands in verify output
+
+**Later / exploring**
+- Incident-window timeline reconstruction from the ledger
+- Out-of-band ledger-head fingerprints and external timestamp anchoring
+- Verifiable cold-archive segments (retention without receipt loss)
+- MCP stateless-spec migration as host support lands
+- Agent Mesh Protocol (AMP) — a cross-runtime wire format; a v0.1 draft exists and will be published when it stabilizes
 
 ## Contributing to the roadmap
 
