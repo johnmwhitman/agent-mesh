@@ -30,6 +30,73 @@ import {
 export const APPROVE = "r-ack";
 export const DECLINE = "r-decline";
 
+/**
+ * Vote wire format (re-re-cast fix, 2026-07-16): every cast appends a NEW
+ * receipt — `r-ack`/`r-decline` for an agent's first vote (seq 0), then
+ * `r-ack:1`, `r-decline:2`, ... for re-casts. The receipt idempotency key
+ * (`message:agent:action`) therefore never blocks a vote change, history
+ * stays append-only, and the effective vote is a property of ledger CONTENT
+ * (highest seq), never of row/object order. Bare actions are canonical for
+ * seq 0; `:0` is accepted on read but never written.
+ */
+const VOTE_RE = /^(r-ack|r-decline)(?::(0|[1-9]\d*))?$/;
+
+export interface ParsedVote {
+  approve: boolean;
+  seq: number;
+}
+
+/**
+ * Parse a receipt action as a vote. Null = not a (well-formed) vote — which
+ * includes syntactically-valid seqs beyond Number's safe-integer range:
+ * precision loss there would silently corrupt effective-vote ordering, so
+ * such receipts classify as malformed and the tally ignores them.
+ */
+export function parseVoteAction(action: string): ParsedVote | null {
+  const m = VOTE_RE.exec(action);
+  if (!m) return null;
+  const seq = m[2] !== undefined ? Number(m[2]) : 0;
+  if (!Number.isSafeInteger(seq)) return null;
+  return { approve: m[1] === APPROVE, seq };
+}
+
+/** Canonical action string for a vote at `seq` (bare for seq 0). */
+export function formatVoteAction(approve: boolean, seq: number): string {
+  const base = approve ? APPROVE : DECLINE;
+  return seq === 0 ? base : `${base}:${seq}`;
+}
+
+interface VoteRec {
+  approve: boolean;
+  seq: number;
+  ts: number;
+}
+
+/**
+ * True when `cand` supersedes `cur`: higher seq, then later timestamp, then
+ * decline wins remaining ties (fail-closed — ambiguity must not ratify).
+ */
+function supersedes(cand: VoteRec, cur: VoteRec): boolean {
+  if (cand.seq !== cur.seq) return cand.seq > cur.seq;
+  if (cand.ts !== cur.ts) return cand.ts > cur.ts;
+  return cand.approve === false && cur.approve === true;
+}
+
+/** Effective (latest) vote per eligible voter, derived purely from receipt content. */
+function effectiveVotes(data: MeshData, r: Ratification): Map<string, VoteRec> {
+  const effective = new Map<string, VoteRec>();
+  for (const receipt of Object.values(data.receipts ?? {})) {
+    if (receipt.message_id !== r.message_id) continue;
+    const v = parseVoteAction(receipt.action);
+    if (!v) continue;
+    if (!r.voters.includes(receipt.agent_id)) continue;
+    const cand: VoteRec = { approve: v.approve, seq: v.seq, ts: receipt.timestamp };
+    const cur = effective.get(receipt.agent_id);
+    if (!cur || supersedes(cand, cur)) effective.set(receipt.agent_id, cand);
+  }
+  return effective;
+}
+
 /** Per-voter weight ceiling — keeps any total far inside safe-integer range. */
 export const MAX_VOTE_WEIGHT = 1_000_000;
 /** Ceiling on the SUM of a ratification's weights — blocks overflow games outright. */
@@ -135,7 +202,21 @@ export function castVote(
     if (!ratification.voters.includes(agentId)) {
       throw new Error(`${agentId} is not an eligible voter on ${messageId}`);
     }
-    const action = approve ? APPROVE : DECLINE;
+    // Find this agent's current effective vote + highest seq. Same-polarity
+    // re-casts are no-ops (retry storms must not spam the ledger); a polarity
+    // change appends the next-seq receipt — history is never mutated.
+    let cur: VoteRec | undefined;
+    let maxSeq = -1;
+    for (const rec of Object.values(data.receipts ?? {})) {
+      if (rec.message_id !== messageId || rec.agent_id !== agentId) continue;
+      const v = parseVoteAction(rec.action);
+      if (!v) continue;
+      if (v.seq > maxSeq) maxSeq = v.seq;
+      const cand: VoteRec = { approve: v.approve, seq: v.seq, ts: rec.timestamp };
+      if (!cur || supersedes(cand, cur)) cur = cand;
+    }
+    if (cur && cur.approve === approve) return true; // idempotent: already the effective vote
+    const action = formatVoteAction(approve, maxSeq + 1);
     const msg = data.messages[messageId];
     const wasNew = !!msg && !(data.receipts?.[`${messageId}:${agentId}:${action}`]);
     const r = _writeReceipt(data, agentId, messageId, action, note);
@@ -177,11 +258,12 @@ export interface Tally {
  *     approvals for quorum (never for signoffs). Otherwise a still-short vote expires.
  */
 export function computeTally(data: MeshData, r: Ratification, now: number): Tally {
+  // Effective (latest) vote per agent — content-derived (seq, then timestamp,
+  // then decline-wins), so the tally never depends on object/row order and a
+  // re-cast BACK to an earlier polarity takes effect (the A→B→A fix).
   const voteByAgent = new Map<string, boolean>(); // true=approve
-  for (const receipt of Object.values(data.receipts ?? {})) {
-    if (receipt.message_id !== r.message_id) continue;
-    if (receipt.action === APPROVE && r.voters.includes(receipt.agent_id)) voteByAgent.set(receipt.agent_id, true);
-    else if (receipt.action === DECLINE && r.voters.includes(receipt.agent_id)) voteByAgent.set(receipt.agent_id, false);
+  for (const [agentId, vote] of effectiveVotes(data, r)) {
+    voteByAgent.set(agentId, vote.approve);
   }
 
   const approvals = r.voters.filter((v) => voteByAgent.get(v) === true);

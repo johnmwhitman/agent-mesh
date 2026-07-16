@@ -4,11 +4,22 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 
 ## [Unreleased]
 
+### Added
+- **Vote re-casting is fully honest — the A→B→A fix.** An agent may change their vote any
+  number of times while a ratification is open; every polarity change appends a NEW
+  sequence-suffixed receipt (`r-ack`, then `r-decline:1`, then `r-ack:2`, ...), so the
+  receipt idempotency key never swallows a re-cast and history stays append-only. The
+  effective vote is now derived from ledger CONTENT — highest seq, then timestamp, then
+  decline-wins on pathological ties (fail-closed) — never from row/object order. Same-
+  polarity re-casts are deliberate no-ops (retry storms cannot spam the ledger). Legacy
+  bare-vote ledgers tally identically; `verify_ledger` gains duplicate-seq, seq-gap, and
+  malformed-vote-action checks (with the legacy dual-bare-vote pair explicitly exempt).
+  Closes the known limitation logged earlier the same day; design adversarially reviewed
+  before build.
+
 ### Planned
 - normalized per-row inbox storage (schema v3) — design written and PARKED (batch sends beat the
   scale target ~100x; unpark only if per-call bulk matters)
-- re-cast-back votes (A→B→A) — see ROADMAP "Known limitations"; needs a design that doesn't
-  mutate receipt history
 - tiered vote-weighting in the attestation/report layer (pro follow-on)
 
 ## [0.13.0] — 2026-07-16

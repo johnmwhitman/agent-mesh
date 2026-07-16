@@ -70,16 +70,8 @@ API freeze. Production-ready. Backward-compatible.
 ## v0.13 (staged)
 
 - [x] **Tiered councils / weighted quorum voting** — DONE (2026-07-16). Optional per-voter integer `weights` on `open_ratification`; quorum is a weight threshold, signoffs stay per-agent identity gates, unweighted behavior unchanged. Adversarially design-reviewed before build.
-- [x] **`verify_ledger` + `send_messages` + SSE auth + surgical reads** — see CHANGELOG [Unreleased].
-
-## Known limitations (tracked)
-
-- **Vote re-re-cast (A→B→A) cannot take effect.** Receipts are idempotent per
-  `(message, agent, action)`, so an agent who re-casts BACK to a polarity they already
-  voted once reuses the original receipt — the tally's latest-wins rule sees the middle
-  vote as newest. Pre-existing since v0.10 councils (flagged independently by two review
-  models, 2026-07-16). An honest fix needs re-cast events that don't mutate receipt
-  history; design open. Workaround: open a fresh ratification on the record.
+- [x] **`verify_ledger` + `send_messages` + SSE auth + surgical reads** — see the CHANGELOG.
+- [x] **Vote re-casting is fully honest (A→B→A fix)** — DONE (2026-07-16). Every polarity change appends a sequence-suffixed receipt (`r-ack:1`, `r-decline:2`, …); the effective vote is derived from ledger content (highest seq, then timestamp, then decline-wins — fail-closed), never from row order. Same-polarity re-casts are no-ops; history is never mutated; legacy bare-vote ledgers tally identically. `verify_ledger` checks seq uniqueness/contiguity and flags malformed vote-like actions.
 
 ## Future (post-1.0)
 

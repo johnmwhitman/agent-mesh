@@ -22,7 +22,7 @@
  * Read-only by design: verification never mutates the ledger it audits.
  */
 import { BROADCAST, messageRecipients, type MeshData, type Message, type Receipt } from "./core.js";
-import { APPROVE, DECLINE, MAX_TOTAL_WEIGHT, MAX_VOTE_WEIGHT, computeTally } from "./ratify.js";
+import { MAX_TOTAL_WEIGHT, MAX_VOTE_WEIGHT, computeTally, parseVoteAction } from "./ratify.js";
 import { readLedger } from "./db.js";
 
 export interface VerifyFinding {
@@ -165,23 +165,58 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
       error("ratification.signoff_not_voter", r.message_id, `required signoff ${s} on ${r.message_id} is not among the eligible voters`);
     }
 
-    const approved = new Set<string>();
-    const declined = new Set<string>();
+    // Vote-receipt structure: parse every vote-like action; per agent check
+    // seq uniqueness and contiguity (the append-only re-cast protocol), and
+    // surface re-casts as informational warnings.
+    const votesByAgent = new Map<string, { seq: number; bare: boolean; approve: boolean }[]>();
     for (const receipt of Object.values(receipts)) {
       if (receipt.message_id !== r.message_id) continue;
-      if (receipt.action !== APPROVE && receipt.action !== DECLINE) continue;
+      const voteLike = /^(r-ack|r-decline)(:|$)/.test(receipt.action);
+      const v = parseVoteAction(receipt.action);
+      if (!v) {
+        if (voteLike) {
+          error("ratification.malformed_vote_action", `${r.message_id}:${receipt.agent_id}`, `receipt action ${receipt.action} on ${r.message_id} looks like a vote but is malformed — the tally will ignore it`);
+        }
+        continue;
+      }
       if (!r.voters.includes(receipt.agent_id)) {
         warning("ratification.vote_from_non_voter", `${r.message_id}:${receipt.agent_id}`, `${receipt.agent_id} holds a ${receipt.action} receipt on ${r.message_id} but is not an eligible voter — the tally ignores it`);
         continue;
       }
-      (receipt.action === APPROVE ? approved : declined).add(receipt.agent_id);
+      const list = votesByAgent.get(receipt.agent_id) ?? [];
+      list.push({ seq: v.seq, bare: !receipt.action.includes(":"), approve: v.approve });
+      votesByAgent.set(receipt.agent_id, list);
     }
-    // Both polarities from one agent = a legitimate re-cast (latest wins —
-    // the pinned production-incident recovery semantics). Surface it for the auditor
-    // without failing verification.
-    for (const agentId of approved) {
-      if (declined.has(agentId)) {
-        warning("ratification.vote_recast", `${r.message_id}:${agentId}`, `${agentId} holds both an approve and a decline receipt on ${r.message_id} — a re-cast vote; the later receipt is the effective one`);
+    for (const [agentId, votes] of votesByAgent) {
+      const bySeq = new Map<number, typeof votes>();
+      for (const v of votes) {
+        const arr = bySeq.get(v.seq) ?? [];
+        arr.push(v);
+        bySeq.set(v.seq, arr);
+      }
+      for (const [seq, arr] of bySeq) {
+        if (arr.length > 1) {
+          // Legacy exemption: BOTH bare polarities at seq 0 predate the
+          // seq protocol and tally deterministically (timestamp, then
+          // decline-wins). Anything else sharing a seq is corruption.
+          const legacyPair = seq === 0 && arr.length === 2 && arr.every((x) => x.bare) && arr[0]!.approve !== arr[1]!.approve;
+          if (!legacyPair) {
+            error("ratification.duplicate_vote_seq", `${r.message_id}:${agentId}`, `${agentId} holds ${arr.length} vote receipts at seq ${seq} on ${r.message_id} — each re-cast must take a fresh sequence number`);
+          }
+        }
+      }
+      const seqs = new Set(votes.map((v) => v.seq));
+      const maxSeq = Math.max(...seqs);
+      if (maxSeq >= 1) {
+        for (let i = 0; i <= maxSeq; i++) {
+          if (!seqs.has(i)) {
+            error("ratification.vote_seq_gap", `${r.message_id}:${agentId}`, `${agentId}'s vote sequence on ${r.message_id} jumps to ${maxSeq} without seq ${i} — casts are appended one at a time, so a gap means missing history`);
+            break;
+          }
+        }
+      }
+      if (new Set(votes.map((v) => v.approve)).size === 2) {
+        warning("ratification.vote_recast", `${r.message_id}:${agentId}`, `${agentId} changed their vote on ${r.message_id} — the highest-sequence cast is the effective one`);
       }
     }
 
@@ -189,6 +224,9 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
       // Recompute from the receipts that existed AT resolution. Votes cast
       // after a sticky terminal status are legitimate ledger content (pinned
       // by ratify.test.ts) and must not read as a mismatch.
+      // Known narrow edge (documented): a post-resolution re-cast in the SAME
+      // millisecond as resolved_at is indistinguishable from the deciding vote
+      // and can flip this recompute — warning severity by design.
       const asOf = r.resolved_at ?? now;
       const receiptsAtResolution = Object.fromEntries(
         Object.entries(receipts).filter(([, rec]) => rec.timestamp <= asOf),

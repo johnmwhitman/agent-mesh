@@ -406,7 +406,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "cast_vote",
       description:
-        "Cast a vote on an open ratification. approve=true writes an r-ack receipt, approve=false an r-decline. Idempotent per voter.",
+        "Cast a vote on an open ratification. approve=true records approval, approve=false rejection. Re-casting CHANGES your effective vote (each change appends a new sequenced receipt — history is never rewritten); repeating your current vote is a no-op.",
       inputSchema: {
         type: "object",
         properties: {
