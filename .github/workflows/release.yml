@@ -1,0 +1,59 @@
+# Provenance-signed releases (LH: the "prove it" project practicing its own
+# thesis at the package layer). npm build-provenance only attests publishes
+# that run in supported CI with OIDC — a local `npm publish` cannot produce
+# it — so releases flow through this workflow.
+#
+# One-time setup (maintainer): create an npm GRANULAR access token with
+# packages:read-write scoped to `meshfleet` and "bypass 2FA" enabled (npm
+# requires this for automation), then add it as the NPM_TOKEN repo secret.
+#
+# To release: bump version + CHANGELOG on main, then push a tag:
+#   git tag v0.14.0 && git push origin v0.14.0
+# The workflow tests on the full matrix first; publish runs only if every
+# leg is green. The resulting npm page shows the provenance badge linking
+# the tarball to this repo, commit, and workflow run.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        node: [20, 22, 24]
+        os: [ubuntu-latest, macos-latest, windows-2022]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - run: npm ci
+      - run: npm test
+
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # OIDC — required for npm provenance
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: "https://registry.npmjs.org"
+      - run: npm ci
+      - name: Verify tag matches package.json version
+        run: |
+          PKG=$(node -p "require('./package.json').version")
+          TAG="${GITHUB_REF_NAME#v}"
+          [ "$PKG" = "$TAG" ] || { echo "tag v$TAG != package.json $PKG"; exit 1; }
+      - run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
