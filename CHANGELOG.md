@@ -35,6 +35,21 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
   result to pass `verify_ledger` clean, making COMPATIBILITY.md's read-old-ledgers promise
   executable (including the v0/v1 → v2 ack-receipt backfill).
 
+### Performance
+- **Surgical transaction reads — the O(N)-per-write ledger load is gone.** `withLedger`
+  previously parsed EVERY row of EVERY collection at the start of each transaction, so a
+  single `sendMessage` against a 10k-message ledger paid a full-ledger `JSON.parse`
+  (quadratic in bulk: 73s for 10k sends). Transactions now run against lazy per-row
+  views: one indexed SELECT per touched key, full hydration only when a mutator
+  enumerates a collection, and a touched-row diff at commit. Same `BEGIN IMMEDIATE`
+  snapshot and exclusion guarantees; wholesale collection replacement falls back to the
+  eager diff. Measured: 10k bulk sends 73s → **~6-8s**, warm `sendMessage` p50
+  0.38 → 0.12ms, spawn bookkeeping p50 11.9 → 0.10ms. The remaining gap to the < 5s
+  roadmap target is the per-agent inbox row (one JSON array parsed+rewritten per send);
+  normalizing inboxes into their own table is the tracked follow-up. The benchmark
+  harness itself was ported off the removed `setLedgerOverride` seam onto the SQLite
+  ledger.
+
 ### Fixed
 - **`open_ratification` dedupes the voter set.** A duplicated voter id was counted once
   per occurrence by the tally, letting one agent satisfy a quorum alone. Duplicates are

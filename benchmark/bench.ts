@@ -3,16 +3,17 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  setLedgerOverride,
   registerCapability,
   routeWork,
   sendMessage,
   getInbox,
   registerAgentInLedger,
-  createFleet,
   loadData,
   saveData,
+  setEventLogPath,
+  DEFAULT_EVENT_LOG,
 } from "../src/core.js";
+import { setDbPath, closeDb, importSnapshot } from "../src/db.js";
 
 interface BenchResult {
   name: string;
@@ -49,25 +50,26 @@ async function bench(name: string, fn: () => void | Promise<void>, iterations = 
   };
 }
 
+// Each set() points at a FRESH db file (importSnapshot upserts without
+// clearing, so reusing one file would leak prior seeds into the next scenario).
 function freshLedger() {
   const dir = mkdtempSync(join(tmpdir(), "meshfleet-bench-"));
-  let memory: any = {
-    fleets: {},
-    agents: {},
-    messages: {},
-    inboxes: {},
-    capabilities: {},
+  setEventLogPath(join(dir, "events.log"));
+  let n = 0;
+  const empty = { fleets: {}, agents: {}, messages: {}, inboxes: {}, capabilities: {}, receipts: {}, ratifications: {}, templates: {} };
+  const set = (d: any) => {
+    closeDb();
+    setDbPath(join(dir, `bench-${n++}.db`));
+    importSnapshot({ ...empty, ...d });
   };
-  setLedgerOverride(
-    () => JSON.parse(JSON.stringify(memory)),
-    (d) => { memory = d }
-  );
+  set({});
   return {
     cleanup: () => {
-      setLedgerOverride(null, null);
+      closeDb();
+      setEventLogPath(DEFAULT_EVENT_LOG);
       try { rmSync(dir, { recursive: true, force: true }) } catch {}
     },
-    set: (d: any) => { memory = d },
+    set,
   };
 }
 
