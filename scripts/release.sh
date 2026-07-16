@@ -18,6 +18,9 @@ git pull --ff-only
 
 echo "==> 2/3 Publish $PKG (prepublishOnly runs build + full test suite)"
 npm whoami >/dev/null 2>&1 || { echo "!! not logged in to npm — run 'npm login' first"; exit 1; }
+# npm requires 2FA to publish. With 2FA enabled it prompts for the OTP here;
+# a hard E403 means 2FA is not set up yet — enable it at
+# https://www.npmjs.com/settings/<user>/tfa then re-run (or: npm publish --otp=CODE).
 npm publish
 
 echo "==> 3/3 Verify the published tarball installs + the bins run"
