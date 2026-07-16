@@ -9,6 +9,7 @@
  */
 
 import { loadData, messageRecipients, FleetSummary, MessageType, type Message, type Receipt, type Ratification } from './core.js'
+import type { VerifyReport } from './verify.js'
 
 // ---------------------------------------------------------------------------
 // Time formatting
@@ -294,3 +295,20 @@ export function formatCouncil(rat: Ratification, votes: Receipt[]): string {
 // ---------------------------------------------------------------------------
 
 export type { FleetSummary, MessageType }
+/**
+ * Render a verify_ledger report for the CLI: one OK/FAIL summary line with
+ * entity counts, then findings errors-first. Pure — testable without a ledger.
+ */
+export function formatVerifyReport(report: VerifyReport): string {
+  const c = report.counts;
+  const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
+  const head = `${report.ok ? "✔ OK" : "✖ FAIL"} — ${plural(report.errors, "error")}, ${plural(report.warnings, "warning")}   (fleets ${c.fleets} · agents ${c.agents} · messages ${c.messages} · receipts ${c.receipts} · councils ${c.ratifications})`;
+  if (report.findings.length === 0) return head;
+  const ordered = [...report.findings].sort((a, b) =>
+    a.severity === b.severity ? 0 : a.severity === "error" ? -1 : 1
+  );
+  const lines = ordered.map(
+    (f) => `  ${f.severity === "error" ? "ERROR" : "WARN "}  ${f.check}  ${f.subject} — ${f.detail}`
+  );
+  return [head, ...lines].join("\n");
+}

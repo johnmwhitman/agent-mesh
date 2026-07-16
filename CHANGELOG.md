@@ -23,7 +23,9 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
   existed at resolution). Errors mean the ledger asserts something its own records do
   not support; warnings surprise without overclaiming — a re-cast vote (both polarities,
   latest wins) and the legacy `*` broadcast backfill are recognized as legitimate.
-  Library API `verifyMeshData`/`verifyLedger` + a read-only `verify_ledger` MCP tool.
+  Library API `verifyMeshData`/`verifyLedger` + a read-only `verify_ledger` MCP tool,
+  and `npx agent-mesh inspect --verify` on the CLI (exit 1 on errors — usable as a
+  scripted audit gate).
 - **Optional SSE auth token.** Set `MESHFLEET_AUTH_TOKEN` (legacy `AGENT_MESH_AUTH_TOKEN`
   honored) and every SSE endpoint except `/healthz` requires `Authorization: Bearer <token>`
   (scheme case-insensitive) or `?token=` — EventSource cannot set headers. Constant-time

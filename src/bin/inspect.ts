@@ -8,6 +8,7 @@
  *   npx agent-mesh inspect --metrics          # fleet summary metrics
  *   npx agent-mesh inspect --events [n]      # recent events (default 20)
  *   npx agent-mesh inspect --export [file]   # dump the full ledger as JSON
+ *   npx agent-mesh inspect --verify          # audit ledger integrity (exit 1 on errors)
  *   npx agent-mesh inspect --help             # usage
  *
  * Reads the same SQLite ledger as the MCP server (via the withLedger seam).
@@ -21,10 +22,12 @@ import {
   getFleetMetrics,
   formatReceiptTrail,
   formatCouncil,
+  formatVerifyReport,
   PROVISIONAL_NOTE,
   type AgentRow,
 } from '../inspector.js'
 import { listFleets, loadData, readEventLog, getReceipts, CURRENT_SCHEMA_VERSION, type Agent } from '../core.js'
+import { verifyLedger } from '../verify.js'
 
 const USAGE = `agent-mesh inspect — CLI inspector for running fleets
 
@@ -36,6 +39,7 @@ Usage:
   npx agent-mesh inspect --receipts [fleet] Show message receipts (who saw / acked)
   npx agent-mesh inspect --councils [fleet] Show councils (tally vs quorum, who voted)
   npx agent-mesh inspect --export [file]    Dump the full ledger as JSON (stdout if no file)
+  npx agent-mesh inspect --verify           Audit ledger integrity (exit 1 on errors)
   npx agent-mesh inspect --help             This help
 `
 
@@ -63,6 +67,12 @@ function main(): void {
     const outArg = args[args.indexOf('--export') + 1]
     exportLedger(outArg && !outArg.startsWith('-') ? outArg : undefined)
     return
+  }
+
+  if (args.includes('--verify')) {
+    const report = verifyLedger()
+    process.stdout.write(formatVerifyReport(report) + '\n')
+    process.exit(report.ok ? 0 : 1)
   }
 
   const positional = args.filter((a) => !a.startsWith('-'))
