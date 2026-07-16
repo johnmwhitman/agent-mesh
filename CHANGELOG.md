@@ -4,6 +4,20 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 
 ## [Unreleased]
 
+### Planned
+- normalized per-row inbox storage (schema v3) — design written and PARKED (batch sends beat the
+  scale target ~100x; unpark only if per-call bulk matters)
+- re-cast-back votes (A→B→A) — see ROADMAP "Known limitations"; needs a design that doesn't
+  mutate receipt history
+- tiered vote-weighting in the attestation/report layer (pro follow-on)
+
+## [0.13.0] — 2026-07-16
+
+**Trust, scale, and tiered councils.** The ledger can now prove itself (`verify_ledger` +
+`inspect --verify`), the SSE surface takes an optional auth token, transactions read
+surgically instead of parsing the whole ledger (10k batched sends: 52ms), councils support
+weighted quorums, and the compatibility promise is executable via per-schema fixtures.
+
 ### Added
 - **`route_work` uses the skill taxonomy.** A taxonomy tree (set via `setSkillTaxonomy()`
   or the `AGENT_MESH_TAXONOMY` env — a file path or inline JSON) credits a capability for
@@ -83,10 +97,6 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 - **`readLedger()` snapshots are consistent across collections.** The per-table reads now
   run inside one read transaction; previously a concurrent writer committing mid-read
   could hand a reader an inbox id whose message it couldn't yet see.
-
-### Planned
-- normalized per-row inbox storage (schema v3) — design written and PARKED (batch sends beat the
-  scale target ~100x; unpark only if per-call bulk matters)
 
 ## [0.12.0] — 2026-07-11
 
