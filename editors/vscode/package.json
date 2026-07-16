@@ -1,7 +1,7 @@
 {
   "name": "meshfleet-inspector",
   "displayName": "Meshfleet Inspector",
-  "description": "See your agent fleets, receipts, and council votes in the sidebar — the read side of 'your agents did the work, prove it'.",
+  "description": "See your agent fleets and council votes in the sidebar, and verify the receipts ledger in one click — the read side of 'your agents did the work, prove it'.",
   "version": "0.1.0",
   "publisher": "meshfleet",
   "license": "MIT",
