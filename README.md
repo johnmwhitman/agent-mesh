@@ -2,7 +2,7 @@
 
 > **Auditable multi-agent coordination for OpenCode.** Spawn parallel agents as independent OS processes. Route work to specialists. Let agents collaborate peer-to-peer — with witnessed receipts and quorum ratification, so you can answer: *who saw this, who approved it, prove it.* The core is MIT and free.
 
-**Website**: [meshfleet.app](https://meshfleet.app) · **Version**: 0.11.1 · **Tests**: 209/209 passing · [CI](https://github.com/johnmwhitman/agent-mesh/actions)
+**Website**: [meshfleet.app](https://meshfleet.app) · **Version**: 0.13.0 · **Tests**: 316/316 passing · [CI](https://github.com/johnmwhitman/agent-mesh/actions)
 
 > **Project status — deliberately pre-1.0, actively maintained.** Releases are intentionally
 > infrequent (we cut versions when something is worth shipping, not on a calendar); the repo
@@ -121,7 +121,7 @@ TIMESTAMP            EVENT              DETAIL
 
 ---
 
-## 25 MCP tools
+## 28 MCP tools
 
 **Fleets**
 
@@ -140,16 +140,18 @@ TIMESTAMP            EVENT              DETAIL
 | Tool | What it does |
 |---|---|
 | `send_message` | P2P message (5 types) — or `to_agent_id: "*"` to broadcast to the whole fleet |
+| `send_messages` | Batched sends, one atomic transaction per batch (10k messages in ~50ms) |
 | `get_inbox` / `ack_message` | Poll and acknowledge; every ack writes a per-recipient receipt |
-| `subscribe_inbox` | Push delivery over SSE instead of polling |
+| `subscribe_inbox` | Push delivery over SSE instead of polling (optional auth token) |
 | `receipt` / `get_receipts` | Write and query the witnessed-delivery ledger: who saw what, when |
+| `verify_ledger` | Audit the whole ledger's internal consistency — errors mean it asserts something its own records don't support |
 
 **Councils (quorum ratification)**
 
 | Tool | What it does |
 |---|---|
-| `open_ratification` | Put a decision to the fleet: quorum size, deadline, required sign-offs |
-| `cast_vote` | An agent votes, on the record |
+| `open_ratification` | Put a decision to the fleet: quorum, deadline, required sign-offs, optional per-voter weights |
+| `cast_vote` | An agent votes, on the record — re-casting changes the effective vote without rewriting history |
 | `tally_ratification` / `sweep_ratifications` | Resolve outcomes; expire past-deadline votes |
 
 **Routing & ops**
@@ -162,9 +164,9 @@ TIMESTAMP            EVENT              DETAIL
 | `list_agents` | Discover 100+ premade agent personalities |
 | `get_health` / `ping` | Fleet health and liveness |
 
-That's 25. We counted twice this time.
+That's 28. We counted twice this time.
 
-[Full API reference →](docs/api)
+[Full API reference → AGENT-MESH-SPEC.md](AGENT-MESH-SPEC.md) · [P2P/receipts → SPEC-P2P.md](SPEC-P2P.md) · [Councils → SPEC-COUNCILS.md](SPEC-COUNCILS.md)
 
 ---
 
@@ -189,7 +191,7 @@ That's 25. We counted twice this time.
 - **Failure recovery**: C hits a blocker, broadcasts `alert`, peers with relevant skills respond with fixes.
 - **Ratified decision**: a council votes on a risky action — quorum, deadline, required sign-off — and the outcome (including who stayed silent) is on the ledger.
 
-[More use cases →](https://meshfleet.app/use-cases)
+[More on the receipts wedge →](https://meshfleet.app)
 
 ---
 
@@ -206,7 +208,7 @@ That's 25. We counted twice this time.
 
 None of them answer "who saw this, who approved it, prove it." That's the lane.
 
-[Full comparison →](https://meshfleet.app/comparison)
+[FAQ →](https://meshfleet.app/faq)
 
 ---
 

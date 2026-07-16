@@ -47,7 +47,7 @@ Routing becomes capability-aware, not just keyword-overlap.
 - [x] **Multi-agent routing** — `route_work` returns N best matches for fan-out tasks
 - [x] **Routing feedback loop** — if a routed task fails, learn from the failure to improve future routing
 
-## v0.9.0 — Scale (next)
+## v0.9.0 — Scale (complete)
 
 Bridge release between v0.8.x and v1.0. Targeted at the known bottleneck.
 
@@ -64,7 +64,7 @@ API freeze. Production-ready. Backward-compatible.
 - [x] **Backward compatibility matrix** — `COMPATIBILITY.md` documents the API + ledger schema guarantees per version; per-version fixture tests are a v1.0 follow-up
 - [x] **Performance benchmarks** — sub-100ms overhead per agent spawn, 10k messages per fleet
 - [x] **Distributed ledger option** — resolved differently and better in 0.12.0: SQLite (better-sqlite3, WAL + `BEGIN IMMEDIATE`) became THE ledger, not a flagged option, because the JSON store provably lost concurrent writes. Cross-MACHINE coordination (the libSQL idea) folds into the post-1.0 cloud relay.
-- [ ] **npm publish** — `npm install -g agent-mesh` for a global install (ready, blocked on user `npm login`)
+- [x] **npm publish** — DONE (2026-07-16). `meshfleet@0.13.0` live on the registry (dist-tag `latest`); published tarball verified end-to-end (fresh install, bins run, `inspect --verify` audits a real ledger clean).
 - [x] **Auth token for MCP** — DONE (2026-07-16). Optional `MESHFLEET_AUTH_TOKEN` (legacy `AGENT_MESH_AUTH_TOKEN`): when set, the SSE listener requires `Authorization: Bearer <token>` (or `?token=` for EventSource) on every endpoint except `/healthz`; constant-time comparison; unset keeps the historical open local-trust default. The stdio MCP transport stays process-local (auth is the OS process boundary there by design).
 
 ## v0.13 (staged)
