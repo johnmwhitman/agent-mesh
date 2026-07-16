@@ -4,8 +4,8 @@
 
 | Version  | Supported          |
 |----------|--------------------|
-| 0.11.x   | :white_check_mark: |
-| < 0.11   | :x:                |
+| 0.13.x   | :white_check_mark: |
+| < 0.13   | :x:                |
 
 Security fixes land on the latest minor version (`meshfleet` on npm). Older versions are not patched.
 
