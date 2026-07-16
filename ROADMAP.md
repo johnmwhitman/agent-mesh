@@ -65,7 +65,7 @@ API freeze. Production-ready. Backward-compatible.
 - [x] **Performance benchmarks** — sub-100ms overhead per agent spawn, 10k messages per fleet
 - [ ] **Distributed ledger option** — swap JSON for SQLite (single-process) or libSQL (multi-process) behind a feature flag
 - [ ] **npm publish** — `npm install -g agent-mesh` for a global install (ready, blocked on user `npm login`)
-- [ ] **Auth token for MCP** — optional bearer token to prevent unauthorized access
+- [x] **Auth token for MCP** — DONE (2026-07-16). Optional `MESHFLEET_AUTH_TOKEN` (legacy `AGENT_MESH_AUTH_TOKEN`): when set, the SSE listener requires `Authorization: Bearer <token>` (or `?token=` for EventSource) on every endpoint except `/healthz`; constant-time comparison; unset keeps the historical open local-trust default. The stdio MCP transport stays process-local (auth is the OS process boundary there by design).
 
 ## Future (post-1.0)
 

@@ -14,19 +14,23 @@
  * Configuration via env vars:
  *   MESHFLEET_SSE_PORT — port to listen on (default 13579)
  *   MESHFLEET_SSE_HOST — bind address (default 127.0.0.1)
+ *   MESHFLEET_AUTH_TOKEN — optional bearer token; when set, every endpoint
+ *     except /healthz requires `Authorization: Bearer <token>` or `?token=`
+ *     (EventSource cannot set headers). Unset = open access (local trust).
  *
- * The server is bound to 127.0.0.1 by default for security — do not change
- * unless you understand the implications. SSE over a public network needs
- * auth.
+ * The server is bound to 127.0.0.1 by default for security — if you bind any
+ * wider, set MESHFLEET_AUTH_TOKEN.
  */
 
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
+import { createHash, timingSafeEqual } from "node:crypto";
 import {
   addSubscriber,
   removeSubscriber,
   shutdownServer as shutdownSubscribers,
   type Subscriber,
 } from "./realtime.js";
+import { resolveEnv } from "./env.js";
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -72,10 +76,44 @@ function setSseHeaders(res: ServerResponse): void {
   res.write(":ok\n\n");
 }
 
-function parseInboxPath(url: string | undefined): string | null {
-  if (!url) return null;
-  const m = url.match(/^\/inbox\/([A-Za-z0-9_-]+)\/stream\/?$/);
+function parseInboxPath(pathname: string): string | null {
+  const m = pathname.match(/^\/inbox\/([A-Za-z0-9_-]+)\/stream\/?$/);
   return m ? (m[1] ?? null) : null;
+}
+
+/**
+ * Optional auth token (MESHFLEET_AUTH_TOKEN, legacy AGENT_MESH_AUTH_TOKEN).
+ * Read per-request so a long-lived server honors an operator's change without
+ * a restart. Unset = open access (the historical local-trust default).
+ */
+function authToken(): string | undefined {
+  return resolveEnv(process.env, "MESHFLEET_AUTH_TOKEN", "AGENT_MESH_AUTH_TOKEN");
+}
+
+/** Constant-time comparison over digests, so length differences leak nothing. */
+function tokenMatches(expected: string, provided: string): boolean {
+  const a = createHash("sha256").update(expected).digest();
+  const b = createHash("sha256").update(provided).digest();
+  return timingSafeEqual(a, b);
+}
+
+/**
+ * True when the request may proceed: no token configured, or the request
+ * carries it — `Authorization: Bearer <token>` preferred; `?token=` accepted
+ * because EventSource cannot set headers.
+ */
+function isAuthorized(req: IncomingMessage, url: URL): boolean {
+  const expected = authToken();
+  if (expected === undefined) return true;
+  const header = req.headers.authorization;
+  const bearer = header?.startsWith("Bearer ") ? header.slice("Bearer ".length) : undefined;
+  const provided = bearer ?? url.searchParams.get("token") ?? undefined;
+  return provided !== undefined && tokenMatches(expected, provided);
+}
+
+function handle401(res: ServerResponse): void {
+  res.writeHead(401, { "Content-Type": "text/plain", "WWW-Authenticate": "Bearer" });
+  res.end("unauthorized");
 }
 
 function handleSseConnection(agentId: string, res: ServerResponse): void {
@@ -122,19 +160,26 @@ export function startSseServer(): Promise<{ host: string; port: number }> {
         res.writeHead(204, {
           "Access-Control-Allow-Origin": "*",
           "Access-Control-Allow-Methods": "GET, OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type",
+          "Access-Control-Allow-Headers": "Content-Type, Authorization",
         });
         res.end();
         return;
       }
       res.setHeader("Access-Control-Allow-Origin", "*");
 
-      if (req.url === "/healthz" || req.url === "/healthz/") {
+      const url = new URL(req.url ?? "/", `http://${host}:${port}`);
+
+      if (url.pathname === "/healthz" || url.pathname === "/healthz/") {
         handleHealthz(res);
         return;
       }
 
-      const agentId = parseInboxPath(req.url);
+      if (!isAuthorized(req, url)) {
+        handle401(res);
+        return;
+      }
+
+      const agentId = parseInboxPath(url.pathname);
       if (agentId) {
         if (req.method !== "GET") {
           res.writeHead(405, { "Content-Type": "text/plain" });

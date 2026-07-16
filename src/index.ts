@@ -483,7 +483,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "subscribe_inbox",
       description:
-        "Subscribe to an agent's inbox via Server-Sent Events (SSE). Returns a stream URL that the agent opens to receive real-time push of incoming P2P messages. Falls back to polling get_inbox if SSE is unreachable.",
+        "Subscribe to an agent's inbox via Server-Sent Events (SSE). Returns a stream URL that the agent opens to receive real-time push of incoming P2P messages. Falls back to polling get_inbox if SSE is unreachable. If the operator set MESHFLEET_AUTH_TOKEN, requests to the stream must carry it (Authorization: Bearer, or ?token=).",
       inputSchema: {
         type: "object",
         properties: {

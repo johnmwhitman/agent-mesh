@@ -33,7 +33,7 @@ We aim to acknowledge within 48 hours and ship a fix within 7 days for critical 
 ## What is NOT a security issue
 
 - Local-only code execution (this is an MCP server that spawns `opencode run` — by design it runs code on your machine)
-- Lack of authentication (the mesh assumes a trusted local environment; the MCP transport is the trust boundary)
+- Lack of authentication by default (the mesh assumes a trusted local environment; the MCP transport is the trust boundary). If the SSE listener must leave `127.0.0.1`, set `MESHFLEET_AUTH_TOKEN` — every endpoint except `/healthz` then requires `Authorization: Bearer <token>` (or `?token=` for EventSource clients, which cannot set headers)
 
 ## Out of scope
 
