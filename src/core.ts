@@ -128,6 +128,13 @@ export interface Ratification {
   silence_policy: "abstain" | "approve"; // how non-voters count once the deadline passes
   status: "open" | "ratified" | "rejected" | "expired";
   resolved_at?: number;
+  /**
+   * Tiered councils (v0.13): per-voter positive-integer weights, assigned at
+   * open time; unlisted voters weigh 1, so an absent map = today's one-agent-
+   * one-vote semantics exactly. Weight buys QUORUM power only — required
+   * signoffs stay per-agent.
+   */
+  weights?: Record<string, number>;
 }
 
 export const CURRENT_SCHEMA_VERSION = 2;

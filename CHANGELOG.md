@@ -37,6 +37,24 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
   result to pass `verify_ledger` clean, making COMPATIBILITY.md's read-old-ledgers promise
   executable (including the v0/v1 → v2 ack-receipt backfill).
 
+- **Weighted quorum voting ("tiered councils").** `open_ratification` accepts an optional
+  `weights` map — per-voter positive integers (max 1,000,000 each, 10,000,000 total), assigned
+  at open time and frozen. Quorum becomes a weight threshold; unlisted voters weigh 1, so an
+  unweighted ratification is bit-identical to before. Weight buys quorum power ONLY: required
+  signoffs stay per-agent, a re-cast vote moves the voter's full weight, silence_policy=approve
+  lends pending WEIGHT to quorum (never to signoffs), and a heavy decline can make quorum
+  unreachable. Tallies expose approval/decline/pending/total weight and echo the map;
+  `verify_ledger` gains weight checks (non-voter keys, invalid values, weighted reachability).
+  Design adversarially reviewed (grk-4.5): weights are proposal-config in the SAME trust model
+  as today's proposer-chosen voters/quorum — identity gates belong to required_signoffs.
+- **SPEC-AMP-DRAFT.md — Agent Mesh Protocol v0.1 draft.** The post-1.0 "AMP" roadmap item now
+  has a written wire format: transport-agnostic JSON envelopes for the five message types and
+  receipts (payload stays an opaque <=64 KiB string, exactly like the shipped ledger), receipt
+  idempotency and broadcast-accounting semantics preserved, councils expressed as receipts, a
+  5-point conformance checklist, and explicit v0.1 non-goals (no crypto/signing — that layer is
+  the commercial attestation product; no transport or discovery). DRAFT status: code wins on
+  any disagreement.
+
 ### Performance
 - **Surgical transaction reads — the O(N)-per-write ledger load is gone.** `withLedger`
   previously parsed EVERY row of EVERY collection at the start of each transaction, so a
@@ -67,8 +85,8 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
   could hand a reader an inbox id whose message it couldn't yet see.
 
 ### Planned
-- tiered councils / vote weighting (if real usage demands them)
-- normalized per-row inbox storage (schema v3), only if per-call bulk sends ever matter
+- normalized per-row inbox storage (schema v3) — design written and PARKED (batch sends beat the
+  scale target ~100x; unpark only if per-call bulk matters)
 
 ## [0.12.0] — 2026-07-11
 

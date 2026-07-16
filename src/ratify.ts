@@ -30,6 +30,11 @@ import {
 export const APPROVE = "r-ack";
 export const DECLINE = "r-decline";
 
+/** Per-voter weight ceiling — keeps any total far inside safe-integer range. */
+export const MAX_VOTE_WEIGHT = 1_000_000;
+/** Ceiling on the SUM of a ratification's weights — blocks overflow games outright. */
+export const MAX_TOTAL_WEIGHT = 10_000_000;
+
 export interface OpenRatificationInput {
   proposer: string;
   fleetId: string;
@@ -41,19 +46,56 @@ export interface OpenRatificationInput {
   requiredSignoffs?: string[];
   deadline?: number; // epoch ms
   silencePolicy?: "abstain" | "approve";
+  /** Tiered councils: per-voter positive-integer weights (unlisted voters weigh 1). */
+  weights?: Record<string, number>;
+}
+
+/**
+ * The weight a voter carries on a ratification (1 unless the weights map says
+ * otherwise). Own-property lookup only: an agent id like "constructor" must
+ * not resolve to Object.prototype and poison the sum.
+ */
+function voterWeight(weights: Record<string, number> | undefined, agentId: string): number {
+  return weights !== undefined && Object.hasOwn(weights, agentId) ? weights[agentId]! : 1;
 }
 
 /** Open a ratification: broadcasts the proposal and records the vote config in ONE txn. Returns the proposal message id. */
 export function openRatification(input: OpenRatificationInput): string {
-  if (input.quorum < 1) throw new Error("quorum must be at least 1");
+  if (!Number.isInteger(input.quorum) || input.quorum < 1) {
+    throw new Error(`quorum must be a positive integer (got ${input.quorum})`);
+  }
+  // An empty weights map states the same thing as no map: every voter weighs 1.
+  const weights =
+    input.weights && Object.keys(input.weights).length > 0 ? input.weights : undefined;
   return withLedger((data): string => {
     const { messageId } = _sendMessage(data, input.proposer, BROADCAST, input.fleetId, "question", input.payload ?? input.subject);
     const msg = data.messages[messageId];
     // Dedupe: the tally counts every occurrence in `voters`, so a duplicated id
     // would let one agent satisfy the quorum alone.
     const voters = [...new Set(input.voters ?? messageRecipients(msg))];
-    if (input.quorum > voters.length) {
-      throw new Error(`quorum ${input.quorum} exceeds ${voters.length} eligible voters`);
+    if (weights) {
+      for (const [agentId, w] of Object.entries(weights)) {
+        if (!voters.includes(agentId)) {
+          throw new Error(`weight assigned to ${agentId}, who is not among the voters`);
+        }
+        if (!Number.isInteger(w) || w < 1) {
+          throw new Error(`weight for ${agentId} must be a positive integer (got ${w})`);
+        }
+        if (w > MAX_VOTE_WEIGHT) {
+          throw new Error(`weight too large for ${agentId}: ${w} (limit ${MAX_VOTE_WEIGHT})`);
+        }
+      }
+    }
+    const totalWeight = voters.reduce((sum, v) => sum + voterWeight(weights, v), 0);
+    if (totalWeight > MAX_TOTAL_WEIGHT) {
+      throw new Error(`total voting weight ${totalWeight} exceeds the limit ${MAX_TOTAL_WEIGHT}`);
+    }
+    if (input.quorum > totalWeight) {
+      throw new Error(
+        weights
+          ? `quorum ${input.quorum} exceeds total voting weight ${totalWeight}`
+          : `quorum ${input.quorum} exceeds ${voters.length} eligible voters`
+      );
     }
     const missing = (input.requiredSignoffs ?? []).filter((s) => !voters.includes(s));
     if (missing.length > 0) {
@@ -72,6 +114,7 @@ export function openRatification(input: OpenRatificationInput): string {
       ...(input.deadline !== undefined ? { deadline: input.deadline } : {}),
       silence_policy: input.silencePolicy ?? "abstain",
       status: "open",
+      ...(weights ? { weights: { ...weights } } : {}),
     };
     data.ratifications[messageId] = ratification;
     return messageId;
@@ -116,6 +159,13 @@ export interface Tally {
   signoffs_met: boolean;
   /** Whether it is still arithmetically possible to reach quorum. */
   reachable: boolean;
+  /** Weight arithmetic (tiered councils). On an unweighted ratification these equal the head counts. */
+  approval_weight: number;
+  decline_weight: number;
+  pending_weight: number;
+  total_weight: number;
+  /** Echo of the stored weights map; absent when the ratification is unweighted. */
+  weights?: Record<string, number>;
 }
 
 /**
@@ -138,24 +188,48 @@ export function computeTally(data: MeshData, r: Ratification, now: number): Tall
   const declines = r.voters.filter((v) => voteByAgent.get(v) === false);
   const pending = r.voters.filter((v) => !voteByAgent.has(v));
 
+  // Tiered councils: quorum arithmetic runs on weight sums. Unlisted voters
+  // weigh 1, so an unweighted ratification's sums ARE its head counts and the
+  // pre-weights semantics are preserved bit-for-bit.
+  const weightOf = (v: string): number =>
+    r.weights !== undefined && Object.hasOwn(r.weights, v) ? r.weights[v]! : 1;
+  const sum = (ids: string[]): number => ids.reduce((s, v) => s + weightOf(v), 0);
+  const approvalWeight = sum(approvals);
+  const declineWeight = sum(declines);
+  const pendingWeight = sum(pending);
+  const totalWeight = approvalWeight + declineWeight + pendingWeight;
+
   const signoffsMet = r.required_signoffs.every((s) => voteByAgent.get(s) === true);
   const signoffRejected = r.required_signoffs.some((s) => voteByAgent.get(s) === false);
 
   const deadlinePassed = r.deadline !== undefined && now >= r.deadline;
-  const effectiveApprovals =
-    deadlinePassed && r.silence_policy === "approve" ? approvals.length + pending.length : approvals.length;
+  const effectiveApprovalWeight =
+    deadlinePassed && r.silence_policy === "approve" ? approvalWeight + pendingWeight : approvalWeight;
 
-  const maxPossibleApprovals = approvals.length + pending.length;
-  const reachable = maxPossibleApprovals >= r.quorum && !signoffRejected;
+  const reachable = approvalWeight + pendingWeight >= r.quorum && !signoffRejected;
 
   let status: Ratification["status"];
   if (r.status !== "open") status = r.status;
   else if (signoffRejected || !reachable) status = "rejected";
-  else if (effectiveApprovals >= r.quorum && signoffsMet) status = "ratified";
+  else if (effectiveApprovalWeight >= r.quorum && signoffsMet) status = "ratified";
   else if (deadlinePassed) status = "expired";
   else status = "open";
 
-  return { status, quorum: r.quorum, approvals, declines, pending, required_signoffs: r.required_signoffs, signoffs_met: signoffsMet, reachable };
+  return {
+    status,
+    quorum: r.quorum,
+    approvals,
+    declines,
+    pending,
+    required_signoffs: r.required_signoffs,
+    signoffs_met: signoffsMet,
+    reachable,
+    approval_weight: approvalWeight,
+    decline_weight: declineWeight,
+    pending_weight: pendingWeight,
+    total_weight: totalWeight,
+    ...(r.weights ? { weights: r.weights } : {}),
+  };
 }
 
 /** Live tally + the status the ratification *should* hold now. Pure (read-only). */

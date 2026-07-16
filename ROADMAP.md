@@ -67,11 +67,25 @@ API freeze. Production-ready. Backward-compatible.
 - [ ] **npm publish** — `npm install -g agent-mesh` for a global install (ready, blocked on user `npm login`)
 - [x] **Auth token for MCP** — DONE (2026-07-16). Optional `MESHFLEET_AUTH_TOKEN` (legacy `AGENT_MESH_AUTH_TOKEN`): when set, the SSE listener requires `Authorization: Bearer <token>` (or `?token=` for EventSource) on every endpoint except `/healthz`; constant-time comparison; unset keeps the historical open local-trust default. The stdio MCP transport stays process-local (auth is the OS process boundary there by design).
 
+## v0.13 (staged)
+
+- [x] **Tiered councils / weighted quorum voting** — DONE (2026-07-16). Optional per-voter integer `weights` on `open_ratification`; quorum is a weight threshold, signoffs stay per-agent identity gates, unweighted behavior unchanged. Adversarially design-reviewed before build.
+- [x] **`verify_ledger` + `send_messages` + SSE auth + surgical reads** — see CHANGELOG [Unreleased].
+
+## Known limitations (tracked)
+
+- **Vote re-re-cast (A→B→A) cannot take effect.** Receipts are idempotent per
+  `(message, agent, action)`, so an agent who re-casts BACK to a polarity they already
+  voted once reuses the original receipt — the tally's latest-wins rule sees the middle
+  vote as newest. Pre-existing since v0.10 councils (flagged independently by two review
+  models, 2026-07-16). An honest fix needs re-cast events that don't mutate receipt
+  history; design open. Workaround: open a fresh ratification (the real-raid-01 doctrine).
+
 ## Future (post-1.0)
 
 - **Cloud relay** — optional hosted mesh for teams that want fleet orchestration across machines
 - **VS Code extension** — fleet inspector in the editor sidebar
-- **Agent Mesh Protocol (AMP)** — a wire format for cross-runtime agent coordination (not just MCP)
+- **Agent Mesh Protocol (AMP)** — a wire format for cross-runtime agent coordination (not just MCP). **v0.1 DRAFT written 2026-07-16** (`SPEC-AMP-DRAFT.md`) — envelopes, receipt semantics, councils-as-receipts, conformance checklist; implementation unscheduled.
 
 ## Contributing to the roadmap
 

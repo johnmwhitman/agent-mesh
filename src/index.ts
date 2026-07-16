@@ -393,6 +393,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           required_signoffs: { type: "array", items: { type: "string" }, description: "Agents whose approval is mandatory regardless of quorum (e.g. a T5 authority)" },
           deadline: { type: "number", description: "Epoch ms; after it, silence_policy applies" },
           silence_policy: { type: "string", enum: ["abstain", "approve"], description: "How non-voters count once the deadline passes (default abstain)" },
+          weights: {
+            type: "object",
+            additionalProperties: { type: "number" },
+            description:
+              "Tiered councils: per-voter positive-integer weights (max 1000000). Unlisted voters weigh 1, so quorum becomes a weight threshold. Weight never satisfies a required signoff.",
+          },
         },
         required: ["proposer", "fleet_id", "subject", "quorum"],
       },
@@ -828,6 +834,7 @@ toolHandlers["open_ratification"] = async (args) => {
       required_signoffs?: string[];
       deadline?: number;
       silence_policy?: "abstain" | "approve";
+      weights?: Record<string, number>;
     };
     try {
       const messageId = openRatification({
@@ -840,6 +847,7 @@ toolHandlers["open_ratification"] = async (args) => {
         requiredSignoffs: a.required_signoffs,
         deadline: a.deadline,
         silencePolicy: a.silence_policy,
+        weights: a.weights,
       });
       return jsonResult({ message_id: messageId, tally: tallyRatification(messageId) });
     } catch (err) {

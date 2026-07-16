@@ -22,7 +22,7 @@
  * Read-only by design: verification never mutates the ledger it audits.
  */
 import { BROADCAST, messageRecipients, type MeshData, type Message, type Receipt } from "./core.js";
-import { APPROVE, DECLINE, computeTally } from "./ratify.js";
+import { APPROVE, DECLINE, MAX_TOTAL_WEIGHT, MAX_VOTE_WEIGHT, computeTally } from "./ratify.js";
 import { readLedger } from "./db.js";
 
 export interface VerifyFinding {
@@ -129,15 +129,36 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
 
   // --- ratifications ---------------------------------------------------------
   for (const r of Object.values(ratifications)) {
+    // Config checks first — they need no proposal message, so an orphan
+    // ratification still gets its weight/quorum findings reported.
+    // Tiered councils: quorum reachability is a WEIGHT question when a weights
+    // map exists (unlisted voters weigh 1), a head-count question otherwise.
+    for (const [agentId, w] of Object.entries(r.weights ?? {})) {
+      if (!r.voters.includes(agentId)) {
+        error("ratification.weight_for_non_voter", `${r.message_id}:${agentId}`, `ratification ${r.message_id} assigns weight ${w} to ${agentId}, who is not among the eligible voters`);
+      }
+      if (!Number.isInteger(w) || w < 1 || w > MAX_VOTE_WEIGHT) {
+        error("ratification.invalid_weight", `${r.message_id}:${agentId}`, `ratification ${r.message_id} assigns ${agentId} weight ${w} — weights must be integers in [1, ${MAX_VOTE_WEIGHT}]`);
+      }
+    }
+    // Unique voters: a duplicated id is separately flagged below, and counting
+    // it twice here would overstate reachability past the real ceiling.
+    const uniqueVoters = [...new Set(r.voters)];
+    const weightOf = (v: string): number =>
+      r.weights !== undefined && Object.hasOwn(r.weights, v) ? r.weights[v]! : 1;
+    const totalWeight = uniqueVoters.reduce((s, v) => s + weightOf(v), 0);
+    if (totalWeight > MAX_TOTAL_WEIGHT) {
+      error("ratification.total_weight_exceeded", r.message_id, `ratification ${r.message_id} carries total voting weight ${totalWeight}, beyond the ${MAX_TOTAL_WEIGHT} limit the open path enforces`);
+    }
+    if (r.quorum > totalWeight) {
+      error("ratification.quorum_exceeds_voters", r.message_id, `ratification ${r.message_id} requires quorum ${r.quorum} but the total voting weight is ${totalWeight} — unreachable by construction`);
+    }
+    if (uniqueVoters.length !== r.voters.length) {
+      error("ratification.duplicate_voters", r.message_id, `ratification ${r.message_id} lists a voter more than once — the tally counts each occurrence, so one agent could satisfy the quorum alone`);
+    }
     if (!data.messages[r.message_id]) {
       error("ratification.orphan_proposal", r.message_id, `ratification references proposal message ${r.message_id}, which this ledger does not hold`);
       continue;
-    }
-    if (r.quorum > r.voters.length) {
-      error("ratification.quorum_exceeds_voters", r.message_id, `ratification ${r.message_id} requires quorum ${r.quorum} from only ${r.voters.length} eligible voters — unreachable by construction`);
-    }
-    if (new Set(r.voters).size !== r.voters.length) {
-      error("ratification.duplicate_voters", r.message_id, `ratification ${r.message_id} lists a voter more than once — the tally counts each occurrence, so one agent could satisfy the quorum alone`);
     }
     const outsideSignoffs = r.required_signoffs.filter((s) => !r.voters.includes(s));
     for (const s of outsideSignoffs) {
