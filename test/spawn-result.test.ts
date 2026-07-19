@@ -214,3 +214,63 @@ test('spawn result: unrelated fallback prose in stdout is not a runtime fallback
 
   assert.equal(result.success, true)
 })
+
+test('spawn result: Error Unauthorized is fatal', () => {
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'partial output',
+    stderr: '> oracle · anthropic/claude-opus-4-8\nError: Unauthorized',
+    requestedAgent: 'oracle',
+  })
+
+  assert.equal(result.success, false)
+  assert.match(result.error ?? '', /unauthorized/i)
+})
+
+test('spawn result: Error Forbidden is fatal', () => {
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'partial output',
+    stderr: '> oracle · anthropic/claude-opus-4-8\nError: Forbidden',
+    requestedAgent: 'oracle',
+  })
+
+  assert.equal(result.success, false)
+  assert.match(result.error ?? '', /forbidden/i)
+})
+
+test('spawn result: Error Claude Code credentials unavailable or expired is fatal', () => {
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'partial output',
+    stderr: '> oracle · anthropic/claude-opus-4-8\nError: Claude Code credentials are unavailable or expired',
+    requestedAgent: 'oracle',
+  })
+
+  assert.equal(result.success, false)
+  assert.match(result.error ?? '', /credentials are unavailable or expired/i)
+})
+
+test('spawn result: No Claude Code credentials found is fatal', () => {
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'partial output',
+    stderr: '> oracle · anthropic/claude-opus-4-8\nNo Claude Code credentials found',
+    requestedAgent: 'oracle',
+  })
+
+  assert.equal(result.success, false)
+  assert.match(result.error ?? '', /no claude code credentials found/i)
+})
+
+test('spawn result: generic Error account rate limit is fatal', () => {
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'partial output',
+    stderr: "> oracle · anthropic/claude-opus-4-8\nError: This request would exceed your account's rate limit",
+    requestedAgent: 'oracle',
+  })
+
+  assert.equal(result.success, false)
+  assert.match(result.error ?? '', /account's rate limit/i)
+})
