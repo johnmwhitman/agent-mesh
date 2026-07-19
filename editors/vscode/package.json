@@ -4,6 +4,7 @@
   "description": "See your agent fleets and council votes in the sidebar, and verify the receipts ledger in one click — the read side of 'your agents did the work, prove it'.",
   "version": "0.1.0",
   "publisher": "meshfleet",
+  "icon": "icon.png",
   "license": "MIT",
   "repository": { "type": "git", "url": "https://github.com/johnmwhitman/agent-mesh", "directory": "editors/vscode" },
   "engines": { "vscode": "^1.85.0" },
