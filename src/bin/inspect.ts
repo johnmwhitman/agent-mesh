@@ -109,7 +109,13 @@ function main(): void {
       process.stderr.write(`Ledger file not found: ${file}\n`)
       process.exit(2)
     }
-    const report = file !== undefined ? verifyLedgerFile(file) : verifyLedger()
+    let report
+    try {
+      report = file !== undefined ? verifyLedgerFile(file) : verifyLedger()
+    } catch (err) {
+      process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`)
+      process.exit(2)
+    }
     process.stdout.write(
       jsonMode
         ? JSON.stringify(buildVerifyJson(report), null, 2) + '\n'

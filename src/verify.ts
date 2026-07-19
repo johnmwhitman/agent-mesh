@@ -277,6 +277,18 @@ export function verifyLedgerFile(file: string, now: number = Date.now()): Verify
   setDbPath(file);
   try {
     return verifyLedger(now);
+  } catch (err) {
+    // A JSON export (or any non-SQLite file) is a natural mistake — surface a
+    // diagnosis, never a native-binding stack trace. Fail-legible applies to
+    // the verifier's own failures too.
+    const detail = err instanceof Error ? err.message : String(err);
+    if (/file is not a database|not a database|malformed|SQLITE_NOTADB/i.test(detail)) {
+      throw new Error(
+        `not a valid SQLite ledger: ${file} — this looks like a JSON export or another file type; ` +
+          `verify audits the .db ledger (JSON exports come FROM 'inspect --export', they aren't the ledger itself)`,
+      );
+    }
+    throw err;
   } finally {
     closeDb();
     if (prevEnv !== undefined) process.env.MESHFLEET_DB_FILE = prevEnv;

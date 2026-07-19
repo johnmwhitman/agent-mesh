@@ -1,8 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { tmpdir } from "node:os";
 
 import { verifyLedger, verifyLedgerFile } from "../src/verify.js";
 import { resolveDbFile } from "../src/db.js";
@@ -84,4 +85,19 @@ test("the inspect CLI advertises and wires --verify <file> with exit 2 on a miss
   assert.match(src, /--verify \[file\]/, "usage text must document the positional ledger file");
   assert.match(src, /verifyLedgerFile/);
   assert.match(src, /exit\(2\)/, "a missing path must exit 2");
+});
+
+test("verifyLedgerFile rejects a non-SQLite file with a legible error (no native stack)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "agent-mesh-vf-"));
+  try {
+    const jsonFile = join(dir, "export.json");
+    writeFileSync(jsonFile, JSON.stringify({ schema_version: 2, fleets: {} }));
+    assert.throws(
+      () => verifyLedgerFile(jsonFile),
+      (err: unknown) => err instanceof Error && /not a valid SQLite ledger/.test(err.message),
+      "expected a clean diagnosis, not a better-sqlite3 internal error",
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
