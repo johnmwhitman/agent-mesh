@@ -83,6 +83,7 @@ Direction, not commitment — items ship when real usage pulls them.
 - `verify --explain` — failure triage for the ledger auditor
 
 **Next**
+- P1 spawn receipts: record requested and resolved runtime model identities explicitly in the ledger; P0 only validates the OpenCode banner when present and does not expand the ledger schema.
 - Zero-install ledger verification (`npx` against any ledger file someone sends you)
 - A quickstart demo that ends with a verification, not a wall of text
 - `agent-mesh doctor` — 30-second diagnosis of broken installs

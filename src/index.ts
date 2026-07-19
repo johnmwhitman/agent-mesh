@@ -68,6 +68,8 @@ import {
   shouldRetry as shouldAgentRetry,
 } from "./retry.js";
 import { recordRoutingOutcome } from "./routing-feedback.js";
+import { createAttemptSettlementGate, type AttemptTerminalEvent } from "./spawn-attempt.js";
+import { classifySpawnResult } from "./spawn-result.js";
 
 // ---------------------------------------------------------------------------
 // Server
@@ -120,47 +122,67 @@ function trySpawn(input: SpawnAgentInput, agentId: string, attempt: number): voi
   child.stdout.on("data", (d) => (stdout += d.toString()));
   child.stderr.on("data", (d) => (stderr += d.toString()));
 
+  const claimSettlement = createAttemptSettlementGate();
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  let heartbeat: ReturnType<typeof createHeartbeat>;
+
+  function settleAttempt(event: AttemptTerminalEvent, finish: () => void): void {
+    if (!claimSettlement(event)) return;
+    if (timeout !== undefined) clearTimeout(timeout);
+    heartbeat.stop();
+    finish();
+  }
+
   // Watchdog: auto-fail only when the child process is actually gone
   // (12 consecutive dead checks x 5s = 60s) but "close" never fired.
   // Healthy long-running agents are never killed by the watchdog.
-  const heartbeat = createHeartbeat(agentId, input.fleetId, {
+  heartbeat = createHeartbeat(agentId, input.fleetId, {
     intervalMs: 5_000,
     onHeartbeat: () => {},
     maxMissed: 12,
     isAlive: () => child.exitCode === null && child.signalCode === null,
     onMaxMissed: (reason: string) => {
-      if (!child.killed) child.kill("SIGKILL");
-      handleTransientFailure(input, agentId, attempt, stdout, `Heartbeat watchdog: ${reason}`);
+      settleAttempt("heartbeat", () => {
+        if (!child.killed) child.kill("SIGKILL");
+        handleTransientFailure(input, agentId, attempt, stdout, stderr, `Heartbeat watchdog: ${reason}`);
+      });
     },
   });
 
-  const timeout = setTimeout(() => {
-    if (!child.killed) child.kill("SIGTERM");
-    handleTransientFailure(input, agentId, attempt, stdout, `Timed out after ${agentTimeoutMs()}ms${stderr ? `\n${stderr}` : ""}`);
+  timeout = setTimeout(() => {
+    settleAttempt("timeout", () => {
+      if (!child.killed) child.kill("SIGTERM");
+      handleTransientFailure(input, agentId, attempt, stdout, stderr, `Timed out after ${agentTimeoutMs()}ms`);
+    });
   }, agentTimeoutMs());
 
   child.on("error", (err: Error) => {
-    clearTimeout(timeout);
-    heartbeat.stop();
-    handleTransientFailure(input, agentId, attempt, stdout, err.message);
+    settleAttempt("error", () => {
+      handleTransientFailure(input, agentId, attempt, stdout, stderr, err.message);
+    });
   });
 
   child.on("close", (code: number | null) => {
-    clearTimeout(timeout);
-    heartbeat.stop();
-    if (code === 0) {
-      // Clean success — never retry.
-      markAgentFinished(agentId, "complete", stdout, stderr || undefined);
-      return;
-    }
-    // Non-zero exit = transient failure.
-    handleTransientFailure(
-      input,
-      agentId,
-      attempt,
-      stdout,
-      stderr || `exit code ${code}`
-    );
+    settleAttempt("close", () => {
+      const result = classifySpawnResult({
+        exitCode: code,
+        stdout,
+        stderr,
+        requestedAgent: input.agentFile,
+      });
+      if (result.success) {
+        markAgentFinished(agentId, "complete", result.stdout, result.stderr || undefined);
+        return;
+      }
+      handleTransientFailure(
+        input,
+        agentId,
+        attempt,
+        result.stdout,
+        result.stderr,
+        result.error ?? `Spawn failed with exit code ${code}`
+      );
+    });
   });
 }
 
@@ -169,6 +191,7 @@ function handleTransientFailure(
   agentId: string,
   attempt: number,
   stdout: string,
+  stderr: string,
   errorDetail: string
 ): void {
   if (!shouldAgentRetry(attempt)) {
@@ -182,7 +205,9 @@ function handleTransientFailure(
       agentId,
       "failed",
       stdout,
-      `Permanent failure after ${attempt} attempt(s). Last error: ${errorDetail}`
+      [stderr, `Permanent failure after ${attempt} attempt(s). Last error: ${errorDetail}`]
+        .filter(Boolean)
+        .join("\n")
     );
     return;
   }

@@ -9,7 +9,8 @@
  * - Backoff is configurable via AGENT_MESH_RETRY_BASE_MS env var.
  * - scheduleRetry() returns a handle so tests (and the spawn path) can cancel.
  * - jitter is ±20% by default; tests disable it for determinism.
- * - We deliberately do NOT retry clean exits (code 0). Those are successes.
+ * - We do not retry classified successes. Exit code 0 alone is not sufficient;
+ *   the spawn-result classifier also validates output and runtime diagnostics.
  */
 
 import { resolveEnv } from "./env.js";
