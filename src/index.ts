@@ -68,7 +68,7 @@ import {
   shouldRetry as shouldAgentRetry,
 } from "./retry.js";
 import { recordRoutingOutcome } from "./routing-feedback.js";
-import { createAttemptSettlementGate, type AttemptTerminalEvent } from "./spawn-attempt.js";
+import { buildFailureDetail, createAttemptSettlementGate, type AttemptTerminalEvent } from "./spawn-attempt.js";
 import { classifySpawnResult } from "./spawn-result.js";
 
 // ---------------------------------------------------------------------------
@@ -194,20 +194,19 @@ function handleTransientFailure(
   stderr: string,
   errorDetail: string
 ): void {
+  const failureDetail = buildFailureDetail(stderr, errorDetail);
   if (!shouldAgentRetry(attempt)) {
     appendEvent("agent_failed_permanent", {
       agent_id: agentId,
       attempts: attempt,
-      last_error: errorDetail,
+      last_error: failureDetail,
       timestamp: Date.now(),
     });
     markAgentFinished(
       agentId,
       "failed",
       stdout,
-      [stderr, `Permanent failure after ${attempt} attempt(s). Last error: ${errorDetail}`]
-        .filter(Boolean)
-        .join("\n")
+      `Permanent failure after ${attempt} attempt(s). Last error: ${failureDetail}`
     );
     return;
   }
@@ -218,7 +217,7 @@ function handleTransientFailure(
     from_attempt: attempt,
     to_attempt: nextAttempt,
     delay_ms: delayMs,
-    last_error: errorDetail,
+    last_error: failureDetail,
     timestamp: Date.now(),
   });
   scheduleAgentRetry(nextAttempt, () => {

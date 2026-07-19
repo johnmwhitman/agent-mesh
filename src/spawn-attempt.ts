@@ -8,3 +8,13 @@ export function createAttemptSettlementGate(): (event: AttemptTerminalEvent) => 
     return true;
   };
 }
+
+export function buildFailureDetail(stderr: string, summary: string): string {
+  const raw = stderr.trimEnd();
+  const explanation = summary.trim();
+  if (!raw) return explanation;
+  if (!explanation) return raw;
+  if (explanation.includes(raw)) return explanation;
+  if (raw.includes(explanation)) return raw;
+  return `${raw}\n${explanation}`;
+}

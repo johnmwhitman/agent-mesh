@@ -136,3 +136,81 @@ test('spawn result: Claude API 429 under a Grok banner remains auxiliary warning
   assert.equal(result.success, true)
   assert.match(result.warning ?? '', /auxiliary provider/i)
 })
+
+test('spawn result: later primary 429 wins over an earlier auxiliary warning', () => {
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'partial output',
+    stderr: [
+      '> oracle · anthropic/claude-opus-4-8',
+      'opencode-claude-auth: API 429 for claude-haiku-4-5: auxiliary limit',
+      'opencode-claude-auth: API 429 for claude-opus-4-8: primary limit',
+    ].join('\n'),
+    requestedAgent: 'oracle',
+  })
+
+  assert.equal(result.success, false)
+  assert.match(result.error ?? '', /primary provider/i)
+})
+
+test('spawn result: later generic primary auth error wins over earlier auxiliary 429', () => {
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'partial output',
+    stderr: [
+      '> oracle · google/gemini-2.5-pro',
+      'opencode-claude-auth: API 429 for claude-haiku-4-5: auxiliary limit',
+      'Error: Request had invalid authentication credentials',
+    ].join('\n'),
+    requestedAgent: 'oracle',
+  })
+
+  assert.equal(result.success, false)
+  assert.match(result.error ?? '', /invalid authentication credentials/i)
+})
+
+test('spawn result: falling back to default fails without the word agent', () => {
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'fallback output',
+    stderr: 'Requested profile unavailable. Falling back to default.',
+    requestedAgent: 'oracle',
+  })
+
+  assert.equal(result.success, false)
+  assert.match(result.error ?? '', /fallback/i)
+})
+
+test('spawn result: requested agent without a parseable runtime banner fails closed', () => {
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'answer',
+    stderr: 'OpenCode started without an identity banner',
+    requestedAgent: 'oracle',
+  })
+
+  assert.equal(result.success, false)
+  assert.match(result.error ?? '', /runtime agent banner.*missing|missing.*runtime agent banner/i)
+})
+
+test('spawn result: runtime banner accepts agent names containing spaces', () => {
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'complete answer',
+    stderr: '> security reviewer · anthropic/claude-sonnet-4\n',
+    requestedAgent: 'security reviewer',
+  })
+
+  assert.equal(result.success, true)
+})
+
+test('spawn result: unrelated fallback prose in stdout is not a runtime fallback', () => {
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'Use the parser fallback when the optional field is absent.',
+    stderr: '> oracle · xai/grok-4.5\n',
+    requestedAgent: 'oracle',
+  })
+
+  assert.equal(result.success, true)
+})
