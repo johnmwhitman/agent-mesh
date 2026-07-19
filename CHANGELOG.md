@@ -9,11 +9,46 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
   scale target ~100x; unpark only if per-call bulk matters)
 - tiered vote-weighting in the attestation/report layer (pro follow-on)
 
-## [0.13.1] — 2026-07-16
+## [0.14.0] — 2026-07-19
 
-Docs-only patch: the README that shipped inside the 0.13.0 tarball predated the release
-(stale version/tool/test counts, dead links) — npmjs.com renders the packaged README, so
-this republish fixes the package page. No code changes.
+**The funnel release: experience the wedge in 60 seconds, script it forever.** A demo that
+ends with a real verification, a doctor for broken installs, fail-legible + machine-readable
+verification, zero-install file audits that provably never touch the evidence, and honest
+client-wiring docs. Plus fail-closed spawn diagnostics.
+
+### Added
+- **`agent-mesh demo`** — a 60-second host-free walkthrough (no client, no network): seeds a
+  fixture fleet into a temp ledger, narrates receipts, councils, and an honest vote re-cast,
+  and literally ends with the verifier's own `✔ OK` line. Nothing outside the temp dir is
+  touched.
+- **`agent-mesh doctor`** — six-check install diagnosis (Node floor, native binding, ledger
+  path/openability, event log, client on PATH) with named fixes and `--json`
+  (`meshfleet.doctor/v1`); exit 1 on failure.
+- **`inspect --verify <file>`** — audit ANY ledger file. The audit reads a private temp copy
+  over a dedicated read-only connection: the original is untouched by construction
+  (byte-identity pinned by test), sidecars are copied wal-last so a mid-copy checkpoint
+  degrades to a consistent snapshot, and non-ledger files get a legible diagnosis (exit 2),
+  never a native stack trace.
+- **`inspect --explain`** — per-finding triage for every verifier check: what it means, the
+  common benign cause, and the command to investigate. Composes with `--json`.
+- **`--json` envelopes** (`meshfleet.inspect/v1`) for the fleet list, `--councils` (votes
+  derived via the canonical seq-aware tally), and `--verify`; output paths flush safely
+  (exit codes via exitCode, no truncated pipes).
+- **README client config matrix** (Claude Code / OpenCode / Cursor / generic MCP stdio, each
+  honestly labeled tested vs per-docs), maintained-status liveness header, and an MCP
+  registry claim runbook (`docs/mcp-registry.md`). VS Code extension icon.
+
+### Fixed
+- **Spawn diagnostics fail closed.** An agent process exiting 0 with auth-failure or garbage
+  output is no longer marked complete: spawn results are classified before settlement, a
+  settlement gate ends the timeout/heartbeat/close double-handling race, and failure details
+  carry stderr with provider attribution.
+- The documented `agent-mesh inspect --verify` form works again (a leading literal `inspect`
+  token is stripped before dispatch).
+- `getDb` no longer leaks a half-initialized connection on init failure; the demo restores
+  the exact prior ledger-path override (including none).
+- README shipped inside 0.13.0 predated the release (stale version/tool/test counts, dead
+  links) — the packaged README now matches reality (supersedes the unpublished 0.13.1).
 
 ## [0.13.0] — 2026-07-16
 
