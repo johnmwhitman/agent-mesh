@@ -1,8 +1,8 @@
 # Agent Mesh — OpenCode Fleet Orchestration Engine
 
-**Version**: 0.3.0
-**Status**: Core implemented
-**Location**: `~/.config/opencode/mcp-servers/agent-mesh/`
+**Version**: 0.14.0
+**Status**: Core implemented; host-neutral MCP stdio port proven
+**Location**: Published package `meshfleet` (local state under `~/.config/opencode/`)
 **Website**: [meshfleet.app](https://meshfleet.app)
 
 ---
@@ -21,16 +21,27 @@ The result: orchestrators cannot reliably delegate to specialist agents without 
 
 ## 2. Solution Overview
 
-**Agent Mesh** is a lightweight MCP server that spawns agents as independent OS processes via `opencode run <prompt>`. Each agent runs to completion with no artificial timeout ceiling. The MCP server acts as:
+**Agent Mesh** is a lightweight, host-neutral MCP server that accepts inbound
+stdio connections from any compatible MCP client and spawns workers as
+independent OS processes via OpenCode's `opencode run <prompt>`. Each worker
+runs to completion with no artificial timeout ceiling. The MCP server acts as:
 
 - **Spawner**: Launches child processes
-- **Ledger**: Persists fleet/agent state (JSON file)
+- **Ledger**: Persists fleet/agent state in SQLite, with one-time legacy JSON import
 - **Message Bus** (v0.2+): Enables peer-to-peer communication between agents
 - **Capability Registry** (v0.2+): Agents self-describe skills; routing matches work to best agent
 - **Premade Agent Discovery** (v0.3+): Scans `.opencode/agents/` for 100+ specialized personalities
-- **Coordinator**: Exposes 10 MCP tools to any OpenCode session
+- **Coordinator**: Exposes the MCP tool registry to any compatible MCP client
 
-**Key invariant**: No agent is a "background task" inside OpenCode's runtime. Every agent is a separate `node` process executing `opencode run`. The 30-minute timeout does not apply.
+**Host boundary**: Claude Code, Codex, OpenCode, and generic MCP clients can
+all call the same stdio server. That proves inbound client interoperability;
+it does not make spawned workers provider-neutral. Workers still execute via
+OpenCode's `opencode run`, and SSE inbox subscription is optional acceleration,
+not a compatibility requirement.
+
+**Key invariant**: No worker is a "background task" inside OpenCode's runtime.
+Every worker is a separate `node` process executing `opencode run`. The
+30-minute timeout does not apply.
 
 ---
 
@@ -47,8 +58,8 @@ The result: orchestrators cannot reliably delegate to specialist agents without 
 ┌─────────────────────────────────────────────────────────────┐
 │                    Agent Mesh MCP Server                     │
 │  - spawns `opencode run` child processes                     │
-│  - maintains JSON ledger (~/.config/opencode/agent-mesh.json)│
-│  - exposes 10 tools                                          │
+│  - maintains SQLite ledger (~/.config/opencode/agent-mesh.db)│
+│  - exposes the MCP tool registry                             │
 └──────┬──────────────┬──────────────┬────────────────────────┘
        │              │              │
        ▼              ▼              ▼
@@ -68,9 +79,9 @@ The result: orchestrators cannot reliably delegate to specialist agents without 
 
 ### 3.1 Persistence
 
-- **File**: `~/.config/opencode/agent-mesh.json`
-- **Format**: `{ fleets, agents, messages, inboxes, capabilities }`
-- **Storage**: JSON file today (human-readable, debuggable, portable). ⚠️ **The original rationale — "single MCP server process → no concurrent writes (acceptable)" — is FALSE.** The runtime is inherently **multi-process** (every spawned agent's `opencode run` boots a nested mesh on the *same* file); concurrent writes silently lose data (**measured: 57/120 receipts lost**). Being fixed by a cross-process transaction seam (`withLedger`) and, per roadmap, migration to an embedded store (SQLite/libSQL) — the old "zero native dependencies" objection was retired by maintainer decision (2026-07-10); the SQLite migration shipped in 0.12.0.
+- **File**: `~/.config/opencode/agent-mesh.db`
+- **Format**: SQLite tables representing `{ fleets, agents, messages, inboxes, capabilities }`
+- **Storage**: SQLite is canonical. Legacy JSON ledgers are validated, imported once, and retained as a timestamped backup. Every write goes through `withLedger`, which uses a single `BEGIN IMMEDIATE` transaction; this is required because workers are separate processes sharing the ledger.
 
 ### 3.2 Agent Lifecycle
 
@@ -179,9 +190,9 @@ interface Capability {
 ```
 
 **Requirements**
-- Node.js >= 18
-- `@modelcontextprotocol/sdk` installed in the MCP server directory
-- `opencode` binary in `$PATH`
+- Node.js >= 20
+- A compatible MCP client for the inbound stdio connection
+- `opencode` binary in `$PATH` for spawned workers (not for the MCP handshake itself)
 
 ---
 
@@ -193,7 +204,7 @@ interface Capability {
 | v0.2 | Implemented | P2P messaging (5 types), capability registry, `route_work` |
 | v0.3 | Implemented | Premade agent discovery, dynamic `attach_agent`, timeout watchdog |
 | v0.4 | Planned | Heartbeat retry, partial result recovery, embedding-based routing |
-| v0.5 | Planned | Distributed multi-server support, push notifications (SSE) |
+| v0.5 | Implemented | SSE inbox push (`subscribe_inbox`) as optional acceleration |
 
 ---
 
@@ -201,7 +212,7 @@ interface Capability {
 
 | Decision | Rationale | Tradeoff |
 |---|---|---|
-| JSON ledger | Debuggable, portable | ⚠️ Lost-update under concurrent multi-process writes (measured 57/120 lost) — being fixed by `withLedger`; SQLite/libSQL on the roadmap |
+| SQLite ledger | Transactional, portable enough for local multi-process workers | Legacy JSON import remains for upgrades; operators inspect/export through the CLI |
 | `opencode run` child processes | Inherits all agent prompts, models, permissions from host config | Slight startup overhead (~1-2s per agent) |
 | No built-in message bus in v0.1 | Core timeout bypass is 80% of value; message bus is additive | Agents cannot collaborate until v0.2 |
 | Role strings are free-form | Matches existing `oh-my-openagent.json` agent definitions | No validation — caller responsible for sensible roles |
@@ -213,8 +224,8 @@ interface Capability {
 
 1. **No inter-agent communication** (v0.1) — Resolved in v0.2 via P2P message bus.
 2. **No capability matching** (v0.1) — Resolved in v0.2 via `route_work`.
-3. **Single MCP server** — Only one `agent-mesh` process should run. Multiple instances will race on the JSON ledger.
-4. **No authentication** — Any OpenCode session with the MCP registered can spawn fleets. Assumes trusted local environment.
+3. **Shared local ledger** — Multiple server instances can use SQLite safely, but operators should still avoid unnecessary duplicate servers and coordinate access to the same local state.
+4. **No authentication** — Any compatible MCP client with the server registered can spawn fleets. Assumes trusted local environment.
 5. **Stdout/stderr only** — Structured output (JSON, tool calls) from child agents is not parsed. Only raw text is captured.
 6. **Timeout-based resilience** (v0.3) — Hung agents are killed after `AGENT_MESH_AGENT_TIMEOUT_MS`, but no automatic retry yet (planned v0.4).
 
@@ -271,6 +282,7 @@ const results = await callTool("collect_results", { fleet_id });
 
 ## 12. Version History
 
+- **0.14.0** (2026-07-19): SQLite-backed ledger, witnessed receipts and ratification, expanded MCP registry, packaged host-neutral stdio configuration, and process-level MCP handshake coverage.
 - **0.3.0** (2026-07-01): Premade agent discovery, dynamic `attach_agent`, timeout watchdog, test suite (26 tests), GitHub Actions CI, test isolation via in-memory override, package metadata, brand: meshfleet.app
 - **0.2.0** (2026-07-01): P2P messaging (5 types), capability registry, `route_work`, dynamic premade agent attachment
 - **0.1.0** (2026-07-01): Initial implementation. Core spawn/status/collect tools. JSON persistence. Timeout bypass verified.

@@ -69,7 +69,7 @@ Add to `~/.config/opencode/opencode.jsonc` (npm install):
     "agent-mesh": {
       "type": "local",
       "enabled": true,
-      "command": ["npx", "meshfleet"]
+      "command": ["npx", "-y", "meshfleet"]
     }
   }
 }
@@ -153,9 +153,9 @@ Or project-scoped `.mcp.json` at the repo root:
 }
 ```
 
-### Cursor — per Cursor docs — verification welcome
+### Codex — same host-neutral stdio server
 
-`.cursor/mcp.json` (project) or `~/.cursor/mcp.json` (global):
+Configure Codex's MCP server entry with the same command and arguments:
 
 ```json
 {
@@ -167,6 +167,12 @@ Or project-scoped `.mcp.json` at the repo root:
   }
 }
 ```
+
+These Claude Code, Codex, OpenCode, and generic MCP configurations all call the
+same inbound stdio server. This proves client interoperability at the MCP
+boundary only: workers spawned by Meshfleet still execute through OpenCode's
+`opencode run`. The `subscribe_inbox` SSE endpoint is optional acceleration; it
+is not required for compatibility, and clients can use `get_inbox` polling.
 
 If any block above doesn't work in your client, [open an issue](https://github.com/johnmwhitman/agent-mesh/issues) — config rot is a bug.
 
