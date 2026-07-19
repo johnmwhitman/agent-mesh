@@ -21,9 +21,10 @@
  *
  * Read-only by design: verification never mutates the ledger it audits.
  */
+import { existsSync } from "fs";
 import { BROADCAST, messageRecipients, type MeshData, type Message, type Receipt } from "./core.js";
 import { MAX_TOTAL_WEIGHT, MAX_VOTE_WEIGHT, computeTally, parseVoteAction } from "./ratify.js";
-import { readLedger } from "./db.js";
+import { closeDb, readLedger, resolveDbFile, setDbPath } from "./db.js";
 
 export interface VerifyFinding {
   severity: "error" | "warning";
@@ -257,4 +258,28 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
 /** Verify the active ledger (lock-free snapshot read; never mutates). */
 export function verifyLedger(now: number = Date.now()): VerifyReport {
   return verifyMeshData(readLedger(), now);
+}
+
+/**
+ * Verify a specific ledger FILE — the zero-install audit path
+ * (`agent-mesh inspect --verify backup.db`): repoint the db seam at `file`,
+ * snapshot-verify it, then restore the configured ledger. Never mutates the
+ * audited data; a missing path is rejected up front so SQLite can't silently
+ * create (and then "verify") an empty ledger.
+ */
+export function verifyLedgerFile(file: string, now: number = Date.now()): VerifyReport {
+  if (!existsSync(file)) throw new Error(`ledger file not found: ${file}`);
+  const prev = resolveDbFile();
+  // The MESHFLEET_DB_FILE override outranks setDbPath in resolveDbFile; lift it
+  // for the audit so an explicit file argument can never silently lose to it.
+  const prevEnv = process.env.MESHFLEET_DB_FILE;
+  delete process.env.MESHFLEET_DB_FILE;
+  setDbPath(file);
+  try {
+    return verifyLedger(now);
+  } finally {
+    closeDb();
+    if (prevEnv !== undefined) process.env.MESHFLEET_DB_FILE = prevEnv;
+    setDbPath(prev);
+  }
 }

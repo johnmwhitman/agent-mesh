@@ -8,13 +8,15 @@
  *   npx agent-mesh inspect --metrics          # fleet summary metrics
  *   npx agent-mesh inspect --events [n]      # recent events (default 20)
  *   npx agent-mesh inspect --export [file]   # dump the full ledger as JSON
- *   npx agent-mesh inspect --verify          # audit ledger integrity (exit 1 on errors)
+ *   npx agent-mesh inspect --verify [file]   # audit ledger integrity (exit 1 on errors)
+ *   npx agent-mesh inspect --explain         # explain each --verify finding (implies --verify)
+ *   npx agent-mesh inspect --json            # JSON output for fleets / --councils / --verify
  *   npx agent-mesh inspect --help             # usage
  *
  * Reads the same SQLite ledger as the MCP server (via the withLedger seam).
  */
 
-import { writeFileSync } from 'node:fs'
+import { existsSync, writeFileSync } from 'node:fs'
 import {
   formatAgentRow,
   formatEventLog,
@@ -23,11 +25,14 @@ import {
   formatReceiptTrail,
   formatCouncil,
   formatVerifyReport,
+  buildCouncilsJson,
+  buildFleetsJson,
+  buildVerifyJson,
   PROVISIONAL_NOTE,
   type AgentRow,
 } from '../inspector.js'
 import { listFleets, loadData, readEventLog, getReceipts, CURRENT_SCHEMA_VERSION, type Agent } from '../core.js'
-import { verifyLedger } from '../verify.js'
+import { verifyLedger, verifyLedgerFile } from '../verify.js'
 import { runDemo } from '../demo.js'
 
 const USAGE = `agent-mesh inspect — CLI inspector for running fleets
@@ -40,7 +45,9 @@ Usage:
   npx agent-mesh inspect --receipts [fleet] Show message receipts (who saw / acked)
   npx agent-mesh inspect --councils [fleet] Show councils (tally vs quorum, who voted)
   npx agent-mesh inspect --export [file]    Dump the full ledger as JSON (stdout if no file)
-  npx agent-mesh inspect --verify           Audit ledger integrity (exit 1 on errors)
+  npx agent-mesh inspect --verify [file]    Audit ledger integrity (exit 1 on errors); [file] audits that ledger file read-only
+  npx agent-mesh inspect --explain          Explain each --verify finding: meaning, benign cause, how to investigate (implies --verify)
+  npx agent-mesh inspect --json             Machine-readable output for the fleet list, --councils, and --verify
   npx agent-mesh doctor                     Diagnose install health (--json for machine output)
   npx agent-mesh inspect --help             This help
   npx agent-mesh demo                       60-second walkthrough on a temp ledger, ends with a real --verify
@@ -59,6 +66,8 @@ function main(): void {
   }
 
   const args = process.argv.slice(2)
+  const jsonMode = args.includes('--json')
+  const explain = args.includes('--explain')
 
   if (args[0] === 'doctor') {
     // Lazy import keeps this dispatch a single merge-clean block (no top-of-file
@@ -90,13 +99,24 @@ function main(): void {
     return
   }
 
-  if (args.includes('--verify')) {
-    const report = verifyLedger()
-    process.stdout.write(formatVerifyReport(report) + '\n')
+  const positional = args.filter((a) => !a.startsWith('-'))
+
+  // --explain implies --verify. A positional path audits THAT ledger file
+  // (zero-install: point it at a backup or an export from another machine).
+  if (args.includes('--verify') || explain) {
+    const file = positional[0]
+    if (file !== undefined && !existsSync(file)) {
+      process.stderr.write(`Ledger file not found: ${file}\n`)
+      process.exit(2)
+    }
+    const report = file !== undefined ? verifyLedgerFile(file) : verifyLedger()
+    process.stdout.write(
+      jsonMode
+        ? JSON.stringify(buildVerifyJson(report), null, 2) + '\n'
+        : formatVerifyReport(report, { explain }) + '\n'
+    )
     process.exit(report.ok ? 0 : 1)
   }
-
-  const positional = args.filter((a) => !a.startsWith('-'))
 
   if (args.includes('--receipts')) {
     printReceipts(positional[0])
@@ -104,11 +124,15 @@ function main(): void {
   }
 
   if (args.includes('--councils')) {
-    printCouncils(positional[0])
+    printCouncils(positional[0], jsonMode)
     return
   }
 
   if (positional.length === 0) {
+    if (jsonMode) {
+      process.stdout.write(JSON.stringify(buildFleetsJson(listFleets()), null, 2) + '\n')
+      return
+    }
     printAllFleets()
     return
   }
@@ -133,12 +157,17 @@ function printReceipts(fleetId?: string): void {
   }
 }
 
-function printCouncils(fleetId?: string): void {
+function printCouncils(fleetId?: string, json = false): void {
   const data = loadData()
-  process.stdout.write(PROVISIONAL_NOTE + '\n\n')
   const councils = Object.values(data.ratifications ?? {})
     .filter((r) => !fleetId || r.fleet_id === fleetId)
     .sort((a, b) => a.opened_at - b.opened_at)
+  if (json) {
+    const items = councils.map((r) => ({ ratification: r, votes: getReceipts(r.message_id) }))
+    process.stdout.write(JSON.stringify(buildCouncilsJson(items), null, 2) + '\n')
+    return
+  }
+  process.stdout.write(PROVISIONAL_NOTE + '\n\n')
   if (councils.length === 0) {
     process.stdout.write(
       fleetId ? `No councils in fleet ${fleetId}.\n` : 'No councils opened.\n'
