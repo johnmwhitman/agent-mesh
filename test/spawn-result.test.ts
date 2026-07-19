@@ -379,3 +379,33 @@ test('spawn result: named Gemini Error under a Grok banner is auxiliary', () => 
   assert.equal(result.success, true)
   assert.match(result.warning ?? '', /auxiliary provider/i)
 })
+
+test('spawn result: Google invalid-auth Error ending in a documentation URL is fatal', () => {
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'partial Gemini answer',
+    stderr: [
+      '> oracle · google/gemini-2.5-pro',
+      'Error: Request had invalid authentication credentials. See https://developers.google.com/identity/sign-in/web/devconsole-project',
+    ].join('\n'),
+    requestedAgent: 'oracle',
+  })
+
+  assert.equal(result.success, false)
+  assert.match(result.error ?? '', /invalid authentication credentials/i)
+})
+
+test('spawn result: Anthropic insufficient-balance Error ending in a billing URL is fatal', () => {
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'partial Claude answer',
+    stderr: [
+      '> oracle · anthropic/claude-opus-4-8',
+      'Error: Insufficient balance. Manage your billing here: https://opencode.ai/workspace/wrk_x/billing',
+    ].join('\n'),
+    requestedAgent: 'oracle',
+  })
+
+  assert.equal(result.success, false)
+  assert.match(result.error ?? '', /insufficient balance/i)
+})

@@ -31,8 +31,10 @@ function runtimeBanner(stderr: string): { agent: string; model: string } | undef
 
 function diagnosticAttribution(line: string): DiagnosticAttribution {
   const apiModel = line.match(/API\s+429\s+for\s+([^\s:]+)/i)?.[1];
-  const qualifiedModel = line.match(/\b([a-z0-9][\w.-]*\/[a-z0-9][\w.-]*)\b/i)?.[1];
-  const model = (apiModel ?? qualifiedModel)?.replace(/[.,;]+$/, "").toLowerCase();
+  const missingModel = line.match(
+    /\bProviderModelNotFoundError:\s*([a-z0-9][\w.-]*\/[a-z0-9][\w.-]*)\b/i
+  )?.[1];
+  const model = (apiModel ?? missingModel)?.replace(/[.,;]+$/, "").toLowerCase();
   if (model) return { model };
 
   if (/opencode-claude-auth/i.test(line) || NO_CREDENTIALS.test(line)) {
