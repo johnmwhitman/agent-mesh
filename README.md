@@ -75,7 +75,7 @@ Add to `~/.config/opencode/opencode.jsonc` (npm install):
 }
 ```
 
-or, if you built from source:
+For noncanonical development-only source-checkout usage (not the recommended release config):
 
 ```jsonc
 {
@@ -126,7 +126,7 @@ marked "per \<client\> docs — verification welcome."
     "agent-mesh": {
       "type": "local",
       "enabled": true,
-      "command": ["npx", "meshfleet"]
+      "command": ["npx", "-y", "meshfleet"]
     }
   }
 }

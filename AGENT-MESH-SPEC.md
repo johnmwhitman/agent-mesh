@@ -180,10 +180,7 @@ interface Capability {
     "agent-mesh": {
       "type": "local",
       "enabled": true,
-      "command": [
-        "node",
-        "/Users/<user>/.config/opencode/mcp-servers/agent-mesh/dist/index.js"
-      ]
+      "command": ["npx", "-y", "meshfleet"]
     }
   }
 }
@@ -204,7 +201,8 @@ interface Capability {
 | v0.2 | Implemented | P2P messaging (5 types), capability registry, `route_work` |
 | v0.3 | Implemented | Premade agent discovery, dynamic `attach_agent`, timeout watchdog |
 | v0.4 | Planned | Heartbeat retry, partial result recovery, embedding-based routing |
-| v0.5 | Implemented | SSE inbox push (`subscribe_inbox`) as optional acceleration |
+| v0.5 | Implemented | Fleet metrics and health tools |
+| v0.7 | Implemented | SSE inbox push (`subscribe_inbox`) as optional acceleration |
 
 ---
 
