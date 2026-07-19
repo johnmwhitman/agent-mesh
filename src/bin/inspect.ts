@@ -41,6 +41,7 @@ Usage:
   npx agent-mesh inspect --councils [fleet] Show councils (tally vs quorum, who voted)
   npx agent-mesh inspect --export [file]    Dump the full ledger as JSON (stdout if no file)
   npx agent-mesh inspect --verify           Audit ledger integrity (exit 1 on errors)
+  npx agent-mesh doctor                     Diagnose install health (--json for machine output)
   npx agent-mesh inspect --help             This help
   npx agent-mesh demo                       60-second walkthrough on a temp ledger, ends with a real --verify
 `
@@ -58,6 +59,13 @@ function main(): void {
   }
 
   const args = process.argv.slice(2)
+
+  if (args[0] === 'doctor') {
+    // Lazy import keeps this dispatch a single merge-clean block (no top-of-file
+    // import hunk to conflict with parallel lanes touching this file).
+    void import('../doctor.js').then((d) => d.doctorMain(args.slice(1)))
+    return
+  }
 
   if (args.includes('--help') || args.includes('-h')) {
     process.stdout.write(USAGE)
