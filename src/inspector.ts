@@ -10,6 +10,7 @@
 
 import { loadData, messageRecipients, FleetSummary, MessageType, type Message, type Receipt, type Ratification } from './core.js'
 import type { VerifyFinding, VerifyReport } from './verify.js'
+import { computeTally } from './ratify.js'
 
 // ---------------------------------------------------------------------------
 // Time formatting
@@ -487,8 +488,17 @@ export interface CouncilJson {
   pending: string[];
 }
 
-export function buildVerifyJson(report: VerifyReport): InspectJsonEnvelope<"verify", VerifyReport> {
-  return { schema: INSPECT_JSON_SCHEMA, kind: "verify", data: report };
+export function buildVerifyJson(
+  report: VerifyReport,
+  opts: { explain?: boolean } = {}
+): InspectJsonEnvelope<"verify", VerifyReport & { findings: Array<VerifyFinding & { explanation?: string }> }> {
+  const data = opts.explain
+    ? {
+        ...report,
+        findings: report.findings.map((f) => ({ ...f, explanation: formatVerifyExplanation(f) })),
+      }
+    : report;
+  return { schema: INSPECT_JSON_SCHEMA, kind: "verify", data };
 }
 
 export function buildFleetsJson(fleets: FleetSummary[]): InspectJsonEnvelope<"fleets", FleetSummary[]> {
@@ -499,14 +509,21 @@ export function buildCouncilsJson(
   councils: Array<{ ratification: Ratification; votes: Receipt[] }>
 ): InspectJsonEnvelope<"councils", CouncilJson[]> {
   const data = councils.map(({ ratification, votes }) => {
-    const approvals = votes.filter((v) => v.action === "r-ack").map((v) => v.agent_id);
-    const declines = votes.filter((v) => v.action === "r-decline").map((v) => v.agent_id);
-    const voted = new Set([...approvals, ...declines]);
+    // Canonical tally (seq-aware re-casts, weights, silence policy) — never
+    // reimplement vote semantics here; exact-action filtering misreported a
+    // re-cast voter's polarity.
+    const receipts: Record<string, Receipt> = {};
+    for (const v of votes) receipts[`${v.message_id}:${v.agent_id}:${v.action}`] = v;
+    const tally = computeTally(
+      { fleets: {}, agents: {}, messages: {}, inboxes: {}, capabilities: {}, receipts, ratifications: {}, templates: {} },
+      ratification,
+      Date.now()
+    );
     return {
       ratification,
-      approvals,
-      declines,
-      pending: ratification.voters.filter((v) => !voted.has(v)),
+      approvals: tally.approvals,
+      declines: tally.declines,
+      pending: tally.pending,
     };
   });
   return { schema: INSPECT_JSON_SCHEMA, kind: "councils", data };

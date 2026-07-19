@@ -54,18 +54,25 @@ Usage:
 `
 
 function main(): void {
+  // The bin is invoked both as `agent-mesh <cmd>` and `agent-mesh inspect <flags>`
+  // (every documented inspect form carries the literal token) — strip it so a
+  // positional ledger-file argument can never swallow the subcommand name.
+  const argv = process.argv.slice(2)
+  if (argv[0] === 'inspect') argv.shift()
+
   // Subcommand dispatch (kept as ONE block at the top so parallel lanes merge cleanly).
-  if (process.argv[2] === 'demo') {
+  if (argv[0] === 'demo') {
     try {
       const result = runDemo()
-      process.exit(result.report.ok ? 0 : 1)
+      process.exitCode = result.report.ok ? 0 : 1
+      return
     } catch (err) {
       process.stderr.write(`demo failed: ${err instanceof Error ? err.message : String(err)}\n`)
       process.exit(1)
     }
   }
 
-  const args = process.argv.slice(2)
+  const args = argv
   const jsonMode = args.includes('--json')
   const explain = args.includes('--explain')
 
@@ -118,10 +125,13 @@ function main(): void {
     }
     process.stdout.write(
       jsonMode
-        ? JSON.stringify(buildVerifyJson(report), null, 2) + '\n'
+        ? JSON.stringify(buildVerifyJson(report, { explain }), null, 2) + '\n'
         : formatVerifyReport(report, { explain }) + '\n'
     )
-    process.exit(report.ok ? 0 : 1)
+    // exitCode (not exit()): pipe writes flush asynchronously; a hard exit can
+    // truncate large JSON mid-stream.
+    process.exitCode = report.ok ? 0 : 1
+    return
   }
 
   if (args.includes('--receipts')) {

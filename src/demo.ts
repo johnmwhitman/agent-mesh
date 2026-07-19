@@ -25,7 +25,7 @@ import {
   type Ratification,
 } from "./core.js";
 import { openRatification, castVote, resolveRatification } from "./ratify.js";
-import { setDbPath, closeDb, resolveDbFile } from "./db.js";
+import { setDbPath, closeDb, getDbPathOverride } from "./db.js";
 import { verifyLedger, type VerifyReport } from "./verify.js";
 import { formatVerifyReport } from "./inspector.js";
 
@@ -72,7 +72,10 @@ export function runDemo(opts: { quiet?: boolean } = {}): DemoResult {
   // -- Isolation: point EVERYTHING at a throwaway temp dir -------------------
   // MESHFLEET_DB_FILE outranks setDbPath, so the env var is overridden too —
   // a user whose env pins their real ledger must still be untouched.
-  const prevDbFile = resolveDbFile();
+  // Capture the RAW override, not resolveDbFile(): the env var outranks
+  // setDbPath, so resolving would bake the env value into the restore and lose
+  // a hidden setDbPath target beneath it.
+  const prevDbOverride = getDbPathOverride();
   const prevEventLog = resolveEventLogFile();
   const prevEnvDb = process.env.MESHFLEET_DB_FILE;
   const tempDir = mkdtempSync(join(tmpdir(), "agent-mesh-demo-"));
@@ -172,7 +175,7 @@ export function runDemo(opts: { quiet?: boolean } = {}): DemoResult {
     closeDb();
     if (prevEnvDb === undefined) delete process.env.MESHFLEET_DB_FILE;
     else process.env.MESHFLEET_DB_FILE = prevEnvDb;
-    setDbPath(prevDbFile);
+    if (prevDbOverride !== null) setDbPath(prevDbOverride);
     setEventLogPath(prevEventLog);
     rmSync(tempDir, { recursive: true, force: true });
   }

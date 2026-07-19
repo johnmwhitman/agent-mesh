@@ -20,8 +20,9 @@
  *  - WAL is local-disk only (document; the ledger lives under ~/.config).
  */
 import Database from "better-sqlite3";
-import { existsSync, mkdirSync } from "fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync } from "fs";
 import { dirname, join } from "path";
+import { tmpdir } from "os";
 import { homedir } from "os";
 import {
   CURRENT_SCHEMA_VERSION,
@@ -78,15 +79,67 @@ function getDb(): Database.Database {
   // busy_timeout MUST be set before the WAL conversion below — converting the
   // journal mode needs a write lock, and a cold multi-process first-open would
   // otherwise throw "database is locked" instead of waiting.
-  db.pragma("busy_timeout = 5000"); // wait for a concurrent writer instead of erroring
-  db.pragma("journal_mode = WAL"); // local-disk only; the ledger lives under ~/.config
-  db.pragma("synchronous = NORMAL"); // WAL-recommended; durable except last txn on OS crash
-  db.exec(SCHEMA);
-  db.prepare("INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', ?)").run(
-    String(CURRENT_SCHEMA_VERSION)
-  );
+  try {
+    db.pragma("busy_timeout = 5000"); // wait for a concurrent writer instead of erroring
+    db.pragma("journal_mode = WAL"); // local-disk only; the ledger lives under ~/.config
+    db.pragma("synchronous = NORMAL"); // WAL-recommended; durable except last txn on OS crash
+    db.exec(SCHEMA);
+    db.prepare("INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', ?)").run(
+      String(CURRENT_SCHEMA_VERSION)
+    );
+  } catch (err) {
+    // Never leak a half-initialized connection (its locks/sidecars linger,
+    // especially on Windows) — close before rethrowing.
+    try { db.close(); } catch { /* best-effort */ }
+    throw err;
+  }
   handle = db;
   return db;
+}
+
+/** The raw setDbPath override (may be hidden beneath a MESHFLEET_DB_FILE env override). */
+export function getDbPathOverride(): string | null {
+  return dbFile;
+}
+
+/**
+ * Read a MeshData snapshot from an ARBITRARY ledger file via a dedicated
+ * READ-ONLY connection — no pragmas that write, no schema creation, no meta
+ * insert, and zero interaction with the global handle or path config. This is
+ * the audit path: verification must never alter the evidence it audits. A
+ * SQLite file lacking the mesh tables throws a legible diagnosis.
+ */
+export function readLedgerFile(file: string): MeshData {
+  if (!existsSync(file)) throw new Error(`ledger file not found: ${file}`);
+  // Audit a PRIVATE TEMP COPY: even a readonly SQLite connection creates
+  // -wal/-shm sidecars beside a WAL-mode file, and evidence handling forbids
+  // touching the original in any way. Copying the sidecars too means a ledger
+  // copied mid-WAL (rows still in the -wal) reads completely instead of
+  // looking truncated. The original is untouched by construction.
+  const tmp = mkdtempSync(join(tmpdir(), "meshfleet-audit-"));
+  const copy = join(tmp, "audit.db");
+  try {
+    copyFileSync(file, copy);
+    for (const ext of ["-wal", "-shm"]) {
+      if (existsSync(file + ext)) copyFileSync(file + ext, copy + ext);
+    }
+    const db = new Database(copy, { readonly: true, fileMustExist: true });
+    try {
+      return readState(db);
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      if (/no such table/i.test(detail)) {
+        throw new Error(
+          `not a meshfleet ledger: ${file} — it is a SQLite database, but the mesh tables are missing (${detail})`
+        );
+      }
+      throw err;
+    } finally {
+      db.close();
+    }
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
 }
 
 const EMPTY: MeshData = {

@@ -24,7 +24,7 @@
 import { existsSync } from "fs";
 import { BROADCAST, messageRecipients, type MeshData, type Message, type Receipt } from "./core.js";
 import { MAX_TOTAL_WEIGHT, MAX_VOTE_WEIGHT, computeTally, parseVoteAction } from "./ratify.js";
-import { closeDb, readLedger, resolveDbFile, setDbPath } from "./db.js";
+import { readLedger, readLedgerFile } from "./db.js";
 
 export interface VerifyFinding {
   severity: "error" | "warning";
@@ -269,29 +269,20 @@ export function verifyLedger(now: number = Date.now()): VerifyReport {
  */
 export function verifyLedgerFile(file: string, now: number = Date.now()): VerifyReport {
   if (!existsSync(file)) throw new Error(`ledger file not found: ${file}`);
-  const prev = resolveDbFile();
-  // The MESHFLEET_DB_FILE override outranks setDbPath in resolveDbFile; lift it
-  // for the audit so an explicit file argument can never silently lose to it.
-  const prevEnv = process.env.MESHFLEET_DB_FILE;
-  delete process.env.MESHFLEET_DB_FILE;
-  setDbPath(file);
+  // Dedicated READ-ONLY connection (db.readLedgerFile): the audit never touches
+  // the global handle, the path config, or — critically — the audited file
+  // itself. No WAL conversion, no schema creation, no meta writes.
   try {
-    return verifyLedger(now);
+    return verifyMeshData(readLedgerFile(file), now);
   } catch (err) {
-    // A JSON export (or any non-SQLite file) is a natural mistake — surface a
-    // diagnosis, never a native-binding stack trace. Fail-legible applies to
-    // the verifier's own failures too.
     const detail = err instanceof Error ? err.message : String(err);
-    if (/file is not a database|not a database|malformed|SQLITE_NOTADB/i.test(detail)) {
+    if (/file is not a database|not a database|SQLITE_NOTADB|malformed/i.test(detail)) {
       throw new Error(
         `not a valid SQLite ledger: ${file} — this looks like a JSON export or another file type; ` +
-          `verify audits the .db ledger (JSON exports come FROM 'inspect --export', they aren't the ledger itself)`,
+          `verify audits the .db ledger (JSON exports come FROM 'inspect --export', they aren't the ledger itself)`
       );
     }
     throw err;
-  } finally {
-    closeDb();
-    if (prevEnv !== undefined) process.env.MESHFLEET_DB_FILE = prevEnv;
-    setDbPath(prev);
   }
 }
+

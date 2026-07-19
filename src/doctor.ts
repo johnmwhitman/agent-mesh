@@ -14,7 +14,7 @@
 import { accessSync, constants, existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
-import { resolveDbFile, readLedger } from './db.js'
+import { resolveDbFile, readLedgerFile } from './db.js'
 import { resolveEventLogFile, type MeshData } from './core.js'
 
 export type DoctorStatus = 'ok' | 'warn' | 'fail'
@@ -161,7 +161,9 @@ export function checkLedgerPath(dbFile: string = resolveDbFile()): DoctorCheck {
 /** If a ledger exists, open it and report entity counts; absence is a normal fresh install. */
 export function checkLedgerOpen(
   dbFile: string = resolveDbFile(),
-  read: () => MeshData = readLedger
+  // READ-ONLY by default: the doctor must never create, convert, or write the
+  // ledger it is diagnosing (readLedgerFile opens {readonly, fileMustExist}).
+  read: () => MeshData = () => readLedgerFile(dbFile)
 ): DoctorCheck {
   if (!existsSync(dbFile)) {
     return {
@@ -304,5 +306,5 @@ export function doctorMain(args: string[]): void {
   } else {
     process.stdout.write(formatDoctorReport(report) + '\n')
   }
-  process.exit(doctorExitCode(report))
+  process.exitCode = doctorExitCode(report) // never exit() after async-flushed writes
 }
