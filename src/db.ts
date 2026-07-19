@@ -38,8 +38,8 @@ const DEFAULT_DB_FILE = join(homedir(), ".config/opencode", "agent-mesh.db");
 let dbFile: string | null = null;
 let handle: Database.Database | null = null;
 
-/** Test/override hook: point at a specific db file and drop any open handle. */
-export function setDbPath(file: string): void {
+/** Test/override hook: point at a specific db file (null clears the override) and drop any open handle. */
+export function setDbPath(file: string | null): void {
   closeDb();
   dbFile = file;
 }
@@ -119,10 +119,16 @@ export function readLedgerFile(file: string): MeshData {
   const tmp = mkdtempSync(join(tmpdir(), "meshfleet-audit-"));
   const copy = join(tmp, "audit.db");
   try {
-    copyFileSync(file, copy);
-    for (const ext of ["-wal", "-shm"]) {
+    // Sidecars BEFORE main: if a live writer checkpoints between the copies,
+    // the newer main file makes the older WAL's salts/checksums mismatch and
+    // SQLite ignores it — yielding a consistent (checkpointed) read instead of
+    // torn state. The file-audit contract remains "frozen evidence"; auditing
+    // a ledger under active write is what the no-arg --verify (single
+    // transaction on the live handle) is for.
+    for (const ext of ["-shm", "-wal"]) {
       if (existsSync(file + ext)) copyFileSync(file + ext, copy + ext);
     }
+    copyFileSync(file, copy);
     const db = new Database(copy, { readonly: true, fileMustExist: true });
     try {
       return readState(db);
@@ -138,7 +144,9 @@ export function readLedgerFile(file: string): MeshData {
       db.close();
     }
   } finally {
-    rmSync(tmp, { recursive: true, force: true });
+    // Best-effort: a cleanup failure (EBUSY/EPERM) must never mask the audit
+    // result or error; a leaked temp dir is the lesser harm.
+    try { rmSync(tmp, { recursive: true, force: true }); } catch { /* leak beats mask */ }
   }
 }
 

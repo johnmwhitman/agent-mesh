@@ -60,6 +60,12 @@ test("doctor's ledger-open check leaves a foreign SQLite file byte-identical (re
   }
 });
 
+test("demo with NO prior override leaves the override cleared (not pointing at its deleted temp dir)", () => {
+  setDbPath(null);
+  runDemo({ quiet: true });
+  assert.equal(getDbPathOverride(), null, "demo left its deleted temp path as the override");
+});
+
 test("demo restores a pre-set setDbPath override exactly", () => {
   const dir = mkdtempSync(join(tmpdir(), "am-demo-restore-"));
   try {

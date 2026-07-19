@@ -175,7 +175,7 @@ export function runDemo(opts: { quiet?: boolean } = {}): DemoResult {
     closeDb();
     if (prevEnvDb === undefined) delete process.env.MESHFLEET_DB_FILE;
     else process.env.MESHFLEET_DB_FILE = prevEnvDb;
-    if (prevDbOverride !== null) setDbPath(prevDbOverride);
+    setDbPath(prevDbOverride); // null CLEARS a demo-only override — never leave the deleted temp path behind
     setEventLogPath(prevEventLog);
     rmSync(tempDir, { recursive: true, force: true });
   }
