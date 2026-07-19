@@ -9,7 +9,7 @@
  */
 
 import { loadData, messageRecipients, FleetSummary, MessageType, type Message, type Receipt, type Ratification } from './core.js'
-import type { VerifyReport } from './verify.js'
+import type { VerifyFinding, VerifyReport } from './verify.js'
 
 // ---------------------------------------------------------------------------
 // Time formatting
@@ -298,8 +298,10 @@ export type { FleetSummary, MessageType }
 /**
  * Render a verify_ledger report for the CLI: one OK/FAIL summary line with
  * entity counts, then findings errors-first. Pure — testable without a ledger.
+ * `explain` appends a triage block (what / benign cause / how to investigate)
+ * under each finding line — fail-legible output for a ledger you didn't write.
  */
-export function formatVerifyReport(report: VerifyReport): string {
+export function formatVerifyReport(report: VerifyReport, opts: { explain?: boolean } = {}): string {
   const c = report.counts;
   const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
   const head = `${report.ok ? "✔ OK" : "✖ FAIL"} — ${plural(report.errors, "error")}, ${plural(report.warnings, "warning")}   (fleets ${c.fleets} · agents ${c.agents} · messages ${c.messages} · receipts ${c.receipts} · councils ${c.ratifications})`;
@@ -307,8 +309,205 @@ export function formatVerifyReport(report: VerifyReport): string {
   const ordered = [...report.findings].sort((a, b) =>
     a.severity === b.severity ? 0 : a.severity === "error" ? -1 : 1
   );
-  const lines = ordered.map(
-    (f) => `  ${f.severity === "error" ? "ERROR" : "WARN "}  ${f.check}  ${f.subject} — ${f.detail}`
-  );
+  const lines = ordered.flatMap((f) => {
+    const line = `  ${f.severity === "error" ? "ERROR" : "WARN "}  ${f.check}  ${f.subject} — ${f.detail}`;
+    return opts.explain ? [line, formatVerifyExplanation(f)] : [line];
+  });
   return [head, ...lines].join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Verify triage — one explanation per check id in src/verify.ts.
+//
+// Each entry answers the three questions a failing audit raises: what does this
+// check MEAN, what's the most common BENIGN way a healthy workflow produces it,
+// and what ONE command shows the offending rows. Keep this table in lockstep
+// with the error("…")/warning("…") calls in verify.ts (pinned by
+// inspector-explain.test.ts, which enumerates the ids from that source).
+// ---------------------------------------------------------------------------
+
+interface CheckExplanation {
+  what: string;
+  benign: string;
+  investigate: string;
+}
+
+const CHECK_EXPLANATIONS: Record<string, CheckExplanation> = {
+  "agent.orphan_fleet": {
+    what: "an agent row references a fleet this ledger does not hold",
+    benign: "agents copied in from another mesh, or old fleet rows pruned without their agents",
+    investigate: "agent-mesh inspect --export | jq '.agents'",
+  },
+  "capability.unknown_agent": {
+    what: "a capability is registered for an agent this ledger never registered",
+    benign: "a cross-attached fleet advertising capabilities before its agent rows synced",
+    investigate: "agent-mesh inspect --export | jq '.capabilities'",
+  },
+  "receipt.key_mismatch": {
+    what: "a receipt's storage key disagrees with its own fields — the idempotency guarantee is broken for that row",
+    benign: "a hand-edited export re-imported with a typo in the key",
+    investigate: "agent-mesh inspect --export | jq '.receipts'",
+  },
+  "receipt.orphan_message": {
+    what: "the receipt references a message this ledger doesn't hold",
+    benign: "a partially-restored backup that kept receipts but trimmed messages",
+    investigate: "agent-mesh inspect --export | jq '.receipts'",
+  },
+  "receipt.unknown_agent": {
+    what: "a receipt was written by an agent this ledger never registered",
+    benign: "cross-attached fleets legitimately write receipts under their own agent ids",
+    investigate: "agent-mesh inspect --export | jq '.receipts'",
+  },
+  "receipt.before_message": {
+    what: "a receipt is timestamped before the message it acknowledges",
+    benign: "clock skew between machines that shared or merged a ledger",
+    investigate: "agent-mesh inspect --export | jq '{receipts, messages}'",
+  },
+  "message.ack_flag_mismatch": {
+    what: "a message's acknowledged flag disagrees with a recompute from its 'ack' receipts",
+    benign: "a write from before the withLedger seam missed the derived-flag recompute",
+    investigate: "agent-mesh inspect --receipts",
+  },
+  "inbox.dangling_message": {
+    what: "an inbox queues a message id this ledger does not hold",
+    benign: "a partially-restored backup that kept inboxes but trimmed messages",
+    investigate: "agent-mesh inspect --export | jq '.inboxes'",
+  },
+  "inbox.acked_still_queued": {
+    what: "a message is still queued for an agent that already holds an 'ack' receipt on it — ack consumes",
+    benign: "a pre-seam concurrent ack that lost the inbox update",
+    investigate: "agent-mesh inspect --receipts",
+  },
+  "ratification.weight_for_non_voter": {
+    what: "a council's weights map assigns voting weight to an agent outside its voter roster",
+    benign: "a roster edited after open without trimming the weights map",
+    investigate: "agent-mesh inspect --councils",
+  },
+  "ratification.invalid_weight": {
+    what: "a council assigns a vote weight outside the positive-integer range the open path enforces",
+    benign: "a hand-edited export with a mistyped weight",
+    investigate: "agent-mesh inspect --councils",
+  },
+  "ratification.total_weight_exceeded": {
+    what: "a council's total voting weight exceeds the ceiling the open path enforces",
+    benign: "merged ledgers doubling up a voter roster",
+    investigate: "agent-mesh inspect --councils",
+  },
+  "ratification.quorum_exceeds_voters": {
+    what: "a council's quorum is larger than its total voting weight — unreachable by construction",
+    benign: "voters removed after the council opened",
+    investigate: "agent-mesh inspect --councils",
+  },
+  "ratification.duplicate_voters": {
+    what: "a council lists the same voter more than once, so one agent could satisfy the quorum alone",
+    benign: "a roster merged from overlapping voter groups",
+    investigate: "agent-mesh inspect --councils",
+  },
+  "ratification.orphan_proposal": {
+    what: "a council references a proposal message this ledger does not hold",
+    benign: "a partially-restored backup that kept ratifications but trimmed messages",
+    investigate: "agent-mesh inspect --export | jq '.ratifications'",
+  },
+  "ratification.signoff_not_voter": {
+    what: "a required signoff names an agent outside the council's voter roster — their approval can never arrive",
+    benign: "a signoff added after the roster was resolved at open time",
+    investigate: "agent-mesh inspect --councils",
+  },
+  "ratification.malformed_vote_action": {
+    what: "a receipt action looks like a vote but doesn't parse, so the tally silently ignores it",
+    benign: "a receipt written by hand or by an older client with a typoed action string",
+    investigate: "agent-mesh inspect --export | jq '.receipts'",
+  },
+  "ratification.duplicate_vote_seq": {
+    what: "one agent holds multiple vote receipts at the same sequence number — each re-cast must take a fresh one",
+    benign: "two pre-seam writers racing the same re-cast",
+    investigate: "agent-mesh inspect --councils",
+  },
+  "ratification.vote_seq_gap": {
+    what: "an agent's vote sequence has a hole — casts append one at a time, so a gap means missing history",
+    benign: "a partially-restored backup missing mid-history vote receipts",
+    investigate: "agent-mesh inspect --councils",
+  },
+  "ratification.vote_from_non_voter": {
+    what: "an agent outside the voter roster holds a vote receipt — the tally ignores it",
+    benign: "an agent voting on a broadcast it saw without being rostered",
+    investigate: "agent-mesh inspect --councils",
+  },
+  "ratification.vote_recast": {
+    what: "an agent changed their vote; the highest-sequence cast is the effective one",
+    benign: "normal deliberation — re-casting is a supported protocol, surfaced for the record",
+    investigate: "agent-mesh inspect --councils",
+  },
+  "ratification.status_mismatch": {
+    what: "a council's recorded terminal status doesn't recompute from the receipts as of resolution",
+    benign: "a post-resolution re-cast landing in the same millisecond as resolved_at",
+    investigate: "agent-mesh inspect --councils",
+  },
+};
+
+/**
+ * Triage block for one verify finding: what the check means, the most common
+ * benign cause, and the one command to investigate. Unknown check ids (a
+ * ledger verified by a newer meshfleet than this CLI) get a generic fallback
+ * that still names the id and an investigation path. Pure formatter.
+ */
+export function formatVerifyExplanation(finding: VerifyFinding): string {
+  const e = CHECK_EXPLANATIONS[finding.check] ?? {
+    what: `${finding.check} is not a check this build knows — the ledger may have been verified by a newer meshfleet`,
+    benign: "an inspect CLI older than the verify that produced the finding",
+    investigate: "agent-mesh inspect --export | jq .",
+  };
+  return [
+    `      what: ${e.what}`,
+    `      benign: ${e.benign}`,
+    `      investigate: ${e.investigate}`,
+  ].join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// JSON envelopes — the scriptable trio (`--json` on fleets / --councils /
+// --verify). Pure builders: same data as the text views, stable field names,
+// versioned schema id so scripts can assert what they're parsing.
+// ---------------------------------------------------------------------------
+
+export const INSPECT_JSON_SCHEMA = "meshfleet.inspect/v1";
+
+export interface InspectJsonEnvelope<K extends string, D> {
+  schema: typeof INSPECT_JSON_SCHEMA;
+  kind: K;
+  data: D;
+}
+
+/** One council with the receipt-derived vote breakdown the text view renders. */
+export interface CouncilJson {
+  ratification: Ratification;
+  approvals: string[];
+  declines: string[];
+  /** Eligible voters with no vote receipt — the ⚠ rows of the text view. */
+  pending: string[];
+}
+
+export function buildVerifyJson(report: VerifyReport): InspectJsonEnvelope<"verify", VerifyReport> {
+  return { schema: INSPECT_JSON_SCHEMA, kind: "verify", data: report };
+}
+
+export function buildFleetsJson(fleets: FleetSummary[]): InspectJsonEnvelope<"fleets", FleetSummary[]> {
+  return { schema: INSPECT_JSON_SCHEMA, kind: "fleets", data: fleets };
+}
+
+export function buildCouncilsJson(
+  councils: Array<{ ratification: Ratification; votes: Receipt[] }>
+): InspectJsonEnvelope<"councils", CouncilJson[]> {
+  const data = councils.map(({ ratification, votes }) => {
+    const approvals = votes.filter((v) => v.action === "r-ack").map((v) => v.agent_id);
+    const declines = votes.filter((v) => v.action === "r-decline").map((v) => v.agent_id);
+    const voted = new Set([...approvals, ...declines]);
+    return {
+      ratification,
+      approvals,
+      declines,
+      pending: ratification.voters.filter((v) => !voted.has(v)),
+    };
+  });
+  return { schema: INSPECT_JSON_SCHEMA, kind: "councils", data };
 }
