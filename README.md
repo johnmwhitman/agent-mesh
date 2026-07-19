@@ -2,7 +2,9 @@
 
 > **Auditable multi-agent coordination for OpenCode.** Spawn parallel agents as independent OS processes. Route work to specialists. Let agents collaborate peer-to-peer — with witnessed receipts and quorum ratification, so you can answer: *who saw this, who approved it, prove it.* The core is MIT and free.
 
-**Website**: [meshfleet.app](https://meshfleet.app) · **Version**: 0.13.0 · **Tests**: 316/316 passing · [CI](https://github.com/johnmwhitman/agent-mesh/actions)
+**Website**: [meshfleet.app](https://meshfleet.app) · **Version**: 0.13.1 · **Tests**: 316/316 passing · [CI](https://github.com/johnmwhitman/agent-mesh/actions)
+
+*Maintained: last release 2026-07-16 (v0.13.1) · issues answered within 48h · no download-count theater.*
 
 > **Project status — deliberately pre-1.0, actively maintained.** Releases are intentionally
 > infrequent (we cut versions when something is worth shipping, not on a calendar); the repo
@@ -88,6 +90,85 @@ or, if you built from source:
 ```
 
 Restart OpenCode. Spawn a fleet. [Full install guide →](docs/install)
+
+---
+
+## Wiring it into your client
+
+Meshfleet is a standard stdio MCP server. The invocation is always the same — `npx -y meshfleet`
+(the `meshfleet` bin in `package.json` points at the server, `dist/index.js`) — only the config
+file around it changes per client.
+
+**Honesty labels.** "Tested" means verifiable from this repo itself. Client-specific shapes below
+follow each client's documented config format — we haven't wired CI to every editor, so those are
+marked "per \<client\> docs — verification welcome."
+
+### Any MCP client (generic stdio) — tested: this exact shape ships in this repo as [`mcp.json`](./mcp.json)
+
+```json
+{
+  "mcpServers": {
+    "meshfleet": {
+      "command": "npx",
+      "args": ["-y", "meshfleet"]
+    }
+  }
+}
+```
+
+### OpenCode — primary host; same block this repo documents in the install guide above
+
+`~/.config/opencode/opencode.jsonc`:
+
+```jsonc
+{
+  "mcp": {
+    "agent-mesh": {
+      "type": "local",
+      "enabled": true,
+      "command": ["npx", "meshfleet"]
+    }
+  }
+}
+```
+
+### Claude Code — per Claude Code docs — verification welcome
+
+CLI form:
+
+```bash
+claude mcp add meshfleet -- npx -y meshfleet
+```
+
+Or project-scoped `.mcp.json` at the repo root:
+
+```json
+{
+  "mcpServers": {
+    "meshfleet": {
+      "command": "npx",
+      "args": ["-y", "meshfleet"]
+    }
+  }
+}
+```
+
+### Cursor — per Cursor docs — verification welcome
+
+`.cursor/mcp.json` (project) or `~/.cursor/mcp.json` (global):
+
+```json
+{
+  "mcpServers": {
+    "meshfleet": {
+      "command": "npx",
+      "args": ["-y", "meshfleet"]
+    }
+  }
+}
+```
+
+If any block above doesn't work in your client, [open an issue](https://github.com/johnmwhitman/agent-mesh/issues) — config rot is a bug.
 
 ---
 
