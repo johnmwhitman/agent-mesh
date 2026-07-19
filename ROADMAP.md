@@ -63,7 +63,7 @@ API freeze. Production-ready. Backward-compatible.
 - [x] **Schema versioning** — ledger includes a `schema_version` field; old ledgers auto-migrate
 - [x] **Backward compatibility matrix** — `COMPATIBILITY.md` documents the API + ledger schema guarantees per version; per-version fixture tests are a v1.0 follow-up
 - [x] **Performance benchmarks** — sub-100ms overhead per agent spawn, 10k messages per fleet
-- [x] **Distributed ledger option** — resolved differently and better in 0.12.0: SQLite (better-sqlite3, WAL + `BEGIN IMMEDIATE`) became THE ledger, not a flagged option, because the JSON store provably lost concurrent writes. Cross-MACHINE coordination (the libSQL idea) folds into the post-1.0 cloud relay.
+- [x] **Single-host SQLite ledger** — resolved differently and better in 0.12.0: SQLite (better-sqlite3, WAL + `BEGIN IMMEDIATE`) became THE ledger, not a flagged option, because the JSON store provably lost concurrent writes. This provides same-host process write exclusion only; it is not multi-host readiness. Cross-machine coordination (the libSQL idea) folds into the post-1.0 cloud relay.
 - [x] **npm publish** — DONE (2026-07-16). `meshfleet@0.13.0` live on the registry (dist-tag `latest`); published tarball verified end-to-end (fresh install, bins run, `inspect --verify` audits a real ledger clean).
 - [x] **Auth token for MCP** — DONE (2026-07-16). Optional `MESHFLEET_AUTH_TOKEN` (legacy `AGENT_MESH_AUTH_TOKEN`): when set, the SSE listener requires `Authorization: Bearer <token>` (or `?token=` for EventSource) on every endpoint except `/healthz`; constant-time comparison; unset keeps the historical open local-trust default. The stdio MCP transport stays process-local (auth is the OS process boundary there by design).
 
@@ -97,6 +97,15 @@ Direction, not commitment — items ship when real usage pulls them.
 - Verifiable cold-archive segments (retention without receipt loss)
 - MCP stateless-spec migration as host support lands
 - Agent Mesh Protocol (AMP) — a cross-runtime wire format; a v0.1 draft exists and will be published when it stabilizes
+
+### Next distributed-safety slice (contract only)
+
+`docs/A2A-NEXT-SLICE.md` records the next implementation boundary for crash-safe
+attempt lifecycle state. It is not implemented by this roadmap entry and does not
+claim multi-host readiness. The current package remains single-host: there is no
+safe multi-host coordinator, lease owner epoch, durable attempt identity,
+transactional lifecycle event stream, or cancellation state. Any implementation
+must preserve the existing MCP API names and return shapes.
 
 ## Contributing to the roadmap
 
