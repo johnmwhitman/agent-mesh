@@ -28,6 +28,7 @@ import {
 } from '../inspector.js'
 import { listFleets, loadData, readEventLog, getReceipts, CURRENT_SCHEMA_VERSION, type Agent } from '../core.js'
 import { verifyLedger } from '../verify.js'
+import { runDemo } from '../demo.js'
 
 const USAGE = `agent-mesh inspect — CLI inspector for running fleets
 
@@ -41,9 +42,21 @@ Usage:
   npx agent-mesh inspect --export [file]    Dump the full ledger as JSON (stdout if no file)
   npx agent-mesh inspect --verify           Audit ledger integrity (exit 1 on errors)
   npx agent-mesh inspect --help             This help
+  npx agent-mesh demo                       60-second walkthrough on a temp ledger, ends with a real --verify
 `
 
 function main(): void {
+  // Subcommand dispatch (kept as ONE block at the top so parallel lanes merge cleanly).
+  if (process.argv[2] === 'demo') {
+    try {
+      const result = runDemo()
+      process.exit(result.report.ok ? 0 : 1)
+    } catch (err) {
+      process.stderr.write(`demo failed: ${err instanceof Error ? err.message : String(err)}\n`)
+      process.exit(1)
+    }
+  }
+
   const args = process.argv.slice(2)
 
   if (args.includes('--help') || args.includes('-h')) {
