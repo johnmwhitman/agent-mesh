@@ -1,7 +1,7 @@
 import { test } from "node:test";
+import Database from "better-sqlite3";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync, copyFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -55,7 +55,10 @@ test("verifyLedgerFile on an unrelated (non-meshfleet) SQLite file diagnoses leg
   try {
     const foreign = join(dir, "foreign.db");
     // minimal real SQLite db with an unrelated table
-    execFileSync("sqlite3", [foreign, "CREATE TABLE notes(id INTEGER PRIMARY KEY, body TEXT); INSERT INTO notes(body) VALUES ('x');"]);
+    // Create via better-sqlite3 (the sqlite3 CLI is absent on Windows CI runners).
+    const fdb = new Database(foreign);
+    fdb.exec("CREATE TABLE notes(id INTEGER PRIMARY KEY, body TEXT); INSERT INTO notes(body) VALUES ('x');");
+    fdb.close();
     const before = sha(foreign);
     assert.throws(
       () => verifyLedgerFile(foreign),

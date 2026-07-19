@@ -108,7 +108,7 @@ test('doctor: missing ledger directory under a writable ancestor is ok (created 
   }
 })
 
-test('doctor: unwritable ledger directory fails', { skip: isRoot }, () => {
+test('doctor: unwritable ledger directory fails', { skip: isRoot || process.platform === 'win32' }, () => {
   const dir = tempDir()
   const locked = join(dir, 'locked')
   mkdirSync(locked)
@@ -181,7 +181,7 @@ test('doctor: event-log path in a writable directory is ok', () => {
   }
 })
 
-test('doctor: unwritable event-log directory fails', { skip: isRoot }, () => {
+test('doctor: unwritable event-log directory fails', { skip: isRoot || process.platform === 'win32' }, () => {
   const dir = tempDir()
   const locked = join(dir, 'locked')
   mkdirSync(locked)
@@ -196,7 +196,8 @@ test('doctor: unwritable event-log directory fails', { skip: isRoot }, () => {
 
 // --- check 6: MCP client hint -------------------------------------------------
 
-test('doctor: opencode on PATH is ok', () => {
+// POSIX exec-bit semantics; the win32 PATH shape is covered by the .cmd test below.
+test('doctor: opencode on PATH is ok', { skip: process.platform === 'win32' }, () => {
   const dir = tempDir()
   try {
     writeFileSync(join(dir, 'opencode'), '#!/bin/sh\n')

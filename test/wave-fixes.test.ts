@@ -1,7 +1,7 @@
 import { test } from "node:test";
+import Database from "better-sqlite3";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -49,7 +49,10 @@ test("doctor's ledger-open check leaves a foreign SQLite file byte-identical (re
   const dir = mkdtempSync(join(tmpdir(), "am-doc-ro-"));
   try {
     const foreign = join(dir, "f.db");
-    execFileSync("sqlite3", [foreign, "CREATE TABLE t(x); INSERT INTO t VALUES (1);"]);
+    // Create via better-sqlite3 (the sqlite3 CLI is absent on Windows CI runners).
+    const fdb = new Database(foreign);
+    fdb.exec("CREATE TABLE t(x); INSERT INTO t VALUES (1);");
+    fdb.close();
     const before = createHash("sha256").update(readFileSync(foreign)).digest("hex");
     const res = checkLedgerOpen(foreign);
     assert.equal(res.status, "fail"); // not a mesh ledger — diagnosed, not created/converted
