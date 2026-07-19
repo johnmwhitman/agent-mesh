@@ -274,3 +274,108 @@ test('spawn result: generic Error account rate limit is fatal', () => {
   assert.equal(result.success, false)
   assert.match(result.error ?? '', /account's rate limit/i)
 })
+
+test('spawn result: Claude credential plugin warning under a Grok banner is auxiliary', () => {
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'complete Grok answer',
+    stderr: [
+      '> oracle · xai/grok-4.5',
+      'opencode-claude-auth: No Claude Code credentials found. Running in API key mode...',
+    ].join('\n'),
+    requestedAgent: 'oracle',
+  })
+
+  assert.equal(result.success, true)
+  assert.match(result.warning ?? '', /auxiliary provider/i)
+})
+
+test('spawn result: Claude credential plugin error under an Anthropic banner is fatal', () => {
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'partial Claude answer',
+    stderr: [
+      '> oracle · anthropic/claude-opus-4-8',
+      'opencode-claude-auth: No Claude Code credentials found. Running in API key mode...',
+    ].join('\n'),
+    requestedAgent: 'oracle',
+  })
+
+  assert.equal(result.success, false)
+  assert.match(result.error ?? '', /primary provider/i)
+})
+
+test('spawn result: Claude credential plugin error under a providerless Claude banner is fatal', () => {
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'partial Claude answer',
+    stderr: [
+      '> oracle · claude-opus-4-8',
+      'opencode-claude-auth: No Claude Code credentials found',
+    ].join('\n'),
+    requestedAgent: 'oracle',
+  })
+
+  assert.equal(result.success, false)
+  assert.match(result.error ?? '', /primary provider/i)
+})
+
+test('spawn result: Claude credential plugin warning under a providerless Grok banner is auxiliary', () => {
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'complete Grok answer',
+    stderr: [
+      '> oracle · grok-4.5',
+      'opencode-claude-auth: No Claude Code credentials found',
+    ].join('\n'),
+    requestedAgent: 'oracle',
+  })
+
+  assert.equal(result.success, true)
+  assert.match(result.warning ?? '', /auxiliary provider/i)
+})
+
+test('spawn result: named Claude Error 429 under a Grok banner is auxiliary', () => {
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'complete Grok answer',
+    stderr: [
+      '> oracle · xai/grok-4.5',
+      'Error: API 429 for claude-haiku-4-5',
+    ].join('\n'),
+    requestedAgent: 'oracle',
+  })
+
+  assert.equal(result.success, true)
+  assert.match(result.warning ?? '', /auxiliary provider/i)
+})
+
+test('spawn result: named Claude Error 429 for the Anthropic banner model is fatal', () => {
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'partial Claude answer',
+    stderr: [
+      '> oracle · anthropic/claude-haiku-4-5',
+      'Error: API 429 for claude-haiku-4-5',
+    ].join('\n'),
+    requestedAgent: 'oracle',
+  })
+
+  assert.equal(result.success, false)
+  assert.match(result.error ?? '', /primary provider/i)
+})
+
+test('spawn result: named Gemini Error under a Grok banner is auxiliary', () => {
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'complete Grok answer',
+    stderr: [
+      '> oracle · xai/grok-4.5',
+      'Error: ProviderModelNotFoundError: google/gemini-2.5-pro',
+    ].join('\n'),
+    requestedAgent: 'oracle',
+  })
+
+  assert.equal(result.success, true)
+  assert.match(result.warning ?? '', /auxiliary provider/i)
+})

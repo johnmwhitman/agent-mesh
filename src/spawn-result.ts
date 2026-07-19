@@ -16,12 +16,49 @@ export interface SpawnResultClassification {
 const ANSI_ESCAPE = /\x1b\[[0-?]*[ -/]*[@-~]/g;
 const EXPLICIT_FALLBACK = /\bfall(?:ing)?\s+back\b|\bfallback\b/i;
 const NO_CREDENTIALS = /(?:no claude code credentials found|claude code credentials are unavailable or expired)/i;
-const FATAL_PROVIDER_ERROR = /(?:ProviderModelNotFoundError|ProviderAuthError|AuthenticationError|RateLimitError|APIError|API\s+429\s+for\s+|invalid authentication credentials|insufficient balance)/i;
+const PROVIDER_DIAGNOSTIC = /(?:ProviderModelNotFoundError|ProviderAuthError|AuthenticationError|RateLimitError|APIError|API\s+429\s+for\s+|invalid authentication credentials|insufficient balance)/i;
+
+interface DiagnosticAttribution {
+  model?: string;
+  provider?: string;
+}
 
 function runtimeBanner(stderr: string): { agent: string; model: string } | undefined {
   const plain = stderr.replace(ANSI_ESCAPE, "");
   const match = plain.match(/^\s*>\s*([^·]+?)\s*·\s*([^\s]+)\s*$/m);
   return match ? { agent: match[1].trim(), model: match[2] } : undefined;
+}
+
+function diagnosticAttribution(line: string): DiagnosticAttribution {
+  const apiModel = line.match(/API\s+429\s+for\s+([^\s:]+)/i)?.[1];
+  const qualifiedModel = line.match(/\b([a-z0-9][\w.-]*\/[a-z0-9][\w.-]*)\b/i)?.[1];
+  const model = (apiModel ?? qualifiedModel)?.replace(/[.,;]+$/, "").toLowerCase();
+  if (model) return { model };
+
+  if (/opencode-claude-auth/i.test(line) || NO_CREDENTIALS.test(line)) {
+    return { provider: "anthropic" };
+  }
+  return {};
+}
+
+function isRuntimeDiagnostic(
+  attribution: DiagnosticAttribution,
+  banner: { agent: string; model: string } | undefined
+): boolean {
+  if (!banner) return true;
+  const runtimeModel = banner.model.toLowerCase();
+  let [runtimeProvider, runtimeModelName] = runtimeModel.includes("/")
+    ? runtimeModel.split("/", 2)
+    : [undefined, runtimeModel];
+  if (!runtimeProvider && runtimeModelName.startsWith("claude-")) {
+    runtimeProvider = "anthropic";
+  }
+
+  if (attribution.model) {
+    return attribution.model === runtimeModel || attribution.model === runtimeModelName;
+  }
+  if (attribution.provider) return attribution.provider === runtimeProvider;
+  return true;
 }
 
 export function classifySpawnResult(
@@ -49,26 +86,17 @@ export function classifySpawnResult(
       error: `Requested agent ${input.requestedAgent} but runtime agent ${banner.agent} executed`,
     };
   }
-  const explicitError = plainStderr.split("\n").find((line) => /^\s*Error:/i.test(line));
-  if (explicitError) {
-    return { ...receipt, success: false, error: `Fatal primary provider error: ${explicitError.trim()}` };
-  }
-  const credentialsError = plainStderr.split("\n").find((line) => NO_CREDENTIALS.test(line));
-  if (credentialsError) {
-    return { ...receipt, success: false, error: `Fatal primary provider error: ${credentialsError.trim()}` };
-  }
-  const providerErrors = plainStderr.split("\n").filter((line) => FATAL_PROVIDER_ERROR.test(line));
-  const runtimeModelName = banner?.model.split("/").at(-1);
-  const primaryError = providerErrors.find((line) => {
-    const errorModel = line.match(/API\s+429\s+for\s+([^\s:]+)|\b([\w.-]+\/[\w.-]+)\b/i);
-    const namedErrorModel = errorModel?.[1] ?? errorModel?.[2];
-    return !banner || !namedErrorModel || namedErrorModel === banner.model || namedErrorModel === runtimeModelName;
-  });
+  const diagnostics = plainStderr
+    .split("\n")
+    .filter((line) => /^\s*Error:/i.test(line) || NO_CREDENTIALS.test(line) || PROVIDER_DIAGNOSTIC.test(line));
+  const primaryError = diagnostics.find((line) =>
+    isRuntimeDiagnostic(diagnosticAttribution(line), banner)
+  );
   if (primaryError) {
     return { ...receipt, success: false, error: `Fatal primary provider error: ${primaryError.trim()}` };
   }
-  if (providerErrors.length > 0) {
-    return { ...receipt, success: true, warning: `Auxiliary provider warning: ${providerErrors.join("\n")}` };
+  if (diagnostics.length > 0) {
+    return { ...receipt, success: true, warning: `Auxiliary provider warning: ${diagnostics.join("\n")}` };
   }
   return { ...receipt, success: true };
 }
