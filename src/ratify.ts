@@ -135,7 +135,24 @@ export function openRatification(input: OpenRatificationInput): string {
   const weights =
     input.weights && Object.keys(input.weights).length > 0 ? input.weights : undefined;
   return withLedger((data): string => {
-    const { messageId } = _sendMessage(data, input.proposer, BROADCAST, input.fleetId, "question", input.payload ?? input.subject);
+    // Council privacy fix (2026-07-19): a narrowed `voters` list means the proposal is a
+    // targeted discussion, not a fleet-wide announcement — the broadcast must not deliver
+    // to agents outside the council. Deliver only to voters ∪ required signoffs ∪ the
+    // proposer. When `voters` is omitted (default = every other fleet agent), the send
+    // stays a true broadcast, unchanged.
+    const narrowedRecipients = input.voters
+      ? [...new Set([...input.voters, ...(input.requiredSignoffs ?? []), input.proposer])]
+      : undefined;
+    const { messageId } = _sendMessage(
+      data,
+      input.proposer,
+      BROADCAST,
+      input.fleetId,
+      "question",
+      input.payload ?? input.subject,
+      undefined,
+      narrowedRecipients
+    );
     const msg = data.messages[messageId];
     // Dedupe: the tally counts every occurrence in `voters`, so a duplicated id
     // would let one agent satisfy the quorum alone.
