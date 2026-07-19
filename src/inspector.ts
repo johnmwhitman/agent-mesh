@@ -339,6 +339,21 @@ const CHECK_EXPLANATIONS: Record<string, CheckExplanation> = {
     benign: "agents copied in from another mesh, or old fleet rows pruned without their agents",
     investigate: "agent-mesh inspect --export | jq '.agents'",
   },
+  "agent.tampered_timestamp": {
+    what: "an agent started before its fleet was created, or completed before it started",
+    benign: "a hand-edited export with an incorrect timestamp",
+    investigate: "agent-mesh inspect --export | jq '.agents'",
+  },
+  "agent.mismatched_identity": {
+    what: "an agent ran with a runtime_model that contradicts its registered capability",
+    benign: "a hand-edited export with mismatched identity",
+    investigate: "agent-mesh inspect --export | jq '.agents'",
+  },
+  "message.tampered_timestamp": {
+    what: "a message is timestamped before the fleet was created",
+    benign: "a hand-edited export with a tampered timestamp",
+    investigate: "agent-mesh inspect --export | jq '.messages'",
+  },
   "capability.unknown_agent": {
     what: "a capability is registered for an agent this ledger never registered",
     benign: "a cross-attached fleet advertising capabilities before its agent rows synced",

@@ -1,6 +1,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { classifySpawnResult } from '../src/spawn-result.js'
+import { classifySpawnResult, runtimeModelsMatch } from '../src/spawn-result.js'
+
+test('provider prefixes do not create a runtime identity mismatch', () => {
+  assert.equal(runtimeModelsMatch('claude-sonnet-4', 'anthropic/claude-sonnet-4'), true)
+})
 
 test('spawn result: exit zero with empty stdout fails closed', () => {
   const result = classifySpawnResult({ exitCode: 0, stdout: '', stderr: '' })

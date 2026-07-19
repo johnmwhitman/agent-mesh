@@ -1,0 +1,10 @@
+{
+  "fleets": { "f1": { "id": "f1", "status": "running", "created_at": 2000 } },
+  "agents": { "a1": { "id": "a1", "fleet_id": "f1", "role": "worker", "status": "complete", "prompt": "test", "started_at": 1000, "completed_at": 500 } },
+  "messages": {},
+  "inboxes": {},
+  "capabilities": {},
+  "receipts": {},
+  "ratifications": {},
+  "templates": {}
+}

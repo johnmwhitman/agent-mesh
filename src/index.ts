@@ -171,7 +171,7 @@ function trySpawn(input: SpawnAgentInput, agentId: string, attempt: number): voi
         requestedAgent: input.agentFile,
       });
       if (result.success) {
-        markAgentFinished(agentId, "complete", result.stdout, result.stderr || undefined);
+        markAgentFinished(agentId, "complete", result.stdout, result.stderr || undefined, result.runtime_agent, result.runtime_model);
         return;
       }
       handleTransientFailure(
@@ -180,7 +180,9 @@ function trySpawn(input: SpawnAgentInput, agentId: string, attempt: number): voi
         attempt,
         result.stdout,
         result.stderr,
-        result.error ?? `Spawn failed with exit code ${code}`
+        result.error ?? `Spawn failed with exit code ${code}`,
+        result.runtime_agent,
+        result.runtime_model
       );
     });
   });
@@ -192,7 +194,9 @@ function handleTransientFailure(
   attempt: number,
   stdout: string,
   stderr: string,
-  errorDetail: string
+  errorDetail: string,
+  runtimeAgent?: string,
+  runtimeModel?: string
 ): void {
   const failureDetail = buildFailureDetail(stderr, errorDetail);
   if (!shouldAgentRetry(attempt)) {
@@ -206,7 +210,9 @@ function handleTransientFailure(
       agentId,
       "failed",
       stdout,
-      `Permanent failure after ${attempt} attempt(s). Last error: ${failureDetail}`
+      `Permanent failure after ${attempt} attempt(s). Last error: ${failureDetail}`,
+      runtimeAgent,
+      runtimeModel
     );
     return;
   }

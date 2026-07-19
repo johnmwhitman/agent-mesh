@@ -26,6 +26,8 @@ export interface Agent {
   started_at?: number;
   completed_at?: number;
   retry_count?: number;
+  runtime_agent?: string;
+  runtime_model?: string;
 }
 
 export interface Fleet {
@@ -500,7 +502,9 @@ export function markAgentFinished(
   agentId: string,
   status: "complete" | "failed",
   output: string,
-  error: string | undefined
+  error: string | undefined,
+  runtimeAgent?: string,
+  runtimeModel?: string
 ): void {
   // ONE transaction: mark the agent AND decide+set fleet completion from the same
   // snapshot (was two RMW cycles — two finishers could both read "not all done").
@@ -510,6 +514,8 @@ export function markAgentFinished(
     agent.status = status;
     agent.output = output;
     agent.error = error;
+    if (runtimeAgent !== undefined) agent.runtime_agent = runtimeAgent;
+    if (runtimeModel !== undefined) agent.runtime_model = runtimeModel;
     agent.completed_at = Date.now();
     _checkFleetCompletion(data, agent.fleet_id);
   });

@@ -83,11 +83,11 @@ Direction, not commitment — items ship when real usage pulls them.
 - `verify --explain` — failure triage for the ledger auditor
 
 **Next**
-- P1 spawn receipts: record requested and resolved runtime model identities explicitly in the ledger; P0 only validates the OpenCode banner when present and does not expand the ledger schema.
-- Zero-install ledger verification (`npx` against any ledger file someone sends you)
-- A quickstart demo that ends with a verification, not a wall of text
-- `agent-mesh doctor` — 30-second diagnosis of broken installs
-- Machine-readable `--json` output across every inspect subcommand
+- P1 spawn receipts: resolved runtime model identity capture is implemented; requested runtime model identity remains unrepresented and must be added before this requested/resolved item is complete.
+- [x] Zero-install ledger verification (`npx` against any ledger file someone sends you)
+- [x] A quickstart demo that ends with a verification, not a wall of text
+- [x] `agent-mesh doctor` — 30-second diagnosis of broken installs
+- [x] Machine-readable `--json` output across every inspect subcommand
 - A published corpus of tampered-ledger fixtures the verifier must catch
 - Per-entry provenance confidence bands in verify output
 

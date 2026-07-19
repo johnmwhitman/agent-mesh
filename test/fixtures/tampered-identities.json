@@ -1,0 +1,12 @@
+{
+  "fleets": { "f1": { "id": "f1", "status": "running", "created_at": 2000 } },
+  "agents": { "a1": { "id": "a1", "fleet_id": "f1", "role": "worker", "status": "running", "prompt": "test", "runtime_model": "gpt-4o" } },
+  "messages": {},
+  "inboxes": { "a1": [] },
+  "capabilities": {
+    "a1": { "agent_id": "a1", "fleet_id": "f1", "role": "worker", "skills": [], "model": "claude-3-5-sonnet", "registered_at": 2100 }
+  },
+  "receipts": {},
+  "ratifications": {},
+  "templates": {}
+}
