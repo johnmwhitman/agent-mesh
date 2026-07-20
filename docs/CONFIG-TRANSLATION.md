@@ -85,9 +85,11 @@ Claude Code, OpenCode, Antigravity/Gemini, Grok, and unknown harness; status is
 the profile's exact `known-static | deferred | unprofiled` mapping. Every
 sidecar emits `authentication_evidence: null`,
 `principal_binding_input: null`, and exactly two sorted
-`identity_not_represented`/`omitted_by_contract` losses. Existing
-static-translation conformance validates it outside the one-operation admission
-corpus.
+`identity_not_represented`/`omitted_by_contract` losses. This sidecar is not
+implemented or currently validated. A future gate outside the one-operation
+admission corpus requires a validator, exact executable fixtures for all seven
+targets, and negative unknown target/status, non-null identity, extra field,
+duplicate/reordered loss, and missing-member fixtures.
 
 No platform configuration, template, banner, model/provider label, PID,
 receipt, login/account state, provider session, environment name/value, path,

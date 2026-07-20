@@ -20,9 +20,11 @@ durable commit.
 
 ## Decision
 
-Slice 4C-1 defines exactly one normative raw-UTF-8 offline operation,
-`evaluate-local-admission(raw_request_utf8, replay_oracle)`. There is no public
-object-input or direct-tree API. Validation, freshness,
+Slice 4C-1 defines exactly one normative offline operation,
+`evaluate-local-admission(request_json, envelope_json, replay_oracle)`. The two
+JSON arguments are independent raw UTF-8 texts: the first contains only 4C-1
+fields and the second passes unchanged to 4A. There is no wrapper envelope,
+double encoding, public object-input, or direct-tree API. Validation, freshness,
 binding, all-recipient authorization, replay classification, and unseen-message
 expiry are ordered internal stages.
 
@@ -59,7 +61,8 @@ checked last and only for an unseen identity.
   injected, instrumented replay oracle and no persistence or network imports.
 - There is no public intermediate-success API that consumers can cache or
   mistake for authority.
-- Revocation and current policy always precede historical replay knowledge.
+- Supplied-fixture applicability, binding, and authorization precede historical
+  replay knowledge; this proves no current-policy or revocation state.
 - The operation can prove semantic ordering without claiming that the evidence
   issuer or oracle is trustworthy in production.
 - Integrating a plan with Slice 4B requires a later contract for trust,

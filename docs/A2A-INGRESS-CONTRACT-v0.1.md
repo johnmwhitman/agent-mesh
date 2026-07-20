@@ -220,10 +220,12 @@ and human-gated.
 ## Slice 4C-1 local-admission design boundary
 
 [A2A-LOCAL-ADMISSION-PROFILE-v0.1.md](./A2A-LOCAL-ADMISSION-PROFILE-v0.1.md)
-defines one designed-not-implemented raw-UTF-8 offline operation. It reuses this
-contract's envelope, recipient/numeric/depth semantics, identities, and digest
-unchanged. Every inherited validation failure projects as
-`MALFORMED_ENVELOPE`. Its stricter consumer profile requires envelope
+defines one designed-not-implemented operation with independent raw UTF-8
+`request_json` and `envelope_json` inputs. The request has no envelope member;
+the envelope passes unchanged to 4A. It reuses this contract's recipient,
+numeric, depth, byte, identity, and digest semantics. Every raw or semantic
+envelope failure projects as `MALFORMED_ENVELOPE` under diagnostic prefix
+`$.envelope`. Its stricter consumer profile requires envelope
 `audience` and exact evidence/fixture-policy equality, but audience remains
 non-authenticating. Evidence and caller-fixture time applicability, exact
 principal/session binding, fixed-action message-type policy, and all concrete

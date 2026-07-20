@@ -42,8 +42,9 @@ The ranked A2A strategy is canonical in
    proof carriers, provider strings, model banners, and durable receipts never
    grant authority. No public/runtime/auth/network/durable-registry activation.
 7. **Slice 4C-1 authenticated-local adapter proof** - contract designed, not
-   implemented; exactly one raw-UTF-8 offline `evaluate-local-admission`
-   operation is specified, with an ephemeral non-acceptance plan, explicit
+   implemented; exactly one offline `evaluate-local-admission(request_json,
+   envelope_json, replay_oracle)` operation over independent raw UTF-8 texts is
+   specified, with an ephemeral non-acceptance plan, explicit
    assumed local adapter boundary, supplied fixture binding/all-recipient policy
    before replay, and no
    public/auth/network/storage/runtime activation;
@@ -192,8 +193,9 @@ observable, not a daemon, dashboard, or service claim.
   ingress, runtime selection, network, persistence, delivery, execution,
   release, or activation.
 - [ ] **Slice 4C-1: principal-bound authenticated-local semantic path** —
-  designed, not implemented. The contract has one raw-UTF-8 offline operation,
-  no public object-input path, and no
+  designed, not implemented. The contract has one operation over independent
+  raw `request_json` and unchanged 4A `envelope_json`, no wrapper/object-input
+  path, and no
   public intermediate-success APIs; its admission plan is not acceptance,
   persistence, receipt, delivery, execution, or reusable authority. Released
   `meshfleet@0.14.0` does not contain Slice 4B, Slice 4C-0, or Slice 4C-1 branch

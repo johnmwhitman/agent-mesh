@@ -132,8 +132,9 @@ another evidence level.
 
 ## Slice 4C-1 adapter-evidence design boundary
 
-The designed-not-implemented local admission profile accepts only raw UTF-8
-JSON text and defines no public object-tree entrypoint. Its closed
+The designed-not-implemented local admission profile accepts independent raw
+UTF-8 `request_json` and `envelope_json` texts and defines no wrapper envelope
+or public object-tree entrypoint. Its closed
 adapter-issued evidence carrier has an explicit `trusted_local_adapter`
 provenance marker. The marker records an assumed boundary; it verifies no
 adapter, credential, signature, trust root, login, account, provider session,
@@ -142,8 +143,9 @@ PID, banner, model, or receipt.
 The closed `StaticHarnessMapping` sidecar for Codex, Codex CLI, Claude Code,
 OpenCode, Antigravity/Gemini, Grok, and unknown harnesses emits
 `authentication_evidence: null` and `principal_binding_input: null`. It is not
-part of `RendererResult` and is validated by existing static-translation
-conformance outside the admission corpus. No `TransportAdapter`,
+part of `RendererResult`. Its validator and executable seven-target positive
+and required negative fixtures are a future 4C-1 implementation gate outside
+the admission corpus; no current conformance evidence exists. No `TransportAdapter`,
 `RuntimeAdapter`, renderer, MCP session, or process receipt implements this
 trust boundary. The sole success is an ephemeral plan, not adapter acceptance
 or lifecycle state.

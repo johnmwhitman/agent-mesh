@@ -97,8 +97,11 @@ MCP reachability        != cross-host trust
 
 ## Slice 4C-1 local admission threats
 
-Slice 4C-1 is a designed, dormant raw-UTF-8 semantic profile with no public
-object-input API. Its `trusted_local_adapter` marker exposes an assumption and
+Slice 4C-1 is a designed, dormant profile with independent raw UTF-8
+`request_json` and `envelope_json` inputs and no wrapper/object-input API. The
+request parser cannot classify envelope failures; all envelope raw/semantic
+failures project through 4A as `MALFORMED_ENVELOPE`. Its
+`trusted_local_adapter` marker exposes an assumption and
 is not self-authentication. It requires exact principal/session binding, one
 fixed action, message type, all concrete recipients, and audience equality
 before replay. Denials collapse to `AUTHORIZATION_DENIED`; only protected local

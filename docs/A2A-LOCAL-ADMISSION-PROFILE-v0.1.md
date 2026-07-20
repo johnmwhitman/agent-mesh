@@ -14,11 +14,12 @@ their RFC 2119/RFC 8174 meanings.
 Slice 4C-1 defines exactly:
 
 ```text
-evaluate-local-admission(raw_request_utf8, replay_oracle)
+evaluate-local-admission(request_json, envelope_json, replay_oracle)
 ```
 
-`raw_request_utf8` is the complete untrusted request as raw UTF-8 JSON text at
-the byte boundary. No public/normative object overload, direct-tree API,
+`request_json` and `envelope_json` are independent raw UTF-8 JSON texts. There
+is no wrapper object, nested envelope member, or double-encoded envelope string.
+No public/normative object overload, direct-tree API,
 normalizer, validator, binder, authorizer, or replay API exists. Those are
 mandatory internal stages and expose no intermediate success.
 
@@ -33,16 +34,17 @@ never acceptance, persistence, receipt, delivery, execution, lifecycle state,
 credential, or reusable authority. A later consumer MUST evaluate again. A plan
 MUST NOT enter dormant Slice 4B without a separately approved transaction.
 
-## 2. Unchanged 4A envelope
+## 2. Independent unchanged 4A envelope input
 
-`$.envelope` is exactly the Slice 4A canonical envelope in
+`envelope_json` is passed unchanged to the existing Slice 4A decoder and is
+exactly the canonical envelope in
 [A2A-INGRESS-CONTRACT-v0.1.md](./A2A-INGRESS-CONTRACT-v0.1.md). 4C-1 reuses its
 schema/version, sender and concrete-recipient semantics, wildcard rejection,
 duplicate-recipient rejection, self-recipient behavior, numeric semantics,
 normalization, canonical byte tree, and digest unchanged.
 
 4C-1 MUST NOT add envelope fields, deduplicate recipients, reinterpret envelope
-numbers, or define a second digest. Every numeric value under `$.envelope`,
+numbers, or define a second digest. Every `envelope_json` numeric value,
 including `-0` normalization, is delegated exclusively to 4A. Evidence,
 snapshots, the fixed action, and results remain outside the envelope/digest.
 
@@ -55,70 +57,71 @@ sessions, provider IDs, capabilities, models, runtimes, receipts, and
 conformance values create no competing identity. The only action is the
 out-of-envelope literal `a2a.message.admit`.
 
-## 3. Raw parser contract
+## 3. Independent raw parser contracts
 
 ### 3.1 Bytes, UTF-8, JSON, and numbers
 
-The request MUST be at most 262144 bytes before decoding/parsing. No alternate
-object path exists to bypass that ceiling. The parser rejects invalid UTF-8,
+`request_json` MUST be at most 262144 bytes before decoding/parsing. No
+alternate object path exists to bypass that ceiling. Its parser rejects invalid UTF-8,
 BOMs, comments, trailing data, non-JSON whitespace, malformed JSON numbers,
 unpaired surrogates, and duplicate decoded names at every depth, including
 literal/escape-equivalent duplicates. Only whitespace bytes `20`, `09`, `0a`,
 and `0d` hexadecimal are JSON whitespace.
 
-Outside `$.envelope`, each 4C-1 integer uses a non-negative JSON integer lexeme
-without fraction/exponent and has value 0 through 9007199254740991. These local
-rules never apply inside `$.envelope`; 4A owns all envelope numeric behavior.
+Each `request_json` integer uses a non-negative JSON integer lexeme without
+fraction/exponent and has value 0 through 9007199254740991. These local rules
+never apply to `envelope_json`; 4A owns all envelope byte, depth, duplicate-key,
+unknown-field, numeric, recipient, normalization, and digest behavior.
 
-### 3.2 Independent depth limits
+### 3.2 Independent depth and byte limits
 
-The complete wrapper permits depth 65, counting root as 1. The envelope root is
-separately counted as 1 and validated to the 4A limit 64, so a valid depth-64
-envelope nested in the wrapper remains valid. Each 4C-1-owned subtree below has
-independent maximum depth 8, counting its root as 1:
-
-- `$.authentication_evidence`
-- `$.binding_snapshot`
-- `$.authorization_snapshot`
-
-The local ceiling MUST NOT reduce/preempt the envelope ceiling.
+`request_json` has maximum depth 8, counting its root as depth 1, and maximum
+raw size 262144 bytes. `envelope_json` independently has exactly the existing 4A
+raw byte and depth ceilings, counting and semantics. Neither input's limit can
+consume, reduce, extend, or bypass the other's limit.
 
 ### 3.3 Raw failure paths and precedence
 
 | Condition | Code | Exact safe path |
 | --- | --- | --- |
-| more than 262144 raw bytes | `REQUEST_TOO_LARGE` | `$` |
+| `request_json` exceeds 262144 raw bytes | `REQUEST_TOO_LARGE` | `$` |
 | invalid UTF-8 or BOM | `INVALID_UTF8` | `$` |
 | malformed/unlocatable token, root syntax, or trailing data | `MALFORMED_JSON` | `$` |
 | duplicate decoded member in a known object | `DUPLICATE_JSON_KEY` | containing known object path |
 | malformed member syntax in a known object | `MALFORMED_JSON` | containing known object path |
 | malformed known scalar/container after path established | `MALFORMED_JSON` | exact known member path |
-| unknown schema member | `UNKNOWN_CORE_FIELD` at schema stage | containing object path; never its name |
-| wrapper depth above 65 | `MAX_DEPTH_EXCEEDED` | first established container path exceeding 65 |
-| owned-subtree depth above 8 | owning schema code | first established path exceeding 8 |
+| raw failure while parsing a value beneath an unknown member of a known object | parser code selected above | nearest known containing-object path, omitting every unknown path segment; this precedes later `UNKNOWN_CORE_FIELD` |
+| unknown schema member with otherwise valid JSON value | `UNKNOWN_CORE_FIELD` at schema stage | nearest known containing-object path; never its name |
+| `request_json` depth above 8 | `MAX_DEPTH_EXCEEDED` | first nearest known container path exceeding 8; `$` if unlocatable |
 
 Precedence is byte ceiling, UTF-8/BOM, then earliest JSON failure by raw byte
 offset. At the same offset: `DUPLICATE_JSON_KEY`, `MALFORMED_JSON`, then
-`MAX_DEPTH_EXCEEDED`. Parsing necessarily establishes a tree first, but after
-local framing semantic envelope errors precede evidence/policy errors.
-Diagnostics never reflect values or unknown names.
+`MAX_DEPTH_EXCEEDED`. A failure under a chain of unknown members walks outward
+to the nearest known containing object; if none is known, it uses `$`. This raw
+failure precedes the schema's later unknown-member error. Diagnostics never
+reflect values or unknown names.
+
+`envelope_json` uses the 4A raw parser unchanged. Section 7 projects every one
+of its raw or semantic failures; no `request_json` parser code can own an
+`envelope_json` failure.
 
 ## 4. Closed request and lexical types
 
-The root has exactly these seven required fields and no others:
+`request_json` has exactly these seven required fields and no others:
 
 ```json
 {
-  "profile": "meshfleet.a2a.local-admission.v0.1",
+  "version": "meshfleet.a2a.local-admission.v0.1",
   "evaluation_time_ms": 0,
   "request_id": "request-ref",
-  "envelope": {},
+  "action": "a2a.message.admit",
   "authentication_evidence": {},
   "binding_snapshot": {},
   "authorization_snapshot": {}
 }
 ```
 
+`version` and `action` have only the displayed literals.
 `evaluation_time_ms` is a local safe integer. `request_id` uses the existing 4A
 ingress request-ID grammar. Local references use:
 
@@ -270,16 +273,17 @@ data, credential, environment value, or secret.
 
 ## 6. Deterministic evaluation order
 
-First applicable row wins. Missing members use stated schema order. Before
+First applicable row wins. Every `request_json` framing/fixed-field failure
+precedes every `envelope_json` failure. Missing members use schema order. Before
 normalization, diagnostics use source indexes. Same-row collisions choose the
 smallest ASCII path, comparing numeric indexes numerically.
 
 | Step | Stage/failure | Exact result/path |
 | --- | --- | --- |
-| A00 | raw framing | Section 3 table |
-| A01 | root type, required members, unknown members | `INVALID_REQUEST` at `$`; `MISSING_REQUIRED_FIELD` at first missing path in order `profile`, `evaluation_time_ms`, `request_id`, `envelope`, `authentication_evidence`, `binding_snapshot`, `authorization_snapshot`; `UNKNOWN_CORE_FIELD` at `$` |
-| A02 | fixed profile/evaluation/request fields | `UNSUPPORTED_PROFILE_VERSION` at `$.profile`, then `INVALID_EVALUATION_TIME` at `$.evaluation_time_ms`, then `INVALID_REQUEST_ID` at `$.request_id` |
-| A03 | inherited 4A envelope validation, recipient normalization, digest | every failure is `MALFORMED_ENVELOPE` under Section 7 |
+| A00 | `request_json` raw size/UTF-8/JSON/duplicate/depth framing | Section 3 request parser table |
+| A01 | request root type, required members, unknown members | `INVALID_REQUEST` at `$`; `MISSING_REQUIRED_FIELD` at first missing path in order `version`, `evaluation_time_ms`, `request_id`, `action`, `authentication_evidence`, `binding_snapshot`, `authorization_snapshot`; `UNKNOWN_CORE_FIELD` at `$` |
+| A02 | fixed version/evaluation/request/action fields | `UNSUPPORTED_PROFILE_VERSION` at `$.version`, then `INVALID_EVALUATION_TIME` at `$.evaluation_time_ms`, then `INVALID_REQUEST_ID` at `$.request_id`, then `INVALID_REQUEST` at `$.action` |
+| A03 | unchanged 4A raw decode, validation, recipient normalization, and digest of `envelope_json` | every raw or semantic failure is `MALFORMED_ENVELOPE` under Section 7 |
 | A04 | evidence schema/depth/fields/types/grammar | `INVALID_AUTHENTICATION_EVIDENCE`; exact known member path, unknown at `$.authentication_evidence`, missing in displayed order |
 | A05 | binding snapshot schema/depth/version/id/provenance/interval lexemes/cardinality/rules/unique key | `INVALID_BINDING_SNAPSHOT`; exact known/source path, unknown at containing object, duplicate key at second rule path |
 | A06 | authorization snapshot schema/depth/version/id/provenance/interval lexemes/cardinality/rules/action/sets/unique key | `INVALID_AUTHORIZATION_SNAPSHOT`; exact known/source path, unknown at containing object, duplicate set at second member, duplicate key at second rule path |
@@ -291,9 +295,10 @@ smallest ASCII path, comparing numeric indexes numerically.
 | A12 | unseen and 4A expiry reached at evaluation time | `not_admitted: expired_at_acceptance` |
 | A13 | authorized unseen and not expired | `admission_plan` |
 
-Thus semantic envelope errors precede later evidence/policy errors even though
-raw parsing creates a tree first. Snapshot/evidence applicability and all
-authorization precede replay. Expiry is last and unseen-only.
+Thus request framing/fixed-field errors beat envelope errors; envelope
+decode/normalization errors beat evidence/snapshot errors. Supplied-fixture
+applicability, binding, and authorization precede replay. Expiry is last and
+unseen-only.
 
 Unknown principal, stale/invalid semantic context, adapter/sender/audience/
 session mismatch, binding denial, message-type denial, and any recipient denial
@@ -303,11 +308,16 @@ reflect identities, rules, recipients, types, sessions, values, or freshness.
 
 ## 7. Envelope error projection
 
-Every inherited 4A validation failure maps to `MALFORMED_ENVELOPE`. Given 4A
-path `p`: `$` becomes `$.envelope`; otherwise remove its leading `$` and prefix
-`$.envelope`; preserve source indexes; unlocatable paths use `$.envelope`; never
-reflect unknown keys/values. Example: `$.recipients[2]` becomes
-`$.envelope.recipients[2]`. Raw duplicate-key/token errors remain A00 errors.
+Every `envelope_json` failure maps to `MALFORMED_ENVELOPE`: byte limit, UTF-8,
+malformed syntax, duplicate decoded key, depth, unknown field, number,
+recipient, and every other 4A validation failure. No request parser code can own
+an envelope failure.
+
+Given exact 4A path `p`, `$` becomes `$.envelope`; otherwise remove its leading
+`$` and prefix `$.envelope`; preserve every source index. Root/unlocatable 4A
+parse failures use `$.envelope`. Unknown names/values are never reflected.
+Example: `$.recipients[2]` becomes `$.envelope.recipients[2]`; a duplicate key
+uses its exact 4A containing-object path under that prefix.
 
 ## 8. Closed result union
 
@@ -318,7 +328,7 @@ The result is exactly one of three objects.
 ```json
 {
   "kind": "admission_plan",
-  "profile": "meshfleet.a2a.local-admission.v0.1",
+  "version": "meshfleet.a2a.local-admission.v0.1",
   "request_identity": { "principal_ref": "principal-ref", "request_id": "request-ref" },
   "semantic_identity": {
     "sender": { "namespace": "local", "agent_id": "agent-a" },
@@ -333,18 +343,24 @@ The result is exactly one of three objects.
   "policy_basis": {
     "binding_snapshot": {
       "snapshot_version": "meshfleet.a2a.binding-snapshot.v0.1",
-      "snapshot_id": "binding-fixture-ref"
+      "snapshot_id": "binding-fixture-ref",
+      "effective_from_ms": 0,
+      "effective_until_ms": 1
     },
     "authorization_snapshot": {
       "snapshot_version": "meshfleet.a2a.authorization-snapshot.v0.1",
-      "snapshot_id": "authorization-fixture-ref"
+      "snapshot_id": "authorization-fixture-ref",
+      "effective_from_ms": 0,
+      "effective_until_ms": 1
     }
   }
 }
 ```
 
 Recipients use 4A normalized order. The digest is unchanged. `policy_basis`
-reports caller-supplied fixture IDs/versions only, not provenance/freshness.
+reports only supplied fixture IDs, versions, and effective intervals. It proves
+no provenance, operational freshness, revocation state, completeness, or
+administrative authority.
 
 ### 8.2 Not admitted
 
@@ -388,7 +404,8 @@ record is exactly:
   "id": "family.case",
   "api": "evaluate-local-admission",
   "invocation_args": {
-    "raw_request_base64": "eyJwcm9maWxlIjoiLi4uIn0=",
+    "request_json": "{\"version\":\"meshfleet.a2a.local-admission.v0.1\"}",
+    "envelope_json": "{\"version\":\"0.1\"}",
     "replay_oracle_result": "unseen"
   },
   "expected": {
@@ -399,23 +416,26 @@ record is exactly:
 }
 ```
 
-`raw_request_base64` is canonical padded RFC 4648 base64 used only to carry
-exact boundary bytes inside JSON corpus storage. The harness decodes bytes and
-calls the raw-text operation; this is not an object API or fixture DSL. Valid
-cases decode as UTF-8 JSON text; invalid-UTF-8 cases reject before parsing.
-`replay_oracle_result` is one verdict, `throws`, or a JSON malformed-verdict
-value. The closed `expected` fields are exactly those shown. Instrumentation
-records zero/one calls and exact Section 5 arguments.
+`invocation_args` contains exactly `request_json`, `envelope_json`, and
+`replay_oracle_result`. The first two are independent raw JSON-text strings and
+are never parsed by the corpus loader into operation inputs. There is no nested
+or double-encoded envelope member in `request_json`. Implementations encode the
+two strings as UTF-8 and invoke the exact operation. Invalid-UTF-8 byte-boundary
+checks remain mandatory ordinary implementation tests because invalid UTF-8
+cannot be represented by a JSON corpus string. `replay_oracle_result` is one
+verdict, `throws`, or a JSON malformed-verdict value and is wrapped by an
+instrumented oracle. The closed `expected` fields are exactly those shown.
 
 TypeScript and mandatory Python witnesses compare exact canonical bytes for
 every case. Required families are:
 
 | Family | Exact required coverage |
 | --- | --- |
-| raw/path | 262143/262144/262145 bytes; UTF-8/BOM/whitespace/comment/trailing/surrogate/number cases; literal and escaped duplicate keys in every object; every Section 3 path class; unknown names never reflected |
-| depth/numeric | wrapper 65/66; envelope depth 64; each owned subtree 8/9; local negative/`-0`/fraction/exponent/unsafe integers; equivalent envelope numbers delegated to 4A |
-| precedence | mutation canary for every adjacent A00-A13 pair; envelope beats evidence/policy; denied cases zero oracle calls; malformed oracle hidden by denial |
-| envelope | mandatory 4A invalid families all map to `MALFORMED_ENVELOPE`; audience; wildcard; duplicate/self-recipient behavior; unchanged digest |
+| request-raw/path | request 262143/262144/262145 bytes; BOM/whitespace/comment/trailing/surrogate/number; literal/escaped duplicate keys in every request object; raw failure below unknown members; every Section 3 path class; unknown names never reflected |
+| independent-input | request contains no envelope member; envelope is not double-encoded; each input's byte/depth limit is independent; request error wins collision with envelope error |
+| depth/numeric | request depth 8/9; local negative/`-0`/fraction/exponent/unsafe integers; envelope depth/numbers use unchanged 4A vectors |
+| precedence | mutation canary for every adjacent A00-A13 pair; request framing/fixed fields beat envelope; envelope beats evidence/policy; denied cases zero oracle calls; malformed oracle hidden by denial |
+| envelope | malformed syntax, duplicate key, byte/depth, unknown field, number, recipient, and every 4A invalid family map only to `MALFORMED_ENVELOPE` with prefixed exact path; audience; wildcard; duplicate/self-recipient behavior; unchanged digest |
 | evidence | every field/type/grammar; provenance; issuance/expiry equalities; lifetime 300000/300001 |
 | binding | snapshot fields/version/provenance; 0/256/257 rules; interval edges; duplicate key source index; exact adapter/principal/audience/session/sender; prohibited fields |
 | authorization | snapshot fields/version/provenance; 0/2048/2049 rules; 1/5/6 types; 1/128/129 recipients; duplicates; session key; action; every recipient denial; prohibited fields |
@@ -465,8 +485,15 @@ The status enum is `known-static | deferred | unprofiled`. `losses` contains
 exactly the two displayed records sorted by unsigned ASCII `field_path`; the
 only reason/disposition are `identity_not_represented` and
 `omitted_by_contract`. Unknown/duplicate members, target/status mismatch,
-reordered/extra losses, or non-null identity reject under existing
-static-translation conformance outside the admission corpus.
+reordered/extra losses, or non-null identity MUST reject in the future sidecar
+validator outside the admission corpus. No sidecar implementation, validator,
+fixture, or conformance evidence exists in Slice 4C-1 today.
+
+Future 4C-1 implementation MUST add executable positive fixtures for all seven
+targets with exact null fields and loss ordering, plus negative fixtures for
+unknown target, target/status mismatch, non-null identity, unknown/extra field,
+duplicate loss, reordered loss, and every missing required member. This is a
+required implementation gate, not an existing maturity claim.
 
 No config, template, banner, model/provider label, PID, receipt, login/account,
 provider session, path, prompt, runtime argv, environment name/value, or
@@ -477,8 +504,9 @@ diagnostic may populate either null member.
 The design assumes but does not verify a trusted local adapter and
 caller-supplied fixture snapshots. Capability/profile/proof/model/runtime/
 receipt/conformance input MUST NOT influence authorization. Implementation needs
-the raw one-operation corpus, direct TypeScript/Python byte differential,
-mutation canaries, import checks, and independent contract/security review.
+the split-raw one-operation corpus, direct TypeScript/Python byte differential,
+mutation canaries, import checks, the future StaticHarnessMapping fixtures and
+validator, and independent contract/security review.
 
 Operational use separately requires adapter trust/credentials, protected
 diagnostics, snapshot provenance/revocation, replay persistence, plan-to-4B
@@ -489,4 +517,3 @@ Deferred decisions are the adapter/OS trust boundary; credential, rotation,
 revocation, and session binding; policy snapshot provenance/distribution;
 durable replay implementation; protected diagnostics; and the transaction from
 a newly evaluated plan to dormant Slice 4B storage.
-

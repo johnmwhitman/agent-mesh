@@ -41,19 +41,22 @@ verified boundaries:
 ## Slice 4C-1 designed contract
 
 Slice 4C-1 is specified, but not implemented, by the local admission profile and
-ADR 0007. It defines exactly one normative raw-UTF-8 offline operation,
-`evaluate-local-admission(raw_request_utf8, replay_oracle)`. Its sole success is
-an ephemeral `admission_plan`; replay/conflict/expiry are lowercase
+ADR 0007. It defines exactly one normative offline operation,
+`evaluate-local-admission(request_json, envelope_json, replay_oracle)`, over two
+independent raw UTF-8 texts. Its sole success is an ephemeral `admission_plan`;
+replay/conflict/expiry are lowercase
 `not_admitted` dispositions. Internal parsing, validation, binding,
 authorization, replay classification, and unseen-only expiry are not APIs.
 
-The design preserves Slice 4A envelope/recipient/numeric/depth/digest semantics,
-projects every inherited failure as `MALFORMED_ENVELOPE`, keeps Slice 4B behind
+The design passes `envelope_json` unchanged to 4A, preserves its
+envelope/recipient/numeric/depth/byte/digest semantics independently of request
+parsing, projects every inherited failure as `MALFORMED_ENVELOPE`, keeps Slice 4B behind
 preauthorization, treats policy snapshots as caller-supplied fixtures rather
 than current-state proof, and keeps 4C-0 evidence non-authoritative. It adds no
 public ingress, auth provider, trust root, credential verification, replay
 store, persistence integration, MCP, network, transport, delivery, runtime,
-provider call, release, or activation.
+provider call, release, or activation. The StaticHarnessMapping validator and
+fixtures are future implementation work, not current conformance.
 
 ## Ranked program
 

@@ -147,9 +147,11 @@ attestation, or exactly-once behavior.
 
 Slice 4C-1 is designed, not implemented, in
 [A2A-LOCAL-ADMISSION-PROFILE-v0.1.md](./A2A-LOCAL-ADMISSION-PROFILE-v0.1.md)
-and ADR 0007. It has exactly one raw-UTF-8 offline operation, no public object
-input, and one ephemeral `admission_plan` success. It preserves Slice 4A
-envelope/numeric/depth/digest semantics, leaves Slice 4B behind
+and ADR 0007. It has exactly one offline
+`evaluate-local-admission(request_json, envelope_json, replay_oracle)` operation
+over independent raw UTF-8 texts, no wrapper/object input, and one ephemeral
+`admission_plan` success. The unchanged envelope input preserves Slice 4A
+byte/numeric/depth/digest semantics independently of request parsing and leaves Slice 4B behind
 preauthorization, and excludes all 4C-0 evidence from authorization.
 
 The local adapter marker is an unverified trust assumption. Binding and policy
@@ -157,7 +159,9 @@ snapshots are caller-supplied fixtures with IDs, versions, provenance markers,
 and bounded intervals; a result proves no operational freshness, revocation, or
 provenance authority. Static harness mapping is a closed sidecar outside
 `RendererResult` and the admission corpus and emits null identity fields for all
-targets. There is no public ingress, auth provider, trust root, credential
+targets, but its validator and executable positive/negative fixtures are future
+implementation gates with no current conformance evidence. There is no public
+ingress, auth provider, trust root, credential
 verification, replay store, 4B integration, DB, MCP, transport, network,
 delivery, outbox, runtime, provider call, secret access, release, deploy, or
 activation. Released `meshfleet@0.14.0` contains none of the unmerged Slice 4B,
