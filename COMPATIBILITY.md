@@ -146,13 +146,25 @@ Open an issue at https://github.com/johnmwhitman/agent-mesh/issues with:
   timestamps, permits finite non-integral binary64, normalizes `-0` to `+0`,
   and rejects unsafe integer/exponent/overflow values rather than rounding.
   Equivalent permitted fractional spellings may share semantic identity.
+- Strict raw parsing performs exact decimal fraction/exponent analysis before
+  lossy conversion: exact integral forms must be safe, exact nonintegers that
+  round to integers are rejected, and unsafe values never gain identity through
+  rounding.
+- Object-level conformance accepts only finite acyclic JSON data trees in dense
+  plain arrays and plain/null-prototype data objects with enumerable own data
+  properties. It rejects unsupported primitives, custom prototypes/classes,
+  sparse arrays, accessors without invoking getters, cycles, and depth over 64;
+  encoded envelopes are capped at 128 KiB UTF-8. Unknown valid JSON extensions
+  remain preserved.
 - TypeScript and the standalone Python witness agree exactly on the custom
   canonical digest identifier and bytes:
   `meshfleet.a2a.fingerprint.v1:sha256:<hex>`. The digest covers only the
   normalized envelope using the documented tagged binary tree and SHA-256. It
   is not RFC JCS, a signature, authentication, attestation, durable storage, or
   public-ingress evidence.
-- Canonical digest construction revalidates the recursive numeric domain.
+- Canonical digest construction revalidates both the recursive numeric domain
+  and the complete object-tree structure; rejected values cannot obtain a
+  digest.
 - The only fixture-verified external ingress codes are `accepted`, `duplicate`,
   `replayed_request`, `message_id_conflict`, `request_id_reuse`,
   `request_id_invalid`, `principal_context_required`, `malformed_envelope`,

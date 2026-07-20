@@ -22,9 +22,10 @@ The ranked A2A strategy is canonical in
    design, and a standalone offline Python witness agrees with the
    language-neutral corpora, strict raw-decoder limits, and exact custom
    canonical digest output, including strict JSON payload depth/duplicates,
-   cross-language safe numeric identity, and negative self-tests. This is
-   reference-conformance only: no production ingress/store/tool, RFC JCS,
-   signature, durable acceptance, delivery, or authenticated-principal claim.
+   exact-decimal numeric identity, finite plain object-tree enforcement, and
+   negative self-tests. This is reference-conformance only: no production
+   ingress/store/tool, RFC JCS, signature, durable acceptance, delivery, or
+   authenticated-principal claim.
 5. **Slice 4B durable acceptance foundation** - after 4A: explicit physical
    SQLite migration and dormant internal acceptance journal/decision receipts;
    no hidden lazy schema, legacy projection, delivery, or public tool.

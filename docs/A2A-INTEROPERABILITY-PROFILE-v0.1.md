@@ -53,6 +53,22 @@ invalid. `-0` is permitted and canonicalized as `+0`. Equivalent allowed
 fractional spellings may share semantic binary64 identity; unsafe values are
 rejected instead of rounded.
 
+Strict raw parsing analyzes each decimal number token exactly before conversion.
+Exactly integral fraction or exponent forms are accepted only inside the safe
+range. An exact noninteger that would round to an integral binary64 is invalid;
+ordinary permitted nonintegral values may share identity across equivalent
+lexical forms.
+
+Object-level envelopes are finite acyclic JSON trees only: null, booleans,
+Unicode-scalar strings, permitted numbers, dense arrays with `Array.prototype`,
+and plain or null-prototype objects with enumerable own string data properties.
+The validator rejects undefined, functions, symbols, bigints, custom
+prototypes/classes including `Date`, `Map`, and `Set`, sparse or subclassed
+arrays, extra array properties, accessors, non-enumerable properties, cycles,
+and depth over 64. Descriptor inspection rejects accessors without invoking
+getters. The encoded envelope is capped at 128 KiB UTF-8. Unknown valid JSON
+extensions remain preserved.
+
 ## Minimum conforming implementation
 
 A profile implementation must:
@@ -113,7 +129,9 @@ Unsupported or invalid values are rejected recursively. SHA-256 produces the
 lowercase `<hex>` suffix.
 
 Digest construction revalidates the normalized envelope numeric domain and
-checks each numeric value again during canonical tree encoding.
+checks each numeric value again during canonical tree encoding. It also reruns
+full object-level structural validation, so rejected structural or numeric
+values cannot acquire a digest.
 
 Only the validated, normalized envelope is digested. Principal, runtime,
 transport, policy, and connection context are excluded. A future ingress must
@@ -150,7 +168,8 @@ handling, strict JSON constants, the shared media-type grammar, recursive raw
 duplicate-member rejection, key-order independence, codec identity
 classification, exact canonical digest bytes/output across TypeScript and
 Python, shared payload depth/duplicate behavior, safe numeric boundaries, and
-equivalent permitted fractional identities. Its negative
+exact-decimal pre-parse rejection, equivalent permitted fractional identities,
+and object-tree rejection. Its negative
 self-tests mutate a corpus expectation and feed a nonstandard numeric constant
 to the corpus parser, confirming the witness exits nonzero.
 

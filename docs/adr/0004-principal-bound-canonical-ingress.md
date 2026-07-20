@@ -78,6 +78,19 @@ range, unsafe integer/exponent forms, and overflow fail rather than round. `-0`
 is valid and normalizes to `+0`; equivalent permitted fractional lexical forms
 may share semantic binary64 identity.
 
+Raw decimal tokens are analyzed exactly before lossy host parsing. Exact
+integral fraction/exponent forms are accepted only when safe, and exact
+nonintegers that round to integral binary64 values are rejected. Object-level
+inputs admit only finite acyclic JSON values in dense plain arrays and plain or
+null-prototype data objects with enumerable own data properties. Undefined,
+functions, symbols, bigints, custom prototypes (`Date`, `Map`, `Set`, or class
+instances), sparse/subclassed arrays, accessors, non-enumerable properties,
+cycles, and depth over 64 are rejected. Property descriptors are inspected
+without invoking getters.
+
+The object-level encoded envelope is capped at 128 KiB UTF-8. Unknown valid JSON
+extensions remain preserved as non-authoritative content.
+
 Canonical identity comparison uses exactly
 `meshfleet.a2a.fingerprint.v1:sha256:<hex>`. SHA-256 covers a domain prefix,
 zero separator, and custom tagged canonical tree of the normalized envelope
@@ -89,7 +102,8 @@ precedes digesting; principal, runtime, transport, and policy context are never
 included.
 
 Digest calculation revalidates the numeric domain for the normalized envelope
-and again during canonical tree encoding.
+and again during canonical tree encoding. Full structural validation also runs,
+so rejected numeric or structural values cannot obtain a digest.
 
 This is not RFC JCS. The digest is not a signature, actor authentication,
 attestation, receipt, durable decision, or public-ingress implementation.

@@ -40,6 +40,18 @@ meaningful outside the local process.
   nonnegative integers. Non-integral values are finite binary64; integral-valued
   floats outside the safe range, unsafe integer/exponent forms, and overflow are
   invalid. `-0` is valid and normalizes to `+0`.
+- Raw number tokens are analyzed as exact decimals before lossy host parsing.
+  Exact integral fraction/exponent forms are allowed only when safe. An exact
+  noninteger that binary64 would round to an integer is rejected. Ordinary
+  permitted nonintegral values may normalize across equivalent lexical forms.
+- Object-level envelopes accept only finite acyclic JSON data: null, booleans,
+  scalar strings, permitted numbers, dense plain arrays, and plain or
+  null-prototype data objects with enumerable own data properties. They reject
+  undefined, functions, symbols, bigints, custom prototypes, `Date`, `Map`,
+  `Set`, sparse/subclassed arrays, accessors, non-enumerable properties, cycles,
+  and depth over 64 without invoking getters.
+- The object-level envelope's JSON encoding is limited to 128 KiB UTF-8.
+  Unknown extensions remain preserved when they satisfy the same JSON domain.
 - `payload.media_type` follows the shared ASCII grammar `token "/" token
   *( OWS ";" OWS token OWS "=" OWS ( token / quoted-string ) ) OWS`, where
   tokens are non-empty RFC token strings, OWS is SP/HTAB only, parameter values
@@ -100,7 +112,8 @@ Canonical digest calculation revalidates the complete envelope numeric domain
 and validates numbers again during tree encoding. Equivalent permitted lexical
 forms that parse to the same fractional binary64 value may share the same
 semantic digest. Unsafe values are rejected rather than rounded into an
-accepted identity.
+accepted identity. Full structural validation also runs before digesting, so a
+digest cannot accept a numeric or structural value rejected by the codec.
 
 ## Required acceptance order
 

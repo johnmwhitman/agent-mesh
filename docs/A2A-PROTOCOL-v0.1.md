@@ -213,10 +213,35 @@ literal and escape-equivalent spellings of the same key also conflict.
 including recursive duplicate detection, nonstandard-constant rejection, and
 the root-at-1/max-64 depth rule. Payload bodies remain capped at 64 KiB UTF-8.
 
+Before the host JSON parser can round a number, the strict scanner analyzes each
+raw decimal token exactly, including its fraction and exponent. An exactly
+integral token, whether written as an integer, fraction, or exponent, is accepted
+only inside the safe-integer range. An exact noninteger is rejected when its
+binary64 conversion would become an integer. Ordinary permitted nonintegral
+values may normalize across equivalent lexical forms after conversion. Unsafe
+integers, exponents, and overflow are rejected before lossy parsing.
+
 `validateEnvelope` remains object-level validation. It cannot recover duplicate
 members, malformed token spellings, or other source-text distinctions already
 lost by an upstream parser. These limits and rejection rules are codec and
 reference-conformance evidence, not evidence of a public transport or ingress.
+
+Object-level inputs MUST be finite, acyclic JSON data trees containing only
+`null`, booleans, Unicode-scalar strings, permitted numbers, dense plain arrays,
+and plain or null-prototype data objects. Arrays MUST use `Array.prototype`,
+contain every index from zero through `length - 1` as an enumerable own data
+property, and contain no symbol or non-index properties. Objects MUST have
+`Object.prototype` or `null` as their prototype and enumerable own string data
+properties only.
+
+The object-level validator rejects `undefined`, functions, symbols, bigints,
+custom prototypes and class instances (including `Date`, `Map`, and `Set`),
+sparse or subclassed arrays, accessors, non-enumerable properties, cycles, and
+trees deeper than 64 containers. It inspects property descriptors and rejects
+accessors without invoking their getters. After structural validation, the JSON
+encoding of the envelope MUST be at most 128 KiB (`131072` UTF-8 bytes).
+Unknown extensions that satisfy this JSON domain remain preserved and retain no
+authority.
 
 ### Numeric domain
 
@@ -232,6 +257,10 @@ envelope, including extensions and parsed JSON payload values:
 - `-0` is valid and canonicalizes to `+0`.
 - Unsafe integer literals, unsafe exponent forms, and overflow are rejected,
   not rounded into an accepted identity.
+
+For raw JSON, these decisions are made from the exact decimal token before
+lossy host parsing. An exact integral fraction or exponent is permitted only if
+safe; an exact noninteger that rounds to an integer is invalid.
 
 Permitted lexical forms that parse to the same fractional binary64 value may
 share semantic numeric identity, such as `0.5` and `5e-1`. This equivalence
@@ -267,7 +296,9 @@ Each object key is encoded using the string tag and length form before its
 value. Canonicalization recursively rejects unsupported values, cycles or
 non-JSON trees, non-scalar strings, and out-of-domain numbers. The canonical
 digest path revalidates the envelope numeric domain and validates each number
-again while encoding the tree.
+again while encoding the tree. Because digest construction first calls the full
+object-level validator, it cannot accept a numeric or structural value rejected
+by the envelope domain.
 
 The digest covers only the validated, normalized envelope. It never covers a
 principal, policy decision, runtime, process, transport, connection, or other
