@@ -8,6 +8,11 @@ This document tracks what each version guarantees and what changes break it.
 The A2A registry uses explicit evidence levels rather than treating a documented
 configuration as a working integration:
 
+This table is the authoritative evidence-status vocabulary. The
+`evidence_statuses` list and `evidence_status_definitions` keys in
+`docs/CONFORMANCE-MATRIX.yaml` MUST mirror it one-to-one. `implemented` is
+descriptive prose, not a status label.
+
 | Status | Meaning |
 |---|---|
 | `designed` | A normative contract exists; executable evidence is absent or separately classified |
@@ -28,6 +33,8 @@ configuration as a working integration:
 | `proposed` | Contract or design exists; implementation evidence is absent |
 | `deferred` | Intentionally outside the current release boundary |
 | `gated` | Requires explicit human, security, credential, spend, or egress approval |
+| `unverified` | A field or integration is known but lacks the evidence required for a stronger registered status |
+| `secret-rejected` | Static preflight rejects secret-bearing configuration and emits no target configuration; this is rejection evidence only |
 
 ## A2A conformance registry
 
@@ -35,8 +42,8 @@ configuration as a working integration:
 |---|---|---|---|
 | Packaged MCP stdio ingress | `process-handshake-verified` | `npx -y meshfleet` completes the process-level MCP handshake | `test/mcp-stdio.test.ts` |
 | Generic MCP configuration | `static-config-verified` | The canonical stdio command and argv are packaged and checked | `mcp.json` |
-| Claude Code, Codex, OpenCode inbound configs | `static-config-verified` | Slice 3B renderers emit proven command/argv shapes from local evidence; timeout and environment-name representation remain explicitly unverified where recorded in the conformance matrix, and live client semantics are unverified | `docs/CONFIG-TRANSLATION.md`, `test/config/*.test.ts` |
-| SSE inbox projection | `implemented` | Optional local inbox push, not general A2A HTTP | `src/sse-server.ts` |
+| Claude Code, Codex, OpenCode inbound configs | `static-config-verified` | Slice 3B renderers emit proven command/argv shapes from local evidence; timeout and `envAllowlist` remain unrepresented and explicitly unverified in the conformance matrix, and live client semantics are unverified | `docs/CONFIG-TRANSLATION.md`, `test/config/*.test.ts` |
+| SSE inbox projection | `coupled` | Optional implementation-specific local inbox push, not general A2A HTTP | `src/sse-server.ts` |
 | Outbound worker execution | `coupled` | Current worker launch and parsing remain OpenCode-specific | `src/index.ts`, `src/spawn-result.ts` |
 | `meshfleet.a2a` v0.1 codec and interoperability profile | `reference-conformance` | Pure provider-neutral validation and an independent offline Python witness agree with the language-neutral corpora; the mutated-corpus negative test detects a false expected outcome; public, durable, and authenticated ingress are not implemented | `docs/A2A-PROTOCOL-v0.1.md`, `reference/python/a2a_reference.py`, `test/a2a-reference-python.test.ts` |
 | Canonical ingress contract v0.1 | `fixture-verified` | Deterministic fixtures exercise the designed ordering and stable external result vocabulary; this is not a production store, policy engine, delivery path, or public tool | `docs/A2A-INGRESS-CONTRACT-v0.1.md`, `test/fixtures/a2a/ingress/v0.1/corpus.json` |

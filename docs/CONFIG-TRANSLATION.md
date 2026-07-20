@@ -9,9 +9,8 @@ All renderers consume a single `CanonicalMcpStdioConnection` defined in `src/con
 - `serverId`: `meshfleet`
 - `transport`: `stdio`
 - `command`: `["npx", "-y", "meshfleet"]`
-- `envAllowlist`: reviewed static names only from `AGENT_MESH_CHILD`,
-  `MESHFLEET_DB_FILE`, `MESHFLEET_RATIFY_SWEEP_MS`, and
-  `npm_config_offline` (no values or inline secrets)
+- `envAllowlist`: existing Slice 3B source field; not represented in the Slice
+  4C-0 source-neutral translation profile (no names, values, or inline secrets)
 - `timeout`: default 300000 ms (5 minutes)
 
 ## Renderer Contract
@@ -50,15 +49,12 @@ that a process ran, a client accepted the configuration, or a capability,
 runtime identity, authorization, delivery, or execution exists.
 
 No caller- or runtime-supplied command data is eligible for this exception.
-Observed argv, prompts, dynamic arguments, paths, CWD, runtime-observed
-environment names, environment values, endpoints, output, and diagnostics
-remain prohibited from capability profile and translation-fixture data.
-Reviewed static environment-name references are permitted only when they match
-`[A-Za-z_][A-Za-z0-9_]{0,63}` and the exact v0.1 enum
-`AGENT_MESH_CHILD`, `MESHFLEET_DB_FILE`, `MESHFLEET_RATIFY_SWEEP_MS`, or
-`npm_config_offline`. A name is nonsecret configuration shape, not evidence a
-process ran or that a value existed. A new static template or name requires an
-explicit target-profile-defined allowlist entry and the bounds in
+Observed argv, prompts, dynamic arguments, paths, CWD, environment names,
+environment values, endpoints, output, and diagnostics remain prohibited from
+capability profile and translation-fixture data. The closed static
+launch-template enum is the only represented process-configuration shape. A
+new static template requires an explicit target-profile-defined allowlist entry
+and the bounds in
 [A2A Capability Profile v0.1](./A2A-CAPABILITY-PROFILE-v0.1.md).
 
 ## Secret Rejection Policy
@@ -71,10 +67,9 @@ explicit target-profile-defined allowlist entry and the bounds in
   `password`, `private_key`, `auth`, Bearer material, credential URLs, PEM
   private keys, and long base64-like values) with status `secret-rejected` and
   no emitted config.
-- Only the exact reviewed static environment-name enum above is allowed where
-  the target schema has proven support in local evidence. Runtime-observed
-  names and all environment values remain forbidden; other static names are
-  reported as unsupported without echoing a value.
+- Slice 4C-0 represents no environment names or values. The existing Slice 3B
+  renderer reports `envAllowlist` as unsupported where target evidence is
+  absent and MUST NOT project it into the capability profile.
 - Every canonical field must be either represented by emitted target data or
   listed once in `unsupported`; no renderer may silently drop a field.
 

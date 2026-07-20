@@ -8,6 +8,7 @@
     "docs/ADAPTER-CONTRACT.md",
     "docs/A2A-PROGRAM.md"
   ],
+  "evidence_status_authority": "COMPATIBILITY.md#conformance-status-vocabulary",
   "evidence_statuses": [
     "designed",
     "fixture-verified",
@@ -20,15 +21,37 @@
     "static-translation-verified",
     "process-handshake-verified",
     "semantic-tool-verified",
+    "codec-conformance-verified",
     "runtime-launch-verified",
     "recovery-verified",
-    "unverified",
+    "coupled",
+    "proposed",
     "deferred",
+    "gated",
+    "unverified",
     "secret-rejected"
   ],
   "evidence_status_definitions": {
+    "designed": "A normative contract exists; executable evidence is absent or separately classified.",
+    "fixture-verified": "A language-neutral corpus has executable expected outcomes; no production surface is implied.",
+    "reference-conformance": "An independent implementation agrees with the corpus; no public, durable, or authenticated ingress is implied.",
+    "dormant-internal-durable-verified": "A private disabled-by-surface acceptance journal has migration, replay, atomicity, privacy, compatibility, and review evidence; still no public ingress, auth, or delivery claim.",
+    "implemented-public-ingress": "Reserved for a separately reviewed public ingress with durable acceptance, current authorization, and compatibility evidence.",
+    "documented": "Configuration or behavior is described; no executable proof.",
     "static-profiled": "A bounded target capability/configuration profile is normatively defined from static evidence; no translator execution, process launch, runtime observation, authentication, or semantic-tool proof.",
-    "static-translation-verified": "Independent offline translators agree with the shared deterministic translation corpus; no client launch, registry lookup, runtime observation, authentication, or semantic-tool proof."
+    "static-config-verified": "Target configuration shape is checked without a live client.",
+    "static-translation-verified": "Independent offline translators agree with the shared deterministic translation corpus; no client launch, registry lookup, runtime observation, authentication, or semantic-tool proof.",
+    "process-handshake-verified": "A process starts and completes the protocol handshake.",
+    "semantic-tool-verified": "Representative tool calls and return shapes work through the target.",
+    "codec-conformance-verified": "A provider-neutral codec and language-neutral fixture corpus pass conformance checks; no public canonical tool ingress is implied.",
+    "runtime-launch-verified": "A runtime adapter launches and settles work with normalized evidence.",
+    "recovery-verified": "Restart, expiry, fencing, cancellation, and replay are proven.",
+    "coupled": "Behavior exists but remains implementation-specific to one runtime.",
+    "proposed": "Contract or design exists; implementation evidence is absent.",
+    "deferred": "Intentionally outside the current release boundary.",
+    "gated": "Requires explicit human, security, credential, spend, or egress approval.",
+    "unverified": "A field or integration is known but lacks the evidence required for a stronger registered status.",
+    "secret-rejected": "Static preflight rejects secret-bearing configuration and emits no target configuration; this is rejection evidence only."
   },
   "inbound": [
     {

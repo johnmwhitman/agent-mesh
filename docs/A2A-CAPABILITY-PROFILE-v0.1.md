@@ -54,7 +54,6 @@ All regex-like grammars below are anchored to the complete ASCII string.
 | exact-version | 0 or a nonzero decimal integer, a dot, 0 or a nonzero decimal integer, and an optional third dot component; at most 32 bytes |
 | protocol-ref | canonical-id, slash, exact-version; at most 129 bytes |
 | ascii-label | [A-Za-z0-9][A-Za-z0-9._+@-]{0,95} |
-| environment-name | [A-Za-z_][A-Za-z0-9_]{0,63} |
 | proof-digest | sha256: followed by exactly 64 lowercase hexadecimal characters |
 | extension-key | x-[a-z][a-z0-9-]*(?:[.][a-z][a-z0-9-]*)+, 3 through 96 bytes |
 | field-path | dollar sign followed by one or more dot-name or decimal array-index segments; names use [a-z][a-z0-9_]*; at most 256 bytes |
@@ -261,11 +260,14 @@ profile returns exactly:
     }
 
 `valid` is false when time or semantic validation fails; the other fields
-remain present. A structural parse failure returns exactly
-`validation_version`, `evaluation_time_ms`, `valid: false`, `proof_results: []`,
-and `errors`; it omits `profile_fingerprint` because no normalized profile
-exists. Each error is a closed object containing exactly `code` and
-`field_path`, and errors sort by that unsigned ASCII tuple.
+remain present. If parsing or any structural validation fails anywhere in the
+profile, `proof_results` MUST be empty for the whole profile. Such a report
+contains exactly `validation_version`, `evaluation_time_ms`, `valid: false`,
+`proof_results: []`, and `errors`; it omits `profile_fingerprint` because no
+complete normalized profile exists. No proof result may be emitted for a
+structurally valid claim beside a structurally invalid sibling claim. Each
+error is a closed object containing exactly `code` and `field_path`, and errors
+sort by that unsigned ASCII tuple.
 
 Proof verification is computed report output, never profile input.
 `validateProfile` MUST always return `proof_results`. For every fully normalized
@@ -332,10 +334,7 @@ extensions is a closed object whose member names use extension-key. The profile
 has at most 32 extension members; each claim and translation object has at most
 16.
 
-An unknown noncritical extension value is exactly one of:
-
-- a boolean;
-- a safe integer.
+An unknown noncritical extension value is exactly a boolean.
 
 Objects, null, floating-point numbers, nested arrays, mixed structured records,
 arrays, ASCII or Unicode strings, free-form prose, paths, URLs, endpoints, credentials, secret
@@ -346,13 +345,15 @@ Unknown noncritical extensions MUST be preserved exactly after strict
 normalization and MUST be included in claim and profile fingerprints. Object
 member order is canonicalized by the byte tree. A future registered extension
 profile MAY define another closed value grammar, but the v0.1 witness has no
-registered extensions and MUST NOT accept strings or arrays as unknown values.
+registered extensions and MUST NOT accept integers, strings, arrays, or objects
+as unknown values.
 
 critical_extensions is a duplicate-free set of extension-key values. Each
 member MUST name a member present in the same extensions object. Slice 4C-0
 defines no known critical extension, so every nonempty critical_extensions set
 is UNSUPPORTED_CRITICAL_EXTENSION. Unknown noncritical extension members remain
-accepted and preserved.
+accepted and preserved. Duplicate-set validation occurs before critical-name
+support validation.
 
 ## 10. Complete array normalization taxonomy
 
@@ -369,11 +370,9 @@ translation schemas, and computed report:
 | claim.critical_extensions | Set | Reject duplicates; sort by unsigned ASCII bytes. |
 | translation input.source_profile arrays | Profile data | Apply the profile and claim rules above. |
 | translation input.launch_template.argv_template | Ordered sequence | Retain input order exactly; v0.1 permits only the exact template sequence in Section 13. |
-| translation input.env_names | Set | Reject duplicates; sort by unsigned ASCII bytes. |
 | translation input.features | Semantically unordered records | Reject duplicate feature_id; fully normalize each record and sort by its canonical bytes. |
 | translation input.provenance_refs | Set | Reject duplicates; sort by unsigned ASCII bytes. |
 | translation input.critical_extensions | Set | Reject duplicates; sort by unsigned ASCII bytes. |
-| translation result.env_names | Set | Reject duplicates; sort by unsigned ASCII bytes. |
 | translation result.features | Semantically unordered records | Reject duplicate feature_id; fully normalize each record and sort by canonical bytes. |
 | translation result.provenance_refs | Set | Reject duplicates; sort by unsigned ASCII bytes. |
 | translation result.losses | Semantically unordered records | Reject exact duplicate records; sort by field_path, target, reason_code, disposition using unsigned ASCII tuple comparison. |
@@ -381,6 +380,14 @@ translation schemas, and computed report:
 | translation result.profile.claims and nested arrays | Profile data | Apply the profile and claim rules above. |
 | validation result.proof_results | Semantically unordered report records | Exactly one per normalized claim; reject duplicate claim_fingerprint; sort by claim_id, then canonical result bytes, using unsigned lexicographic comparison. |
 | validation result.errors | Semantically unordered error records | Reject exact duplicates; sort by code, then field_path, using unsigned ASCII tuple comparison. |
+| comparison report.profile_results | Sequence by source input | Retain one result per input profile and sort by profile_index ascending. |
+| compareProfiles raw_profiles argument | Ordered source sequence | Retain caller order exactly; profile_index is assigned from this order and the comparator MUST NOT reorder the argument. |
+| comparison profile_result.validation_error_codes | Set | Reject duplicates; sort by unsigned ASCII bytes. |
+| comparison report.identity_contradictions | Semantically unordered records | Sort by each fully normalized record's canonical bytes using unsigned lexicographic comparison. |
+| comparison report.semantic_contradictions | Semantically unordered records | Sort by each fully normalized record's canonical bytes using unsigned lexicographic comparison. |
+| comparison report.exact_duplicates | Semantically unordered records | Sort by claim_fingerprint using unsigned ASCII bytes. |
+| comparison report.errors | Semantically unordered error records | Reject exact duplicates; sort by profile_index numerically, then code and field_path using unsigned ASCII comparison. |
+| comparison contradiction occurrence arrays | Sets of source positions | Reject duplicates; sort by profile_index, then claim_index, numerically ascending. |
 
 Static argv_template and any future field explicitly named as a sequence retain
 order. Every future array field MUST be added to this table before acceptance.
@@ -432,6 +439,58 @@ A contradiction makes only that semantic capability unavailable to offline
 compatibility comparison. It never authenticates, denies, authorizes, routes,
 or selects a runtime.
 
+### 11.3 Closed comparison report
+
+`ComparisonReport` is a closed object containing exactly:
+
+    {
+      "comparison_version": "meshfleet.a2a.capability-comparison/v0.1",
+      "evaluation_time_ms": 1760000000000,
+      "valid": true,
+      "profile_results": [],
+      "identity_contradictions": [],
+      "semantic_contradictions": [],
+      "exact_duplicates": [],
+      "errors": []
+    }
+
+A structurally valid profile result contains exactly `profile_index`,
+`structurally_valid: true`, `profile_id`, `profile_fingerprint`, `valid`, and
+`validation_error_codes`. `valid` includes time and semantic validity;
+`validation_error_codes` is a duplicate-free ASCII set sorted bytewise. A
+structurally invalid profile result contains exactly `profile_index`,
+`structurally_valid: false`, `valid: false`, and `validation_error_codes`.
+`profile_index` and claim indexes are zero-based nonnegative safe integers.
+Unvalidated profile IDs are never returned.
+
+A claim occurrence is a closed object containing exactly `profile_index`,
+`claim_index`, and `claim_fingerprint`. `claim_index` is the claim's original
+source-array position and does not imply source mutation.
+
+An identity-contradiction record contains exactly `left` and `right`, each a
+claim occurrence. The two occurrences are ordered by their canonical bytes. A
+semantic-contradiction record contains exactly `kind`,
+`supported_occurrences`, and `unsupported_occurrences`; `kind` is capability,
+transport, or protocol, and both occurrence arrays are nonempty sets sorted by
+source position. An exact-duplicate record contains exactly
+`claim_fingerprint` and `occurrences`; occurrences has at least two members and
+is sorted by source position. This group is the sole representation of
+coalescing. It MUST NOT remove, reorder, or rewrite any input profile or claim.
+
+A comparison error contains exactly `profile_index`, `code`, and `field_path`.
+It contains no rejected value, profile ID, claim ID, diagnostic prose, or other
+reflected input. If any input profile is structurally invalid, report `valid`
+MUST be false; `identity_contradictions`, `semantic_contradictions`, and
+`exact_duplicates` MUST all be empty; `errors` MUST include at least one
+index-scoped safe code for every structurally invalid profile; and no partial
+comparison may occur. Structurally valid but time-invalid profiles remain in
+`profile_results` with `valid: false`; comparison report `valid` is false, and
+their normalized claims may be compared because structural validity succeeded.
+Otherwise report `valid` is true exactly when every profile result is valid and
+the comparison completed. Reported cross-profile identity or semantic
+contradictions and exact-duplicate groups are findings and do not by themselves
+change report `valid`. All arrays obey Section 10.
+
 ## 12. Canonicalization and fingerprint
 
 Normalization performs closed-schema validation, strict value validation,
@@ -455,7 +514,11 @@ It is SHA-256 over:
 
     UTF8("meshfleet.a2a.capability-claim.v1")
     || 0x00
-    || canonical-tree(fully-normalized-claim)
+    || canonical-tree([profile_id, fully-normalized-claim])
+
+The two-element array is the complete canonical tuple. Therefore the same
+normalized claim under different profile_id values MUST have different claim
+fingerprints even though it does not form an identity contradiction.
 
 canonical-tree is the versioned byte tree in A2A-PROTOCOL-v0.1.md. Computed
 verification reports are never included. Unknown noncritical extensions are
@@ -511,7 +574,6 @@ A translation input is a closed object with exactly these required members:
         "argv_template": ["-y", "meshfleet"]
       },
       "cwd_policy": "target-default-unknown",
-      "env_names": [],
       "features": [],
       "provenance_refs": [],
       "extensions": {},
@@ -538,17 +600,9 @@ No other command or argument literal is accepted in v0.1. argv_template is
 order-sensitive. It is nonsecret configuration shape and is not evidence that
 a process ran or a target accepted the configuration.
 
-env_names contains zero through four values from this exact reviewed v0.1 enum:
-
-    AGENT_MESH_CHILD
-    MESHFLEET_DB_FILE
-    MESHFLEET_RATIFY_SWEEP_MS
-    npm_config_offline
-
-Every member MUST also satisfy environment-name. It contains reviewed static
-names only. Environment values and runtime-observed names are structurally
-impossible. An environment name does not disclose or authorize access to its
-value and is not evidence that the variable existed in a process.
+Environment names and values are not represented. `env_names`, `env_values`,
+`environment`, and `env` are not translation members. The static launch-template
+enum is the complete v0.1 process-configuration shape.
 
 features contains zero through 64 closed objects with exactly feature_id,
 state, and provenance_ref. feature_id uses canonical-id, state uses the feature
@@ -587,7 +641,6 @@ A translation result is a closed object with exactly these required members:
         "argv_template": ["-y", "meshfleet"]
       },
       "cwd_policy": "not-represented",
-      "env_names": [],
       "features": [],
       "provenance_refs": [],
       "profile": {
@@ -609,7 +662,7 @@ A translation result is a closed object with exactly these required members:
 
 profile MUST be the complete normalized source_profile. It is not an arbitrary
 object and MUST remain semantically byte-equivalent to source_profile after the
-profile normalization rules. launch_template, cwd_policy, env_names, features,
+profile normalization rules. launch_template, cwd_policy, features,
 provenance_refs, extensions, and critical_extensions use the input schemas and
 array rules.
 
@@ -620,7 +673,6 @@ reason_code is exactly one of:
 - field_not_represented
 - target_schema_unknown
 - cwd_not_represented
-- environment_value_forbidden
 - capability_not_proven
 - runtime_identity_not_attested
 - semantic_gap
@@ -678,9 +730,9 @@ The translator applies these rules in order:
    target emits cwd_policy not-represented; if the input was different, emit one
    loss for $.cwd_policy with reason_code cwd_not_represented and disposition
    omitted_by_contract.
-4. generic-cli-stdio preserves normalized env_names. Every other target emits
-   an empty env_names set; if input was nonempty, emit one loss for $.env_names
-   with reason_code field_not_represented and disposition omitted_by_contract.
+4. Environment names and values are absent from both schemas. Any `env_names`
+   member is UNKNOWN_CORE_FIELD; forbidden value-bearing fields continue to
+   fail under the privacy rules.
 5. codex, claude-code, opencode, generic-mcp, and generic-cli-stdio preserve
    normalized features and provenance_refs as result metadata. Deferred targets
    preserve unsupported, unknown, and not-represented features; supported
@@ -716,8 +768,11 @@ Conformance maturity is rendered only by this separate pure API:
 exactly `registry_version`, `record_id`, `target`, `scope`, and `status`.
 `registry_version` is `meshfleet.a2a.conformance-registry/v0.1`; `record_id`
 uses opaque-ref; `target` uses the target enum; `scope` is exactly
-`offline-translation`; and `status` uses the complete conformance maturity enum
-in Section 2. `ConformanceRender` contains exactly `record_id`, `target`,
+`offline-translation`; and `status` is exactly `documented`, `static-profiled`,
+`static-config-verified`, or `static-translation-verified`. Every higher or
+otherwise different maturity status produces `INVALID_SCOPE_STATUS`.
+Runtime/process conformance belongs outside this renderer. `ConformanceRender`
+contains exactly `record_id`, `target`,
 `scope`, and `status`. The function MUST reject a target mismatch. It MUST NOT
 inspect a registry, file, environment, process, network, provider, database,
 runtime, or other live state. The translation result contains no
@@ -761,8 +816,9 @@ Validators use these stable local codes:
     INVALID_LOSS_RECORD
     UNSUPPORTED_STATIC_TEMPLATE
     UNSUPPORTED_TARGET_CLAIM
-    UNSUPPORTED_ENVIRONMENT_NAME
     INVALID_PROOF_RESULTS
+    INVALID_VALIDATION_REPORT
+    INVALID_SCOPE_STATUS
 
 A future public surface MUST collapse detailed codes into a non-enumerating
 failure. Protected local diagnostics may report a code and field path but MUST
@@ -790,14 +846,10 @@ stated result:
 | array.applicability-operation-reordered | same normalized bytes |
 | array.duplicate-set-member | DUPLICATE_SET_MEMBER |
 | array.argv-template-reordered | INVALID_TRANSLATION_INPUT |
-| array.env-names-reordered | same normalized translation bytes and result |
-| array.env-names-duplicate | DUPLICATE_SET_MEMBER |
 | array.features-reordered | same normalized translation bytes and result |
 | array.features-duplicate | INVALID_TRANSLATION_INPUT |
 | array.provenance-refs-reordered | same normalized translation bytes and result |
 | array.provenance-refs-duplicate | DUPLICATE_SET_MEMBER |
-| array.result-env-names-reordered | same normalized result bytes |
-| array.result-env-names-duplicate | DUPLICATE_SET_MEMBER |
 | array.result-features-reordered | same normalized result bytes |
 | array.result-features-duplicate | INVALID_TRANSLATION_RESULT |
 | array.result-provenance-refs-reordered | same normalized result bytes |
@@ -806,6 +858,12 @@ stated result:
 | array.result-losses-duplicate | INVALID_TRANSLATION_RESULT |
 | array.proof-results-reordered | same normalized validation report bytes |
 | array.proof-results-duplicate | INVALID_PROOF_RESULTS |
+| array.translation-input-critical-reordered | both orders produce UNSUPPORTED_CRITICAL_EXTENSION |
+| array.translation-input-critical-duplicate | DUPLICATE_SET_MEMBER |
+| array.translation-result-critical-reordered | both orders produce UNSUPPORTED_CRITICAL_EXTENSION |
+| array.translation-result-critical-duplicate | DUPLICATE_SET_MEMBER |
+| array.validation-errors-reordered | same normalized validation report bytes |
+| array.validation-errors-duplicate | INVALID_VALIDATION_REPORT |
 | claim.capability-valid | valid closed capability claim |
 | claim.transport-valid | valid closed transport claim |
 | claim.protocol-multiple-versions | valid; versions coexist |
@@ -818,6 +876,7 @@ stated result:
 | claim.invalid-state | INVALID_CLAIM_SCHEMA |
 | contradiction.identity-same-profile-collision | same identity key and different claim fingerprints produce CONTRADICTORY_CLAIMS |
 | contradiction.identity-cross-profile-noncollision | different profile_id values do not identity-conflict |
+| fingerprint.same-claim-different-profile | same normalized claim under different profile_id values has different claim fingerprints |
 | contradiction.exact-duplicate | coalesced for comparison only; source unchanged |
 | contradiction.capability-supported-unsupported | CONTRADICTORY_CLAIMS |
 | contradiction.capability-unknown-supported | no contradiction |
@@ -833,6 +892,7 @@ stated result:
 | proof.attested-missing-field | INVALID_PROOF_CARRIER |
 | proof.nonattested-absent | valid; computed verification_status absent |
 | proof.results-cardinality | exactly one result per normalized claim in claim_id/canonical tie-break order |
+| proof.mixed-valid-invalid-claims | profile structural failure; proof_results is empty for the whole profile |
 | time.profile-before-issued | NOT_YET_VALID_PROFILE when evaluation_time_ms is one less than issued_at_ms |
 | time.profile-issued-equality | valid when evaluation_time_ms equals issued_at_ms |
 | time.profile-before-expiry | valid when evaluation_time_ms is one less than expires_at_ms |
@@ -849,6 +909,7 @@ stated result:
 | extension.object-member-reordered | same normalized bytes and fingerprint |
 | extension.unknown-critical | UNSUPPORTED_CRITICAL_EXTENSION |
 | extension.nested-or-free-form | INVALID_EXTENSION_VALUE |
+| extension.integer | INVALID_EXTENSION_VALUE |
 | extension.api-key-string | INVALID_EXTENSION_VALUE without echoing the value |
 | extension.base64-string | INVALID_EXTENSION_VALUE without echoing the value |
 | privacy.forbidden-field-names | FORBIDDEN_PRIVACY_FIELD for every listed field name |
@@ -862,9 +923,7 @@ stated result:
 | translation.deferred-template-fail | each deferred target with a non-none template returns UNSUPPORTED_STATIC_TEMPLATE and no result |
 | translation.deferred-supported-feature-fail | each deferred target with a supported feature returns UNSUPPORTED_TARGET_CLAIM and no result |
 | translation.deferred-nonsupported-feature-return | unsupported, unknown, and not-represented features return a result under the deferred rules |
-| translation.env-name-enum | each reviewed static environment name is accepted independently |
-| translation.env-name-unknown | UNSUPPORTED_ENVIRONMENT_NAME |
-| translation.env-runtime-observed-name | FORBIDDEN_PRIVACY_FIELD |
+| translation.env-names-field | UNKNOWN_CORE_FIELD |
 | translation.env-value | FORBIDDEN_PRIVACY_FIELD; no result and no value in diagnostics |
 | translation.feature-state-four-values | exact supported/unsupported/unknown/not-represented behavior |
 | translation.loss-order | exact unsigned tuple order |
@@ -873,7 +932,17 @@ stated result:
 | conformance.explicit-record | renderConformance uses only the supplied validated registry record |
 | conformance.target-mismatch | renderConformance rejects mismatched result and record targets |
 | conformance.no-live-registry | renderConformance cannot inspect registry or live state |
-| status.registry-values | matrix lists and defines static-profiled and static-translation-verified consistently with COMPATIBILITY.md |
+| conformance.offline-status-allowlist | the four offline statuses render successfully |
+| conformance.higher-status-rejected | process-handshake-verified and every other non-allowlisted status produce INVALID_SCOPE_STATUS |
+| comparison.valid-no-findings | exact closed report with deterministic empty finding arrays |
+| comparison.identity-contradiction | exact identity record shape and canonical ordering |
+| comparison.semantic-contradiction | exact semantic record shape and canonical ordering |
+| comparison.exact-duplicates | grouped occurrences coalesce in report only; inputs remain byte-identical |
+| comparison.structural-invalid-profile | valid false; finding arrays empty; index-scoped errors; no partial comparison or reflected value |
+| comparison.time-invalid-profile | structurally valid profile_result is invalid; normalized claims remain eligible for comparison |
+| comparison.arrays-reordered | same normalized ComparisonReport bytes |
+| comparison.array-duplicate | duplicate set or error entry is rejected by its Section 10 rule |
+| status.registry-values | COMPATIBILITY.md table, matrix evidence_statuses, and matrix definition keys are the same ordered one-to-one vocabulary; every used status is registered and implemented is not a status label |
 | status.runtime-evidence-pointer | matrix and compatibility point to test/runtime-adapter.test.ts |
 | status.slice-name | canonical surfaces use capability profile and evidence taxonomy |
 | import.offline-boundary | no auth, DB, runtime, transport, process, network, provider, credential, or environment-discovery imports |
