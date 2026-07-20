@@ -34,15 +34,17 @@ The ranked A2A strategy is canonical in
    pre-migration WAL-safe backup. No hidden lazy schema, raw identity/content
    storage, legacy/lifecycle/outbox projection, auth, delivery, public tool, or
    activation.
-6. **Slice 4C-0 capability profile and evidence taxonomy** - next:
-   contract accepted in [A2A Capability Profile v0.1](docs/A2A-CAPABILITY-PROFILE-v0.1.md) and
-   [ADR 0006](docs/adr/0006-capability-evidence-is-not-authority.md); implementation remains
-   pure offline TS/Python validation, canonicalization, fingerprints, contradictions, and
-   deterministic translation/loss corpus only. Capability claims, proof carriers, provider
-   strings, model banners, and durable receipts never grant authority.
-7. **Slice 4C-1 authenticated-local adapter proof** - then prove one
-   adapter-derived authenticated local principal and semantic client path, then
-   separately review any public ingress. No remote or multi-host claim.
+6. **Slice 4C-0 capability profile and evidence taxonomy** - implemented and
+   independently verified as an offline/dormant semantic foundation at
+   `ea69cb9` over `234cd55..ea69cb9`: 363 exact five-operation cases, 363/363
+   direct TypeScript/Python byte differential, 530/530 full tests, passed
+   typecheck, and two APPROVED final independent reviews. Capability claims,
+   proof carriers, provider strings, model banners, and durable receipts never
+   grant authority. No public/runtime/auth/network/durable-registry activation.
+7. **Slice 4C-1 authenticated-local adapter proof** - proposed next only;
+   prove one principal-bound authenticated-local semantic path while remaining
+   offline and separately gated. No active, approved, remote, or multi-host
+   implementation claim.
 8. **Slice 4D then 4E** - offline delivery-attempt/transport conformance, then
    deterministic two-host coordinator simulation; neither is implemented.
 
@@ -175,9 +177,18 @@ observable, not a daemon, dashboard, or service claim.
   and fail-closed; logical ledger schema remains v2. The private journal has no
   public ingress, delivery, execution, auth provider, transport activation,
   outbox, lifecycle execution, NDJSON, or legacy projection.
-- [ ] **Slice 4C-0: capability profile and evidence taxonomy** - contract accepted in [A2A Capability Profile v0.1](docs/A2A-CAPABILITY-PROFILE-v0.1.md) and [ADR 0006](docs/adr/0006-capability-evidence-is-not-authority.md); implementation remains pending. Define only pure offline, non-authorizing discovery, independent evidence axes, deterministic translation/loss semantics, and a TS/Python corpus. No proof verification, principal provider, public ingress, runtime selection, network, persistence, delivery, execution, or activation.
-- [ ] **Slice 4C-1: principal-bound authenticated-local semantic path** — prove
-  a secretless local adapter path before any public ingress review.
+- [x] **Slice 4C-0: capability profile and evidence taxonomy** — offline/dormant
+  semantic foundation implemented and independently verified at `ea69cb9` over
+  `234cd55..ea69cb9`. Exactly five operations, 363 executable cases, 363/363
+  direct byte differential, 56 extension-family cases, R00-R22, T00-T16
+  rejection precedence, all eight target behaviors, and producer uniqueness are
+  evidenced. The 13 serialized-report ingestion-only duplicate vectors remain
+  explicitly deferred. This is not proof verification, authority, public
+  ingress, runtime selection, network, persistence, delivery, execution,
+  release, or activation.
+- [ ] **Slice 4C-1: principal-bound authenticated-local semantic path** —
+  proposed next, still offline and separately gated; do not treat it as active
+  or approved beyond proposal.
 - [ ] **Slice 4D: offline delivery-attempt and transport conformance** — compare
   stdio, mailbox, HTTP/SSE, and WebSocket semantic traces without live peers.
 - [ ] **Slice 4E: deterministic two-host coordinator simulation** — prove

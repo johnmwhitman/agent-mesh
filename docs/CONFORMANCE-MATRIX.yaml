@@ -227,7 +227,7 @@
         "docs/A2A-PROGRAM.md",
         "docs/A2A-INGRESS-CONTRACT-v0.1.md"
       ],
-      "notes": "Absent from the MCP registry pending Slice 4C-0 capability profile and evidence taxonomy, Slice 4C-1 principal-bound authenticated-local evidence, and a separate human-gated public-ingress review."
+      "notes": "Absent from the MCP registry. Slice 4C-0 supplies only offline non-authorizing capability evidence; Slice 4C-1 principal-bound authenticated-local evidence remains proposed and separately gated, followed by a separate human-gated public-ingress review."
     }
   ],
   "gates": [
@@ -237,17 +237,32 @@
     "No multi-host ownership claim from local SQLite behavior."
   ],
   "slice_4c_0_capability_profile": {
-    "status": "designed",
+    "status": "reference-conformance",
+    "translation_status": "static-translation-verified",
     "scope": "pure offline dormant capability and evidence sidecar profile",
     "canonical_contract": "docs/A2A-CAPABILITY-PROFILE-v0.1.md",
     "decision_record": "docs/adr/0006-capability-evidence-is-not-authority.md",
-    "evidence": "normative contract only; TypeScript/Python validator and corpus are not implemented",
+    "implementation_head": "ea69cb9",
+    "slice_range": "234cd55..ea69cb9",
+    "review_package_head": "3d092d1",
+    "review_artifact": ".superpowers/sdd/review-234cd55..ea69cb9-a2a-capability-attestation.diff",
+    "review_artifact_sha256": "d1f5c11f7b6013b3f46c48daf9dcd2b6961fea4627b2b9db70f921e36f1aa82a",
+    "evidence": [
+      "363 exact executable cases across exactly five normative operations",
+      "direct TypeScript/Python byte differential: 363/363",
+      "npm test: 530/530 passed after local-loopback permission",
+      "npm run typecheck: passed",
+      "final independent security/code review: no Critical or Important; APPROVED",
+      "final independent corpus/contract review: no Critical or Important; APPROVED"
+    ],
     "guarantees": [
       "capability statements never mutate the canonical envelope or digest",
       "provenance, proof verification, authentication, authorization, conformance, and persistence remain independent axes",
       "provider/model labels and durable receipts are not attestation, identity, delivery, or execution evidence",
       "proof carriers are crypto-neutral and unsupported in Slice 4C-0",
-      "translation is offline and records unsupported or unknown losses explicitly"
+      "translation is offline and records unsupported or unknown losses explicitly",
+      "report producers are canonical and duplicate-free",
+      "13 serialized-report ingestion-only duplicate vectors remain deferred until an ingestion API exists"
     ],
     "non_claims": [
       "public send_a2a",
@@ -257,6 +272,6 @@
       "cryptographic verification, trust store, or activation",
       "live provider interoperability"
     ],
-    "next_evidence": "pure offline TypeScript/Python parser, canonicalizer, fingerprint witness, static translator, and shared corpus"
+    "next_proposed_slice": "Slice 4C-1 principal-bound authenticated-local semantic path; offline, inactive, and separately gated"
   }
 }

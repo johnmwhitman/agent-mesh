@@ -1,7 +1,9 @@
 # A2A Capability Profile v0.1
 
-**Status:** Designed, not implemented. This is a pure offline and dormant
-contract for Slice 4C-0 capability profile and evidence taxonomy. It creates no
+**Status:** Offline/dormant semantic foundation implemented and independently
+verified at `ea69cb9` over `234cd55..ea69cb9`; not activated, public,
+runtime-selected, authenticated, networked, or backed by a durable capability
+registry. This Slice 4C-0 capability profile and evidence taxonomy creates no
 public ingress, principal provider, authentication or authorization decision,
 runtime selection, provider call, network operation, persistence, delivery,
 execution, cryptographic verification, or activation.
@@ -1376,18 +1378,38 @@ The corpus MUST also retain the strict malformed JSON, duplicate-key, invalid
 Unicode, unsafe-number, size, depth, time, version, and canonical byte-tree
 vectors inherited from A2A-PROTOCOL-v0.1.md.
 
-## 16. Pure offline witness
+## 16. Pure offline witness closeout
 
-The next implementation MUST add independent TypeScript and Python witnesses for
-parsing, normalization, fingerprinting, validation, contradiction comparison,
-translation, loss rendering, and computed proof-status reporting.
+The independent TypeScript and Python witnesses implement parsing,
+normalization, fingerprinting, validation, contradiction comparison,
+translation, loss rendering, and computed proof-status reporting. The accepted
+implementation head is `ea69cb9` over slice range `234cd55..ea69cb9`.
 
-Neither witness may import authorization, database, persistence, runtime,
+The shared inventory contains 363 exact executable cases across exactly five
+normative operations. Direct TypeScript/Python byte differential agreement is
+363/363. Evidence includes the 56-case extension family, R00-R22 result
+validation, T00-T16 translation rejection precedence plus the existing T17
+success mapping, all eight targets and deferred-target behavior, strict raw
+JSON handling, fingerprints, comparisons, translations, conformance rendering,
+and canonical duplicate-free report production. The 13 serialized-report
+ingestion-only duplicate vectors remain explicitly deferred under Section 15.1
+until an actual ingestion API exists; no generation call may claim them.
+
+Full verification after local-loopback permission was `npm test` 530/530 with
+0 failures; `npm run typecheck` passed. The review package commit is `3d092d1`.
+Its artifact is
+`.superpowers/sdd/review-234cd55..ea69cb9-a2a-capability-attestation.diff`
+with SHA-256
+`d1f5c11f7b6013b3f46c48daf9dcd2b6961fea4627b2b9db70f921e36f1aa82a`.
+Final independent security/code review and final independent corpus/contract
+review each reported no Critical or Important findings and APPROVED.
+
+Neither witness imports authorization, database, persistence, runtime,
 transport, process launch, network, provider SDK, credential, environment
-inspection, or live configuration modules. The witness and corpus establish
-profile semantics only. They do not establish authentication, authorization,
-runtime selection, live provider compatibility, delivery, execution,
-cryptographic verification, or activation.
+inspection, or live configuration modules. This evidence establishes profile
+semantics only. It does not establish authentication, authorization, runtime
+selection, live provider compatibility, delivery, execution, cryptographic
+verification, durable registry behavior, release, or activation.
 
 ## 17. Standards mapping
 

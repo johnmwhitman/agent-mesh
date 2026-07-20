@@ -99,8 +99,9 @@ sidecar discovery contract for static renderer evidence. Renderers MUST emit
 only evidenced static facts, preserve unknown or unsupported target fields as
 deterministic loss records, and never turn a provider/model label into runtime
 attestation or authorization. Environment values are structurally forbidden;
-working-directory information is only a bounded `cwd_policy` enum. This is a
-designed offline profile, not a new renderer, provider adapter, or activation.
+working-directory information is only a bounded `cwd_policy` enum. This is an
+implemented and independently verified offline profile and translator witness,
+not a new renderer, provider adapter, runtime observation, or activation.
 Its source-neutral translation input, structure-and-loss result, feature,
 provenance, and loss schemas are closed in that profile. Conformance maturity
 is rendered separately from an explicit validated registry record and is never
@@ -115,3 +116,11 @@ claimless unknown projection with exactly one
 `$.launch_template`. It does not run ordinary cwd mapping and does not add a cwd
 or other loss. The numbered first-error precedence table in the capability
 profile is authoritative.
+
+Slice 4C-0 translation evidence is `static-translation-verified`: the shared
+363-case inventory and direct TypeScript/Python 363/363 byte differential cover
+all eight targets, the 56-case extension family, T00-T16 rejection precedence,
+and deferred-target terminal behavior. This does not elevate the existing Slice
+3B renderer API, prove a client process ran, or establish authentication,
+authorization, provider interoperability, network access, runtime selection,
+delivery, persistence, or activation.

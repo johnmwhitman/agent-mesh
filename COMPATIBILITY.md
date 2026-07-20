@@ -50,6 +50,7 @@ descriptive prose, not a status label.
 | Durable attempt lifecycle | `recovery-verified` | Durable-mode `spawn_fleet` and `attach_agent` preserve MCP shapes while using one SQLite authority for leases, deterministic retry, launch-intent quarantine, scheduled recovery, recorded-PID containment only, fenced projections, and sequence-ordered repairable event outbox | `docs/A2A-NEXT-SLICE.md`, `src/lifecycle-execution.ts`, `test/lifecycle-integration-adversarial.test.ts` |
 | Provider-neutral runtime adapters | `runtime-launch-verified` | Isolated RuntimeAdapter SPI, OpenCode adapter, and deterministic local-process adapter are verified; public runtime selection and vendor adapters are deferred | `docs/ADAPTER-CONTRACT.md`, `src/runtime`, `test/runtime-adapter.test.ts` |
 | Dormant durable acceptance journal | `dormant-internal-durable-verified` | Branch `codex/a2a-seamless-foundation` implements and locally verifies physical SQLite v4, three private append-only tables, exact schema validation, pre-tokenized keyed identities, request-first replay/conflict ordering, and accepted-only local receipts. It remains unmerged, unpublished, inactive, and has no public ingress, auth provider, delivery, or execution claim. | `docs/A2A-DURABLE-ACCEPTANCE-v0.1.md`, `docs/adr/0005-dormant-durable-acceptance-journal.md`, `acc4090..f1f98fb` |
+| Slice 4C-0 capability profile and evidence taxonomy | `reference-conformance` | Offline/dormant semantic foundation implemented at `ea69cb9` over `234cd55..ea69cb9`; 363 exact five-operation cases, 363/363 direct TypeScript/Python byte differential, 530/530 full tests, passed typecheck, and two APPROVED independent reviews. Translation evidence is `static-translation-verified`. No public ingress, auth, runtime selection, network, persistence, provider call, delivery, execution, cryptographic verification, durable registry, release, or activation claim. | `docs/A2A-CAPABILITY-PROFILE-v0.1.md`, `docs/adr/0006-capability-evidence-is-not-authority.md`, `reference/python/a2a_capability_profile_reference.py`, `234cd55..ea69cb9` |
 | Multi-host coordination | `deferred` | No shared remote ownership authority exists | `docs/A2A-PROGRAM.md` |
 
 The complete ranked sequence and acceptance gates are in
@@ -184,10 +185,11 @@ Open an issue at https://github.com/johnmwhitman/agent-mesh/issues with:
   protected local audit data and are not public/conformance outcomes.
 - Slice 4B uses an ordered, explicit physical migration; it does not hide a
   lazy/unversioned schema, alter legacy projections, or deliver a message.
-- Released npm package `0.14.0` remains the released physical-v3 state. The
-  unmerged branch `codex/a2a-seamless-foundation` at `f1f98fb` implements the
-  physical-v4 journal while retaining logical ledger schema v2; v4 is not
-  released, published, or activated.
+- Compatibility rows labeled `0.14.0+` describe repository/package-version
+  schema expectations; this closeout contains no npm `0.14.0` publish receipt
+  and makes no release claim for it. The branch evidence at `f1f98fb`
+  implements the physical-v4 journal while retaining logical ledger schema v2;
+  v4 is not claimed as released, published, or activated here.
 - Checking out and running the branch code against a v3 database performs the
   ordered v3-to-v4 migration. Older v3 code then refuses to reopen that v4
   database. Logical-v2 exports remain compatible; rollback requires restoring a
@@ -205,11 +207,16 @@ delivery, execution, or multi-host operation.
 
 ## Slice 4C-0 capability-profile compatibility
 
-The current branch contains the **designed-only**
-[A2A Capability Profile v0.1](docs/A2A-CAPABILITY-PROFILE-v0.1.md). It makes no
-runtime, provider, remote, cryptographic, or delivery compatibility claim.
+The current branch contains the **reference-conformance** offline/dormant
+[A2A Capability Profile v0.1](docs/A2A-CAPABILITY-PROFILE-v0.1.md). Its semantic
+foundation is implemented and independently verified, but it makes no runtime,
+provider, remote, authenticated, durable-registry, cryptographic, delivery,
+release, or activation compatibility claim.
 Codex, Claude Code, and OpenCode configuration mappings remain static evidence;
 OpenCode/local-process runtime observations remain distinct observed evidence.
-Antigravity/Gemini and Grok remain deferred/unverified. A future validator and
-corpus must prove deterministic offline parsing, fingerprints, translations,
-and losses before any profile status can advance.
+All eight target profiles, including deferred Antigravity/Gemini, Grok, and
+unknown-harness behavior, are covered only by deterministic offline translation
+evidence. The translation layer is `static-translation-verified`; deferred
+targets remain unverified for live client, provider, process, and runtime
+behavior. The 13 serialized-report ingestion-only duplicate vectors remain
+deferred until an actual ingestion API exists.

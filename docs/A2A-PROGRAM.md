@@ -205,12 +205,12 @@ They are additive, reversible, and do not widen the current MCP surface.
    SQLite v4, a three-table private journal, exact schema validation,
    request-first durable classification, and accepted-only local receipts. It
    remains unmerged, unpublished, inactive, and below public ingress.
-3. **Slice 4C-0: capability profile and evidence taxonomy.** Next
-   specification-first slice; capability claims and model banners do not grant
-   authorization.
-4. **Slice 4C-1: principal-bound authenticated-local semantic path.** Then
-   prove a local adapter path without public ingress, remote transport,
-   credentials, or delivery.
+3. **Slice 4C-0: capability profile and evidence taxonomy.** Implemented and
+   independently verified as an offline/dormant semantic foundation at
+   `ea69cb9`; capability claims and model banners do not grant authorization.
+4. **Slice 4C-1: principal-bound authenticated-local semantic path.** Proposed
+   next slice only. It would prove a local adapter path without public ingress,
+   remote transport, credentials, or delivery and remains separately gated.
 5. **Slice 4D then 4E:** offline delivery-attempt/transport conformance
    followed by a deterministic two-host coordinator simulation; both remain
    unimplemented.
@@ -237,15 +237,29 @@ authenticated-local semantic path, 4D offline delivery-attempt and transport
 conformance, then 4E deterministic two-host coordinator simulation. Public or
 remote activation remains human-gated.
 
-## Slice 4C-0 capability profile
+## Slice 4C-0 capability profile closeout
 
-Slice 4C-0 is now specified in
+Slice 4C-0 is specified in
 [A2A Capability Profile v0.1](./A2A-CAPABILITY-PROFILE-v0.1.md) and
-[ADR 0006](./adr/0006-capability-evidence-is-not-authority.md). Its status is
-**designed, not implemented**. It separates non-authorizing claim provenance,
-proof verification, external principal authentication, external authorization,
-conformance maturity, and external local-persistence facts. The next bounded
-work is a pure offline TypeScript/Python validator and shared corpus; no public
-ingress, provider call, runtime selection, transport, persistence, delivery,
-execution, cryptographic verification, or activation is authorized by this
-contract.
+[ADR 0006](./adr/0006-capability-evidence-is-not-authority.md) and is
+**implemented and independently verified as an offline/dormant semantic
+foundation** at `ea69cb9` over `234cd55..ea69cb9`. It separates
+non-authorizing claim provenance, proof verification, external principal
+authentication, external authorization, conformance maturity, and external
+local-persistence facts.
+
+The shared inventory has 363 exact executable cases across exactly five
+normative operations; direct TypeScript/Python byte differential is 363/363.
+`npm test` passed 530/530 after local-loopback permission and typecheck passed.
+Both final independent reviews reported no Critical or Important findings and
+APPROVED. The 13 serialized-report ingestion-only duplicate vectors remain
+deferred until an actual ingestion API exists and are not satisfied by report
+generation.
+
+This closeout authorizes no public ingress, `send_a2a`, principal provider,
+provider call, runtime selection, transport, persistence, durable registry,
+delivery, execution, cryptographic verification, credentials, network, deploy,
+publish, merge, push, or activation. Slice 4C-1 is the proposed next program
+slice for a principal-bound authenticated-local semantic path; it remains
+offline, inactive, and separately gated rather than approved for implementation
+or activation by this closeout.

@@ -1,8 +1,10 @@
 # Agent Mesh A2A Current Handoff
 
 **Status:** Slice 4B dormant durable acceptance is implemented and locally
-verified; Slice 4C-0 capability evidence is designed, not implemented. Neither
-is activated, public, remote, multi-host, or provider-interoperability evidence.
+verified. Slice 4C-0 capability evidence is implemented and independently
+verified as an offline/dormant semantic foundation. Neither slice is activated,
+public, remote, multi-host, authenticated ingress, or live-provider
+interoperability evidence.
 
 This is the rolling successor handoff for the provider-neutral Agent Mesh A2A
 program. Canonical behavior remains in the linked specifications and ADRs.
@@ -12,7 +14,8 @@ program. Canonical behavior remains in the linked specifications and ADRs.
 - Branch: `codex/a2a-seamless-foundation`
 - Accepted head: `f1f98fb`
 - Slice range: `acc4090..f1f98fb`
-- Public package version: `0.14.0`
+- Package version referenced by the Slice 4B branch: `0.14.0`; this handoff is
+  not an npm release or publish receipt for that version.
 - Physical SQLite schema: `4`
 - Logical ledger schema: `2`
 - Full verification: `npm test` passed `518/518`; `npm run typecheck` passed.
@@ -26,6 +29,40 @@ program. Canonical behavior remains in the linked specifications and ADRs.
 - No live process restart or activation occurred. The MCP server remains the
   prior process; its ledger audit was read-only evidence only.
 - Nothing was merged, pushed, published, deployed, or remotely activated.
+
+## Exact Slice 4C-0 evidence-only closeout
+
+- Slice base/range: `234cd55..ea69cb9`
+- Accepted implementation head: `ea69cb9`
+- Review package commit: `3d092d1`
+- Review artifact:
+  `.superpowers/sdd/review-234cd55..ea69cb9-a2a-capability-attestation.diff`
+- Review artifact SHA-256:
+  `d1f5c11f7b6013b3f46c48daf9dcd2b6961fea4627b2b9db70f921e36f1aa82a`
+- Final independent security/code review: no Critical or Important findings;
+  APPROVED.
+- Final independent corpus/contract review: no Critical or Important findings;
+  APPROVED.
+- Full verification after local-loopback permission: `npm test` passed 530/530,
+  0 failed; `npm run typecheck` passed.
+- Corpus/inventory: 363 exact executable cases across exactly five normative
+  operations.
+- Direct TypeScript/Python byte differential: 363/363.
+- Covered contract surfaces: strict raw JSON, fingerprints, comparison,
+  translation, conformance, canonical duplicate-free report production, the
+  56-case extension family, R00-R22, T00-T16 rejection precedence plus the T17
+  success mapping, and all eight target/deferred behaviors.
+- The 13 serialized-report ingestion-only duplicate vectors remain explicitly
+  deferred until an actual ingestion API exists. No validate/compare generation
+  call or unrelated parser may claim them.
+- Maturity: `reference-conformance` for the offline profile/witness agreement
+  and `static-translation-verified` for deterministic translation evidence.
+  This is not activation, public support, runtime launch, authentication,
+  authorization, network, persistence, durable registry, provider/API call,
+  delivery, execution, cryptographic verification, release, deploy, publish,
+  merge, or push evidence.
+- Capability statements, profiles, provenance, proof carriers, provider/model
+  labels, and receipts never grant authorization.
 
 ## Implemented and locally verified
 
@@ -87,17 +124,18 @@ attestation, or exactly-once behavior.
 - [Dormant durable acceptance ADR](./adr/0005-dormant-durable-acceptance-journal.md)
 - [Compatibility registry](../COMPATIBILITY.md)
 
-## Next sequence: strategy only, no implementation claim
+## Next sequence: strategy only beyond completed 4C-0
 
-1. **Slice 4C-0:** capability profile and evidence taxonomy is designed in
-   `A2A-CAPABILITY-PROFILE-v0.1.md` and ADR 0006, but no validator or corpus
-   exists yet. The next implementation is pure offline TS/Python parsing,
-   canonicalization, fingerprint, contradiction, and translation/loss evidence.
-   Claims, provider strings, model banners, proof carriers, and durable receipts
-   never grant authorization, identity, delivery, execution, or runtime choice.
-2. **Slice 4C-1:** principal-bound authenticated-local semantic path. Prove an
-   adapter-derived local principal and storage invocation without public ingress,
-   remote transport, credentials, or delivery.
+1. **Slice 4C-0:** capability profile and evidence taxonomy is implemented and
+   independently verified as the offline/dormant semantic foundation described
+   above. Claims, provider strings, model banners, proof carriers, and durable
+   receipts never grant authorization, identity, delivery, execution, or
+   runtime choice.
+2. **Slice 4C-1:** proposed principal-bound authenticated-local semantic path.
+   It remains offline and separately gated; this closeout does not mark it
+   active or approved beyond proposal. Its proposed proof is an adapter-derived
+   local principal and semantic invocation without public ingress, remote
+   transport, credentials, or delivery.
 3. **Slice 4D:** offline delivery-attempt and transport conformance. Prove
    normalized semantic traces across stdio, mailbox, HTTP/SSE, and WebSocket
    harnesses without live peers.
@@ -105,13 +143,18 @@ attestation, or exactly-once behavior.
    monotonic fencing, cancellation, partition, retry, and recovery semantics
    before any operational multi-host work.
 
-## Next implementation boundary
+## Next proposed implementation boundary
 
-The Slice 4C-0 contract is the current branch-local design record. Its next
-scope is a pure offline TypeScript/Python witness and shared deterministic
-corpus only. It must prove strict parsing, cross-language fingerprints,
-independent-axis separation, privacy rejection, contradictions, and static
-translation/loss ordering without importing auth, database, runtime, transport,
-network, provider, credential, process-launch, or environment-discovery code.
-Do not merge, push, publish, deploy, restart a live process, activate any path,
-use credentials, spend, or transmit private data.
+Slice 4C-1 is the proposed next program slice: a principal-bound
+authenticated-local semantic path that remains offline and separately gated.
+Planning it does not authorize implementation, activation, merge, push,
+publication, deployment, process restart, credentials, spend, network access,
+provider calls, or private-data transmission.
+
+## Operational observation outside Slice 4C-0
+
+Live MCP ping succeeds, but health is degraded: 12 historical fleets remain
+projected as `status=running` while all 32 member agents are interrupted. Treat
+this as stale lifecycle-projection and observability maintenance debt for the
+handoff/backlog, not as a Slice 4C-0 defect or capability-evidence result. No
+ledger mutation was performed or is authorized by this handoff.

@@ -1,7 +1,8 @@
 # ADR 0006: Capability evidence is not authority
 
-**Status:** Accepted for Slice 4C-0 design; not implemented, activated, or
-cryptographically verified.
+**Status:** Accepted and implemented as an independently verified offline,
+dormant Slice 4C-0 semantic foundation; not activated, public, authenticated,
+networked, durable-registry-backed, or cryptographically verified.
 
 ## Problem
 
@@ -73,8 +74,10 @@ reviewed profile can state trust, session, key, revocation, and privacy rules.
   exists; no command, schema, or capability is guessed. Their offline
   translation is a terminal claimless unknown projection with one static
   template-unavailable loss, not ordinary target mapping or runtime evidence.
-- The next implementation produces only pure TypeScript/Python validators,
-  fingerprints, translation/loss reporting, and conformance vectors.
+- The implementation produces only pure TypeScript/Python validators,
+  fingerprints, translation/loss reporting, and conformance vectors. It is
+  accepted at `ea69cb9` over `234cd55..ea69cb9` with 363 exact executable cases
+  and 363/363 direct byte differential agreement.
 - Future proof verification can adopt a carrier only with an additional ADR and
   explicit human review of trust roots, issuer governance, rotation, revocation,
   audience/session binding, nonce handling, and private-data disclosure.
@@ -83,18 +86,28 @@ reviewed profile can state trust, session, key, revocation, and privacy rules.
 
 ## Reversibility
 
-This is a documentation and offline-contract decision. It can be revised before
-any validator, fixture corpus, persistence format, public API, or cryptographic
-carrier ships. The reserved fields must remain non-authorizing in any revision.
+This remains an offline-contract decision and semantic implementation. It can
+be revised before any persistence format, public API, authenticated path, or
+cryptographic carrier ships. The reserved fields must remain non-authorizing in
+any revision.
 
 ## Validation
 
-The 4C-0 acceptance corpus will prove cross-language canonical fingerprints,
-strict parsing, independent-axis separation, privacy rejection, contradiction
-handling, deterministic static translation/loss reporting, and unsupported
-proof carriers. It will also prove import boundaries: no authorization,
-database, runtime, transport, network, provider, credential, or process-launch
-dependency is permitted.
+The 4C-0 acceptance corpus proves cross-language canonical fingerprints, strict
+parsing, independent-axis separation, privacy rejection, contradiction
+handling, deterministic static translation/loss reporting, unsupported proof
+carriers, and import boundaries. The shared inventory is 363 executable cases
+across exactly five operations; TypeScript/Python byte differential is 363/363.
+The 13 serialized-report ingestion-only duplicate cases remain deferred until
+an ingestion API exists and cannot be claimed through generation calls.
+
+Verification receipts are `npm test` 530/530 after local-loopback permission,
+`npm run typecheck` passed, and two final independent reviews with no Critical
+or Important findings and APPROVED. The review artifact at review-package head
+`3d092d1` is
+`.superpowers/sdd/review-234cd55..ea69cb9-a2a-capability-attestation.diff`,
+SHA-256
+`d1f5c11f7b6013b3f46c48daf9dcd2b6961fea4627b2b9db70f921e36f1aa82a`.
 
 ## Deferred questions
 
