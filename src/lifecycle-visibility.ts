@@ -34,6 +34,7 @@ export interface LifecycleSnapshot {
   outbox: Row[];
   scanExceeded: boolean;
 }
+interface LifecycleReadOptions { scanLimit?: number; }
 
 function json(value: unknown, label: string): unknown {
   if (typeof value !== "string") throw new Error(`${label} is not JSON text`);
@@ -55,8 +56,10 @@ function modeOf(snapshot: LifecycleSnapshot, fleetId: string): LifecycleMode {
 }
 
 /** One direct SQLite snapshot; it never initializes, migrates, or opens the writer handle. */
-export function readLifecycleSnapshot(file: string = resolveDbFile()): LifecycleSnapshot {
+export function readLifecycleSnapshot(file: string = resolveDbFile(), options: LifecycleReadOptions = {}): LifecycleSnapshot {
   if (!existsSync(file)) throw new Error("ledger file not found");
+  const scanLimit = options.scanLimit ?? LIFECYCLE_SCAN_LIMIT;
+  if (!Number.isInteger(scanLimit) || scanLimit < 1) throw new Error("invalid lifecycle scan limit");
   // SQLite may update an existing -shm file even for a readonly connection.
   // Audit a private copy so the evidence database and its sidecars are never
   // opened, while preserving any uncheckpointed WAL pages for the snapshot.
@@ -84,12 +87,12 @@ export function readLifecycleSnapshot(file: string = resolveDbFile()): Lifecycle
       }
       const fleetsSql = sql.get("fleets");
       const fleetRows = rows(db, hasColumn(fleetsSql, "lifecycle_mode") ? "SELECT id, data, lifecycle_mode FROM fleets" : "SELECT id, data FROM fleets");
-      const fleets: Record<string, unknown> = {};
+      const fleets: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
       const fleetModes = new Map<string, string | null>();
-      for (const row of fleetRows) { fleets[String(row.id)] = json(row.data, `fleets.${String(row.id)}`); fleetModes.set(String(row.id), typeof row.lifecycle_mode === "string" ? row.lifecycle_mode : null); }
+      for (const row of fleetRows) { Object.defineProperty(fleets, String(row.id), { value: json(row.data, `fleets.${String(row.id)}`), enumerable: true, configurable: true, writable: true }); fleetModes.set(String(row.id), typeof row.lifecycle_mode === "string" ? row.lifecycle_mode : null); }
       const lifecycleTablesPresent = ["work_items", "attempts", "attempt_events"].every((table) => sql.has(table));
       const outboxPresent = sql.has("lifecycle_event_outbox");
-      let lifecycleRemaining = LIFECYCLE_SCAN_LIMIT + 1;
+      let lifecycleRemaining = scanLimit + 1;
       const lifecycleRows = (table: string): Row[] => {
         const result = rows(db, `SELECT * FROM ${table} LIMIT ${Math.max(0, lifecycleRemaining)}`);
         lifecycleRemaining -= result.length;
@@ -111,14 +114,14 @@ export function readLifecycleSnapshot(file: string = resolveDbFile()): Lifecycle
         templates: dataRows(db, "templates", "key"),
       };
       db.exec("COMMIT");
-      return { data, logicalVersion: numberOrNull(Number(metaMap.get("schema_version"))), storageVersion, snapshotKind: "copied-sqlite-files", lifecycleTablesPresent, fleetModes, work, attempts, events, outbox, scanExceeded: total > LIFECYCLE_SCAN_LIMIT };
+      return { data, logicalVersion: numberOrNull(Number(metaMap.get("schema_version"))), storageVersion, snapshotKind: "copied-sqlite-files", lifecycleTablesPresent, fleetModes, work, attempts, events, outbox, scanExceeded: total > scanLimit };
     } catch (error) { try { db.exec("ROLLBACK"); } catch { /* no mutation, best effort */ } throw error; }
   } finally { db.close(); try { rmSync(dir, { recursive: true, force: true }); } catch { /* cleanup cannot mask an audit */ } }
 }
 
 /** Explicit-file companion for verifyLedgerFile; preserves the source bytes by construction. */
-export function readLifecycleSnapshotFile(file: string): LifecycleSnapshot {
-  return readLifecycleSnapshot(file);
+export function readLifecycleSnapshotFile(file: string, options?: LifecycleReadOptions): LifecycleSnapshot {
+  return readLifecycleSnapshot(file, options);
 }
 
 function issue(findings: VerifyFinding[], mode: LifecycleMode, check: string, subject: string, detail: string, warning = false): void {
@@ -271,7 +274,8 @@ export function buildLifecycleView(snapshot: LifecycleSnapshot, fleetId?: string
   for (const id of Object.keys(snapshot.data.fleets)) if (!fleetId || id === fleetId) modeCounts[modeOf(snapshot, id)]++;
   const statusCounts: Record<string, number> = {};
   for (const work of scopedWork) statusCounts[String(work.status)] = (statusCounts[String(work.status)] ?? 0) + 1;
-  const pending = snapshot.outbox.filter((row) => row.projected_at == null);
+  const scopedOutbox = snapshot.outbox.filter((row) => scopedOutboxIds.has(String(row.event_id)));
+  const pending = scopedOutbox.filter((row) => row.projected_at == null);
   const oldest = pending.reduce<number | null>((old, row) => validTimestamp(row.created_at) && (old === null || Number(row.created_at) < old) ? Number(row.created_at) : old, null);
   const data = {
     observed_at_ms: now, logical_version: snapshot.logicalVersion, storage_version: snapshot.storageVersion, snapshot_kind: snapshot.snapshotKind, authority: "sqlite", scope: fleetId ? { fleet_id: fleetId, status: missingFleet ? "missing" : "ok" } : { fleet_id: null, status: "ok" },
@@ -282,7 +286,7 @@ export function buildLifecycleView(snapshot: LifecycleSnapshot, fleetId?: string
     eligibility: { pending: scopedAttempts.filter((row) => row.status === "pending").length, due: scopedAttempts.filter((row) => row.status === "pending" && validTimestamp(row.eligible_at) && Number(row.eligible_at) <= now).length },
     recovery: { launch_quarantine_pending: scopedAttempts.filter((row) => row.status === "running" && row.launch_intent_at != null && row.launch_registered_at == null && validTimestamp(row.lease_until) && Number(row.lease_until) < now).length, runtime_pid_present: scopedAttempts.filter((row) => row.runtime_pid != null).length },
     events: { total: snapshot.events.filter((row) => !fleetId || scopedIds.has(String(row.work_id))).length, sequence_high_watermark: snapshot.events.reduce((max, row) => Math.max(max, Number(row.seq) || 0), 0) },
-    outbox: { authority: "sqlite", projection: "ndjson", total: snapshot.outbox.length, projected: snapshot.outbox.length - pending.length, pending: pending.length, sequence_high_watermark: snapshot.outbox.reduce((max, row) => Math.max(max, Number(row.seq) || 0), 0), oldest_pending_lag_ms: oldest === null ? null : Math.max(0, now - oldest), repair_needed: pending.length > 0, repair_command: null },
+    outbox: { authority: "sqlite", projection: "ndjson", total: scopedOutbox.length, projected: scopedOutbox.length - pending.length, pending: pending.length, sequence_high_watermark: scopedOutbox.reduce((max, row) => Math.max(max, Number(row.seq) || 0), 0), oldest_pending_lag_ms: oldest === null ? null : Math.max(0, now - oldest), repair_needed: pending.length > 0, repair_command: null },
     issues,
   };
   return { schema: LIFECYCLE_JSON_SCHEMA, kind: "lifecycle", data, missingFleet, exitError: issues.some((finding) => finding.severity === "error") };

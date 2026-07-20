@@ -5,7 +5,7 @@ import { spawnSync } from "node:child_process";
 import { withLedgerAndStorage } from "../src/db.js";
 import { LifecycleStore } from "../src/attempt-lifecycle.js";
 import { verifyLedger, verifyLedgerFile } from "../src/verify.js";
-import { buildLifecycleView, formatLifecycleView, LIFECYCLE_JSON_SCHEMA, LIFECYCLE_SCAN_LIMIT, readLifecycleSnapshot, readLifecycleSnapshotFile, verifyLifecycleSnapshot } from "../src/lifecycle-visibility.js";
+import { buildLifecycleView, formatLifecycleView, LIFECYCLE_JSON_SCHEMA, readLifecycleSnapshot, readLifecycleSnapshotFile, verifyLifecycleSnapshot } from "../src/lifecycle-visibility.js";
 import type { LifecycleSnapshot } from "../src/lifecycle-visibility.js";
 import { withTempDb } from "./helpers/with-temp-db.js";
 
@@ -144,6 +144,9 @@ test("attempt replay checks historical attempts without false positives for vali
 test("active verifier preserves special collection keys and future storage fails closed", () => {
   const temp = withTempDb();
   try {
+    const fleets = Object.create(null) as Record<string, { id: string; status: "running"; created_at: number }>;
+    Object.defineProperty(fleets, "__proto__", { value: { id: "__proto__", status: "running", created_at: 1 }, enumerable: true, configurable: true });
+    temp.seed({ fleets });
     withLedgerAndStorage((data, db) => {
       Object.defineProperty(data.templates!, "__proto__", { value: { name: "special" }, enumerable: true, configurable: true });
       db.prepare("UPDATE meta SET value = '4' WHERE key = 'storage_schema_version'").run();
@@ -151,6 +154,7 @@ test("active verifier preserves special collection keys and future storage fails
     assert.throws(() => readLifecycleSnapshot(temp.dbFile), /unsupported storage schema version: 4/);
     withLedgerAndStorage((_data, db) => db.prepare("UPDATE meta SET value = '3' WHERE key = 'storage_schema_version'").run());
     const snapshot = readLifecycleSnapshot(temp.dbFile);
+    assert.equal(Object.hasOwn(snapshot.data.fleets, "__proto__"), true);
     assert.equal(Object.hasOwn(snapshot.data.templates!, "__proto__"), true);
     assert.equal(verifyLedger().ok, true);
   } finally { temp.cleanup(); }
@@ -161,11 +165,27 @@ test("lifecycle snapshot stops at the collective scan ceiling plus one row", () 
   try {
     withLedgerAndStorage((_data, db) => {
       const insert = db.prepare("INSERT INTO work_items (work_id, fleet_id, agent_id, max_attempts, retry_base_ms, retry_jitter, status, current_attempt_id, owner_epoch, cancelled_at, terminal_at, result_json, error_json, created_at, updated_at) VALUES (?, 'fleet', NULL, 1, 0, 0, 'pending', 'attempt', 0, NULL, NULL, NULL, NULL, 1, 1)");
-      for (let index = 0; index <= LIFECYCLE_SCAN_LIMIT; index++) insert.run(`work-${index}`);
+      for (let index = 0; index <= 2; index++) insert.run(`work-${index}`);
     });
-    const snapshot = readLifecycleSnapshot(temp.dbFile);
+    const snapshot = readLifecycleSnapshot(temp.dbFile, { scanLimit: 2 });
     assert.equal(snapshot.scanExceeded, true);
-    assert.equal(snapshot.work.length, LIFECYCLE_SCAN_LIMIT + 1);
+    assert.equal(snapshot.work.length, 3);
     assert.deepEqual(verifyLifecycleSnapshot(snapshot, 1).map((finding) => finding.check), ["lifecycle.verify.scan_limit"]);
   } finally { temp.cleanup(); }
+});
+
+test("fleet scoped outbox summary excludes another fleet's pending projection", () => {
+  const snapshot = {
+    data: { fleets: { a: { id: "a", status: "running", created_at: 1 }, b: { id: "b", status: "running", created_at: 1 } }, agents: {}, messages: {}, inboxes: {}, capabilities: {}, receipts: {}, ratifications: {}, templates: {} },
+    logicalVersion: 2, storageVersion: 3, snapshotKind: "copied-sqlite-files", lifecycleTablesPresent: true, fleetModes: new Map([["a", "durable"], ["b", "durable"]]),
+    work: [{ work_id: "wa", fleet_id: "a", agent_id: null, status: "pending", current_attempt_id: "aa", owner_epoch: 0, created_at: 1, updated_at: 1, terminal_at: null }, { work_id: "wb", fleet_id: "b", agent_id: null, status: "pending", current_attempt_id: "ab", owner_epoch: 0, created_at: 1, updated_at: 1, terminal_at: null }],
+    attempts: [], events: [], outbox: [{ seq: 1, event_id: "b-pending", event: "test", payload: "{\"work_id\":\"wb\"}", created_at: 1, projected_at: null }], scanExceeded: false,
+  } as unknown as LifecycleSnapshot;
+  const a = buildLifecycleView(snapshot, "a", 100_000).data as { outbox: { total: number; pending: number; repair_needed: boolean } };
+  const b = buildLifecycleView(snapshot, "b", 100_000).data as { outbox: { total: number; pending: number; repair_needed: boolean } };
+  assert.equal(a.outbox.total, 0);
+  assert.equal(a.outbox.pending, 0);
+  assert.equal(a.outbox.repair_needed, false);
+  assert.equal(b.outbox.pending, 1);
+  assert.equal(b.outbox.repair_needed, true);
 });
