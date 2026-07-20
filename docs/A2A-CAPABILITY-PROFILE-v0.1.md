@@ -925,28 +925,45 @@ The exact translation-result validation API is:
 
 Validation is pure structural validation and takes no evaluation-time argument.
 It MUST NOT read an ambient clock or re-evaluate profile, claim, or proof time
-validity. It applies this first-error precedence and returns no partial value:
+validity. It applies the following exhaustive first-error table and returns no
+partial value. Rows are evaluated in ascending `R` order. Within one row,
+choose the smallest complete field path by unsigned ASCII bytes unless that row
+defines an occurrence rule. Every `i` is a zero-based source-array index.
+Duplicate occurrence rows choose the lowest second-or-later source index; if
+still tied, choose the smallest complete field path. A failure stops validation,
+so no later row may contribute an error.
 
-1. Malformed JSON, unsupported input type, or non-plain/non-object root returns
-   `INVALID_TRANSLATION_RESULT` at `$`.
-2. A forbidden privacy or computed field returns its stable code at the smallest
-   canonical safe path, using source indexes and reflecting no value.
-3. An unknown nonprivacy core field returns `UNKNOWN_CORE_FIELD` at the smallest
-   containing closed-object path, using source indexes and reflecting no key.
-4. Validate translation-result version, target, profile and claim core schemas,
-   launch template, cwd policy, feature and provenance schemas, loss schemas,
-   cardinalities, and duplicate rules while deferring every `extensions` and
-   `critical_extensions` container to steps 5 and 6. Return the applicable
-   closed error above at the smallest source-index path.
-5. Across result root, embedded profile, and embedded claims, a missing, null,
-   or wrong-type extension container returns `INVALID_EXTENSION_CONTAINER` at
-   the smallest container path. Claim indexes are source indexes; no
-   provisional normalization is permitted.
-6. After every container has the required type, any extension key or critical
-   extension member returns `UNSUPPORTED_EXTENSION` at the smallest container
-   path without reflecting the key or member.
-7. On success, normalize the complete result under Sections 10 and 13.3 and
-   return only the `ok: true` envelope above.
+| Row | Exact condition | Error code | Exact field_path |
+|---|---|---|---|
+| R00 | Malformed JSON, unsupported input value, or non-plain/non-object root. | `INVALID_TRANSLATION_RESULT` | `$` |
+| R01 | A forbidden privacy field at any non-extension object path. | `FORBIDDEN_PRIVACY_FIELD` | The smallest canonical lowercase safe path; array segments use source indexes. |
+| R02 | A forbidden computed field at any non-extension object path. | `FORBIDDEN_COMPUTED_FIELD` | The smallest canonical field path; array segments use source indexes. |
+| R03 | An unknown nonprivacy core field outside loss records and extension objects. Multiple unknown keys in one object coalesce. | `UNKNOWN_CORE_FIELD` | The smallest containing closed-object path; the unknown key is never appended or reflected. |
+| R04 | `translation_version` is missing, non-string, or not exactly `meshfleet.a2a.translation-result/v0.1`. | `INVALID_TRANSLATION_RESULT` | `$.translation_version` |
+| R05 | `target` is missing, non-string, or outside the target enum. | `INVALID_TRANSLATION_RESULT` | `$.target` |
+| R06 | `profile` is missing, null, an array, or otherwise not an object. | `INVALID_TRANSLATION_RESULT` | `$.profile` |
+| R07 | The embedded profile or any embedded claim has a non-extension structural or contradiction failure under Sections 4 through 9. Run that structural phase without time evaluation and with all extension containers deferred to R20 and R21. | The first stable profile structural code when its errors are sorted by `(code, field_path)` using unsigned ASCII bytes. | Prefix that selected source-index profile path with `$.profile`; profile-root `$` becomes `$.profile`. |
+| R08 | `launch_template` is missing or is not one of the two exact closed templates in Section 13.2, including any reordered or changed `argv_template`. | `INVALID_TRANSLATION_RESULT` | `$.launch_template` |
+| R09 | `cwd_policy` is missing or outside the cwd-policy enum. | `INVALID_TRANSLATION_RESULT` | `$.cwd_policy` |
+| R10 | `features` is missing, is not an array, or has more than 64 members. | `INVALID_TRANSLATION_RESULT` | `$.features` |
+| R11 | A source feature is not a closed object with exactly `feature_id`, `state`, and `provenance_ref`, or one of those members is missing or invalid. | `INVALID_TRANSLATION_RESULT` | Non-object feature: `$.features[i]`; otherwise the exact invalid or missing member path `$.features[i].feature_id`, `$.features[i].state`, or `$.features[i].provenance_ref`, choosing member paths bytewise. |
+| R12 | A normalized `feature_id` repeats. | `INVALID_TRANSLATION_RESULT` | `$.features[i].feature_id`, where `i` is the lowest second-or-later source occurrence. |
+| R13 | `provenance_refs` is missing, is not an array, or has more than 64 members. | `INVALID_TRANSLATION_RESULT` | `$.provenance_refs` |
+| R14 | A provenance reference is not an opaque-ref. | `INVALID_TRANSLATION_RESULT` | `$.provenance_refs[i]`, using the lowest invalid source index. |
+| R15 | A normalized provenance reference repeats. | `DUPLICATE_SET_MEMBER` | `$.provenance_refs[i]`, where `i` is the lowest second-or-later source occurrence. |
+| R16 | A valid feature's `provenance_ref` is absent from the valid provenance_refs set. | `INVALID_TRANSLATION_RESULT` | `$.features[i].provenance_ref`, using the lowest failing source feature index. |
+| R17 | `losses` is missing or is not an array. | `INVALID_TRANSLATION_RESULT` | `$.losses` |
+| R18 | A source loss is not an object; is missing `field_path`, `target`, `reason_code`, or `disposition`; has an invalid value for one of those members; or has any extra member, including `reason`, `note`, `suggestion`, or `message`. | `INVALID_LOSS_RECORD` | Non-object or extra-member loss: `$.losses[i]`; otherwise the exact invalid or missing required-member path, choosing source index then member path bytewise. |
+| R19 | Two fully valid source loss records are exact duplicates. | `INVALID_TRANSLATION_RESULT` | `$.losses[i]`, where `i` is the lowest second-or-later source occurrence. |
+| R20 | At result root, embedded profile, or embedded claim scope, `extensions` is missing, null, an array, or otherwise not an object, or `critical_extensions` is missing, null, or not an array. | `INVALID_EXTENSION_CONTAINER` | The smallest failing container path. Claim segments use source indexes; no provisional normalization occurs. |
+| R21 | After every extension container has the required type, any `extensions` key or `critical_extensions` member exists. | `UNSUPPORTED_EXTENSION` | The smallest nonempty container path; no key, member, or value is reflected. |
+| R22 | No prior row fails. | No error. | Return the `ok: true` envelope after normalizing the complete result under Sections 10 and 13.3. |
+
+R07's structural error list cannot contain time-validity codes because this API
+has no evaluation time. For R07, an embedded-profile duplicate claim ID uses the
+second source claim's `$.profile.claims[i].claim_id`; a profile contradiction
+uses `$.profile.claims`; and all other profile-member paths follow the exact
+source-index path emitted by the profile structural validator before prefixing.
 
 Conformance maturity is rendered only by this separate pure API:
 
@@ -1099,8 +1116,10 @@ wrong-container-type is `[]`; for `critical-extensions`, it is `{}`. The first
 three variants return `INVALID_EXTENSION_CONTAINER` at the table's exact
 container path. `nonempty` supplies `{"x":true}` for `extensions` or `[true]`
 for `critical_extensions` and returns `UNSUPPORTED_EXTENSION` at that same
-container path. No error reflects `x`, `true`, a profile value, or an index
-other than the prescribed source index.
+container path. Each validate-translation-result case expects the complete
+`{"ok":false,"error":{"code":<code>,"field_path":<path>}}` envelope. No
+error reflects `x`, `true`, a profile value, or an index other than the
+prescribed source index.
 
 | Vector | Expected result |
 |---|---|
@@ -1118,16 +1137,16 @@ other than the prescribed source index.
 | array.features-duplicate | T11 when used as translateProfile input; INVALID_TRANSLATION_INPUT |
 | array.provenance-refs-reordered | same normalized translation bytes and result |
 | array.provenance-refs-duplicate | T13 when used as translateProfile input; DUPLICATE_SET_MEMBER |
-| array.result-features-reordered | same normalized result bytes |
-| array.result-features-duplicate | INVALID_TRANSLATION_RESULT |
-| array.result-provenance-refs-reordered | same normalized result bytes |
-| array.result-provenance-refs-duplicate | DUPLICATE_SET_MEMBER |
-| array.result-losses-reordered | same normalized result bytes |
-| array.result-losses-duplicate | INVALID_TRANSLATION_RESULT |
+| array.result-features-reordered | validate-translation-result returns the exact ok:true envelope with the same normalized_result bytes |
+| array.result-features-duplicate | fixture places the first repeated feature_id at source index 1; exact `{"ok":false,"error":{"code":"INVALID_TRANSLATION_RESULT","field_path":"$.features[1].feature_id"}}` under R12 |
+| array.result-provenance-refs-reordered | validate-translation-result returns the exact ok:true envelope with the same normalized_result bytes |
+| array.result-provenance-refs-duplicate | fixture places the first repeated reference at source index 1; exact `{"ok":false,"error":{"code":"DUPLICATE_SET_MEMBER","field_path":"$.provenance_refs[1]"}}` under R15 |
+| array.result-losses-reordered | validate-translation-result returns the exact ok:true envelope with the same normalized_result bytes |
+| array.result-losses-duplicate | fixture places the first repeated loss at source index 1; exact `{"ok":false,"error":{"code":"INVALID_TRANSLATION_RESULT","field_path":"$.losses[1]"}}` under R19 |
 | array.proof-results-reordered | same normalized validation report bytes |
 | array.proof-results-duplicate | INVALID_PROOF_RESULTS |
 | array.translation-input-critical-nonempty | T07; UNSUPPORTED_EXTENSION at $.critical_extensions; reorder is impossible for accepted input because only [] is valid |
-| array.translation-result-critical-nonempty | UNSUPPORTED_EXTENSION; reorder is impossible for accepted result because only [] is valid |
+| array.translation-result-critical-nonempty | exact `{"ok":false,"error":{"code":"UNSUPPORTED_EXTENSION","field_path":"$.critical_extensions"}}`; reorder is impossible for accepted result because only [] is valid |
 | array.validation-errors-reordered | same normalized validation report bytes |
 | array.validation-errors-duplicate | INVALID_VALIDATION_REPORT |
 | diagnostic.profile-claim-source-index | validate-profile malformed claim physically at source index 2 reports `$.claims[2]`; a canonically earlier valid sibling does not change the path |
@@ -1209,11 +1228,11 @@ other than the prescribed source index.
 | extension.profile-key | any profile extension key produces UNSUPPORTED_EXTENSION |
 | extension.claim-key | any claim extension key produces UNSUPPORTED_EXTENSION |
 | extension.translation-input-key | T07; any translation-input extension key produces UNSUPPORTED_EXTENSION at $.extensions |
-| extension.translation-result-key | any translation-result extension key produces UNSUPPORTED_EXTENSION |
+| extension.translation-result-key | exact `{"ok":false,"error":{"code":"UNSUPPORTED_EXTENSION","field_path":"$.extensions"}}` |
 | extension.profile-critical | any profile critical_extensions member produces UNSUPPORTED_EXTENSION |
 | extension.claim-critical | any claim critical_extensions member produces UNSUPPORTED_EXTENSION |
 | extension.translation-input-critical | T07; any translation-input critical_extensions member produces UNSUPPORTED_EXTENSION at $.critical_extensions |
-| extension.translation-result-critical | any translation-result critical_extensions member produces UNSUPPORTED_EXTENSION |
+| extension.translation-result-critical | exact `{"ok":false,"error":{"code":"UNSUPPORTED_EXTENSION","field_path":"$.critical_extensions"}}` |
 | privacy.forbidden-field-names | T03; FORBIDDEN_PRIVACY_FIELD for every listed field name at any translator-root or nested core/profile path |
 | privacy.artifact-and-path | T03; simultaneous root artifact and path fields return only FORBIDDEN_PRIVACY_FIELD at $.artifact |
 | privacy.extension-artifact-key | T07; an artifact key inside extensions returns UNSUPPORTED_EXTENSION at $.extensions, not FORBIDDEN_PRIVACY_FIELD |
@@ -1243,9 +1262,9 @@ other than the prescribed source index.
 | translation.env-value | T03; FORBIDDEN_PRIVACY_FIELD; no result and no value in diagnostics |
 | translation.feature-state-four-values | T17; exact supported/unsupported/unknown/not-represented behavior |
 | translation.loss-order | T17; exact unsigned tuple order |
-| result.loss-free-form-reason | Result validation, not translateProfile precedence; INVALID_LOSS_RECORD |
+| result.loss-free-form-reason | fixture places the loss at source index 0; exact `{"ok":false,"error":{"code":"INVALID_LOSS_RECORD","field_path":"$.losses[0]"}}` under R18 |
 | translation.no-conformance-status-input | T04; conformance_status in input is UNKNOWN_CORE_FIELD |
-| result.no-conformance-status | Result validation, not translateProfile precedence; UNKNOWN_CORE_FIELD |
+| result.no-conformance-status | exact `{"ok":false,"error":{"code":"UNKNOWN_CORE_FIELD","field_path":"$"}}` under R03 |
 | translation.target-missing | T02; INVALID_TARGET at $.target with target_ref invalid before every other error |
 | translation.target-malformed | T02; INVALID_TARGET at $.target with target_ref invalid and no reflected raw value |
 | translation.target-unknown | T02; INVALID_TARGET at $.target with target_ref invalid and no reflected raw value |
