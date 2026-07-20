@@ -10,6 +10,10 @@ configuration as a working integration:
 
 | Status | Meaning |
 |---|---|
+| `designed` | A normative contract exists; executable evidence is absent or separately classified |
+| `fixture-verified` | A language-neutral corpus has executable expected outcomes; no production surface is implied |
+| `reference-conformance` | An independent implementation agrees with the corpus; no public, durable, or authenticated ingress is implied |
+| `implemented-public-ingress` | Reserved for a separately reviewed public ingress with durable acceptance, current authorization, and compatibility evidence |
 | `documented` | Configuration or behavior is described; no executable proof |
 | `static-config-verified` | Target configuration shape is checked without a live client |
 | `process-handshake-verified` | A process starts and completes the protocol handshake |
@@ -31,7 +35,8 @@ configuration as a working integration:
 | Claude Code, Codex, OpenCode inbound configs | `static-config-verified` | Slice 3B renderers emit proven shapes from local evidence; live client semantics unverified | `docs/CONFIG-TRANSLATION.md`, `test/config/*.test.ts` |
 | SSE inbox projection | `implemented` | Optional local inbox push, not general A2A HTTP | `src/sse-server.ts` |
 | Outbound worker execution | `coupled` | Current worker launch and parsing remain OpenCode-specific | `src/index.ts`, `src/spawn-result.ts` |
-| `meshfleet.a2a` v0.1 codec and fixtures | `codec-conformance-verified` | Pure provider-neutral validation, codec, language-neutral fixtures, and legacy internal mapping are covered by conformance tests; public canonical ingress is not implemented | `docs/A2A-PROTOCOL-v0.1.md`, `test/a2a-envelope.test.ts` |
+| `meshfleet.a2a` v0.1 codec and interoperability profile | `reference-conformance` | Pure provider-neutral validation and an independent offline Python witness agree with the language-neutral corpora; the mutated-corpus negative test detects a false expected outcome; public, durable, and authenticated ingress are not implemented | `docs/A2A-PROTOCOL-v0.1.md`, `reference/python/a2a_reference.py`, `test/a2a-reference-python.test.ts` |
+| Canonical ingress contract v0.1 | `fixture-verified` | Deterministic fixtures exercise the designed ordering and stable external result vocabulary; this is not a production store, policy engine, delivery path, or public tool | `docs/A2A-INGRESS-CONTRACT-v0.1.md`, `test/fixtures/a2a/ingress/v0.1/corpus.json` |
 | Durable attempt lifecycle | `recovery-verified` | Durable-mode `spawn_fleet` and `attach_agent` preserve MCP shapes while using one SQLite authority for leases, deterministic retry, launch-intent quarantine, scheduled recovery, recorded-PID containment only, fenced projections, and sequence-ordered repairable event outbox | `docs/A2A-NEXT-SLICE.md`, `src/lifecycle-execution.ts`, `test/lifecycle-integration-adversarial.test.ts` |
 | Provider-neutral runtime adapters | `runtime-launch-verified` | Isolated RuntimeAdapter SPI, OpenCode adapter, and deterministic local-process adapter are verified; public runtime selection and vendor adapters are deferred | `docs/ADAPTER-CONTRACT.md`, `src/runtime`, `test/runtime` |
 | Multi-host coordination | `deferred` | No shared remote ownership authority exists | `docs/A2A-PROGRAM.md` |
@@ -122,6 +127,12 @@ Open an issue at https://github.com/johnmwhitman/agent-mesh/issues with:
   must not be represented as durable public-ingress idempotency.
 - Status names are evidence levels: `designed`, `fixture-verified`, and
   `reference-conformance` do not mean `implemented-public-ingress`.
+- The only fixture-verified external ingress codes are `accepted`, `duplicate`,
+  `replayed_request`, `message_id_conflict`, `request_id_reuse`,
+  `request_id_invalid`, `principal_context_required`, `malformed_envelope`,
+  `unsupported_version`, `expired_at_acceptance`, `AUTHORIZATION_DENIED`, and
+  `ingress_storage_unavailable`. More detailed authorization causes are
+  protected local audit data and are not public/conformance outcomes.
 - Any Slice 4B store must use an ordered, explicit physical migration. It may
   not hide a lazy/unversioned schema, alter legacy projections, or deliver a
   message before separately authorized work.

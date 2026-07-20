@@ -150,7 +150,7 @@ There is no public `send_a2a` tool in v0.1. Existing MCP tools remain additive
 compatibility adapters. A public canonical-envelope ingress requires a separate
 review of authenticated principals, authorization, namespace ownership,
 deduplication, and error-shape compatibility.
-# Slice 4A interoperability and ingress boundary
+## Slice 4A interoperability and ingress boundary
 
 This protocol can be implemented as a coordinator-free codec profile. A
 conforming minimum implementation needs no Meshfleet installation, MCP,
@@ -163,3 +163,23 @@ identity from adapter principal/request retry identity, normalize concrete
 recipient ordering, and prohibit recipient expansion from metadata. They are
 not implemented by this protocol document or by the current process-local
 identity registry.
+
+Every protocol string MUST contain Unicode scalar values only. Unpaired UTF-16
+surrogates are invalid. Valid Unicode scalar values, including non-BMP
+characters, are allowed, and payload-body limits are counted after UTF-8
+encoding.
+
+A future transport or public ingress accepting raw canonical JSON MUST reject
+duplicate object member names at every nesting level before object-level codec
+validation. Once a conventional parser has collapsed duplicate keys, the
+current object-level codec cannot recover that ambiguity. Existing MCP tools
+accept structured compatibility inputs and are not claimed as raw canonical
+JSON ingress.
+
+For a future canonical ingress, structural and request validity precede current
+principal binding and atomic recipient/type/audience authorization. Request
+replay lookup follows authorization; semantic identity lookup follows request
+replay. Therefore a revoked or currently denied request cannot replay an older
+acceptance. Expiry is evaluated only for a previously unseen semantic identity.
+External authorization details collapse to `AUTHORIZATION_DENIED`; detailed
+causes are protected local audit data, not protocol conformance results.

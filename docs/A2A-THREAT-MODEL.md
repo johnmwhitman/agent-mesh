@@ -106,7 +106,7 @@ MCP reachability        != cross-host trust
 - Any real vendor or remote adapter requires explicit review of credentials,
   network access, spend, private-data egress, authentication, audience, and
   replay protection.
-# Slice 4 ingress trust boundary
+## Slice 4 ingress trust boundary
 
 The envelope sender is a routing claim, not authenticated identity. A future
 adapter-derived opaque principal must be bound to the exact sender before
@@ -121,3 +121,16 @@ behavior, signature, attestation, remote trust, or multi-host coordination.
 Detailed policy diagnostics stay in protected local audit evidence; public
 errors must be stable and non-enumerating.
 
+Unknown principals, sender mismatches, denied recipients, denied message types,
+audience failures, and all other policy denials MUST collapse externally to
+`AUTHORIZATION_DENIED`. Their distinct causes may appear only in protected
+local audit records. Current binding and authorization checks MUST run before
+request-replay and semantic-identity lookups, so revocation or current denial
+cannot replay an old acceptance or disclose whether an identity exists.
+
+Raw canonical JSON is an earlier trust boundary than object validation. A
+future transport/public ingress MUST reject duplicate object names recursively
+before parsing into the object-level codec. Protocol strings containing
+unpaired UTF-16 surrogates are invalid; valid non-BMP Unicode scalars remain
+allowed and are byte-limited as UTF-8. The existing MCP surface is not evidence
+of either raw canonical parsing behavior or public ingress.

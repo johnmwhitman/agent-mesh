@@ -1,7 +1,8 @@
 # A2A Interoperability Profile v0.1
 
-**Status:** Designed for Slice 4A. The profile is protocol-layer guidance, not
-a Meshfleet runtime, transport, or public ingress.
+**Status:** Reference-conformance verified for Slice 4A. The profile remains a
+protocol-layer witness, not a Meshfleet runtime, durable store, authenticated
+principal, transport, or public ingress.
 
 ## Problem
 
@@ -16,6 +17,11 @@ provider, credentials, network, runtime, remote transport, or authenticated
 principal. It must preserve unknown extension members and treat JSON object key
 order as non-semantic. It must not claim delivery, execution, authenticated
 identity, or durable deduplication.
+
+All protocol strings contain Unicode scalar values only. Unpaired UTF-16
+surrogates are invalid; valid non-BMP characters are allowed and body limits are
+measured in UTF-8 bytes. When consuming raw canonical JSON, the profile rejects
+duplicate object member names at every nesting level before object validation.
 
 ## Minimum conforming implementation
 
@@ -84,11 +90,16 @@ storage.
 
 ## Validation
 
-Slice 4A passes only when the independent Python witness agrees with the
-language-neutral corpus for valid/invalid envelopes, extension preservation,
-key-order independence, identity duplicate/conflict classification, and legacy
-mapping fixtures. Existing MCP, inspector, ledger, and renderer compatibility
-must remain unchanged.
+The standalone Python witness agrees with both language-neutral corpora for
+valid/invalid envelopes, extension preservation, Unicode scalar handling,
+recursive duplicate-member rejection, key-order independence, codec identity
+classification, and the designed ingress decision model. Its negative
+self-test mutates a corpus expectation and confirms the witness exits nonzero.
+
+That evidence is `reference-conformance` only. It does not prove production or
+durable ingress, authenticated principals, public authorization, delivery, or
+multi-host behavior. Existing MCP, inspector, ledger, and renderer
+compatibility remain separate evidence surfaces.
 
 ## Deferred questions
 

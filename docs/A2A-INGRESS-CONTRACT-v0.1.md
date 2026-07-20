@@ -1,8 +1,10 @@
 # Canonical Ingress Contract v0.1
 
-**Status:** Designed; not implemented. This document freezes semantic and
-security requirements for a future canonical ingress. It does not add a public
-tool, storage schema, authenticated principal, or delivery behavior.
+**Status:** Designed with fixture and independent reference-conformance
+evidence; not implemented as public or durable ingress. This document freezes
+semantic and security requirements for a future canonical ingress. It does not
+add a public tool, storage schema, authenticated principal, or delivery
+behavior.
 
 ## Problem
 
@@ -22,6 +24,13 @@ meaningful outside the local process.
   labels, runtime fields, PIDs, receipt-like extensions, audience, or scope.
 - A future adapter supplies an opaque principal outside the envelope. No
   current path authenticates that principal.
+- Every protocol string MUST contain only Unicode scalar values. Unpaired
+  UTF-16 surrogates are invalid; valid non-BMP characters are allowed and body
+  limits are measured in UTF-8 bytes.
+- A future raw JSON boundary MUST reject duplicate object member names at every
+  nesting level before object-level codec validation. The current object-level
+  codec cannot recover keys already collapsed by a parser, and current MCP
+  messaging is not raw canonical ingress.
 
 ## Normative semantic identities
 
@@ -46,23 +55,29 @@ is not durable ingress semantics.
 
 ## Required acceptance order
 
-1. Validate the envelope and normalize the recipient set by sorting exact
-   `(namespace, agent_id)` references.
-2. Reject wildcard or duplicate canonical recipients. Do not expand recipients
-   from audience, scope, extensions, fleet membership, or any other selector.
-3. Require an adapter-derived principal and match it to the exact claimed
-   sender through an active principal binding.
-4. Authorize every recipient atomically. A mixed fan-out is rejected before
-   semantic identity lookup or persistence.
-5. Apply expiry only to a previously unseen semantic identity.
-6. In one durable local transaction, record the normalized fingerprint,
+1. At a raw JSON boundary, reject duplicate member names recursively. Then
+   validate request fields and the envelope structure, including `request_id`,
+   principal presence, version, protocol strings, recipients, and payload.
+2. Normalize the recipient set by sorting exact `(namespace, agent_id)`
+   references. Reject wildcard or duplicate recipients and never expand
+   audience, scope, extensions, fleet membership, or another selector.
+3. Evaluate the current principal binding and current policy. Match the
+   adapter-derived principal to the exact claimed sender, then authorize every
+   recipient, message type, and audience atomically.
+4. Only after current authorization succeeds, look up request retry identity.
+   An exact request replay returns its recorded result; changed content under
+   that request identity conflicts.
+5. Then look up semantic message identity. An exact semantic replay is a
+   duplicate; changed content under that semantic identity conflicts. Apply
+   expiry only when the semantic identity is previously unseen.
+6. In one future durable local transaction, record the normalized fingerprint,
    semantic identity, request identity, decision receipt, and any future
    acceptance state. A storage failure leaves no partial acceptance.
 
-An exact semantic replay returns `duplicate`; an exact request replay returns
-the durable original decision with `replayed_request`; changed content under an
-existing semantic identity returns a message conflict; changed content under an
-existing request identity returns request-id reuse.
+Authorization is never replayed. A revoked, expired, or currently denied
+principal, sender, recipient, type, audience, or policy request returns
+`AUTHORIZATION_DENIED` before either replay lookup, even if an older accepted
+request exists.
 
 ## Principal binding and authority
 
@@ -78,19 +93,22 @@ audience, and receipts never create a binding or authorization.
 
 ## Dispositions and errors
 
-Future public results must use stable, non-enumerating machine dispositions:
+The fixture-verified external vocabulary is closed to the following stable,
+non-enumerating machine codes:
 
-| Class | Stable code or disposition |
+| Class | Allowed external code |
 |---|---|
 | successful local decision | `accepted`, `duplicate`, `replayed_request` |
 | identity conflict | `message_id_conflict`, `request_id_reuse` |
-| envelope | `malformed_envelope`, `unsupported_version`, `expired_at_acceptance` |
-| trust | `principal_context_required`, `sender_binding_denied` |
-| authorization | `recipient_authorization_denied` |
+| request/envelope validity | `request_id_invalid`, `principal_context_required`, `malformed_envelope`, `unsupported_version`, `expired_at_acceptance` |
+| authorization | `AUTHORIZATION_DENIED` |
 | persistence | `ingress_storage_unavailable` |
 
-External responses must not enumerate principals, bindings, namespaces, or
-recipient policy. Protected local audit records may retain the detailed reason.
+Unknown principal, sender mismatch, recipient denial, type denial, audience
+denial, and any other policy denial all collapse to `AUTHORIZATION_DENIED`.
+External responses and conformance outcomes MUST NOT expose their detailed
+cause or enumerate principals, bindings, namespaces, recipients, types,
+audiences, or policy. Only protected local audit records may retain that cause.
 
 ## Acceptance boundary
 
@@ -131,10 +149,14 @@ a separate approved review.
 
 ## Evidence and validation
 
-Current evidence proves a pure codec, local SQLite durability, and preserved
-legacy compatibility. It does not prove public ingress, authenticated
-principals, recipient authorization, durable ingress decisions, remote
-transport, or multi-host coordination.
+Current evidence proves a pure codec, preserved legacy compatibility, and an
+offline standalone Python witness agreeing with the language-neutral codec and
+ingress-contract corpora. A mutated-corpus self-test proves that the witness
+fails when an expected outcome is changed. This is reference-conformance only.
+It does not prove public or durable ingress, authenticated principals,
+production recipient authorization, remote transport, or multi-host
+coordination. Existing local SQLite durability is evidence for the lifecycle
+system, not for a canonical ingress journal.
 
 Before any public surface, require language-neutral fixture conformance,
 restart and concurrent-process duplicate/conflict tests, atomic rejection and

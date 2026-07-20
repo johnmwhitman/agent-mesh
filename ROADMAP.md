@@ -18,10 +18,11 @@ The ranked A2A strategy is canonical in
 3. **Provider-neutral runtime adapters** - internal OpenCode compatibility and
    deterministic local-process proof are implemented; public selection and real
    vendor adapters remain deferred.
-4. **Slice 4A portability proof** - next: freeze canonical-ingress semantics
-   and prove the provider-neutral codec with language-neutral fixtures and an
-   independent Python reference witness. No production ingress/store/tool,
-   delivery, or authenticated-principal claim.
+4. **Slice 4A portability proof** - canonical-ingress semantics are frozen in
+   design, and a standalone offline Python witness agrees with the
+   language-neutral corpora, including a mutated-corpus negative self-test.
+   This is reference-conformance only: no production ingress/store/tool,
+   durable acceptance, delivery, or authenticated-principal claim.
 5. **Slice 4B durable acceptance foundation** - after 4A: explicit physical
    SQLite migration and dormant internal acceptance journal/decision receipts;
    no hidden lazy schema, legacy projection, delivery, or public tool.

@@ -41,6 +41,19 @@ message_id)`. Retry identity is `(adapter-derived principal_id, request_id)`.
 `dedupe_key` is fingerprinted content only. Every concrete recipient must be
 authorized atomically; metadata never expands recipients or grants authority.
 
+Processing order is structural/request validation, current principal binding
+and all-recipient/type/audience authorization, request replay lookup, then
+semantic identity lookup and persistence. Expiry applies only to unseen
+semantic identities. Current authorization always precedes replay, so a
+revoked or denied request cannot reuse an older acceptance.
+
+Unknown principal, sender mismatch, recipient, type, audience, and policy
+denials share the external code `AUTHORIZATION_DENIED`; detailed causes are
+protected local audit data only. Raw public JSON must reject duplicate object
+member names recursively before object validation. Protocol strings reject
+unpaired UTF-16 surrogates while allowing valid non-BMP Unicode scalars and
+counting payload bytes as UTF-8.
+
 ## Consequences and tradeoffs
 
 This deliberately delays an easy public API and requires future policy
@@ -58,11 +71,14 @@ separate decision after adapter and client-path evidence.
 
 ## Evidence and validation
 
-Current evidence establishes only a provider-neutral codec and single-host
-local persistence. Validation before public exposure requires independent
-fixture conformance, durable replay/conflict tests across restart and process
-boundaries, atomic authorization/storage failure tests, migration evidence,
-legacy compatibility snapshots, and independent review.
+Current evidence establishes a provider-neutral codec and an independent
+offline Python witness that agrees with the language-neutral corpora, including
+a mutated-corpus negative self-test. This remains reference-conformance only,
+not public, durable, or authenticated ingress. Single-host lifecycle storage is
+not ingress-journal evidence. Validation before public exposure still requires
+durable replay/conflict tests across restart and process boundaries, atomic
+authorization/storage failure tests, migration evidence, legacy compatibility
+snapshots, and independent review.
 
 ## Deferred questions
 
