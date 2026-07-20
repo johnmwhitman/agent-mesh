@@ -1,0 +1,111 @@
+{
+  "fleets": {
+    "fleet-001": {
+      "id": "fleet-001",
+      "status": "running",
+      "created_at": 1000
+    }
+  },
+  "agents": {
+    "agent-a": {
+      "id": "agent-a",
+      "fleet_id": "fleet-001",
+      "role": "worker",
+      "status": "running",
+      "prompt": "discussion participant"
+    },
+    "agent-b": {
+      "id": "agent-b",
+      "fleet_id": "fleet-001",
+      "role": "worker",
+      "status": "running",
+      "prompt": "discussion participant"
+    }
+  },
+  "messages": {
+    "msg-1": {
+      "id": "msg-1",
+      "fleet_id": "fleet-001",
+      "from_agent_id": "agent-a",
+      "to_agent_id": "agent-b",
+      "type": "question",
+      "payload": "{\"$meshfleet\":\"discussion/v1\",\"discussion_id\":\"disc-001\",\"turn\":1,\"attempt_id\":\"att-1\",\"reply_to\":null,\"kind\":\"question\",\"body\":\"What is the capital of France?\",\"close\":false,\"policy\":{\"participants\":[\"agent-a\",\"agent-b\"],\"max_turns\":4,\"conversation_deadline\":1784491200000,\"turn_timeout_ms\":60000}}",
+      "correlation_id": "disc-001",
+      "timestamp": 1784491100000,
+      "acknowledged": false
+    },
+    "msg-2": {
+      "id": "msg-2",
+      "fleet_id": "fleet-001",
+      "from_agent_id": "agent-b",
+      "to_agent_id": "agent-a",
+      "type": "result",
+      "payload": "{\"$meshfleet\":\"discussion/v1\",\"discussion_id\":\"disc-001\",\"turn\":2,\"attempt_id\":\"att-2\",\"reply_to\":\"msg-1\",\"kind\":\"result\",\"body\":\"Paris\",\"close\":false}",
+      "correlation_id": "disc-001",
+      "timestamp": 1784491120000,
+      "acknowledged": false
+    },
+    "msg-3": {
+      "id": "msg-3",
+      "fleet_id": "fleet-001",
+      "from_agent_id": "agent-a",
+      "to_agent_id": "agent-b",
+      "type": "result",
+      "payload": "{\"$meshfleet\":\"discussion/v1\",\"discussion_id\":\"disc-001\",\"turn\":3,\"attempt_id\":\"att-3\",\"reply_to\":\"msg-2\",\"kind\":\"result\",\"body\":\"Thank you.\",\"close\":true}",
+      "correlation_id": "disc-001",
+      "timestamp": 1784491140000,
+      "acknowledged": false
+    }
+  },
+  "inboxes": {
+    "agent-a": [],
+    "agent-b": []
+  },
+  "capabilities": {},
+  "receipts": {
+    "msg-1:agent-a:discussion.turn.sent.v1:1:att-1": {
+      "message_id": "msg-1",
+      "agent_id": "agent-a",
+      "action": "discussion.turn.sent.v1:1:att-1",
+      "timestamp": 1784491100001,
+      "note": "{\"discussion_id\":\"disc-001\",\"head_message_id\":\"msg-1\",\"deadline\":1784491200000,\"reply_message_id\":null}"
+    },
+    "msg-1:agent-b:discussion.wake.reserved.v1:2:att-2": {
+      "message_id": "msg-1",
+      "agent_id": "agent-b",
+      "action": "discussion.wake.reserved.v1:2:att-2",
+      "timestamp": 1784491105000,
+      "note": "{\"discussion_id\":\"disc-001\",\"head_message_id\":\"msg-1\",\"deadline\":1784491200000}"
+    },
+    "msg-1:agent-b:discussion.wake.completed.v1:2:att-2": {
+      "message_id": "msg-1",
+      "agent_id": "agent-b",
+      "action": "discussion.wake.completed.v1:2:att-2",
+      "timestamp": 1784491120001,
+      "note": "{\"discussion_id\":\"disc-001\",\"head_message_id\":\"msg-1\",\"deadline\":1784491200000,\"reply_message_id\":\"msg-2\"}"
+    },
+    "msg-2:agent-a:discussion.wake.reserved.v1:3:att-3": {
+      "message_id": "msg-2",
+      "agent_id": "agent-a",
+      "action": "discussion.wake.reserved.v1:3:att-3",
+      "timestamp": 1784491125000,
+      "note": "{\"discussion_id\":\"disc-001\",\"head_message_id\":\"msg-2\",\"deadline\":1784491200000}"
+    },
+    "msg-2:agent-a:discussion.wake.completed.v1:3:att-3": {
+      "message_id": "msg-2",
+      "agent_id": "agent-a",
+      "action": "discussion.wake.completed.v1:3:att-3",
+      "timestamp": 1784491140001,
+      "note": "{\"discussion_id\":\"disc-001\",\"head_message_id\":\"msg-2\",\"deadline\":1784491200000,\"reply_message_id\":\"msg-3\"}"
+    },
+    "msg-2:agent-b:discussion.wake.deadman.v1:2:att-2": {
+      "message_id": "msg-2",
+      "agent_id": "agent-b",
+      "action": "discussion.wake.deadman.v1:2:att-2",
+      "timestamp": 1784491130001,
+      "note": "{\"deadline\":1784491150000}"
+    }
+  },
+  "ratifications": {},
+  "templates": {}
+}

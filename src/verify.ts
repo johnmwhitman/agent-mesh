@@ -24,8 +24,62 @@
 import { existsSync } from "fs";
 import { BROADCAST, TERMINAL_AGENT_STATUSES, isRoutableCapability, isUsableAgentId, messageRecipients, type MeshData, type Message, type Receipt } from "./core.js";
 import { MAX_TOTAL_WEIGHT, MAX_VOTE_WEIGHT, computeTally, parseVoteAction } from "./ratify.js";
+import { deriveDiscussion, parseEnvelope, parseReceiptAction } from "./discussion.js";
 import { readLedger } from "./db.js";
 import { readLifecycleSnapshot, readLifecycleSnapshotFile, verifyLifecycleSnapshot } from "./lifecycle-visibility.js";
+
+/**
+ * Discussion integrity-finding codes (src/discussion.ts) that get ERROR
+ * severity when passed through as `discussion.<code>` verify findings.
+ * Everything NOT in this set is a WARNING. The rule, applied uniformly: a
+ * code is an ERROR iff discussion.ts's OWN derivation treats it as a lineage/
+ * authorization contradiction — i.e. it either sets `discussionInvalid`
+ * internally, or is one of the two immediate `invalidResult` returns
+ * (`no_valid_root`, `duplicate_root`). Every other discussion.ts finding is
+ * something the module's own architecture already excludes safely without
+ * corrupting the rest of the derivation (its own phrase, re:
+ * `attempt_beyond_budget`: "flagged and excluded, not invalidating") — a
+ * surprise for an auditor, not an overclaim by the ledger, so it is a
+ * warning here for the same reason `receipt.unknown_agent` is a warning
+ * above: real, legitimate ledgers produce this finding too.
+ *
+ * This deliberately DIVERGES from SUCCESSION/a2a-discussions/drafts/
+ * verify-discussion-checks.md, which predates validation against the real
+ * module and calls every named check "error". The corrected, execution-
+ * validated fixtures (SUCCESSION/a2a-discussions/staged-code/
+ * corrected-fixtures.json) show several of the doc's "error" calls do NOT
+ * flip a discussion to status:'invalid' on their own — `attempt_missing_
+ * reservation` (fixture 7, receipt_invalid_attempt): status stays 'active';
+ * `malformed_receipt_note` (fixture 8, contradictory_terminals-as-
+ * documented): status stays 'closed'; `late_completion` (fixture 10,
+ * post_deadline_reply): status stays 'active'; `unauthorized_reply` /
+ * `receipt_on_invalid_head` (fixture 11, ordinal_jump-as-documented):
+ * status stays 'open'. Downgraded to warning here to match discussion.ts's
+ * own precedence, not the doc's pre-validation guess.
+ *
+ * `broadcast_forbidden` is the one deliberate exception kept at ERROR
+ * despite never setting `discussionInvalid`: unlike its STEP-2 envelope-
+ * validation siblings (`invalid_envelope`/`payload_too_large`/
+ * `invalid_version`/`correlation_mismatch`/`invalid_kind` — foreign or
+ * malformed traffic that merely happens to share a correlation id), a
+ * broadcast-shaped discussion/v1 envelope is itself an active attempt to
+ * smuggle multi-recipient delivery into the direct-only invariant (§6) —
+ * the design doc's call for this one code is kept as-is.
+ */
+const DISCUSSION_ERROR_CODES = new Set<string>([
+  "child_policy_forbidden",
+  "no_valid_root",
+  "duplicate_root",
+  "wrong_fleet",
+  "participant_violation",
+  "kind_type_mismatch",
+  "attempt_identity_conflict",
+  "invalid_sender",
+  "fork",
+  "ordinal_discontinuity",
+  "duplicate_turn",
+  "broadcast_forbidden", // deliberate override — see comment above
+]);
 
 export interface VerifyFinding {
   severity: "error" | "warning";
@@ -402,6 +456,172 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
       const recomputed = computeTally({ ...data, receipts: receiptsAtResolution }, { ...r, status: "open" }, asOf);
       if (recomputed.status !== r.status) {
         warning("ratification.status_mismatch", r.message_id, `ratification ${r.message_id} is recorded ${r.status}, but the receipts as of resolution recompute to ${recomputed.status}`);
+      }
+    }
+  }
+
+  // --- discussions -------------------------------------------------------
+  // A discussion (src/discussion.ts) is a PURE derived view over the same
+  // messages/receipts already in hand here — verify does not re-implement
+  // any admission/authorization logic; it discovers each discussion's id,
+  // calls the sealed `deriveDiscussion`, and passes its status + integrity
+  // findings through (severity per DISCUSSION_ERROR_CODES above). The only
+  // things verify computes itself are two cross-checks deriveDiscussion has
+  // no reason to compute for its own callers (see below).
+  //
+  // Discovery: bucket by ROOT-shaped discussion/v1 envelopes (turn 1,
+  // reply_to null) — deriveDiscussion re-filters by correlation_id itself
+  // (§7 step 1), so verify only needs the SET of ids, not a pre-filtered
+  // per-discussion message list.
+  const allMessages = Object.values(data.messages);
+  const allReceipts = Object.values(receipts);
+  const discussionIds = new Set<string>();
+  for (const m of allMessages) {
+    if (!m.correlation_id) continue;
+    const envelope = parseEnvelope(m.payload);
+    if (envelope && envelope.$meshfleet === "discussion/v1" && envelope.turn === 1 && envelope.reply_to === null) {
+      discussionIds.add(m.correlation_id);
+    }
+  }
+
+  for (const discussionId of discussionIds) {
+    const derived = deriveDiscussion(discussionId, allMessages, allReceipts, now);
+
+    // Aggregate overclaim: anything consuming `derived` at face value (its
+    // transcript, attempts, turns_used) without also inspecting
+    // integrity_findings would be trusting a discussion the module itself
+    // marked unusable.
+    if (derived.status === "invalid") {
+      error(
+        "discussion.derive_invalid",
+        discussionId,
+        `discussion ${discussionId} derives to status 'invalid' — its transcript/attempts/turns_used are not safe to present as usable`
+      );
+    }
+
+    for (const finding of derived.integrity_findings) {
+      const subject = finding.message_id ?? discussionId;
+      const detail = `discussion ${discussionId}: ${finding.detail}`;
+      if (DISCUSSION_ERROR_CODES.has(finding.code)) {
+        error(`discussion.${finding.code}`, subject, detail);
+      } else {
+        warning(`discussion.${finding.code}`, subject, detail);
+      }
+    }
+
+    // The two cross-checks below need a SHALLOW, independent recount of raw
+    // 'reserved' wake receipts on this discussion's messages — using only
+    // the exported action parser, no note/head/agent/timing validation (that
+    // depth is deriveDiscussion's job, not verify's to redo). One pass
+    // builds both: the distinct attempt_id set (budget check) and each
+    // attempt's claimed head_message_id (reply-linkage check), per the
+    // module's own "do not re-scan all messages per check" guidance.
+    const rawReservedAttempts = new Set<string>();
+    const reservedHeadByAttempt = new Map<string, string>();
+    for (const r of allReceipts) {
+      const msg = data.messages[r.message_id];
+      if (!msg || msg.correlation_id !== discussionId) continue;
+      const parsed = parseReceiptAction(r.action);
+      if (!parsed) continue;
+      if (parsed.kind !== "wake") continue;
+      if (parsed.state !== "reserved") continue;
+      rawReservedAttempts.add(parsed.attempt_id);
+      if (!r.note) continue;
+      try {
+        const raw = JSON.parse(r.note) as unknown;
+        if (typeof raw === "object" && raw !== null) {
+          const noteObj = raw as Record<string, unknown>;
+          if (typeof noteObj.head_message_id === "string") {
+            reservedHeadByAttempt.set(parsed.attempt_id, noteObj.head_message_id);
+          }
+        }
+      } catch {
+        // Malformed JSON is already surfaced generically via the
+        // discussion.malformed_receipt_note passthrough above.
+      }
+    }
+
+    // Budget-accounting consistency: turns_used counts the root plus every
+    // DISTINCT CANONICAL validated reservation (discussion.ts's own
+    // invariant — see its header comment). Every validated attempt requires
+    // a 'reserved' receipt in its own lifecycle (attempt_missing_reservation
+    // excludes any that don't), so canonical reservations are always a
+    // SUBSET of `rawReservedAttempts` in a correctly functioning derivation
+    // — `canonical > raw` should be structurally unreachable; if it ever
+    // fires, that is a serious derivation/ledger inconsistency (error,
+    // overclaim: turns_used asserts more validated turns than there is even
+    // raw receipt evidence for). `canonical < raw` is the common, expected
+    // case whenever deeper validation excluded some raw reservations
+    // (malformed note, wrong agent, wrong head, over budget, non-canonical)
+    // — a warning, exactly like message.ack_flag_mismatch's understate
+    // branch. Skipped entirely when `deriveDiscussion` never found a root
+    // (invalidResult's turns_used=0 placeholder is not a real count).
+    if (derived.root_message_id !== "") {
+      const canonicalReservations = derived.turns_used - 1; // root itself needs no reservation
+      if (canonicalReservations > rawReservedAttempts.size) {
+        error(
+          "discussion.budget_turns_mismatch",
+          discussionId,
+          `discussion ${discussionId} reports turns_used=${derived.turns_used} (${canonicalReservations} counted reservations), but only ${rawReservedAttempts.size} distinct attempt(s) hold a 'reserved' receipt at all on this discussion — turns_used overclaims`
+        );
+      } else if (canonicalReservations < rawReservedAttempts.size) {
+        warning(
+          "discussion.budget_turns_mismatch",
+          discussionId,
+          `discussion ${discussionId} reports turns_used=${derived.turns_used} (${canonicalReservations} counted reservations), but ${rawReservedAttempts.size} distinct attempt(s) hold a 'reserved' receipt — turns_used understates (some were excluded by deeper validation)`
+        );
+      }
+    }
+
+    // Reply-linkage cross-check — the local-trust-detectable slice of the
+    // design doc's `payload_mutation`. A validated completed attempt's note
+    // NAMES the reply message it produced (`reply_message_id`). Canonical
+    // attempts admitted through the live walk already have this fact checked
+    // (the walk only authorizes a candidate whose message id, turn, AND
+    // attempt id all agree) — but a canonical attempt admitted via the
+    // TAIL/dead-end path (`registerContiguousTail`: a trailing reservation,
+    // or a completed attempt whose reply never even entered `valid` — see
+    // the broadcast-smuggle fixture) never goes through that matching. This
+    // closes that gap: for every canonical attempt with a reply_message_id,
+    // confirm the named message exists and its OWN envelope agrees this
+    // attempt produced it (same discussion, same attempt id, replying to
+    // this attempt's own head).
+    //
+    // Honest limit: this proves the reply LINKAGE is self-consistent — it
+    // cannot prove the named message's `body` is byte-identical to whatever
+    // the acting agent actually sent. core.ts's Receipt has no content hash
+    // bound at receipt-time, so a receipt cannot commit to a payload the way
+    // it commits to an id; a genuine post-receipt body swap on an otherwise
+    // correctly-linked message is NOT detectable by local trust alone and
+    // would need a notary, or a hash bound into the receipt note at write
+    // time. (The design doc's original `payload_mutation` assumed exactly
+    // such a bound hash — a field that does not exist in the real schema;
+    // resolved here by scoping the check to what local trust can actually
+    // support.)
+    for (const attempt of derived.attempts) {
+      if (!attempt.reply_message_id) continue;
+      const headId = reservedHeadByAttempt.get(attempt.attempt_id);
+      const replyMsg = data.messages[attempt.reply_message_id];
+      if (!replyMsg) {
+        error(
+          "discussion.reply_target_mismatch",
+          attempt.reply_message_id,
+          `discussion ${discussionId}: attempt '${attempt.attempt_id}' claims reply_message_id '${attempt.reply_message_id}', which this ledger does not hold`
+        );
+        continue;
+      }
+      const replyEnvelope = parseEnvelope(replyMsg.payload);
+      const disagrees =
+        !replyEnvelope ||
+        replyEnvelope.discussion_id !== discussionId ||
+        replyEnvelope.attempt_id !== attempt.attempt_id ||
+        (headId !== undefined && replyEnvelope.reply_to !== headId);
+      if (disagrees) {
+        error(
+          "discussion.reply_target_mismatch",
+          attempt.reply_message_id,
+          `discussion ${discussionId}: attempt '${attempt.attempt_id}' completed receipt claims reply_message_id '${attempt.reply_message_id}', but that message's own envelope does not agree it is this attempt's reply${headId ? ` to head '${headId}'` : ""}`
+        );
       }
     }
   }
