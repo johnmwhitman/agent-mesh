@@ -55,7 +55,7 @@ All regex-like grammars below are anchored to the complete ASCII string.
 | protocol-ref | canonical-id, slash, exact-version; at most 129 bytes |
 | ascii-label | [A-Za-z0-9][A-Za-z0-9._+@-]{0,95} |
 | proof-digest | sha256: followed by exactly 64 lowercase hexadecimal characters |
-| field-path | dollar sign followed by one or more dot-name or decimal array-index segments; names use [a-z][a-z0-9_]*; at most 256 bytes |
+| field-path | dollar sign followed by zero or more dot-name or decimal array-index segments; names use [a-z][a-z0-9_]*; at most 256 bytes |
 
 Integers MUST be safe JSON integers in
 [-9007199254740991, 9007199254740991]. Epoch-millisecond fields MUST be
@@ -598,7 +598,9 @@ A translation input is a closed object with exactly these required members:
 
 translation_version MUST equal meshfleet.a2a.translation/v0.1.
 source_profile MUST be a complete valid capability profile. Translation
-normalizes it but MUST NOT create, remove, promote, or rewrite any claim.
+normalizes it and MUST NOT mutate the input. Ordinary targets preserve every
+claim. Deferred targets emit only the explicit claimless target projection in
+Section 13.6; that projection is result data, not a rewrite of source_profile.
 
 launch_template is a closed object. It is exactly one of:
 
@@ -636,12 +638,16 @@ are:
     credentials token api_key secret password private_key pem prompt payload
     output diagnostic diagnostics path cwd argv args argument arguments url uri
     endpoint environment env env_values hostname pid process_id account_id
-    hardware_id receipt receipt_id
+    hardware_id receipt receipt_id artifact
 
-If one of these fields appears anywhere, the result is
-FORBIDDEN_PRIVACY_FIELD. All other unknown core fields are UNKNOWN_CORE_FIELD.
-No extension namespace can carry rejected data. Diagnostics never echo field
-values.
+At any translator-root or nested core/profile object path, including claims,
+applicability, provenance, and proof objects, one of these names produces
+FORBIDDEN_PRIVACY_FIELD before unknown-field classification. The scan does not
+inspect keys or values inside an `extensions` object: because the v0.1 registry
+is empty, any extension key produces UNSUPPORTED_EXTENSION regardless of its
+spelling. All other unknown nonprivacy core fields produce UNKNOWN_CORE_FIELD.
+When more than one field qualifies at one precedence row, choose the smallest
+complete field_path by unsigned ASCII bytes. Diagnostics never echo values.
 
 ### 13.3 Translation result schema
 
@@ -675,11 +681,12 @@ A translation result is a closed object with exactly these required members:
       "critical_extensions": []
     }
 
-profile MUST be the complete normalized source_profile. It is not an arbitrary
-object and MUST remain semantically byte-equivalent to source_profile after the
-profile normalization rules. launch_template, cwd_policy, features,
-provenance_refs use the input schemas and array rules. extensions MUST be `{}`
-and critical_extensions MUST be `[]`.
+For ordinary targets, profile MUST be the complete normalized source_profile
+and remain byte-equivalent after profile normalization. For deferred targets,
+profile MUST copy every normalized source-profile member except claims, which
+MUST be `[]`; extensions remains `{}` and critical_extensions remains `[]`.
+It is not an arbitrary object. launch_template, cwd_policy, features, and
+provenance_refs use the input schemas and array rules.
 
 A loss record is closed with exactly field_path, target, reason_code, and
 disposition. field_path uses field-path. target uses the target enum.
@@ -707,8 +714,9 @@ Loss sorting uses the unsigned ASCII tuple:
 
 ### 13.4 Target mapping
 
-No target mapping creates implicit capability claims. The output profile is the
-normalized source_profile for every target. Translation features and losses
+No target mapping creates implicit capability claims. Ordinary targets preserve
+the normalized source_profile; deferred targets use the exact claimless
+projection below. Translation features and losses
 remain result metadata outside the profile and outside claim authority. Static
 configuration evidence remains conformance metadata outside claim authority.
 
@@ -719,39 +727,73 @@ configuration evidence remains conformance metadata outside claim authority.
 | opencode | meshfleet.mcp-stdio/v1 allowed | Preserve normalized source_profile. Static configuration shape only. Existing OpenCode runtime observations remain separate observed evidence. |
 | generic-mcp | meshfleet.mcp-stdio/v1 allowed | Preserve normalized source_profile. Static MCP/stdio shape only; process-handshake or tool evidence is separate. |
 | generic-cli-stdio | meshfleet.mcp-stdio/v1 allowed | Preserve normalized source_profile. Static command template only; no process-run claim. |
-| antigravity-gemini | none returns a result plus the exact static-template loss below; non-none is an error | Preserve normalized source_profile. Deferred/unverified; no command, schema, provider capability, or runtime claim may be invented. |
-| grok | none returns a result plus the exact static-template loss below; non-none is an error | Preserve normalized source_profile. Deferred/unverified; no command, schema, provider capability, or runtime claim may be invented. |
-| unknown-future-harness | none returns a result plus the exact static-template loss below; non-none is an error | Preserve normalized source_profile with explicit unknown/not-represented result state; invent no schema or claim. |
+| antigravity-gemini | none enters the terminal deferred projection; non-none is an error | Emit the claimless unknown projection in Section 13.6. Deferred/unverified; invent no command, schema, provider capability, or runtime claim. |
+| grok | none enters the terminal deferred projection; non-none is an error | Emit the claimless unknown projection in Section 13.6. Deferred/unverified; invent no command, schema, provider capability, or runtime claim. |
+| unknown-future-harness | none enters the terminal deferred projection; non-none is an error | Emit the claimless unknown projection in Section 13.6. Deferred/unverified; invent no command, schema, provider capability, or runtime claim. |
 
 For antigravity-gemini, grok, and unknown-future-harness, any supported input
-feature produces `UNSUPPORTED_TARGET_CLAIM` at `$.features[i]` and no result.
-Unsupported, unknown, and not-represented states may be preserved as
-non-authorizing information.
+feature or supported capability/transport/protocol source-profile claim
+produces `UNSUPPORTED_TARGET_CLAIM` at the smallest applicable field path and
+no result. Unsupported, unknown, descriptive, and not-represented input remains
+non-authorizing but is not projected as a deferred-target claim.
 
-### 13.5 Mechanical result mapping
+### 13.5 Single-error translation precedence
 
-The translator applies these rules in order:
+After strict JSON parsing begins, `translateProfile` MUST apply this complete
+table in order. It returns the first failure only and MUST NOT continue to a
+later row, emit a second error, or return a partial result. For rows with
+multiple candidates, the smallest complete field_path by unsigned ASCII bytes
+wins. `target_ref` is `invalid` until T02 accepts an allowed target and is that
+allowed target thereafter.
 
-1. Validate and normalize source_profile, then copy it byte-equivalently to
-   result.profile. No target-specific claim mutation is permitted.
-2. For codex, claude-code, opencode, generic-mcp, and generic-cli-stdio, copy a
-   valid input launch_template to the result. For antigravity-gemini, grok, and
-   unknown-future-harness, a non-none template produces
-   `UNSUPPORTED_STATIC_TEMPLATE` at `$.launch_template` and no result. The none
-   template returns a result and exactly one loss at `$.launch_template` with
-   reason_code `static_template_unavailable` and disposition
-   `preserved_unknown`.
-3. generic-cli-stdio preserves the normalized cwd_policy token. Every other
-   target emits cwd_policy not-represented; if the input was different, emit one
-   loss for $.cwd_policy with reason_code cwd_not_represented and disposition
-   omitted_by_contract.
+| Row | Validation stage | First-failure result |
+|---|---|---|
+| T01 | Input JSON, type, and root shape | Malformed JSON, unsupported input type, or a non-plain/non-object root returns INVALID_TRANSLATION_INPUT at `$` with target_ref invalid. |
+| T02 | Target presence and enum | Missing, non-ASCII/non-string, malformed, or unknown target returns INVALID_TARGET at `$.target` with target_ref invalid and no reflected raw target. |
+| T03 | Forbidden privacy-name scan | Scan every translator-root and nested core/profile object, excluding contents of extensions objects. Return FORBIDDEN_PRIVACY_FIELD at the smallest forbidden-name path, using the canonical lowercase forbidden name rather than raw spelling. |
+| T04 | Unknown core fields | Return UNKNOWN_CORE_FIELD at the smallest unknown nonprivacy core-field path. Extension members are deferred to T06. |
+| T05 | Translation/profile versions and structural profile validation | Invalid translation_version returns INVALID_TRANSLATION_INPUT at `$.translation_version`. Otherwise validate source_profile while deferring extension emptiness to T06; return its first stable profile code at the `$.source_profile`-prefixed path, ordered by code then field_path. |
+| T06 | extensions and critical_extensions | Any extension key in the translation root, source profile, or claim returns UNSUPPORTED_EXTENSION at its containing extensions path; any critical member returns it at the indexed critical_extensions path. Select the smallest path and never reflect the extension key spelling. |
+| T07 | launch_template schema | A value other than either exact closed template returns INVALID_TRANSLATION_INPUT at `$.launch_template`. |
+| T08 | cwd_policy schema | A value outside the exact cwd enum returns INVALID_TRANSLATION_INPUT at `$.cwd_policy`. |
+| T09 | feature schema | Invalid cardinality, member shape, feature_id, state, or provenance_ref returns INVALID_TRANSLATION_INPUT at the smallest `$.features[i]` path. |
+| T10 | duplicate feature_id | The second occurrence in input order returns INVALID_TRANSLATION_INPUT at `$.features[i].feature_id`. |
+| T11 | provenance_refs schema and feature-reference membership | Invalid cardinality or opaque reference returns INVALID_TRANSLATION_INPUT at the smallest `$.provenance_refs[i]` path. A feature provenance_ref absent from the valid provenance_refs set returns INVALID_TRANSLATION_INPUT at the smallest `$.features[i].provenance_ref` path. |
+| T12 | duplicate provenance_ref | The second occurrence in input order returns DUPLICATE_SET_MEMBER at `$.provenance_refs[i]`. |
+| T13 | Deferred-target non-none template | For antigravity-gemini, grok, or unknown-future-harness, return UNSUPPORTED_STATIC_TEMPLATE at `$.launch_template`. |
+| T14 | Deferred-target supported claim | For those deferred targets, the smallest supported feature or supported capability/transport/protocol claim path returns UNSUPPORTED_TARGET_CLAIM. Arrays are normalized first and indexes in the returned path are normalized-array indexes. |
+| T15 | Remaining target-specific compatibility | Apply any remaining registered v0.1 hard compatibility rule at its canonical path. v0.1 defines no additional hard rejection; ordinary representational gaps become deterministic losses. |
+| T16 | Success and loss mapping | Produce exactly one normalized TranslationResult. No validation error is present. |
+
+Every negative translation corpus case MUST name exactly one `precedence_row`
+from T01 through T15 and MUST assert code, field_path, and target_ref. Collision
+vectors containing multiple invalidities MUST prove that only the earliest row
+is returned.
+
+### 13.6 Mechanical result mapping
+
+After T01 through T15 pass, the translator applies exactly one terminal branch:
+
+1. For antigravity-gemini, grok, and unknown-future-harness, short-circuit all
+   normal mapping. Return launch_template none, cwd_policy not-represented,
+   features `[]`, provenance_refs `[]`, and a target projection of the
+   normalized source profile with claims `[]`, extensions `{}`, and
+   critical_extensions `[]`. The source input is not mutated. Return exactly
+   one loss at `$.launch_template` with reason_code
+   `static_template_unavailable` and disposition `preserved_unknown`. Do not
+   emit a cwd, claim, feature, provenance, target-schema, or other loss.
+2. For codex, claude-code, opencode, generic-mcp, and generic-cli-stdio, copy the
+   normalized source_profile byte-equivalently to result.profile and copy the
+   valid launch_template. No target-specific claim mutation is permitted.
+3. generic-cli-stdio preserves the normalized cwd_policy token. codex,
+   claude-code, opencode, and generic-mcp emit cwd_policy not-represented; if
+   the input was different, emit one loss for $.cwd_policy with reason_code
+   cwd_not_represented and disposition omitted_by_contract. Deferred targets
+   never reach this rule.
 4. Environment names and values are absent from both schemas. Any `env_names`
    member is UNKNOWN_CORE_FIELD; forbidden value-bearing fields continue to
    fail under the privacy rules.
-5. codex, claude-code, opencode, generic-mcp, and generic-cli-stdio preserve
-   normalized features and provenance_refs as result metadata. Deferred targets
-   preserve unsupported, unknown, and not-represented features; supported
-   produces `UNSUPPORTED_TARGET_CLAIM` at `$.features[i]` and no result.
+5. Preserve normalized features and provenance_refs as result metadata.
 6. Require extensions `{}` and critical_extensions `[]`; any member already
    failed with UNSUPPORTED_EXTENSION.
 7. Normalize and sort all emitted losses by the tuple in Section 13.3.
@@ -759,7 +801,7 @@ The translator applies these rules in order:
 No mapping rule reads live state, invents evidence, or emits conformance
 maturity. Translation returns structure and loss only.
 
-### 13.6 Pure APIs and conformance rendering
+### 13.7 Pure APIs and conformance rendering
 
 The exact translation API is:
 
@@ -775,10 +817,10 @@ translation-field validation and returns `INVALID_TARGET` at `$.target`. A
 valid deferred-target input with a none
 launch template returns `TranslationResult` plus the exact loss above; the two
 specified deferred-target failures return `TranslationError` only.
-Deferred-target checks are ordered: reject a non-none launch template first,
-then scan normalized features in canonical order and reject the first supported
-feature. This precedence makes every valid input produce one deterministic
-result or one deterministic error.
+Rows T01 through T16 are the exclusive precedence authority. In particular,
+T13 rejects a non-none deferred template before T14 scans normalized features
+and source-profile claims for the smallest supported path. Every call produces
+one deterministic result or one deterministic error.
 
 Conformance maturity is rendered only by this separate pure API:
 
@@ -887,11 +929,11 @@ stated result:
 | array.applicability-transport-reordered | same normalized bytes |
 | array.applicability-operation-reordered | same normalized bytes |
 | array.duplicate-set-member | DUPLICATE_SET_MEMBER |
-| array.argv-template-reordered | INVALID_TRANSLATION_INPUT |
+| array.argv-template-reordered | T07 when used as translateProfile input; INVALID_TRANSLATION_INPUT |
 | array.features-reordered | same normalized translation bytes and result |
-| array.features-duplicate | INVALID_TRANSLATION_INPUT |
+| array.features-duplicate | T10 when used as translateProfile input; INVALID_TRANSLATION_INPUT |
 | array.provenance-refs-reordered | same normalized translation bytes and result |
-| array.provenance-refs-duplicate | DUPLICATE_SET_MEMBER |
+| array.provenance-refs-duplicate | T12 when used as translateProfile input; DUPLICATE_SET_MEMBER |
 | array.result-features-reordered | same normalized result bytes |
 | array.result-features-duplicate | INVALID_TRANSLATION_RESULT |
 | array.result-provenance-refs-reordered | same normalized result bytes |
@@ -900,7 +942,7 @@ stated result:
 | array.result-losses-duplicate | INVALID_TRANSLATION_RESULT |
 | array.proof-results-reordered | same normalized validation report bytes |
 | array.proof-results-duplicate | INVALID_PROOF_RESULTS |
-| array.translation-input-critical-nonempty | UNSUPPORTED_EXTENSION; reorder is impossible for accepted input because only [] is valid |
+| array.translation-input-critical-nonempty | T06; UNSUPPORTED_EXTENSION; reorder is impossible for accepted input because only [] is valid |
 | array.translation-result-critical-nonempty | UNSUPPORTED_EXTENSION; reorder is impossible for accepted result because only [] is valid |
 | array.validation-errors-reordered | same normalized validation report bytes |
 | array.validation-errors-duplicate | INVALID_VALIDATION_REPORT |
@@ -947,33 +989,60 @@ stated result:
 | time.proof-expiry-equality | EXPIRED_PROOF when evaluation_time_ms equals proof.expires_at_ms; verification_status remains unsupported |
 | extension.profile-key | any profile extension key produces UNSUPPORTED_EXTENSION |
 | extension.claim-key | any claim extension key produces UNSUPPORTED_EXTENSION |
-| extension.translation-input-key | any translation-input extension key produces UNSUPPORTED_EXTENSION |
+| extension.translation-input-key | T06; any translation-input extension key produces UNSUPPORTED_EXTENSION |
 | extension.translation-result-key | any translation-result extension key produces UNSUPPORTED_EXTENSION |
 | extension.profile-critical | any profile critical_extensions member produces UNSUPPORTED_EXTENSION |
 | extension.claim-critical | any claim critical_extensions member produces UNSUPPORTED_EXTENSION |
-| extension.translation-input-critical | any translation-input critical_extensions member produces UNSUPPORTED_EXTENSION |
+| extension.translation-input-critical | T06; any translation-input critical_extensions member produces UNSUPPORTED_EXTENSION |
 | extension.translation-result-critical | any translation-result critical_extensions member produces UNSUPPORTED_EXTENSION |
-| privacy.forbidden-field-names | FORBIDDEN_PRIVACY_FIELD for every listed field name |
-| privacy.path-url-pem-bearer-token | rejected by the closed translator; no extension channel exists; diagnostics contain no value |
-| privacy.runtime-argv-dynamic | FORBIDDEN_PRIVACY_FIELD |
-| translation.each-target-minimal | exact normalized input/result for all eight target values |
-| translation.codex-no-tools-discovery | no tools-discovery claim |
-| translation.claude-no-tools-discovery | no tools-discovery claim |
-| translation.opencode-runtime-separate | no inferred observed or attested runtime claim |
-| translation.deferred-none-return | each deferred target returns a result and exactly the static_template_unavailable/preserved_unknown loss at $.launch_template |
-| translation.deferred-template-fail | each deferred target with a non-none template returns UNSUPPORTED_STATIC_TEMPLATE and no result |
-| translation.deferred-supported-feature-fail | each deferred target with a supported feature returns UNSUPPORTED_TARGET_CLAIM and no result |
-| translation.deferred-nonsupported-feature-return | unsupported, unknown, and not-represented features return a result under the deferred rules |
-| translation.env-names-field | UNKNOWN_CORE_FIELD |
-| translation.env-value | FORBIDDEN_PRIVACY_FIELD; no result and no value in diagnostics |
-| translation.feature-state-four-values | exact supported/unsupported/unknown/not-represented behavior |
-| translation.loss-order | exact unsigned tuple order |
-| translation.loss-free-form-reason | INVALID_LOSS_RECORD |
-| translation.no-conformance-status | conformance_status in input or result is UNKNOWN_CORE_FIELD |
-| translation.target-missing | INVALID_TARGET at $.target with target_ref invalid before every other error |
-| translation.target-malformed | INVALID_TARGET at $.target with target_ref invalid and no reflected raw value |
-| translation.target-unknown | INVALID_TARGET at $.target with target_ref invalid and no reflected raw value |
+| privacy.forbidden-field-names | T03; FORBIDDEN_PRIVACY_FIELD for every listed field name at any translator-root or nested core/profile path |
+| privacy.artifact-and-path | T03; simultaneous root artifact and path fields return only FORBIDDEN_PRIVACY_FIELD at $.artifact |
+| privacy.extension-artifact-key | T06; an artifact key inside extensions returns UNSUPPORTED_EXTENSION at the extensions container, not FORBIDDEN_PRIVACY_FIELD |
+| privacy.unknown-nonprivacy-core | T04; unknown field widget_hint returns UNKNOWN_CORE_FIELD |
+| privacy.path-url-pem-bearer-token | T03; rejected by the closed translator; no extension channel exists; diagnostics contain no value |
+| privacy.runtime-argv-dynamic | T03; FORBIDDEN_PRIVACY_FIELD |
+| translation.each-target-minimal | T16; exact normalized input/result for all eight target values |
+| translation.codex-no-tools-discovery | T16; no tools-discovery claim |
+| translation.claude-no-tools-discovery | T16; no tools-discovery claim |
+| translation.opencode-runtime-separate | T16; no inferred observed or attested runtime claim |
+| translation.deferred-none-return | T16; with input cwd_policy explicit-reviewed and nonsupported feature/profile evidence, each deferred target returns none template, not-represented cwd, empty claims/features/provenance, and exactly the static_template_unavailable/preserved_unknown loss at $.launch_template; no cwd or other loss |
+| translation.deferred-template-fail | T13; each deferred target with a non-none template returns UNSUPPORTED_STATIC_TEMPLATE and no result |
+| translation.deferred-supported-feature-fail | T14; each deferred target with a supported feature returns UNSUPPORTED_TARGET_CLAIM and no result |
+| translation.deferred-supported-profile-claim-fail | T14; each deferred target with a supported capability/transport/protocol claim returns UNSUPPORTED_TARGET_CLAIM and no result |
+| translation.deferred-nonsupported-input | T16; unsupported, unknown, descriptive, and not-represented input is accepted but the deferred result remains claimless and has exactly one loss |
+| translation.env-names-field | T04; UNKNOWN_CORE_FIELD |
+| translation.env-value | T03; FORBIDDEN_PRIVACY_FIELD; no result and no value in diagnostics |
+| translation.feature-state-four-values | T16; exact supported/unsupported/unknown/not-represented behavior |
+| translation.loss-order | T16; exact unsigned tuple order |
+| result.loss-free-form-reason | Result validation, not translateProfile precedence; INVALID_LOSS_RECORD |
+| translation.no-conformance-status-input | T04; conformance_status in input is UNKNOWN_CORE_FIELD |
+| result.no-conformance-status | Result validation, not translateProfile precedence; UNKNOWN_CORE_FIELD |
+| translation.target-missing | T02; INVALID_TARGET at $.target with target_ref invalid before every other error |
+| translation.target-malformed | T02; INVALID_TARGET at $.target with target_ref invalid and no reflected raw value |
+| translation.target-unknown | T02; INVALID_TARGET at $.target with target_ref invalid and no reflected raw value |
 | translation.error-valid-target | later translation error carries the parsed allowed target as target_ref |
+| translation.precedence-t01-root | T01; INVALID_TRANSLATION_INPUT at $ with target_ref invalid |
+| translation.precedence-t02-target | T02; INVALID_TARGET at $.target with target_ref invalid |
+| translation.precedence-t03-privacy | T03; FORBIDDEN_PRIVACY_FIELD at the smallest canonical forbidden-name path |
+| translation.precedence-t04-unknown | T04; UNKNOWN_CORE_FIELD at the smallest unknown nonprivacy core path |
+| translation.precedence-t05-profile | T05; first ordered profile/version/structural code at its prefixed path |
+| translation.precedence-t06-extension | T06; UNSUPPORTED_EXTENSION at the smallest non-reflecting extension path |
+| translation.precedence-t07-template | T07; INVALID_TRANSLATION_INPUT at $.launch_template |
+| translation.precedence-t08-cwd | T08; INVALID_TRANSLATION_INPUT at $.cwd_policy |
+| translation.precedence-t09-feature-schema | T09; INVALID_TRANSLATION_INPUT at the smallest feature path |
+| translation.precedence-t10-feature-duplicate | T10; INVALID_TRANSLATION_INPUT at the second duplicate feature_id path |
+| translation.precedence-t11-provenance-schema | T11; INVALID_TRANSLATION_INPUT at the smallest provenance or missing-membership path |
+| translation.precedence-t12-provenance-duplicate | T12; DUPLICATE_SET_MEMBER at the second duplicate provenance path |
+| translation.precedence-t13-deferred-template | T13; UNSUPPORTED_STATIC_TEMPLATE at $.launch_template |
+| translation.precedence-t14-deferred-supported | T14; UNSUPPORTED_TARGET_CLAIM at the smallest supported feature/profile-claim path |
+| translation.collision-target-privacy-unknown | T02 wins over simultaneous T03 and T04 failures; exactly one error |
+| translation.collision-privacy-unknown-profile | T03 wins over simultaneous T04 and T05 failures; exactly one error |
+| translation.collision-unknown-profile-extension | T04 wins over simultaneous T05 and T06 failures; exactly one error |
+| translation.collision-profile-extension-template | T05 wins over simultaneous T06 and T07 failures; exactly one error |
+| translation.collision-extension-template-cwd | T06 wins over simultaneous T07 and T08 failures; exactly one error |
+| translation.collision-feature-schema-duplicate-provenance | T09 wins over simultaneous T10 and T11 failures; exactly one error |
+| translation.collision-provenance-duplicate-deferred-template | T12 wins over simultaneous T13 and T14 failures; exactly one error |
+| translation.collision-deferred-template-supported | T13 wins over simultaneous T14 failure; exactly one error |
 | conformance.success-union | exact {ok:true,value:ConformanceRender} shape |
 | conformance.invalid-result-target | exact error union with INVALID_TARGET, $.result.target, and target_ref invalid |
 | conformance.invalid-registry-record | exact error union with INVALID_REGISTRY_RECORD, $.registry_record, and the valid result target_ref |

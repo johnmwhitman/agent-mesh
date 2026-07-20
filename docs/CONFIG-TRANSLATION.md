@@ -67,6 +67,9 @@ and the bounds in
   `password`, `private_key`, `auth`, Bearer material, credential URLs, PEM
   private keys, and long base64-like values) with status `secret-rejected` and
   no emitted config.
+- That existing Slice 3B preflight is intentionally broader than Slice 4C-0's
+  closed translator forbidden-name list. It does not add, reorder, or replace
+  any `translateProfile` error or precedence row.
 - Slice 4C-0 represents no environment names or values. The existing Slice 3B
   renderer reports `envAllowlist` as unsupported where target evidence is
   absent and MUST NOT project it into the capability profile.
@@ -103,3 +106,12 @@ provenance, and loss schemas are closed in that profile. Conformance maturity
 is rendered separately from an explicit validated registry record and is never
 a translation-result field. These rules do not change the existing Slice 3B
 renderer API or elevate its evidence status.
+
+For the deferred `antigravity-gemini`, `grok`, and
+`unknown-future-harness` target profiles, the Slice 4C-0 translator validates
+the full input and deferred hard-rejection checks, then terminally emits the
+claimless unknown projection with exactly one
+`static_template_unavailable`/`preserved_unknown` loss at
+`$.launch_template`. It does not run ordinary cwd mapping and does not add a cwd
+or other loss. The numbered first-error precedence table in the capability
+profile is authoritative.

@@ -70,7 +70,9 @@ reviewed profile can state trust, session, key, revocation, and privacy rules.
   only. Existing OpenCode/local-process observations stay distinct from those
   static claims.
 - Antigravity/Gemini and Grok remain deferred/unverified until bounded evidence
-  exists; no command, schema, or capability is guessed.
+  exists; no command, schema, or capability is guessed. Their offline
+  translation is a terminal claimless unknown projection with one static
+  template-unavailable loss, not ordinary target mapping or runtime evidence.
 - The next implementation produces only pure TypeScript/Python validators,
   fingerprints, translation/loss reporting, and conformance vectors.
 - Future proof verification can adopt a carrier only with an additional ADR and
