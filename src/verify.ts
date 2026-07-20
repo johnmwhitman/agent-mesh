@@ -90,6 +90,14 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
     }
   }
 
+  const invalidMessageTimestamps = new Set<string>();
+  for (const msg of Object.values(data.messages)) {
+    if (!Number.isFinite(msg.timestamp)) {
+      error("message.invalid_timestamp", msg.id, `message ${msg.id} has a missing or non-finite timestamp`);
+      invalidMessageTimestamps.add(msg.id);
+    }
+  }
+
   // --- receipts ---------------------------------------------------------------
   const validatedAckReceipts = new Set<string>();
   for (const [key, r] of Object.entries(receipts)) {
@@ -100,6 +108,9 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
     const msg = data.messages[r.message_id];
     if (!msg) {
       error("receipt.orphan_message", key, `receipt ${key} points at message ${r.message_id}, which this ledger does not hold`);
+      continue;
+    }
+    if (invalidMessageTimestamps.has(msg.id)) {
       continue;
     }
     // "*" is the legacy-broadcast placeholder: the v1→v2 migration backfills

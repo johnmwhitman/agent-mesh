@@ -175,6 +175,23 @@ test("missing, string, and NaN receipt timestamps are errors and cannot prove an
   }
 });
 
+test("missing, string, and NaN message timestamps cannot prove an ack", () => {
+  for (const timestamp of [undefined, "1000", Number.NaN]) {
+    const data = consistent();
+    data.messages.m1 = msg("m1", "a1", "a2", "f1", {
+      timestamp: timestamp as unknown as number,
+      acknowledged: true,
+    });
+    data.inboxes.a2 = [];
+    data.receipts = { "m1:a2:ack": receiptRow("m1", "a2", "ack") };
+
+    const report = verifyMeshData(data);
+    assert.equal(found(report, "message.invalid_timestamp").length, 1);
+    assert.equal(found(report, "message.ack_flag_mismatch").length, 1);
+    assert.equal(found(report, "receipt.before_message").length, 0);
+  }
+});
+
 test("a valid non-ack receipt cannot prove acknowledgement", () => {
   const data = consistent();
   data.messages.m1 = msg("m1", "a1", "a2", "f1", { acknowledged: true });

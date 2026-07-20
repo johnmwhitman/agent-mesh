@@ -349,6 +349,11 @@ const CHECK_EXPLANATIONS: Record<string, CheckExplanation> = {
     benign: "a hand-edited export with a tampered timestamp",
     investigate: "agent-mesh inspect --export | jq '.messages'",
   },
+  "message.invalid_timestamp": {
+    what: "a message has a missing, non-numeric, or non-finite timestamp and cannot support derived state",
+    benign: "a hand-edited or partially-corrupted export",
+    investigate: "agent-mesh inspect --export | jq '.messages'",
+  },
   "capability.unknown_agent": {
     what: "a capability is registered for an agent this ledger never registered",
     benign: "a cross-attached fleet advertising capabilities before its agent rows synced",
