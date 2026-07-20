@@ -6,7 +6,6 @@ import {
   ListToolsRequestSchema,
   type CallToolResult,
 } from "@modelcontextprotocol/sdk/types.js";
-import { spawn } from "child_process";
 import { randomUUID } from "crypto";
 import { createRequire } from "module";
 import { resolveEnv } from "./env.js";
@@ -58,18 +57,13 @@ import { notifySubscribers } from "./realtime.js";
 import { startSseServer, stopSseServer, subscribeInboxUrl } from "./sse-server.js";
 import { createHeartbeat } from "./heartbeat.js";
 import {
-  AGENT_SPAWN_STDIO,
-  agentTimeoutMs,
-  buildRunArgs,
-} from "./spawn-config.js";
-import {
   computeBackoff,
   scheduleRetry as scheduleAgentRetry,
   shouldRetry as shouldAgentRetry,
 } from "./retry.js";
 import { recordRoutingOutcome } from "./routing-feedback.js";
-import { buildFailureDetail, createAttemptSettlementGate, type AttemptTerminalEvent } from "./spawn-attempt.js";
-import { classifySpawnResult } from "./spawn-result.js";
+import { buildFailureDetail } from "./spawn-attempt.js";
+import { getDefaultRuntimeAdapter } from "./runtime/registry.js";
 
 // ---------------------------------------------------------------------------
 // Server
@@ -91,87 +85,51 @@ interface SpawnAgentInput {
   agentFile?: string;
 }
 
+const runtimeAdapter = getDefaultRuntimeAdapter();
+
 /**
  * Inner spawn loop. attempt is 1-indexed (first attempt = 1).
  * On any transient failure path, decides retry vs permanent via shouldAgentRetry().
  */
 function trySpawn(input: SpawnAgentInput, agentId: string, attempt: number): void {
-  const child = spawn("opencode", buildRunArgs(input), {
-    // stdin MUST be ignored — `opencode run` hangs forever on a piped
-    // stdin. Contract + evidence documented in spawn-config.ts.
-    stdio: AGENT_SPAWN_STDIO,
-    // AGENT_MESH_CHILD marks nested agent-mesh instances: the child's
-    // opencode loads the user's MCP config (agent-mesh included), and
-    // without the marker that nested instance runs startup recovery on the
-    // SAME ledger and flips the parent's live agents to "interrupted"
-    // within seconds of spawn (verified 2026-07-03: events.log shows
-    // agent_interrupted_recovered 2s after agent_spawned).
-    env: { ...process.env, AGENT_MESH_CHILD: "1" },
-  });
-
-  if (child.pid !== undefined) {
-    const pid = child.pid;
-    withLedger((data) => {
-      const a = data.agents[agentId];
-      if (a) a.pid = pid;
-    });
-  }
-
-  let stdout = "";
-  let stderr = "";
-  child.stdout.on("data", (d) => (stdout += d.toString()));
-  child.stderr.on("data", (d) => (stderr += d.toString()));
-
-  const claimSettlement = createAttemptSettlementGate();
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  let heartbeat: ReturnType<typeof createHeartbeat>;
-
-  function settleAttempt(event: AttemptTerminalEvent, finish: () => void): void {
-    if (!claimSettlement(event)) return;
-    if (timeout !== undefined) clearTimeout(timeout);
-    heartbeat.stop();
-    finish();
-  }
-
-  // Watchdog: auto-fail only when the child process is actually gone
-  // (12 consecutive dead checks x 5s = 60s) but "close" never fired.
-  // Healthy long-running agents are never killed by the watchdog.
-  heartbeat = createHeartbeat(agentId, input.fleetId, {
-    intervalMs: 5_000,
-    onHeartbeat: () => {},
-    maxMissed: 12,
-    isAlive: () => child.exitCode === null && child.signalCode === null,
-    onMaxMissed: (reason: string) => {
-      settleAttempt("heartbeat", () => {
-        if (!child.killed) child.kill("SIGKILL");
-        handleTransientFailure(input, agentId, attempt, stdout, stderr, `Heartbeat watchdog: ${reason}`);
+  const spec = {
+    fleetId: input.fleetId,
+    agentId,
+    role: input.role,
+    prompt: input.prompt,
+    requestedAgent: input.agentFile,
+    cwd: process.cwd(),
+    timeoutMs: runtimeAdapter.describe().defaultTimeoutMs,
+  };
+  void runtimeAdapter.start(spec).then((handle) => {
+    if (handle.pid !== undefined) {
+      withLedger((data) => {
+        const agent = data.agents[agentId];
+        if (agent) agent.pid = handle.pid;
       });
-    },
-  });
-
-  timeout = setTimeout(() => {
-    settleAttempt("timeout", () => {
-      if (!child.killed) child.kill("SIGTERM");
-      handleTransientFailure(input, agentId, attempt, stdout, stderr, `Timed out after ${agentTimeoutMs()}ms`);
+    }
+    let watchdogReason: string | undefined;
+    const heartbeat = createHeartbeat(agentId, input.fleetId, {
+      intervalMs: 5_000,
+      onHeartbeat: () => {},
+      maxMissed: 12,
+      isAlive: () => handle.isAlive(),
+      onMaxMissed: (reason) => {
+        watchdogReason = `Heartbeat watchdog: ${reason}`;
+        void runtimeAdapter.cancel(handle, watchdogReason);
+      },
     });
-  }, agentTimeoutMs());
-
-  child.on("error", (err: Error) => {
-    settleAttempt("error", () => {
-      handleTransientFailure(input, agentId, attempt, stdout, stderr, err.message);
-    });
-  });
-
-  child.on("close", (code: number | null) => {
-    settleAttempt("close", () => {
-      const result = classifySpawnResult({
-        exitCode: code,
-        stdout,
-        stderr,
-        requestedAgent: input.agentFile,
-      });
-      if (result.success) {
-        markAgentFinished(agentId, "complete", result.stdout, result.stderr || undefined, result.runtime_agent, result.runtime_model);
+    void runtimeAdapter.wait(handle).then((result) => {
+      heartbeat.stop();
+      if (result.status === "success") {
+        markAgentFinished(
+          agentId,
+          "complete",
+          result.stdout,
+          result.stderr || undefined,
+          result.identity.agent,
+          result.identity.model,
+        );
         return;
       }
       handleTransientFailure(
@@ -180,11 +138,13 @@ function trySpawn(input: SpawnAgentInput, agentId: string, attempt: number): voi
         attempt,
         result.stdout,
         result.stderr,
-        result.error ?? `Spawn failed with exit code ${code}`,
-        result.runtime_agent,
-        result.runtime_model
+        watchdogReason ?? result.error ?? `Spawn failed with exit code ${result.exitCode}`,
+        result.identity.agent,
+        result.identity.model,
       );
     });
+  }).catch((error: unknown) => {
+    handleTransientFailure(input, agentId, attempt, "", "", error instanceof Error ? error.message : String(error));
   });
 }
 

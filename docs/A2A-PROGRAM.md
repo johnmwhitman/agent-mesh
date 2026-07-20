@@ -114,7 +114,11 @@ cancellation, signal termination, stderr diagnostics, working directory,
 environment policy, child-output isolation, and evidence-level identity. A real
 vendor smoke test is opt-in and cannot be required for the offline suite.
 
-**Status:** Proposed. Current outbound execution remains OpenCode-coupled.
+**Status:** Slice 3A implemented with a provider-neutral runtime contract,
+internal registry, OpenCode compatibility adapter, and deterministic local
+process proof. `spawn_fleet` remains OpenCode-backed by default with unchanged
+MCP input/output. Real vendor adapters, target configuration renderers, public
+runtime selection, lifecycle integration, and remote execution remain separate.
 
 ## Sequencing and dependencies
 

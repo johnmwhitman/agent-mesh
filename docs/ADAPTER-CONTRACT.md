@@ -96,10 +96,10 @@ before a renderer is called supported.
 | Generic MCP stdio | `process-handshake-verified` | Packaged `npx -y meshfleet` starts and completes MCP initialization at the process boundary |
 | Claude Code, Codex, OpenCode config | `documented` | Each is documented against the same inbound stdio shape; live semantic client conformance is not claimed |
 | SSE inbox projection | `implemented` | Optional local inbox push, not a general A2A HTTP transport |
-| Outbound worker launch | `coupled` | Current code invokes `opencode run` |
-| OpenCode result normalization | `coupled` | OpenCode-specific output and diagnostic parsing remains in the current path |
-| Provider-neutral runtime SPI | `proposed` | Contract exists in this document; no neutral adapter boundary is implemented yet |
-| Local-process proof adapter | `pending` | First deterministic second-runtime proof slice |
+| Outbound worker launch | `runtime-launch-verified` | `spawn_fleet` selects the internal OpenCode compatibility adapter; no public runtime selection exists |
+| OpenCode result normalization | `runtime-launch-verified` | OpenCode command, banner parsing, fallback, and provider diagnostics are isolated behind `OpenCodeRuntimeAdapter` |
+| Provider-neutral runtime SPI | `implemented` | Core orchestration uses normalized execution contracts and an internal registry |
+| Local-process proof adapter | `runtime-launch-verified` | Deterministic local argv-only adapter covers process lifecycle without a provider, network, or credentials |
 | Multi-host coordinator | `deferred` | No shared remote ownership authority exists |
 
 ## Evidence levels
@@ -138,3 +138,4 @@ another evidence level.
    private-data policy.
 6. Design a shared coordinator before using the phrase multi-host.
 
+Real vendor adapters and target configuration renderers remain separate work.
