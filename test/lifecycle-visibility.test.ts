@@ -1,9 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { withLedgerAndStorage } from "../src/db.js";
 import { LifecycleStore } from "../src/attempt-lifecycle.js";
-import { buildLifecycleView, formatLifecycleView, LIFECYCLE_JSON_SCHEMA, readLifecycleSnapshot, verifyLifecycleSnapshot } from "../src/lifecycle-visibility.js";
+import { verifyLedger, verifyLedgerFile } from "../src/verify.js";
+import { buildLifecycleView, formatLifecycleView, LIFECYCLE_JSON_SCHEMA, LIFECYCLE_SCAN_LIMIT, readLifecycleSnapshot, readLifecycleSnapshotFile, verifyLifecycleSnapshot } from "../src/lifecycle-visibility.js";
 import type { LifecycleSnapshot } from "../src/lifecycle-visibility.js";
 import { withTempDb } from "./helpers/with-temp-db.js";
 
@@ -80,4 +82,86 @@ test("lifecycle verifier emits stable namespaced tamper findings", () => {
   assert.deepEqual(verifyLifecycleSnapshot(legacy, now), []);
   const shadow = { ...snapshot, data: { ...snapshot.data, fleets: { durable: snapshot.data.fleets.durable }, agents: {} }, fleetModes: new Map([["durable", "shadow"]]), work: snapshot.work.filter((work) => work.fleet_id === "durable"), attempts: snapshot.attempts.filter((attempt) => attempt.work_id === "w"), events: snapshot.events, outbox: [], scanExceeded: false } as unknown as LifecycleSnapshot;
   assert.ok(verifyLifecycleSnapshot(shadow, now).every((finding) => finding.severity === "warning"));
+});
+
+test("explicit lifecycle file verification is read-only and adds namespaced findings", () => {
+  const temp = withTempDb({ fleets: { f: { id: "f", status: "running", created_at: 1 } }, agents: { a: { id: "a", fleet_id: "f", role: "r", prompt: "P", status: "pending", retry_count: 0 } }, messages: {}, inboxes: { a: [] }, capabilities: {} });
+  try {
+    withLedgerAndStorage((_data, db) => db.prepare("UPDATE fleets SET lifecycle_mode = 'durable' WHERE id = ?").run("f"));
+    new LifecycleStore({ now: () => 1, nextId: () => "attempt" }).createWork({ workId: "a", fleetId: "f", agentId: "a" });
+    withLedgerAndStorage((_data, db) => db.prepare("UPDATE work_items SET current_attempt_id = 'tampered' WHERE work_id = ?").run("a"));
+    const before = [bytes(temp.dbFile), bytes(temp.dbFile + "-wal"), bytes(temp.dbFile + "-shm")];
+    const report = verifyLedgerFile(temp.dbFile, 1);
+    assert.deepEqual(Object.keys(report).sort(), ["counts", "errors", "findings", "ok", "warnings"]);
+    assert.ok(report.findings.some((finding) => finding.check === "lifecycle.work.current_attempt"));
+    assert.deepEqual([bytes(temp.dbFile), bytes(temp.dbFile + "-wal"), bytes(temp.dbFile + "-shm")], before);
+    assert.equal(readLifecycleSnapshotFile(temp.dbFile).snapshotKind, "copied-sqlite-files");
+  } finally { temp.cleanup(); }
+});
+
+test("lifecycle CLI scopes event issues and reports missing fleets exactly", () => {
+  const temp = withTempDb({ fleets: { f: { id: "f", status: "running", created_at: 1 } }, agents: { a: { id: "a", fleet_id: "f", role: "r", prompt: "P", status: "pending", retry_count: 0 } }, messages: {}, inboxes: { a: [] }, capabilities: {} });
+  try {
+    withLedgerAndStorage((_data, db) => db.prepare("UPDATE fleets SET lifecycle_mode = 'durable' WHERE id = ?").run("f"));
+    new LifecycleStore({ now: () => 1, nextId: () => "attempt" }).createWork({ workId: "a", fleetId: "f", agentId: "a" });
+    withLedgerAndStorage((_data, db) => db.prepare("UPDATE attempt_events SET seq = 2 WHERE attempt_id = ?").run("attempt"));
+    const env = { ...process.env, MESHFLEET_DB_FILE: temp.dbFile };
+    const scoped = spawnSync(process.execPath, ["--import", "tsx", "src/bin/inspect.ts", "--lifecycle", "f", "--json"], { cwd: process.cwd(), env, encoding: "utf8" });
+    assert.equal(scoped.status, 1);
+    const scopedJson = JSON.parse(scoped.stdout);
+    assert.equal(scopedJson.schema, "meshfleet.lifecycle/v1");
+    assert.ok(scopedJson.data.issues.some((finding: { check: string }) => finding.check === "lifecycle.event.sequence"));
+    const missing = spawnSync(process.execPath, ["--import", "tsx", "src/bin/inspect.ts", "--lifecycle", "missing", "--json"], { cwd: process.cwd(), env, encoding: "utf8" });
+    assert.equal(missing.status, 1);
+    const missingJson = JSON.parse(missing.stdout);
+    assert.deepEqual({ schema: missingJson.schema, kind: missingJson.kind, scope: missingJson.data.scope, fleets: missingJson.data.fleet.counts.fleets, issue: missingJson.data.issues[0].check }, { schema: "meshfleet.lifecycle/v1", kind: "lifecycle", scope: { fleet_id: "missing", status: "missing" }, fleets: 0, issue: "lifecycle.scope.missing_fleet" });
+    const defaultInspect = spawnSync(process.execPath, ["--import", "tsx", "src/bin/inspect.ts"], { cwd: process.cwd(), env, encoding: "utf8" });
+    const defaultInspectAgain = spawnSync(process.execPath, ["--import", "tsx", "src/bin/inspect.ts"], { cwd: process.cwd(), env, encoding: "utf8" });
+    assert.equal(defaultInspect.status, 0);
+    assert.equal(defaultInspect.stdout, defaultInspectAgain.stdout);
+    const conflict = spawnSync(process.execPath, ["--import", "tsx", "src/bin/inspect.ts", "--lifecycle", "--verify"], { cwd: process.cwd(), env, encoding: "utf8" });
+    assert.equal(conflict.status, 2);
+  } finally { temp.cleanup(); }
+});
+
+test("attempt replay checks historical attempts without false positives for valid retries", () => {
+  const work = { work_id: "work", fleet_id: "fleet", agent_id: null, status: "pending", current_attempt_id: "second", owner_epoch: 2, created_at: 1, updated_at: 2, terminal_at: null };
+  const first = { attempt_id: "first", work_id: "work", owner_id: "owner", owner_epoch: 1, status: "failed", lease_until: null, attempt_number: 1, eligible_at: 1, created_at: 1, updated_at: 2, terminal_at: 2, result_json: null, error_json: "\"failure\"" as string | null, launch_intent_at: null, launch_registered_at: null };
+  const second = { attempt_id: "second", work_id: "work", owner_id: null, owner_epoch: 2, status: "pending", lease_until: null, attempt_number: 2, eligible_at: 2, created_at: 2, updated_at: 2, terminal_at: null, result_json: null, error_json: null, launch_intent_at: null, launch_registered_at: null };
+  const event = (seq: number, attempt: Record<string, unknown>, kind: string) => ({ seq, event_id: `e-${seq}`, work_id: "work", attempt_id: attempt.attempt_id, kind, occurred_at: seq, payload: JSON.stringify({ work, attempt }) });
+  const snapshot = { data: { fleets: { fleet: { id: "fleet", status: "running", created_at: 1 } }, agents: {}, messages: {}, inboxes: {}, capabilities: {}, receipts: {}, ratifications: {}, templates: {} }, logicalVersion: 2, storageVersion: 3, snapshotKind: "copied-sqlite-files", lifecycleTablesPresent: true, fleetModes: new Map([["fleet", "durable"]]), work: [work], attempts: [first, second], events: [event(1, { ...first, result_absent: true, error_absent: false }, "attempt_failed"), event(2, { ...second, result_absent: true, error_absent: true }, "attempt_retried")], outbox: [], scanExceeded: false } as unknown as LifecycleSnapshot;
+  let findings = verifyLifecycleSnapshot(snapshot, 2);
+  assert.equal(findings.some((finding) => finding.check === "lifecycle.replay.state_mismatch"), false);
+  first.error_json = null;
+  findings = verifyLifecycleSnapshot(snapshot, 2);
+  assert.ok(findings.some((finding) => finding.check === "lifecycle.replay.state_mismatch" && finding.subject === "first"));
+});
+
+test("active verifier preserves special collection keys and future storage fails closed", () => {
+  const temp = withTempDb();
+  try {
+    withLedgerAndStorage((data, db) => {
+      Object.defineProperty(data.templates!, "__proto__", { value: { name: "special" }, enumerable: true, configurable: true });
+      db.prepare("UPDATE meta SET value = '4' WHERE key = 'storage_schema_version'").run();
+    });
+    assert.throws(() => readLifecycleSnapshot(temp.dbFile), /unsupported storage schema version: 4/);
+    withLedgerAndStorage((_data, db) => db.prepare("UPDATE meta SET value = '3' WHERE key = 'storage_schema_version'").run());
+    const snapshot = readLifecycleSnapshot(temp.dbFile);
+    assert.equal(Object.hasOwn(snapshot.data.templates!, "__proto__"), true);
+    assert.equal(verifyLedger().ok, true);
+  } finally { temp.cleanup(); }
+});
+
+test("lifecycle snapshot stops at the collective scan ceiling plus one row", () => {
+  const temp = withTempDb();
+  try {
+    withLedgerAndStorage((_data, db) => {
+      const insert = db.prepare("INSERT INTO work_items (work_id, fleet_id, agent_id, max_attempts, retry_base_ms, retry_jitter, status, current_attempt_id, owner_epoch, cancelled_at, terminal_at, result_json, error_json, created_at, updated_at) VALUES (?, 'fleet', NULL, 1, 0, 0, 'pending', 'attempt', 0, NULL, NULL, NULL, NULL, 1, 1)");
+      for (let index = 0; index <= LIFECYCLE_SCAN_LIMIT; index++) insert.run(`work-${index}`);
+    });
+    const snapshot = readLifecycleSnapshot(temp.dbFile);
+    assert.equal(snapshot.scanExceeded, true);
+    assert.equal(snapshot.work.length, LIFECYCLE_SCAN_LIMIT + 1);
+    assert.deepEqual(verifyLifecycleSnapshot(snapshot, 1).map((finding) => finding.check), ["lifecycle.verify.scan_limit"]);
+  } finally { temp.cleanup(); }
 });

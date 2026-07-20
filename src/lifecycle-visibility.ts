@@ -41,8 +41,8 @@ function json(value: unknown, label: string): unknown {
 }
 function rows(db: Database.Database, sql: string): Row[] { return db.prepare(sql).all() as Row[]; }
 function dataRows(db: Database.Database, table: string, key: string): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  for (const row of rows(db, `SELECT ${key} AS k, data FROM ${table}`)) out[String(row.k)] = json(row.data, `${table}.${String(row.k)}`);
+  const out: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
+  for (const row of rows(db, `SELECT ${key} AS k, data FROM ${table}`)) Object.defineProperty(out, String(row.k), { value: json(row.data, `${table}.${String(row.k)}`), enumerable: true, configurable: true, writable: true });
   return out;
 }
 function hasColumn(sql: string | undefined, column: string): boolean {
@@ -89,10 +89,16 @@ export function readLifecycleSnapshot(file: string = resolveDbFile()): Lifecycle
       for (const row of fleetRows) { fleets[String(row.id)] = json(row.data, `fleets.${String(row.id)}`); fleetModes.set(String(row.id), typeof row.lifecycle_mode === "string" ? row.lifecycle_mode : null); }
       const lifecycleTablesPresent = ["work_items", "attempts", "attempt_events"].every((table) => sql.has(table));
       const outboxPresent = sql.has("lifecycle_event_outbox");
-      const work = lifecycleTablesPresent ? rows(db, "SELECT * FROM work_items") : [];
-      const attempts = lifecycleTablesPresent ? rows(db, "SELECT * FROM attempts") : [];
-      const events = lifecycleTablesPresent ? rows(db, "SELECT * FROM attempt_events") : [];
-      const outbox = outboxPresent ? rows(db, "SELECT * FROM lifecycle_event_outbox") : [];
+      let lifecycleRemaining = LIFECYCLE_SCAN_LIMIT + 1;
+      const lifecycleRows = (table: string): Row[] => {
+        const result = rows(db, `SELECT * FROM ${table} LIMIT ${Math.max(0, lifecycleRemaining)}`);
+        lifecycleRemaining -= result.length;
+        return result;
+      };
+      const work = lifecycleTablesPresent ? lifecycleRows("work_items") : [];
+      const attempts = lifecycleTablesPresent ? lifecycleRows("attempts") : [];
+      const events = lifecycleTablesPresent ? lifecycleRows("attempt_events") : [];
+      const outbox = outboxPresent ? lifecycleRows("lifecycle_event_outbox") : [];
       const total = work.length + attempts.length + events.length + outbox.length;
       const data: MeshData = {
         fleets: fleets as MeshData["fleets"],
@@ -108,6 +114,11 @@ export function readLifecycleSnapshot(file: string = resolveDbFile()): Lifecycle
       return { data, logicalVersion: numberOrNull(Number(metaMap.get("schema_version"))), storageVersion, snapshotKind: "copied-sqlite-files", lifecycleTablesPresent, fleetModes, work, attempts, events, outbox, scanExceeded: total > LIFECYCLE_SCAN_LIMIT };
     } catch (error) { try { db.exec("ROLLBACK"); } catch { /* no mutation, best effort */ } throw error; }
   } finally { db.close(); try { rmSync(dir, { recursive: true, force: true }); } catch { /* cleanup cannot mask an audit */ } }
+}
+
+/** Explicit-file companion for verifyLedgerFile; preserves the source bytes by construction. */
+export function readLifecycleSnapshotFile(file: string): LifecycleSnapshot {
+  return readLifecycleSnapshot(file);
 }
 
 function issue(findings: VerifyFinding[], mode: LifecycleMode, check: string, subject: string, detail: string, warning = false): void {
@@ -165,7 +176,29 @@ export function verifyLifecycleSnapshot(snapshot: LifecycleSnapshot, now: number
     }
     if (list.filter((attempt) => String(attempt.status) === "running").some((attempt) => String(attempt.attempt_id) !== String(work.current_attempt_id))) issue(findings, mode, "lifecycle.attempt.state", id, "only the current attempt may run");
   }
-  for (const attempt of snapshot.attempts) if (!workById.has(String(attempt.work_id))) issue(findings, diagnosticMode, "lifecycle.attempt.orphan_work", String(attempt.attempt_id), "attempt references missing work");
+  for (const attempt of snapshot.attempts) {
+    const work = workById.get(String(attempt.work_id));
+    if (!work) {
+      issue(findings, diagnosticMode, "lifecycle.attempt.orphan_work", String(attempt.attempt_id), "attempt references missing work");
+      continue;
+    }
+    const mode = fleetForWork(work);
+    const history = snapshot.events.filter((event) => String(event.attempt_id) === String(attempt.attempt_id)).sort((a, b) => Number(a.seq) - Number(b.seq));
+    if (history.length === 0) {
+      issue(findings, mode, "lifecycle.replay.unreplayable", String(attempt.attempt_id), "attempt has no replayable event history");
+      continue;
+    }
+    const observed = payload(history.at(-1)!);
+    const replayAttempt = observed?.attempt;
+    const terminal = attempt.terminal_at != null;
+    const resultPresent = attempt.result_json != null;
+    const errorPresent = attempt.error_json != null;
+    const replayResultPresent = replayAttempt !== null && typeof replayAttempt === "object" && (replayAttempt as Row).result_absent === false;
+    const replayErrorPresent = replayAttempt !== null && typeof replayAttempt === "object" && (replayAttempt as Row).error_absent === false;
+    if (replayAttempt === null || typeof replayAttempt !== "object" || String((replayAttempt as Row).status) !== String(attempt.status) || Number((replayAttempt as Row).owner_epoch) !== Number(attempt.owner_epoch) || ((replayAttempt as Row).terminal_at != null) !== terminal || (terminal && Number((replayAttempt as Row).terminal_at) !== Number(attempt.terminal_at)) || resultPresent !== replayResultPresent || errorPresent !== replayErrorPresent) {
+      issue(findings, mode, "lifecycle.replay.state_mismatch", String(attempt.attempt_id), "event replay attempt snapshot disagrees with stored attempt");
+    }
+  }
   const ids = new Set<string>(); let expected = 1;
   for (const event of [...snapshot.events].sort((a, b) => Number(a.seq) - Number(b.seq))) {
     const mode = workById.get(String(event.work_id)) ? fleetForWork(workById.get(String(event.work_id))!) : diagnosticMode;
@@ -209,21 +242,39 @@ export function verifyLifecycleSnapshot(snapshot: LifecycleSnapshot, now: number
 }
 
 export interface LifecycleView { schema: typeof LIFECYCLE_JSON_SCHEMA; kind: "lifecycle"; data: Record<string, unknown>; missingFleet: boolean; exitError: boolean; }
+function outboxReferencesScope(row: Row, fleetId: string, agentIds: ReadonlySet<string>): boolean {
+  let body: unknown;
+  try { body = json(row.payload, "outbox payload"); } catch { return false; }
+  const visit = (value: unknown, depth: number): boolean => {
+    if (depth > 3 || value === null || typeof value !== "object") return false;
+    for (const [key, nested] of Object.entries(value as Row)) {
+      if ((key === "fleet_id" || key === "fleetId") && nested === fleetId) return true;
+      if ((key === "agent_id" || key === "agentId" || key === "work_id" || key === "workId") && typeof nested === "string" && agentIds.has(nested)) return true;
+      if (visit(nested, depth + 1)) return true;
+    }
+    return false;
+  };
+  return visit(body, 0);
+}
 export function buildLifecycleView(snapshot: LifecycleSnapshot, fleetId?: string, now: number = Date.now()): LifecycleView {
   const missingFleet = fleetId !== undefined && !snapshot.data.fleets[fleetId];
   const scopedWork = snapshot.work.filter((row) => !fleetId || String(row.fleet_id) === fleetId);
   const scopedIds = new Set(scopedWork.map((row) => String(row.work_id)));
   const scopedAttempts = snapshot.attempts.filter((row) => scopedIds.has(String(row.work_id)));
-  const issues = verifyLifecycleSnapshot(snapshot, now).filter((finding) => !fleetId || finding.subject === fleetId || scopedIds.has(finding.subject) || scopedAttempts.some((row) => String(row.attempt_id) === finding.subject));
+  const scopedAgentIds = new Set(Object.values(snapshot.data.agents).filter((agent) => !fleetId || agent.fleet_id === fleetId).map((agent) => agent.id));
+  const scopedEventIds = new Set(snapshot.events.filter((row) => scopedIds.has(String(row.work_id))).map((row) => String(row.event_id)));
+  const scopedOutboxIds = new Set(fleetId ? snapshot.outbox.filter((row) => outboxReferencesScope(row, fleetId, scopedAgentIds)).map((row) => String(row.event_id)) : snapshot.outbox.map((row) => String(row.event_id)));
+  const issues = verifyLifecycleSnapshot(snapshot, now).filter((finding) => !fleetId || finding.subject === fleetId || scopedIds.has(finding.subject) || scopedAttempts.some((row) => String(row.attempt_id) === finding.subject) || scopedEventIds.has(finding.subject) || scopedOutboxIds.has(finding.subject));
+  if (missingFleet && fleetId) issues.unshift({ severity: "error", check: "lifecycle.scope.missing_fleet", subject: fleetId, detail: "requested fleet is not present in the SQLite authority" });
   const modeCounts = { legacy: 0, shadow: 0, durable: 0 };
-  for (const id of Object.keys(snapshot.data.fleets)) modeCounts[modeOf(snapshot, id)]++;
+  for (const id of Object.keys(snapshot.data.fleets)) if (!fleetId || id === fleetId) modeCounts[modeOf(snapshot, id)]++;
   const statusCounts: Record<string, number> = {};
   for (const work of scopedWork) statusCounts[String(work.status)] = (statusCounts[String(work.status)] ?? 0) + 1;
   const pending = snapshot.outbox.filter((row) => row.projected_at == null);
   const oldest = pending.reduce<number | null>((old, row) => validTimestamp(row.created_at) && (old === null || Number(row.created_at) < old) ? Number(row.created_at) : old, null);
   const data = {
-    observed_at_ms: now, logical_version: snapshot.logicalVersion, storage_version: snapshot.storageVersion, snapshot_kind: snapshot.snapshotKind, authority: "sqlite", scope: fleetId ? { fleet_id: fleetId } : { fleet_id: null },
-    fleet: { modes: modeCounts, authority: modeCounts.durable ? "durable/canonical" : modeCounts.shadow ? "shadow/not-authoritative" : "legacy/not-applicable", status: statusCounts, counts: { fleets: fleetId ? 1 : Object.keys(snapshot.data.fleets).length, agents: fleetId ? Object.values(snapshot.data.agents).filter((agent) => agent.fleet_id === fleetId).length : Object.keys(snapshot.data.agents).length } },
+    observed_at_ms: now, logical_version: snapshot.logicalVersion, storage_version: snapshot.storageVersion, snapshot_kind: snapshot.snapshotKind, authority: "sqlite", scope: fleetId ? { fleet_id: fleetId, status: missingFleet ? "missing" : "ok" } : { fleet_id: null, status: "ok" },
+    fleet: { modes: modeCounts, authority: modeCounts.durable ? "durable/canonical" : modeCounts.shadow ? "shadow/not-authoritative" : "legacy/not-applicable", status: missingFleet ? "missing" : statusCounts, counts: { fleets: fleetId ? (missingFleet ? 0 : 1) : Object.keys(snapshot.data.fleets).length, agents: fleetId ? (missingFleet ? 0 : Object.values(snapshot.data.agents).filter((agent) => agent.fleet_id === fleetId).length) : Object.keys(snapshot.data.agents).length } },
     work: { total: scopedWork.length, status: statusCounts },
     attempt: { total: scopedAttempts.length, current: scopedWork.filter((work) => work.current_attempt_id != null).length },
     lease: { running: scopedAttempts.filter((row) => row.status === "running").length, expired: scopedAttempts.filter((row) => row.status === "running" && validTimestamp(row.lease_until) && Number(row.lease_until) < now).length },

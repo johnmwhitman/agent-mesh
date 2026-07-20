@@ -25,7 +25,7 @@ import { existsSync } from "fs";
 import { BROADCAST, messageRecipients, type MeshData, type Message, type Receipt } from "./core.js";
 import { MAX_TOTAL_WEIGHT, MAX_VOTE_WEIGHT, computeTally, parseVoteAction } from "./ratify.js";
 import { readLedger, readLedgerFile } from "./db.js";
-import { readLifecycleSnapshot, verifyLifecycleSnapshot } from "./lifecycle-visibility.js";
+import { readLifecycleSnapshot, readLifecycleSnapshotFile, verifyLifecycleSnapshot } from "./lifecycle-visibility.js";
 
 export interface VerifyFinding {
   severity: "error" | "warning";
@@ -322,7 +322,11 @@ export function verifyLedgerFile(file: string, now: number = Date.now()): Verify
   // the global handle, the path config, or — critically — the audited file
   // itself. No WAL conversion, no schema creation, no meta writes.
   try {
-    return verifyMeshData(readLedgerFile(file), now);
+    const core = verifyMeshData(readLedgerFile(file), now);
+    const snapshot = readLifecycleSnapshotFile(file);
+    const findings = [...core.findings, ...verifyLifecycleSnapshot(snapshot, now)];
+    const errors = findings.filter((finding) => finding.severity === "error").length;
+    return { ...core, ok: errors === 0, errors, warnings: findings.length - errors, findings };
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     if (/file is not a database|not a database|SQLITE_NOTADB|malformed/i.test(detail)) {
