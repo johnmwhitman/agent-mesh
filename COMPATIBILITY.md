@@ -183,3 +183,13 @@ Open an issue at https://github.com/johnmwhitman/agent-mesh/issues with:
 - Current package/storage remains `0.14.0` and physical v3. The designed v4
   migration and `dormant-internal-durable-verified` status are unshipped and
   must not be claimed until executable evidence exists.
+
+## A2A physical-storage compatibility: Slice 4B (2026-07-20)
+
+The current branch implements and locally verifies physical SQLite schema v4 for
+the dormant private acceptance journal; the logical ledger schema remains v2.
+Current and newer v4-aware binaries may open a validated v4 database. A v3
+binary rejects v4, and there is no auto-downgrade: rollback requires restoring a
+pre-migration WAL-safe SQLite backup. This compatibility note is storage-only;
+it does not claim public A2A ingress, remote transport, provider conformance,
+delivery, execution, or multi-host operation.

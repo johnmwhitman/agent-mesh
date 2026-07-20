@@ -165,3 +165,15 @@ of either raw canonical parsing behavior or public ingress.
 
 These controls remain design requirements. They do not prove public ingress,
 authentication, authorization, delivery, confidentiality, or multi-host safety.
+
+## Slice 4B verified storage boundary (2026-07-20)
+
+Physical SQLite v4 is locally verified but dormant. It accepts no raw identities
+or secrets: trusted callers provide canonical unpadded 32-byte base64url keyed
+tokens and `key_id` values, while opaque acceptance and receipt IDs are generated
+locally. The journal stores no raw envelope, payload, extension, policy, path,
+runtime, denial, conflict, or delivery/outbox data. Exact schema validation runs
+on open and first within each acceptance transaction, failing closed on partial,
+tampered, squatted, or foreign-dependent layouts. This does not elevate
+capability claims, model banners, evaluator metadata, or local receipts into
+authentication, authorization, attestation, delivery, or execution evidence.

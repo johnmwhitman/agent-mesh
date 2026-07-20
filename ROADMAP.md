@@ -158,3 +158,24 @@ We'll move items up if the use case is clear and the implementation is contained
 Implemented as an opt-in local inspector and namespaced integrity verification.
 Repair remains deliberately non-actionable from this surface; outbox lag is
 observable, not a daemon, dashboard, or service claim.
+
+## A2A program closeout and next sequencing (2026-07-20)
+
+- [x] **Slice 4B: dormant durable acceptance** — implemented and locally
+  verified at `f1f98fb` over `acc4090..f1f98fb`. Physical SQLite v4 is ordered
+  and fail-closed; logical ledger schema remains v2. The private journal has no
+  public ingress, delivery, execution, auth provider, transport activation,
+  outbox, lifecycle execution, NDJSON, or legacy projection.
+- [ ] **Slice 4C-0: capability, identity, and runtime-attestation profile** —
+  define provider-neutral discovery and evidence levels. Capability claims and
+  model banners must never grant authorization.
+- [ ] **Slice 4C-1: principal-bound authenticated-local semantic path** — prove
+  a secretless local adapter path before any public ingress review.
+- [ ] **Slice 4D: offline delivery-attempt and transport conformance** — compare
+  stdio, mailbox, HTTP/SSE, and WebSocket semantic traces without live peers.
+- [ ] **Slice 4E: deterministic two-host coordinator simulation** — prove
+  leases, monotonic fencing, cancellation, partition, and recovery semantics
+  before operational multi-host work.
+
+Public or remote activation, credentials, spend, deployment, and provider-live
+conformance remain separate human gates.

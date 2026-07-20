@@ -245,3 +245,14 @@ snapshots, migration/rollback evidence, and independent whole-slice review.
 - What retention, redaction, and tombstone policy applies to decision records?
 - What delivery semantics and authenticated transport are required before any
   remote or multi-host deployment is considered?
+
+## Slice 4B integration status (2026-07-20)
+
+The dormant journal implementation at `f1f98fb` does not create this contract's
+public ingress. A future ingress must complete current authentication,
+principal/sender binding, structural validation, and authorization before it can
+enter the private journal. Within that journal, exact request replay/conflict is
+checked before semantic duplicate/conflict, regardless of expiry; expiry is
+checked only for unseen request and semantic identities. This is local durable
+decision evidence only, never evidence of delivery, execution, remote identity,
+or authorization correctness.

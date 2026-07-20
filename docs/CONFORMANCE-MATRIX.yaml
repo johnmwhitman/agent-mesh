@@ -58,3 +58,19 @@
     "No multi-host ownership claim from local SQLite behavior."
   ]
 }
+
+# Slice 4B closeout (2026-07-20): implemented_locally_verified_dormant.
+# Physical SQLite v4; logical ledger schema v2. The evidence matrix covers
+# migration rollback, v3/WAL-safe backup, tamper, races, constraints, privacy,
+# append-only, noncoupling, and package-boundary checks. No activation or
+# named-provider interoperability claim follows from this record.
+slice_4b_durable_acceptance:
+  status: implemented_locally_verified_dormant
+  accepted_head: f1f98fb
+  implementation_range: acc4090..f1f98fb
+  physical_storage_schema: 4
+  logical_ledger_schema: 2
+  public_ingress: absent
+  transport_activation: absent
+  delivery_or_execution: absent
+  remote_or_provider_interoperability: not_claimed

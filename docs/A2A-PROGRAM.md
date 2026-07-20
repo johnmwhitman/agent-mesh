@@ -213,3 +213,20 @@ They are additive, reversible, and do not widen the current MCP surface.
 registry is not durable ingress identity. The public `send_a2a` tool remains
 absent until all principal-binding, authorization, durable acceptance,
 compatibility, and independent-review gates are satisfied.
+
+## Slice 4B closeout: dormant durable acceptance (2026-07-20)
+
+Slice 4B is **implemented and locally verified, not activated** at
+`f1f98fb` (`acc4090..f1f98fb`). It advances durable local acceptance only:
+physical SQLite v4 with logical ledger schema v2, an internal package-private
+journal, exact pre-mutation schema validation, request-first identity ordering,
+and one honest local-decision receipt per accepted semantic identity.
+
+It does not establish public ingress, authenticated remote identity, delivery,
+execution, transport activation, multi-host coordination, or interoperability
+with any named provider. Capability claims and model/runtime banners remain
+non-authorizing data. The subsequent program sequence is 4C-0
+capability/identity/runtime-attestation profile, 4C-1 principal-bound
+authenticated-local semantic path, 4D offline delivery-attempt and transport
+conformance, then 4E deterministic two-host coordinator simulation. Public or
+remote activation remains human-gated.

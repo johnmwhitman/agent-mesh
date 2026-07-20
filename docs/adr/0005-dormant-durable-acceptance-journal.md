@@ -1,6 +1,7 @@
 # ADR 0005: Dormant durable acceptance journal
 
-**Status:** Accepted for Slice 4B design; not implemented.
+**Status:** Accepted and implemented for Slice 4B; locally verified, dormant,
+and not activated.
 
 ## Problem
 
@@ -17,7 +18,8 @@ authentication, or a public tool.
   authorize.
 - Only accepted local decisions persist; no negative audit, delivery, outbox,
   legacy projection, lifecycle event, or NDJSON coupling.
-- This branch contract is unshipped and carries no implementation evidence.
+- The implementation is unmerged, unpublished, undeployed, and inactive. Its
+  evidence is recorded below; it creates no public ingress or live migration.
 
 ## Options
 
@@ -130,3 +132,28 @@ audit is established.
 - Authenticated adapter and authorization-context digest integration.
 - Operator backup UX and retention/tombstone forward migration.
 - Any later delivery or public-ingress transaction boundary.
+
+## Implementation receipt (2026-07-20)
+
+The accepted implementation range is `acc4090..f1f98fb` on
+`codex/a2a-seamless-foundation`. Physical storage v4 is implemented and locally
+verified while the logical ledger schema remains v2. The implementation keeps
+this ADR's dormant boundary: no public `send_a2a`, delivery, execution, auth
+provider, transport activation, outbox, lifecycle execution, NDJSON, or legacy
+projection exists.
+
+A current caller must authenticate and authorize before storage entry. Storage
+validates exact v4 layout first in every acceptance transaction, then processes
+request replay/conflict, semantic duplicate/conflict, and only then expiry for
+unseen identities. Negative, conflict, and expired outcomes persist nothing.
+The three append-only private tables retain only canonical 32-byte unpadded
+base64url keyed tokens with `key_id`, canonical digest, minimum local evaluator
+metadata/times, mappings, and one `internal_local_decision` receipt per
+acceptance. No raw identities, envelope data, payload, policy, path, runtime,
+denial, conflict, or outbox state is retained.
+
+The v3-to-v4 marker is last in one atomic migration. v3 binaries reject v4;
+there is no auto-downgrade, so rollback requires restoration of a pre-migration
+WAL-safe SQLite backup. The complete evidence matrix and final `518/518` suite
+plus typecheck passed. Final independent review found no Critical or Important
+findings after P1 corrections through `f1f98fb`.

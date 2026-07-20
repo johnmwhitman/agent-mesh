@@ -1,11 +1,12 @@
 # Dormant Durable Acceptance Contract v0.1
 
-**Status:** Designed; not implemented. The future evidence level is
+**Status:** Implemented and locally verified on `codex/a2a-seamless-foundation`
+at `f1f98fb`; dormant and not activated. Evidence level:
 `dormant-internal-durable-verified`, which remains below public ingress.
 
 This contract defines Slice 4B's private, single-host persistence seam. It does
 not expose a tool, authenticate a principal, authorize a request, deliver a
-message, or change current package behavior.
+message, or activate a new public package behavior.
 
 ## Problem
 
@@ -33,8 +34,9 @@ claim.
 - Existing MCP tools, inspector defaults and JSON schemas, logical exports,
   runtime defaults, and package `0.14.0` remain unchanged. Opt-in lifecycle
   diagnostics may report the physical schema version honestly.
-- This is unshipped branch design. No migration or durable journal is currently
-  implemented or released.
+- This branch implements and locally verifies the physical-v4 migration and
+  private journal. It remains unmerged, unpublished, undeployed, and inactive;
+  no migration has been applied by restarting a live process.
 
 ## Options considered
 
@@ -429,3 +431,47 @@ findings. That status remains below `implemented-public-ingress`.
 - Retention, tombstones, legal deletion, and any future archival migration.
 - Whether a later delivery transaction can safely consume acceptance without
   weakening current authorization or exactly-once claim boundaries.
+
+## Implementation and local-verification receipt (2026-07-20)
+
+Slice 4B is implemented on branch `codex/a2a-seamless-foundation` at
+`f1f98fb`, over range `acc4090..f1f98fb`. The physical SQLite schema is v4;
+the logical ledger schema remains v2.
+
+The v3-to-v4 migration is one ordered `BEGIN IMMEDIATE` transaction with the
+physical-version marker written last. A v3 binary rejects a v4 database. There
+is no auto-downgrade or in-place v4-to-v3 rollback: recovery requires restoring
+a pre-migration WAL-safe SQLite backup made through the SQLite backup API or
+another reviewed snapshot procedure.
+
+The journal remains private and dormant. Package exports deny deep imports of
+its implementation; it adds no public `send_a2a`, auth provider, transport,
+delivery, execution, outbox, lifecycle execution, NDJSON, or legacy projection.
+The caller performs current authentication and authorization before entering
+storage.
+
+Inside the acceptance transaction, exact v4 layout validation is first. It
+rejects reserved, partial, tampered, squatted, and foreign-dependent layouts,
+including string-literal and ASCII-identifier differences. Request lookup is
+then first: exact replay and request conflict are returned regardless of expiry.
+Semantic duplicate and semantic conflict follow, also regardless of expiry. Only
+an unseen request and semantic identity evaluates expiry; expired, conflict, and
+other negative results persist nothing.
+
+Storage accepts only pre-tokenized identity handles. Each token is the canonical
+unpadded base64url representation of exactly 32 bytes and carries its `key_id`;
+this slice derives no raw identity and receives no token secret. Acceptance and
+receipt IDs are generated as cryptographic opaque local IDs. Exactly three
+append-only private tables retain keyed opaque tokens, canonical digest, minimal
+local evaluator metadata and times, request mappings, and one
+`internal_local_decision` receipt per acceptance. They retain no raw identity,
+envelope, payload, extension, `dedupe_key`, policy, path, runtime, denial,
+conflict, or outbox data.
+
+Evidence covers every v4 DDL and marker rollback point, v3-reader and WAL-safe
+backup behavior, reopen and cached-handle tampering, cross-process races,
+constraints, privacy sentinels, append-only enforcement, noncoupling, and the
+package boundary. Full verification passed `518/518`; `npm run typecheck`
+passed. Initial independent reviews found P1 issues, resolved through
+`47a390c`, `e2a7bc8`, `276f6ec`, `d2457c3`, and `f1f98fb`; the final delta review
+reported no Critical or Important findings.
