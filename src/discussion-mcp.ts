@@ -298,17 +298,32 @@ export interface DiscussionMcpTestOverrides {
 }
 
 /**
+ * Cheap pre-filter (cdx pass-1 review item 4, part 1): the exact
+ * `JSON.stringify` rendering of a `discussion/v1` envelope's first field is
+ * `"$meshfleet":"discussion/v1"` — no spaces, fixed key order at construction
+ * (discussion-store.ts's `openDiscussion`/`replyDiscussion` always build the
+ * envelope object literal with `$meshfleet` first). A plain substring test
+ * against the raw payload string costs a fraction of a JSON.parse, so a
+ * non-discussion message (the overwhelming majority on most ledgers) is
+ * rejected with one `String.prototype.includes` call instead of a parse.
+ */
+const DISCUSSION_ENVELOPE_MARKER = '"$meshfleet":"discussion/v1"';
+
+/**
  * D3 recorded obligation: prime the store's sweep index at server startup by
  * scanning the ledger for discussion roots — any message carrying a
  * `correlation_id` whose payload parses as a `discussion/v1` envelope — and
- * seeding `knownDiscussionIds` for each. `DiscussionStore` has no public
- * "seed known ids" primitive; `getDiscussion` is the documented way to do
- * this (see discussion-store.ts's `sweepStranded` doc comment and its K2/K3
- * test precedent: "a fresh store's known-id set with an ordinary
- * `getDiscussion` call first, exactly as a real caller resuming after a
- * restart would"). Best-effort per id: a malformed/invalid discussion still
- * resolves to a `status: "invalid"` view rather than throwing, so one bad
- * discussion never blocks priming the rest.
+ * seeding `knownDiscussionIds` for each.
+ *
+ * cdx pass-1 review item 4 (FAIL, fixed here): the original version called
+ * `store.getDiscussion(id)` per discovered id — a full `deps.ledger()`
+ * transaction plus `deriveDiscussion` — which is O(ledger) hydration work at
+ * startup for every discussion that has ever existed, before the server can
+ * usefully process a tool call. Priming only needs the SET of ids;
+ * `seedKnownDiscussionIds` (a new zero-cost, no-ledger-read `DiscussionStore`
+ * method) registers them directly. The sweeper still derives fully, but only
+ * for ids it actually needs, only when `sweepStranded` itself runs — lazily,
+ * not at boot.
  */
 export function primeDiscussionSweepIndex(): number {
   const store = getDiscussionStore();
@@ -316,21 +331,14 @@ export function primeDiscussionSweepIndex(): number {
   const discussionIds = new Set<string>();
   for (const message of Object.values(data.messages)) {
     if (!message.correlation_id) continue;
+    if (!message.payload.includes(DISCUSSION_ENVELOPE_MARKER)) continue;
     const envelope = parseEnvelope(message.payload);
     if (envelope && envelope.$meshfleet === "discussion/v1") {
       discussionIds.add(message.correlation_id);
     }
   }
-  let primed = 0;
-  for (const discussionId of discussionIds) {
-    try {
-      store.getDiscussion({ discussion_id: discussionId });
-      primed++;
-    } catch {
-      // not_found or any other read failure — skip, never abort startup.
-    }
-  }
-  return primed;
+  store.seedKnownDiscussionIds(discussionIds);
+  return discussionIds.size;
 }
 
 /** Test-only: force a fresh singleton, optionally with fake spawn/kill/clock/

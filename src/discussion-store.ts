@@ -391,6 +391,17 @@ export interface DiscussionStore {
   /** Terminalizes stranded `reserved`/`started` attempts past their recorded
    *  deadline (§8; blueprint §2 step 13). */
   sweepStranded(nowMs?: number): Promise<SweepResult>;
+  /**
+   * D3 addition (cdx pass-1 review, discussion-mcp.ts's
+   * `primeDiscussionSweepIndex`): seed `knownDiscussionIds` directly from a
+   * caller-supplied id set, with NO ledger read and NO derivation — O(1) per
+   * id. Exists so startup priming can register which discussions exist
+   * without paying `getDiscussion`'s full transaction + `deriveDiscussion`
+   * cost for every one of them; `sweepStranded` (and every other mutating
+   * method) still derives fully, but only for ids it actually needs, only
+   * when it actually runs.
+   */
+  seedKnownDiscussionIds(discussionIds: Iterable<string>): void;
 }
 
 const HOURLY_WINDOW_MS = 3_600_000;
@@ -1144,6 +1155,10 @@ export function createDiscussionStore(deps: DiscussionStoreDeps): DiscussionStor
     return { terminalized: terminalizedOut };
   }
 
+  function seedKnownDiscussionIds(discussionIds: Iterable<string>): void {
+    for (const id of discussionIds) knownDiscussionIds.add(id);
+  }
+
   return {
     openDiscussion,
     awaitAnswer,
@@ -1151,5 +1166,6 @@ export function createDiscussionStore(deps: DiscussionStoreDeps): DiscussionStor
     replyDiscussion,
     getDiscussion,
     sweepStranded,
+    seedKnownDiscussionIds,
   };
 }
