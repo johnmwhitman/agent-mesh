@@ -67,6 +67,7 @@ Each attempt must persist these fields before work can be considered owned:
 | `terminal_at` | Time at which a terminal settlement was committed, when applicable. |
 | `result` / `error` | Existing outcome data, written only by an accepted terminal settlement. |
 | `runtime_pid` / metadata | Diagnostic containment data only. It never grants or blocks lease authority. |
+| `launch_intent_at` / registration | A durable pre-start marker. An expired unregistered intent is terminally quarantined for manual recovery, never retried. |
 
 The logical work item must also retain enough identity to link retries and
 cancellation to the same requested work without treating an OS PID as that
@@ -125,7 +126,7 @@ and append `attempt_cancelled` before returning success.
 
 On restart, recovery scans durable non-terminal attempts and compares
 `lease_until` with the current clock. An expired attempt is fenced and moved to
-retryable pending or terminal failure according to the caller's existing retry
+retryable pending or terminal failure according to the captured retry
 policy. A non-expired attempt is left owned, regardless of whether its PID can
 be inspected from the recovering process.
 
@@ -171,10 +172,14 @@ physical per-fleet mode while preserving legacy authority, and `durable` uses
 the lease-driven coordinator. Missing modes on existing fleets are legacy.
 Durable creation atomically records Fleet/Agent/inbox projections, work policy,
 the first pending attempt, lease acquisition, lifecycle events, and an SQLite
-outbox before adapter launch. Launch observation, settlement, retry scheduling,
+outbox before adapter launch. A committed launch intent precedes runtime start;
+an expired intent without durable handle registration is quarantined for manual
+recovery rather than replaced. Launch observation, settlement, retry scheduling,
 and projection updates are fenced by work, attempt, owner, and epoch. Timers
 only wake persisted due work; startup recovers expired leases and discovers due
-attempts. NDJSON remains a repairable projection of SQLite outbox rows.
+attempts. NDJSON remains a repairable projection of sequence-ordered SQLite
+outbox rows. Best-effort PID containment applies only when a PID was recorded;
+no pre-PID orphan termination claim is made.
 
 ## Completion bar for this slice
 

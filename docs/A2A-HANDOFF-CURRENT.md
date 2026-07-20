@@ -53,8 +53,10 @@ documents linked below.
   inputs and outputs.
 - Durable retry and restart recovery are lease-based and wake at persisted due
   boundaries; non-expired work is never reclaimed from PID absence. Expired
-  diagnostic child PIDs are best-effort contained before replacement, while
-  managed durable agents remain excluded from legacy PID recovery.
+  recorded diagnostic child PIDs are best-effort contained before replacement.
+  A pre-registration launch crash is terminally quarantined for manual recovery
+  rather than replaced; managed durable agents remain excluded from legacy PID
+  recovery.
 - Lifecycle and legacy Fleet/Agent projections settle atomically with a
   transactional, sequence-ordered SQLite outbox. NDJSON is an idempotent,
   repairable projection.

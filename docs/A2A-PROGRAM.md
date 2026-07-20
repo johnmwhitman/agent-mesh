@@ -23,7 +23,7 @@ verified boundaries:
   legacy mapping are implemented, verified, and independently reviewed.
 - The durable attempt lifecycle is integrated with `spawn_fleet` and
   `attach_agent` only for explicitly durable, single-host fleets. It persists
-  deterministic retries, scheduled lease recovery, and a sequence-ordered
+  deterministic retries, launch-intent quarantine, scheduled lease recovery, and a sequence-ordered
   NDJSON-repair outbox without changing MCP
   inputs or outputs.
 - Public canonical-envelope ingress, authenticated principals, durable duplicate
@@ -89,7 +89,7 @@ transaction/event atomicity, close/reopen replay, and preservation of existing
 ledger fixtures must all pass independent review.
 
 **Status:** The SQLite lifecycle authority is integrated with durable-mode
-`spawn_fleet` and `attach_agent`, persisted retry eligibility, lease recovery,
+`spawn_fleet` and `attach_agent`, persisted retry eligibility, launch-intent quarantine, lease recovery,
 fenced settlement, compatibility projections, and a transactional event outbox.
 Legacy behavior remains the default and shadow remains legacy-authoritative. No
 multi-host coordination claim is made.

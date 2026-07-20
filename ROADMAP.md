@@ -12,7 +12,8 @@ The ranked A2A strategy is canonical in
    transport, or authenticated canonical ingress is shipped.
 2. **Durable lifecycle kernel** - implemented for single-host durable fleets:
    lease-driven spawn/attach, deterministic persisted retry, scheduled recovery,
-   fencing, diagnostic containment, and a sequence-ordered repairable event
+   fencing, launch-intent quarantine, recorded-PID containment only, and a
+   sequence-ordered repairable event
    outbox. Logical ledger schema remains v2.
 3. **Provider-neutral runtime adapters** - internal OpenCode compatibility and
    deterministic local-process proof are implemented; public selection and real

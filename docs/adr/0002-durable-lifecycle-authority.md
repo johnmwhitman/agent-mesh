@@ -24,8 +24,9 @@ and attachment. It records legacy projections and lifecycle rows on one handle,
 acquires a lease before launch, fences observed launch and settlement, persists
 deterministic retry eligibility, wakes at persisted recovery boundaries, and
 projects sequence-ordered SQLite outbox rows to NDJSON idempotently. Expired
-diagnostic PIDs are best-effort contained without becoming authority. Managed
-durable agents are excluded from PID recovery.
+recorded diagnostic PIDs are best-effort contained without becoming authority.
+An expired pre-registration launch intent is terminally quarantined for manual
+recovery, not retried. Managed durable agents are excluded from PID recovery.
 
 ## Consequences
 
