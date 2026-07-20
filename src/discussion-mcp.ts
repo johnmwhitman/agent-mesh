@@ -298,16 +298,29 @@ export interface DiscussionMcpTestOverrides {
 }
 
 /**
- * Cheap pre-filter (cdx pass-1 review item 4, part 1): the exact
- * `JSON.stringify` rendering of a `discussion/v1` envelope's first field is
- * `"$meshfleet":"discussion/v1"` — no spaces, fixed key order at construction
- * (discussion-store.ts's `openDiscussion`/`replyDiscussion` always build the
- * envelope object literal with `$meshfleet` first). A plain substring test
- * against the raw payload string costs a fraction of a JSON.parse, so a
- * non-discussion message (the overwhelming majority on most ledgers) is
- * rejected with one `String.prototype.includes` call instead of a parse.
+ * Cheap pre-filter (cdx pass-1 review item 4, part 1; loosened per cdx
+ * pass-2). The original marker was the exact `JSON.stringify` rendering of
+ * the envelope's first field, `"$meshfleet":"discussion/v1"` — canonical for
+ * this codebase's own writers (fixed key order, no spaces, no reordering),
+ * but a false negative against any non-canonical serialization of the same
+ * envelope: pretty-printed (whitespace between `:`/`,`), or with `$meshfleet`
+ * reordered elsewhere in the object. The bare fragment `discussion/v1` has
+ * no such failure mode — the version string itself must appear verbatim in
+ * ANY JSON serialization of a valid envelope, canonical or not — while still
+ * being a plain substring test that prunes the overwhelming majority of
+ * non-discussion messages before they pay for a `JSON.parse`.
+ *
+ * Residual (accepted, best-effort, documented rather than chased further):
+ * an envelope serialized with exotic escaping of the literal text — e.g. an
+ * escaped forward slash, `discussion\/v1` — still misses this substring
+ * test. Left as-is because (a) this codebase's own writers
+ * (`discussion-store.ts`'s `JSON.stringify` calls) never escape `/`, so
+ * every first-party payload this process itself ever wrote matches, and
+ * (b) priming is a startup optimization only — `get_discussion` and every
+ * other derivation path re-scans messages by `correlation_id` directly and
+ * never depends on whether an id was pre-seeded here.
  */
-const DISCUSSION_ENVELOPE_MARKER = '"$meshfleet":"discussion/v1"';
+const DISCUSSION_ENVELOPE_MARKER = "discussion/v1";
 
 /**
  * D3 recorded obligation: prime the store's sweep index at server startup by
