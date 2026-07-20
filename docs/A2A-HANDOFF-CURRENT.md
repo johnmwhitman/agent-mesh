@@ -10,7 +10,8 @@ documents linked below.
 
 - Branch: `codex/a2a-seamless-foundation`
 - Branch base: `c278e33`
-- Current head: this handoff is updated with the bounded integration commit.
+- Reviewed integration head: `2ce185e`; this handoff records its final
+  verification and approval receipts.
 - Public package version remains `0.14.0`; nothing was merged, pushed, published,
   deployed, or remotely activated.
 - Inbound coordination is MCP stdio and host-neutral at the packaged server
@@ -78,13 +79,18 @@ documents linked below.
 ## Verification receipts
 
 - TypeScript: `npm run typecheck` passed after the final code changes.
-- Test suite: `455/455` passed at `feeb511`; `bb0ee43` is documentation-only.
+- Final test suite: `474/474` passed at `2ce185e` after all lifecycle,
+  migration, recovery, outbox, compatibility, and crash-window corrections.
 - Slice 1 review: approved with no remaining Critical or Important findings.
   Package: `.superpowers/sdd/review-00885e4..7b4bc36.diff`.
 - Slice 2 review: approved with no remaining Critical or Important findings.
   Package: `.superpowers/sdd/review-f37b2fd..8cbecb7.diff`.
 - Slice 3 review: approved with no remaining Critical or Important findings.
   Package: `.superpowers/sdd/review-8cbecb7..bb0ee43.diff`.
+- Bounded lifecycle/runtime integration review: approved at `2ce185e` with no
+  remaining Critical or Important findings after whole-slice migration,
+  fencing, recovery, launch-quarantine, and outbox review. Package:
+  `.superpowers/sdd/review-c278e33..2ce185e.diff`.
 - Earlier host-neutral foundation review was approved at `00885e4`.
 - Live ledger verification: `ok=true`, zero errors, zero warnings; 34 fleets,
   82 agents, 4 messages, and 1 receipt.
@@ -115,9 +121,13 @@ documents linked below.
   evidence is static configuration only.
 - Remote relay, shared coordinator, or multi-host execution.
 
-## Next integration stage
+## Next integration stages
 
-The next stage is evidence hardening, not scope expansion: keep cancellation
-internal, exercise crash-window and compatibility tests, and do not describe
-the single SQLite authority as multi-host until a shared authenticated
-coordinator exists.
+1. Add namespaced lifecycle integrity checks to `verify_ledger`, an opt-in
+   lifecycle inspector view, and explicit outbox-lag/repair visibility without
+   changing default text, JSON, or MCP output shapes.
+2. Design and conformance-test public canonical ingress, durable idempotency,
+   principal binding, and authorization before exposing a `send_a2a` surface.
+3. Prototype authenticated cross-process transport and discovery behind the
+   existing protocol/runtime boundaries; do not claim multi-host authority
+   until a shared coordinator, trust model, and adversarial evidence exist.
