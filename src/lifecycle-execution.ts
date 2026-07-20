@@ -85,9 +85,12 @@ export function projectLifecycleOutbox(ownerId: string = randomUUID(), now: numb
   let projected = 0;
   while (true) {
     const row = withLedgerAndStorage((_data, db) => {
-      const candidate = db.prepare("SELECT seq, event_id, event, payload FROM lifecycle_event_outbox WHERE projected_at IS NULL AND (claimed_at IS NULL OR claimed_at <= ?) ORDER BY seq LIMIT 1")
-        .get(now - OUTBOX_CLAIM_MS) as { seq: number; event_id: string; event: string; payload: string } | undefined;
+      // Strict head-of-line ordering: a live claim on seq N blocks N+1. A
+      // crashed projector is reclaimed only after its claim becomes stale.
+      const candidate = db.prepare("SELECT seq, event_id, event, payload, claimed_at FROM lifecycle_event_outbox WHERE projected_at IS NULL ORDER BY seq LIMIT 1")
+        .get() as { seq: number; event_id: string; event: string; payload: string; claimed_at: number | null } | undefined;
       if (!candidate) return undefined;
+      if (candidate.claimed_at !== null && candidate.claimed_at > now - OUTBOX_CLAIM_MS) return undefined;
       const claimed = db.prepare("UPDATE lifecycle_event_outbox SET claimed_by = ?, claimed_at = ? WHERE event_id = ? AND projected_at IS NULL AND (claimed_at IS NULL OR claimed_at <= ?)")
         .run(ownerId, now, candidate.event_id, now - OUTBOX_CLAIM_MS);
       return claimed.changes === 1 ? candidate : undefined;
@@ -181,6 +184,7 @@ export class LifecycleExecutionCoordinator {
       return {};
     });
     if (!result.error) this.launch(spec.agentId);
+    if (!result.error) this.scheduleRecoveryWake();
     return result;
   }
 

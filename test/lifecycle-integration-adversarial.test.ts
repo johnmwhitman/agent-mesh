@@ -34,6 +34,19 @@ class ControlledRuntime implements RuntimeAdapter {
   async cancel() { return { accepted: true }; }
 }
 
+class HangingStartRuntime implements RuntimeAdapter {
+  readonly id = "hanging";
+  starts = 0;
+  describe() { return { id: this.id, displayName: "Hanging", defaultTimeoutMs: 1_000 }; }
+  validate() { return { ok: true, errors: [] }; }
+  start(): Promise<RuntimeHandle> {
+    this.starts++;
+    return new Promise<RuntimeHandle>(() => {});
+  }
+  wait(): Promise<RuntimeResult> { return new Promise<RuntimeResult>(() => {}); }
+  async cancel() { return { accepted: true }; }
+}
+
 const success = (stdout = "ok"): RuntimeResult => ({ status: "success", stdout, stderr: "", exitCode: 0, diagnostics: [], identity: { adapterId: "controlled", evidence: "none" } });
 const tick = () => new Promise<void>((done) => setImmediate(done));
 
@@ -246,12 +259,30 @@ test("post-commit projection failure preserves durable fleet success and later r
     assert.doesNotThrow(() => coordinator.createFleet("f", [{ fleetId: "f", agentId: "a", role: "r", prompt: "p" }]));
     assert.equal(loadData().fleets.f.status, "running");
     assert.equal(new LifecycleStore().getState("a")?.attempts.length, 1);
-    assert.equal(repairLifecycleOutbox("fault-owner", Date.now()).error, "crash after append");
+    assert.equal(repairLifecycleOutbox("fault-owner", Date.now()).error, undefined);
     setOutboxAfterAppendForTest(undefined);
     projectLifecycleOutbox("replay-owner", Date.now() + 31_000);
     const events = readEventLog();
     assert.deepEqual(events.map((event) => event.event), ["fleet_created", "spawn_fleet_called", "agent_launch_intended"]);
     assert.equal(new Set(events.map((event) => event.event_id)).size, events.length);
+    coordinator.stop();
+  } finally {
+    setOutboxAfterAppendForTest(undefined);
+    temp.cleanup();
+  }
+});
+
+test("an active seq claim blocks a second projector until the claim becomes stale", () => {
+  const temp = withTempDb();
+  try {
+    const coordinator = new LifecycleExecutionCoordinator(new ControlledRuntime(), { ownerId: "first-projector" });
+    setOutboxAfterAppendForTest(() => { throw new Error("projector crashed"); });
+    coordinator.createFleet("f", [{ fleetId: "f", agentId: "a", role: "r", prompt: "p" }]);
+    setOutboxAfterAppendForTest(undefined);
+    assert.equal(projectLifecycleOutbox("second-projector", Date.now()), 0);
+    assert.deepEqual(readEventLog().map((event) => event.event), ["fleet_created"]);
+    projectLifecycleOutbox("second-projector", Date.now() + 31_000);
+    assert.deepEqual(readEventLog().map((event) => event.event), ["fleet_created", "spawn_fleet_called", "agent_launch_intended"]);
     coordinator.stop();
   } finally {
     setOutboxAfterAppendForTest(undefined);
@@ -276,6 +307,23 @@ test("retry wake scheduling survives post-settlement projection failure", async 
     setOutboxAfterAppendForTest(undefined);
     temp.cleanup();
   }
+});
+
+test("durable attach schedules recovery when runtime start never resolves", async () => {
+  const temp = withTempDb({ fleets: { f: { id: "f", status: "running", created_at: 1 } }, agents: {}, messages: {}, inboxes: {}, capabilities: {} });
+  try {
+    const runtime = new HangingStartRuntime();
+    const coordinator = new LifecycleExecutionCoordinator(runtime, { ownerId: "attach-recovery", leaseMs: 20 });
+    coordinator.recordMode("f", "durable");
+    assert.deepEqual(coordinator.attachAgent({ fleetId: "f", agentId: "a", role: "worker", prompt: "p" }), {});
+    assert.equal(runtime.starts, 1);
+    await new Promise((done) => setTimeout(done, 60));
+    const state = new LifecycleStore().getState("a")!;
+    assert.equal(state.work.status, "failed");
+    assert.match(String(state.work.error), /manual recovery required/);
+    assert.equal(runtime.starts, 1, "quarantine must not launch a replacement");
+    coordinator.stop();
+  } finally { temp.cleanup(); }
 });
 
 test("rejected wait settles once through redacted durable failure and public stdout is redacted", async () => {
