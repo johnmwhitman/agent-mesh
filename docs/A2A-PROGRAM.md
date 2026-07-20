@@ -20,10 +20,11 @@ verified boundaries:
 - Messages, receipts, and capabilities are local ledger records. They are not
   authenticated identity claims or runtime attestations.
 - The `meshfleet.a2a` v0.1 codec, language-neutral fixture corpus, and internal
-  legacy mapping are implemented, verified, and independently reviewed. Public canonical-envelope
-  ingress, authenticated principals, durable duplicate persistence, the durable
-  attempt lifecycle kernel, and provider-neutral runtime adapters remain
-  unimplemented.
+  legacy mapping are implemented, verified, and independently reviewed.
+- The durable attempt lifecycle kernel is implemented for one local SQLite
+  authority, but it is not integrated with spawning, retry, recovery, or MCP.
+- Public canonical-envelope ingress, authenticated principals, durable duplicate
+  persistence, and provider-neutral runtime adapters remain unimplemented.
 
 ## Ranked program
 
