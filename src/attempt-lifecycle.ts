@@ -118,10 +118,53 @@ function parsed(value: string | null): unknown {
   return value === null ? undefined : JSON.parse(value);
 }
 function workFrom(row: WorkRow): WorkItem {
-  return { ...row, result: parsed(row.result_json), error: parsed(row.error_json) };
+  const { result_json, error_json, ...work } = row;
+  return { ...work, result: parsed(result_json), error: parsed(error_json) };
 }
 function attemptFrom(row: AttemptRow): Attempt {
-  return { ...row, result: parsed(row.result_json), error: parsed(row.error_json) };
+  const { result_json, error_json, ...attempt } = row;
+  return { ...attempt, result: parsed(result_json), error: parsed(error_json) };
+}
+
+type StoredEventPayload = {
+  work: Omit<WorkItem, "result" | "error"> & {
+    result: unknown;
+    error: unknown;
+    result_absent: boolean;
+    error_absent: boolean;
+  };
+  attempt: Omit<Attempt, "result" | "error"> & {
+    result: unknown;
+    error: unknown;
+    result_absent: boolean;
+    error_absent: boolean;
+  };
+};
+
+function encodeEventPayload(work: WorkItem, attempt: Attempt): StoredEventPayload {
+  const encodeOutcome = (value: unknown) => ({ value: value === undefined ? null : value, absent: value === undefined });
+  const workResult = encodeOutcome(work.result);
+  const workError = encodeOutcome(work.error);
+  const attemptResult = encodeOutcome(attempt.result);
+  const attemptError = encodeOutcome(attempt.error);
+  return {
+    work: { ...work, result: workResult.value, error: workError.value, result_absent: workResult.absent, error_absent: workError.absent },
+    attempt: { ...attempt, result: attemptResult.value, error: attemptError.value, result_absent: attemptResult.absent, error_absent: attemptError.absent },
+  };
+}
+
+function decodeEventPayload(payload: StoredEventPayload): AttemptEvent["payload"] {
+  const decodeWork = ({ result_absent, error_absent, ...work }: StoredEventPayload["work"]): WorkItem => ({
+    ...work,
+    result: result_absent ? undefined : work.result,
+    error: error_absent ? undefined : work.error,
+  });
+  const decodeAttempt = ({ result_absent, error_absent, ...attempt }: StoredEventPayload["attempt"]): Attempt => ({
+    ...attempt,
+    result: result_absent ? undefined : attempt.result,
+    error: error_absent ? undefined : attempt.error,
+  });
+  return { work: decodeWork(payload.work), attempt: decodeAttempt(payload.attempt) };
 }
 function requireNonEmpty(value: string, label: string): void {
   if (!value) throw new Error(`${label} is required`);
@@ -224,6 +267,10 @@ export class LifecycleStore {
       attempt.status = "expired";
       attempt.lease_until = null;
       attempt.updated_at = now;
+      this.updateAttempt(db, attempt);
+      // Record the expiration against the old current attempt before a retry
+      // advances ownership. This makes the ordered event stream replayable.
+      this.appendEvent(db, "lease_expired", work, attempt, now);
       const nextEpoch = Math.max(work.owner_epoch, attempt.owner_epoch) + 1;
       const retry: Attempt = {
         attempt_id: this.nextId(), work_id: workId, owner_id: null, owner_epoch: nextEpoch,
@@ -234,10 +281,8 @@ export class LifecycleStore {
       work.owner_epoch = nextEpoch;
       work.status = "pending";
       work.updated_at = now;
-      this.updateAttempt(db, attempt);
       this.updateWork(db, work);
       this.insertAttempt(db, retry);
-      this.appendEvent(db, "lease_expired", work, attempt, now);
       this.appendEvent(db, "attempt_retried", work, retry, now);
       this.beforeCommit?.();
       return { accepted: true, state: this.snapshot(db, workId) };
@@ -306,13 +351,13 @@ export class LifecycleStore {
       let work: WorkItem | undefined;
       const attempts = new Map<string, Attempt>();
       const events = rows.map((row) => {
-        const payload = JSON.parse(row.payload) as AttemptEvent["payload"];
+        const payload = decodeEventPayload(JSON.parse(row.payload) as StoredEventPayload);
         work = payload.work;
         attempts.set(payload.attempt.attempt_id, payload.attempt);
         return { ...row, payload };
       });
       if (!work) return null;
-      return { work, attempts: [...attempts.values()].sort((a, b) => a.created_at - b.created_at), events };
+      return { work, attempts: [...attempts.values()].sort((a, b) => a.created_at - b.created_at || a.attempt_id.localeCompare(b.attempt_id)), events };
     });
   }
 
@@ -341,13 +386,13 @@ export class LifecycleStore {
     db.prepare("UPDATE attempts SET owner_id = ?, owner_epoch = ?, status = ?, lease_until = ?, updated_at = ?, terminal_at = ?, result_json = ?, error_json = ? WHERE attempt_id = ?").run(attempt.owner_id, attempt.owner_epoch, attempt.status, attempt.lease_until, attempt.updated_at, attempt.terminal_at, json(attempt.result), json(attempt.error), attempt.attempt_id);
   }
   private appendEvent(db: Database.Database, kind: AttemptEventKind, work: WorkItem, attempt: Attempt, now: number): void {
-    db.prepare("INSERT INTO attempt_events (event_id, work_id, attempt_id, owner_epoch, kind, occurred_at, payload) VALUES (?, ?, ?, ?, ?, ?, ?)").run(this.nextId(), work.work_id, attempt.attempt_id, attempt.owner_epoch, kind, now, JSON.stringify({ work, attempt }));
+    db.prepare("INSERT INTO attempt_events (event_id, work_id, attempt_id, owner_epoch, kind, occurred_at, payload) VALUES (?, ?, ?, ?, ?, ?, ?)").run(this.nextId(), work.work_id, attempt.attempt_id, attempt.owner_epoch, kind, now, JSON.stringify(encodeEventPayload(work, attempt)));
   }
   private snapshot(db: Database.Database, workId: string): LifecycleState {
     const work = this.loadWork(db, workId);
     if (!work) throw new Error(`work not found: ${workId}`);
     const attempts = (db.prepare("SELECT * FROM attempts WHERE work_id = ? ORDER BY created_at, attempt_id").all(workId) as AttemptRow[]).map(attemptFrom);
-    const events = (db.prepare("SELECT seq, event_id, work_id, attempt_id, owner_epoch, kind, occurred_at, payload FROM attempt_events WHERE work_id = ? ORDER BY seq").all(workId) as Array<Omit<AttemptEvent, "payload"> & { payload: string }>).map((row) => ({ ...row, payload: JSON.parse(row.payload) as AttemptEvent["payload"] }));
+    const events = (db.prepare("SELECT seq, event_id, work_id, attempt_id, owner_epoch, kind, occurred_at, payload FROM attempt_events WHERE work_id = ? ORDER BY seq").all(workId) as Array<Omit<AttemptEvent, "payload"> & { payload: string }>).map((row) => ({ ...row, payload: decodeEventPayload(JSON.parse(row.payload) as StoredEventPayload) }));
     return { work, attempts, events };
   }
 }

@@ -22,15 +22,16 @@ The current package has:
 The current package does **not** have:
 
 - A safe multi-host coordinator or cross-host ownership protocol.
-- A durable `attempt_id` that identifies one execution independently of a worker
-  process.
-- A lease owner epoch or fencing token that makes an older owner stale.
-- A transactional lifecycle event stream tied atomically to state changes.
-- Persisted cancellation state that revokes work and prevents later retry.
+- Lease-aware spawning, retry scheduling, recovery, or public MCP operations.
+- A public execution path that consumes the isolated durable `attempt_id`, owner
+  epoch, transactional event stream, or persisted cancellation state.
 
 SQLite WAL and `BEGIN IMMEDIATE` solve same-host database write exclusion; they do
 not establish ownership across hosts. A live PID is evidence about one local
 process, not proof that its attempt still owns the right to settle durable state.
+The isolated lifecycle kernel establishes these semantics for one SQLite authority;
+it does not make the existing PID/timer-based public path lease-driven or
+multi-host capable.
 
 ## Contract boundary
 

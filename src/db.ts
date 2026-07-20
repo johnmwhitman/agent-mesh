@@ -84,38 +84,51 @@ CREATE TABLE IF NOT EXISTS work_items (
   work_id TEXT PRIMARY KEY,
   fleet_id TEXT NOT NULL,
   status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'succeeded', 'failed', 'cancelled')),
-  current_attempt_id TEXT,
-  owner_epoch INTEGER NOT NULL DEFAULT 0,
-  cancelled_at INTEGER,
-  terminal_at INTEGER,
+  current_attempt_id TEXT NOT NULL,
+  owner_epoch INTEGER NOT NULL DEFAULT 0 CHECK (owner_epoch >= 0),
+  cancelled_at INTEGER CHECK (cancelled_at IS NULL OR cancelled_at >= 0),
+  terminal_at INTEGER CHECK (terminal_at IS NULL OR terminal_at >= 0),
   result_json TEXT,
   error_json TEXT,
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL CHECK (created_at >= 0),
+  updated_at INTEGER NOT NULL CHECK (updated_at >= 0),
+  CHECK (updated_at >= created_at),
+  CHECK (
+    (status IN ('pending', 'running') AND cancelled_at IS NULL AND terminal_at IS NULL)
+    OR (status IN ('succeeded', 'failed') AND cancelled_at IS NULL AND terminal_at IS NOT NULL)
+    OR (status = 'cancelled' AND cancelled_at IS NOT NULL AND terminal_at IS NOT NULL)
+  )
 );
 CREATE TABLE IF NOT EXISTS attempts (
   attempt_id TEXT PRIMARY KEY,
-  work_id TEXT NOT NULL,
+  work_id TEXT NOT NULL REFERENCES work_items(work_id) ON DELETE RESTRICT,
   owner_id TEXT,
-  owner_epoch INTEGER NOT NULL,
+  owner_epoch INTEGER NOT NULL CHECK (owner_epoch >= 0),
   status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'expired', 'succeeded', 'failed', 'cancelled')),
-  lease_until INTEGER,
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL,
-  terminal_at INTEGER,
+  lease_until INTEGER CHECK (lease_until IS NULL OR lease_until >= 0),
+  created_at INTEGER NOT NULL CHECK (created_at >= 0),
+  updated_at INTEGER NOT NULL CHECK (updated_at >= 0),
+  terminal_at INTEGER CHECK (terminal_at IS NULL OR terminal_at >= 0),
   result_json TEXT,
   error_json TEXT,
-  UNIQUE(work_id, owner_epoch)
+  UNIQUE(work_id, owner_epoch),
+  CHECK (updated_at >= created_at),
+  CHECK (
+    (status = 'pending' AND owner_id IS NULL AND lease_until IS NULL AND terminal_at IS NULL)
+    OR (status = 'running' AND owner_id IS NOT NULL AND lease_until IS NOT NULL AND terminal_at IS NULL)
+    OR (status = 'expired' AND lease_until IS NULL AND terminal_at IS NULL)
+    OR (status IN ('succeeded', 'failed', 'cancelled') AND lease_until IS NULL AND terminal_at IS NOT NULL)
+  )
 );
 CREATE TABLE IF NOT EXISTS attempt_events (
   seq INTEGER PRIMARY KEY AUTOINCREMENT,
   event_id TEXT NOT NULL UNIQUE,
-  work_id TEXT NOT NULL,
-  attempt_id TEXT,
-  owner_epoch INTEGER,
-  kind TEXT NOT NULL,
-  occurred_at INTEGER NOT NULL,
-  payload TEXT NOT NULL
+  work_id TEXT NOT NULL REFERENCES work_items(work_id) ON DELETE RESTRICT,
+  attempt_id TEXT REFERENCES attempts(attempt_id) ON DELETE RESTRICT,
+  owner_epoch INTEGER CHECK (owner_epoch IS NULL OR owner_epoch >= 0),
+  kind TEXT NOT NULL CHECK (kind IN ('attempt_created', 'lease_acquired', 'lease_expired', 'attempt_retried', 'attempt_succeeded', 'attempt_failed', 'attempt_cancelled')),
+  occurred_at INTEGER NOT NULL CHECK (occurred_at >= 0),
+  payload TEXT NOT NULL CHECK (json_valid(payload))
 );
 CREATE INDEX IF NOT EXISTS idx_attempts_work ON attempts(work_id);
 CREATE INDEX IF NOT EXISTS idx_attempt_events_work_seq ON attempt_events(work_id, seq);
@@ -168,6 +181,7 @@ function getDb(): Database.Database {
   // journal mode needs a write lock, and a cold multi-process first-open would
   // otherwise throw "database is locked" instead of waiting.
   try {
+    db.pragma("foreign_keys = ON"); // enforce relational lifecycle invariants on every handle
     db.pragma("busy_timeout = 5000"); // wait for a concurrent writer instead of erroring
     db.pragma("journal_mode = WAL"); // local-disk only; the ledger lives under ~/.config
     db.pragma("synchronous = NORMAL"); // WAL-recommended; durable except last txn on OS crash
@@ -502,7 +516,13 @@ export function withLedger<T>(mutator: (data: MeshData) => T): T {
  */
 export function withStorageTransaction<T>(mutator: (db: Database.Database) => T): T {
   const db = getDb();
-  const run = db.transaction((database: Database.Database) => mutator(database)).immediate;
+  const run = db.transaction((database: Database.Database) => {
+    const result = mutator(database);
+    if (result != null && typeof (result as { then?: unknown }).then === "function") {
+      throw new Error("withStorageTransaction: mutator must be synchronous (it returned a Promise)");
+    }
+    return result;
+  }).immediate;
   return run(db);
 }
 
