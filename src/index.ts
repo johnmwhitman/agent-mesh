@@ -1410,18 +1410,27 @@ if (!isChildInstance) {
   }
 
   // D3: prime the Discussions sweep index — scan the ledger for discussion
-  // roots and seed the store's knownDiscussionIds so a post-restart sweep can
-  // find stranded reserved/started attempts (see discussion-mcp.ts's doc
-  // comment on primeDiscussionSweepIndex for why getDiscussion is the seeding
-  // primitive). Best-effort: a priming failure must never abort startup.
-  try {
-    const primedCount = primeDiscussionSweepIndex();
-    if (primedCount > 0) {
-      console.error(`Agent Mesh v${MESH_VERSION} — primed ${primedCount} discussion(s) into the sweep index`);
+  // roots and seed the store's knownDiscussionIds (via the cheap,
+  // hydration-free seedKnownDiscussionIds path — see discussion-mcp.ts's doc
+  // comment on primeDiscussionSweepIndex) so a post-restart sweep can find
+  // stranded reserved/started attempts. Deferred via setImmediate (cdx
+  // pass-1 review item 4): `server.connect(transport)` above has already
+  // resolved by this point, but this whole startup block still runs
+  // synchronously on the event loop — a large-ledger scan here would still
+  // delay the process from actually servicing its first incoming stdio tool
+  // call. setImmediate lets that happen first; priming then runs as its own
+  // best-effort tick, and a failure logs a stderr one-liner rather than
+  // aborting startup or failing silently.
+  setImmediate(() => {
+    try {
+      const primedCount = primeDiscussionSweepIndex();
+      if (primedCount > 0) {
+        console.error(`Agent Mesh v${MESH_VERSION} — primed ${primedCount} discussion(s) into the sweep index`);
+      }
+    } catch (err) {
+      console.error(`Agent Mesh v${MESH_VERSION} — discussion sweep-index priming failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`);
     }
-  } catch (err) {
-    console.error(`Agent Mesh v${MESH_VERSION} — discussion sweep-index priming failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`);
-  }
+  });
 
   // v0.11: periodic ratification deadline sweep (0 disables)
   const sweepMs = Number(resolveEnv(process.env, "MESHFLEET_RATIFY_SWEEP_MS", "AGENT_MESH_RATIFY_SWEEP_MS") ?? 60_000);

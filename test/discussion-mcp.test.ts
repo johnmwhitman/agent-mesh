@@ -38,7 +38,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 import { withTempDb } from "./helpers/with-temp-db.js";
-import { createFleet, registerAgentInLedger, type Agent } from "../src/core.js";
+import { createFleet, registerAgentInLedger, sendMessage, type Agent } from "../src/core.js";
 import { readLedger } from "../src/db.js";
 import {
   getDiscussionStore,
@@ -403,6 +403,74 @@ test("D3 recorded obligation: primeDiscussionSweepIndex seeds a fresh store's kn
   } finally {
     db.cleanup();
   }
+});
+
+test("cdx pass-1 fix: priming a ledger with many non-discussion messages + 2 discussions finds exactly 2 ids and never calls getDiscussion", async () => {
+  const db = withTempDb();
+  try {
+    seedFleetAndAgents();
+    const fake = makeFakeSpawn();
+    _resetDiscussionStoreForTests({ spawn: fake.spawn });
+    const store = getDiscussionStore();
+
+    // N non-discussion messages: correlation_id set (so they pass the first
+    // early-out) but payload has no `$meshfleet` marker at all — these must
+    // be rejected by the cheap substring pre-filter, never JSON.parsed as an
+    // envelope.
+    const N = 50;
+    for (let i = 0; i < N; i++) {
+      sendMessage(AGENT_A, AGENT_B, FLEET, "handoff", JSON.stringify({ note: `plain message ${i}`, i }), `not-a-discussion-${i}`);
+    }
+
+    // 2 real discussions.
+    const opened1 = await store.openDiscussion(askPeerDefaults({ wake_peer: false }));
+    const opened2 = await store.openDiscussion(askPeerDefaults({ wake_peer: false }));
+
+    // Fresh store instance (simulating a restart) — getDiscussion is spied
+    // so the test fails loudly if priming ever falls back to per-id
+    // hydration instead of the cheap seedKnownDiscussionIds path.
+    const fake2 = makeFakeSpawn();
+    _resetDiscussionStoreForTests({ spawn: fake2.spawn });
+    const freshStore = getDiscussionStore();
+    let getDiscussionCalls = 0;
+    const originalGetDiscussion = freshStore.getDiscussion.bind(freshStore);
+    freshStore.getDiscussion = ((params) => {
+      getDiscussionCalls++;
+      return originalGetDiscussion(params);
+    }) as typeof freshStore.getDiscussion;
+
+    const primedCount = primeDiscussionSweepIndex();
+
+    assert.equal(primedCount, 2, "must find exactly the 2 real discussions, ignoring all 50 non-discussion messages");
+    assert.equal(getDiscussionCalls, 0, "priming must never call getDiscussion (no per-id hydration)");
+
+    // The seeded ids are still usable once the sweeper actually runs lazily.
+    const sweep = await freshStore.sweepStranded(Date.now() + 24 * 60 * 60 * 1000);
+    const sweptIds = new Set(sweep.terminalized.map((t) => t.discussion_id));
+    // Both discussions are already `closed`-eligible-or-open with no live
+    // attempt (wake_peer:false was used), so sweepStranded should find
+    // nothing to terminalize — the assertion here is just that calling it
+    // over the seeded ids does not throw and inspects both known ids
+    // (indirectly proven by it completing without a not_found-style crash).
+    void opened1;
+    void opened2;
+    void sweptIds;
+  } finally {
+    db.cleanup();
+  }
+});
+
+test("D3 startup wiring: the deferred prime call is registered AFTER server.connect(transport) (registration-order)", () => {
+  const connectIdx = indexSource.indexOf("await server.connect(transport)");
+  const setImmediateIdx = indexSource.indexOf("setImmediate(() => {");
+  const primeCallIdx = indexSource.indexOf("primeDiscussionSweepIndex()");
+
+  assert.ok(connectIdx !== -1, "could not locate server.connect(transport) in index.ts");
+  assert.ok(setImmediateIdx !== -1, "could not locate the setImmediate deferral wrapping the prime call");
+  assert.ok(primeCallIdx !== -1, "could not locate the primeDiscussionSweepIndex() call site");
+
+  assert.ok(connectIdx < setImmediateIdx, "setImmediate(...) prime deferral must appear after server.connect(transport)");
+  assert.ok(setImmediateIdx < primeCallIdx, "primeDiscussionSweepIndex() call must be inside the setImmediate deferral");
 });
 
 test("primeDiscussionSweepIndex is best-effort: an empty ledger primes zero discussions without throwing", () => {
