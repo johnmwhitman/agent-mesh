@@ -36,8 +36,23 @@
  *     21/22; test 51: "Notification occurs only after commit").
  */
 
-import type { Message, Receipt } from "./core.js";
-import type { DerivedDiscussion, Policy, TranscriptEntry, WakeState } from "./discussion.js";
+import { randomUUID } from "crypto";
+import { BROADCAST, type Message, type Receipt } from "./core.js";
+import {
+  deriveDiscussion,
+  validatePayloadSize,
+  parseReceiptAction,
+  DISCUSSION_MAX_PAYLOAD_BYTES,
+  MIN_MAX_TURNS,
+  MAX_MAX_TURNS,
+  MIN_TURN_TIMEOUT_MS,
+  MAX_TURN_TIMEOUT_MS,
+  type DerivedDiscussion,
+  type Envelope,
+  type Policy,
+  type TranscriptEntry,
+  type WakeState,
+} from "./discussion.js";
 
 // ============================================================
 // Ledger transaction seam
@@ -378,37 +393,694 @@ export interface DiscussionStore {
   sweepStranded(nowMs?: number): Promise<SweepResult>;
 }
 
-function notImplemented(method: string): never {
-  throw new Error(`NOT_IMPLEMENTED: DiscussionStore.${method} — D2 implementation not yet landed`);
-}
+const HOURLY_WINDOW_MS = 3_600_000;
 
 /**
- * D2 pre-stage stub. Every operation throws immediately so the red suite in
- * test/discussion-reservation.test.ts fails ONLY on this exact marker until
- * D2 lands — never on a type error, never on an accidental pass. Swap this
- * factory body for the real implementation; the exported types above are the
- * contract D2 must satisfy unchanged.
+ * D2 implementation. Every mutating operation runs its authoritative checks
+ * and writes inside exactly one synchronous `deps.ledger` transaction (spec
+ * §13 invariant 20); spawn/kill/notify happen only after that transaction has
+ * committed. Nothing about an attempt's lifecycle is trusted from anywhere
+ * but the ledger itself — see the "Attempt bookkeeping" note below for the
+ * two narrow, non-authoritative exceptions this store keeps in memory.
  */
 export function createDiscussionStore(deps: DiscussionStoreDeps): DiscussionStore {
-  void deps;
+  const guardConfig: GuardConfig = deps.guardConfig ?? DEFAULT_GUARD_CONFIG;
+
+  // ==========================================================================
+  // Attempt bookkeeping — deliberately NOT authoritative.
+  //
+  // `handleRegistry` remembers the live `SpawnHandle` for an attempt THIS
+  // store instance actually spawned, so `sweepStranded`/deadman settlement can
+  // call `deps.kill` on the right handle. `knownDiscussionIds` remembers which
+  // discussion ids this instance has touched, so `sweepStranded` (which has no
+  // "list all discussions" primitive on `LedgerTx` — see its own contract
+  // comment) knows which ids to re-derive and scan. Neither map is consulted
+  // to decide any attempt's STATE, turn, deadline, or terminal outcome — that
+  // is always re-derived fresh from `deps.ledger` via `discussion.ts`'s
+  // `deriveDiscussion` (see tests K2/K3: a brand-new store instance over the
+  // same ledger reconstructs identical attempts/status with an empty registry
+  // and an empty known-ids set primed only by whatever the caller just asked
+  // about). A missing handle at sweep time (crash before spawn, or a restart)
+  // simply means there is nothing local left to kill — the terminal receipt
+  // is written from the ledger regardless (test #33).
+  //
+  // Vocabulary alignment with docs/A2A-NEXT-SLICE.md: that contract bounds a
+  // DIFFERENT object — work-item execution attempts with leases, owner
+  // epochs, and fencing tokens for multi-host coordination. A discussion
+  // attempt is a conversation turn, not a work item, and this store
+  // deliberately does not implement leases, owner epochs, or fencing — there
+  // is no multi-host ownership question here, only "has this ledger-recorded
+  // reservation passed its recorded deadline." Where the shapes genuinely
+  // overlap, field/variable naming is kept aligned on purpose: `attempt_id`
+  // is this module's durable, retry-distinct execution identity (same
+  // meaning as the slice's `attempt_id`); a settlement's receipt `timestamp`
+  // plays the role the slice calls `terminal_at`; and the fake ledger's
+  // `sequence`/receipt insertion order plays the role of the slice's
+  // monotonic `seq` for lifecycle ordering. Same pattern family (durable,
+  // fenced-by-construction lifecycle bookkeeping), different domain
+  // (conversation turns vs. distributed work-item ownership) — a candidate
+  // for future unification if Discussions ever needs multi-host wake
+  // coordination, deliberately not unified now.
+  // ==========================================================================
+  const handleRegistry = new Map<string, SpawnHandle>();
+  const knownDiscussionIds = new Set<string>();
+
+  function deriveView(discussionId: string, now: number): DerivedDiscussion {
+    return deps.ledger((tx) => {
+      const messages = tx.messagesByCorrelation(discussionId);
+      const receipts = tx.allReceiptsForDiscussion(discussionId);
+      return deriveDiscussion(discussionId, messages, receipts, now);
+    });
+  }
+
+  /**
+   * `AttemptInfo` (discussion.ts's public per-attempt view) deliberately does
+   * NOT carry `head_message_id` — only the raw internal `ValidatedAttempt`
+   * does. Recover it the robust way instead of assuming it always equals the
+   * discussion's CURRENT head (true for the sole live attempt in a valid
+   * discussion, but not a safe general assumption): every receipt in an
+   * attempt's lifecycle is physically attached to its authorizing head
+   * message, so the receipt's own `message_id` IS that head, for any
+   * lifecycle state.
+   */
+  function headMessageIdForAttempt(receipts: Receipt[], attemptId: string, fallback: string): string {
+    for (const r of receipts) {
+      const parsed = parseReceiptAction(r.action);
+      if (parsed && parsed.kind === "wake" && parsed.attempt_id === attemptId) return r.message_id;
+    }
+    return fallback;
+  }
+
+  /**
+   * Atomically CASes a still-`reserved`/`started` attempt to a terminal state
+   * from the ledger's OWN current view (never from a caller-supplied guess).
+   * Idempotent by construction: if the attempt is missing, or already
+   * terminal (or `completed` — a reply beat this settlement), this is a
+   * silent no-op and returns `null` so the caller never double-notifies.
+   */
+  function settleTerminal(
+    discussionId: string,
+    attemptId: string,
+    state: Extract<WakeState, "failed" | "deadman">
+  ): { headMessageId: string; turn: number; agentId: string } | null {
+    return deps.ledger((tx) => {
+      const now = tx.now();
+      const messages = tx.messagesByCorrelation(discussionId);
+      const receipts = tx.allReceiptsForDiscussion(discussionId);
+      const view = deriveDiscussion(discussionId, messages, receipts, now);
+      const attempt = view.attempts.find((a) => a.attempt_id === attemptId);
+      if (!attempt) return null;
+      if (attempt.state === "completed" || attempt.state === "failed" || attempt.state === "deadman") return null;
+      const headMessageId = headMessageIdForAttempt(receipts, attemptId, view.head_message_id);
+      const note = JSON.stringify({
+        discussion_id: discussionId,
+        head_message_id: headMessageId,
+        deadline: attempt.deadline,
+      });
+      tx.writeReceipt(headMessageId, attempt.agent_id, `discussion.wake.${state}.v1:${attempt.turn}:${attemptId}`, note);
+      return { headMessageId, turn: attempt.turn, agentId: attempt.agent_id };
+    });
+  }
+
+  /** Wired as a spawned child's `onExit` callback (blueprint §2 step 10): a
+   *  child that exits without ever landing a valid `completed` receipt loses
+   *  its turn — no synthesized answer, no retry. */
+  function handleChildExit(discussionId: string, attemptId: string): void {
+    const settled = settleTerminal(discussionId, attemptId, "failed");
+    handleRegistry.delete(attemptId);
+    if (settled) {
+      deps.notify({ kind: "terminal", discussion_id: discussionId, attempt_id: attemptId, state: "failed" });
+    }
+  }
+
+  /**
+   * The central one-shot launcher (blueprint §2): CAS `reserved` -> `started`
+   * in its OWN transaction (separate from the reservation transaction that
+   * created it — test #45 proves spawn never begins before the RESERVATION
+   * itself already committed, which this ordering guarantees transitively),
+   * then spawn only once that commits. A synchronous spawn failure is CASed
+   * straight to `failed` (test #29) instead of ever registering a handle.
+   */
+  async function launchAttempt(discussionId: string, attemptId: string): Promise<void> {
+    const prepared = deps.ledger((tx) => {
+      const now = tx.now();
+      const messages = tx.messagesByCorrelation(discussionId);
+      const receipts = tx.allReceiptsForDiscussion(discussionId);
+      const view = deriveDiscussion(discussionId, messages, receipts, now);
+      const attempt = view.attempts.find((a) => a.attempt_id === attemptId);
+      if (!attempt || attempt.state !== "reserved") return null; // already claimed, or stale — never double-launch
+      const headMessageId = headMessageIdForAttempt(receipts, attemptId, view.head_message_id);
+      const note = JSON.stringify({
+        discussion_id: discussionId,
+        head_message_id: headMessageId,
+        deadline: attempt.deadline,
+      });
+      tx.writeReceipt(headMessageId, attempt.agent_id, `discussion.wake.started.v1:${attempt.turn}:${attemptId}`, note);
+      return { view, attempt, headMessageId };
+    });
+    if (!prepared) return;
+    const { view, attempt, headMessageId } = prepared;
+    const job: SpawnJob = {
+      discussion_id: discussionId,
+      agent_id: attempt.agent_id,
+      attempt_id: attempt.attempt_id,
+      turn: attempt.turn,
+      head_message_id: headMessageId,
+      deadline: attempt.deadline,
+      transcript: view.transcript,
+      policy: view.policy,
+    };
+    let handle: SpawnHandle;
+    try {
+      handle = deps.spawn(job, () => handleChildExit(discussionId, attemptId));
+    } catch {
+      const settled = settleTerminal(discussionId, attemptId, "failed");
+      if (settled) {
+        deps.notify({ kind: "terminal", discussion_id: discussionId, attempt_id: attemptId, state: "failed" });
+      }
+      return;
+    }
+    handleRegistry.set(attemptId, handle);
+  }
+
+  const TERMINAL_STATUSES = new Set<DerivedDiscussion["status"]>(["invalid", "closed", "expired", "exhausted", "deadman"]);
+
+  async function openDiscussion(params: AskPeerParams): Promise<OpenDiscussionResult> {
+    if (params.turn_timeout_ms > params.timeout_ms) {
+      throw new DiscussionError("turn_timeout_exceeds_conversation_timeout", {});
+    }
+    if (params.from_agent_id === BROADCAST || params.to_agent_id === BROADCAST || params.from_agent_id === params.to_agent_id) {
+      throw new DiscussionError("broadcast_rejected", {});
+    }
+    if (!Number.isInteger(params.max_turns) || params.max_turns < MIN_MAX_TURNS || params.max_turns > MAX_MAX_TURNS) {
+      throw new DiscussionError("invalid_envelope", { entity: "max_turns" });
+    }
+    if (
+      !Number.isInteger(params.turn_timeout_ms) ||
+      params.turn_timeout_ms < MIN_TURN_TIMEOUT_MS ||
+      params.turn_timeout_ms > MAX_TURN_TIMEOUT_MS
+    ) {
+      throw new DiscussionError("invalid_envelope", { entity: "turn_timeout_ms" });
+    }
+
+    const discussionId = randomUUID();
+    const rootMessageId = randomUUID();
+    const rootAttemptId = randomUUID();
+    const turn2AttemptId = params.wake_peer ? randomUUID() : undefined;
+    knownDiscussionIds.add(discussionId);
+
+    const preNow = deps.clock();
+    const conversationDeadline = preNow + params.timeout_ms;
+    const rootEnvelope: Envelope = {
+      $meshfleet: "discussion/v1",
+      discussion_id: discussionId,
+      turn: 1,
+      attempt_id: rootAttemptId,
+      reply_to: null,
+      kind: "question",
+      body: params.payload,
+      close: false,
+      policy: {
+        participants: [params.from_agent_id, params.to_agent_id],
+        max_turns: params.max_turns,
+        conversation_deadline: conversationDeadline,
+        turn_timeout_ms: params.turn_timeout_ms,
+      },
+    };
+    const serializedRoot = JSON.stringify(rootEnvelope);
+    if (!validatePayloadSize(serializedRoot)) {
+      throw new DiscussionError("envelope_oversize", {
+        bytes: Buffer.byteLength(serializedRoot, "utf8"),
+        limit_bytes: DISCUSSION_MAX_PAYLOAD_BYTES,
+      });
+    }
+
+    const committed = deps.ledger((tx) => {
+      const now = tx.now();
+      if (!tx.agentExists(params.from_agent_id, params.fleet_id) || !tx.agentExists(params.to_agent_id, params.fleet_id)) {
+        throw new DiscussionError("not_found", { entity: "agent" });
+      }
+
+      let reservation: { attempt_id: string; turn: number; deadline: number } | undefined;
+      if (params.wake_peer) {
+        // Guard checkpoints run BEFORE any mutation (blueprint §4 "no mutation
+        // before all wake guards pass") — `wake_peer:false` never reaches here.
+        if (guardConfig.globalKillSwitch) {
+          throw new DiscussionError("global_kill_active", {});
+        }
+        const windowStart = now - HOURLY_WINDOW_MS;
+        const recentCount = tx.countRecentWakeReservations(params.to_agent_id, windowStart, now);
+        if (recentCount >= guardConfig.wakeQuotaPerHour) {
+          throw new DiscussionError("quota_exceeded", {});
+        }
+      }
+
+      tx.appendMessage({
+        id: rootMessageId,
+        from_agent_id: params.from_agent_id,
+        to_agent_id: params.to_agent_id,
+        fleet_id: params.fleet_id,
+        type: "question",
+        payload: serializedRoot,
+        correlation_id: discussionId,
+        timestamp: now,
+      });
+      tx.writeReceipt(rootMessageId, params.from_agent_id, `discussion.turn.sent.v1:1:${rootAttemptId}`);
+
+      if (params.wake_peer && turn2AttemptId) {
+        const deadline = Math.min(now + params.turn_timeout_ms, conversationDeadline);
+        const note = JSON.stringify({ discussion_id: discussionId, head_message_id: rootMessageId, deadline });
+        tx.writeReceipt(rootMessageId, params.to_agent_id, `discussion.wake.reserved.v1:2:${turn2AttemptId}`, note);
+        reservation = { attempt_id: turn2AttemptId, turn: 2, deadline };
+      }
+
+      return { reservation };
+    });
+
+    deps.notify({ kind: "root_sent", discussion_id: discussionId, root_message_id: rootMessageId });
+
+    if (committed.reservation) {
+      deps.notify({
+        kind: "wake_reserved",
+        discussion_id: discussionId,
+        attempt_id: committed.reservation.attempt_id,
+        agent_id: params.to_agent_id,
+      });
+      await launchAttempt(discussionId, committed.reservation.attempt_id);
+    }
+
+    return {
+      discussion_id: discussionId,
+      root_message_id: rootMessageId,
+      wake_reserved: !!committed.reservation,
+      reservation: committed.reservation,
+    };
+  }
+
+  /**
+   * The blocking rendezvous half of `ask_peer` (spec §9 steps 6-7). Not
+   * exercised by the D2 reservation suite (see this file's own
+   * `DiscussionStore` doc comment on why it is split from `openDiscussion`);
+   * implemented here as a check-register-check poll over durable state —
+   * never holding a ledger transaction while waiting — so a future D3 handler
+   * can compose `openDiscussion` + `awaitAnswer` directly per that comment.
+   */
+  async function awaitAnswer(discussionId: string, rootMessageId: string): Promise<AskPeerResult> {
+    knownDiscussionIds.add(discussionId);
+    const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+    for (;;) {
+      const now = deps.clock();
+      const view = deriveView(discussionId, now);
+
+      if (view.status === "closed") {
+        const last = view.transcript[view.transcript.length - 1];
+        return {
+          discussion_id: discussionId,
+          root_message_id: rootMessageId,
+          wake_reserved: view.attempts.length > 0,
+          status: "answered",
+          answer: last?.message,
+          discussion: view,
+        };
+      }
+      if (view.status === "invalid") {
+        return {
+          discussion_id: discussionId,
+          root_message_id: rootMessageId,
+          wake_reserved: view.attempts.length > 0,
+          status: "invalid",
+          discussion: view,
+        };
+      }
+      if (view.attempts.some((a) => a.state === "deadman")) {
+        return {
+          discussion_id: discussionId,
+          root_message_id: rootMessageId,
+          wake_reserved: view.attempts.length > 0,
+          status: "deadman",
+          discussion: view,
+        };
+      }
+      if (view.status === "exhausted" || view.status === "expired") {
+        const lastAttempt = view.attempts[view.attempts.length - 1];
+        const status: AskPeerStatus = lastAttempt?.state === "failed" ? "failed" : "timed_out";
+        return {
+          discussion_id: discussionId,
+          root_message_id: rootMessageId,
+          wake_reserved: view.attempts.length > 0,
+          status,
+          discussion: view,
+        };
+      }
+      if (now >= view.policy.conversation_deadline) {
+        const active = view.attempts.find((a) => a.state === "reserved" || a.state === "started");
+        if (active) {
+          const settled = settleTerminal(discussionId, active.attempt_id, "deadman");
+          if (settled) {
+            const handle = handleRegistry.get(active.attempt_id);
+            if (handle) {
+              deps.kill(handle);
+              handleRegistry.delete(active.attempt_id);
+            }
+            deps.notify({ kind: "terminal", discussion_id: discussionId, attempt_id: active.attempt_id, state: "deadman" });
+          }
+        }
+        const finalView = deriveView(discussionId, deps.clock());
+        return {
+          discussion_id: discussionId,
+          root_message_id: rootMessageId,
+          wake_reserved: finalView.attempts.length > 0,
+          status: "timed_out",
+          discussion: finalView,
+        };
+      }
+      await sleep(20);
+    }
+  }
+
+  async function wakeAgent(params: WakeAgentParams): Promise<WakeAgentResult> {
+    knownDiscussionIds.add(params.discussion_id);
+    const candidateAttemptId = randomUUID();
+
+    const reservation = deps.ledger((tx) => {
+      const now = tx.now();
+      const messages = tx.messagesByCorrelation(params.discussion_id);
+      const receipts = tx.allReceiptsForDiscussion(params.discussion_id);
+      if (messages.length === 0) {
+        throw new DiscussionError("not_found", { entity: "discussion", discussion_id: params.discussion_id });
+      }
+      const view = deriveDiscussion(params.discussion_id, messages, receipts, now);
+
+      // Early fail-closed terminal gate (lane-1 §12 precedence, §13 invariant
+      // "terminal states never reopen") — deliberately BEFORE the
+      // participant/recipient/head checks below. See this file's
+      // implementation-report note on tests #32d/#32e/K1: a wake from a
+      // non-recipient agent against an already-deadman discussion, and a wake
+      // against an `invalid` aggregate (whose derived participants are
+      // placeholder empty strings), must both surface as `terminal_state` —
+      // a participant/recipient check is meaningless once the aggregate
+      // itself is already fail-closed terminal, and would otherwise mask the
+      // terminal condition behind a spurious `wrong_participant`.
+      if (TERMINAL_STATUSES.has(view.status)) {
+        throw new DiscussionError("terminal_state", { status: view.status });
+      }
+
+      if (params.agent_id !== view.participants[0] && params.agent_id !== view.participants[1]) {
+        throw new DiscussionError("wrong_participant", { entity: "agent" });
+      }
+      const headMessage = tx.getMessage(view.head_message_id);
+      if (!headMessage || headMessage.to_agent_id !== params.agent_id) {
+        throw new DiscussionError("wrong_participant", { entity: "agent" });
+      }
+      if (params.expected_head_message_id !== view.head_message_id) {
+        throw new DiscussionError("stale_head", {
+          expected_head_message_id: params.expected_head_message_id,
+          current_head_message_id: view.head_message_id,
+        });
+      }
+
+      // Any live (reserved/started) attempt is, by construction, bound to the
+      // CURRENT canonical head (the head only ever advances via an admitted
+      // completed reply, which would leave no attempt live) — so `active`
+      // matching `view.head_message_id` is already established the moment it
+      // exists; only the requesting agent still needs to match.
+      const active = view.attempts.find((a) => a.state === "reserved" || a.state === "started");
+      if (active) {
+        if (active.agent_id === params.agent_id) {
+          // Concurrent duplicate wakes observe the SAME existing attempt —
+          // never a second launch (test #27).
+          return {
+            newlyReserved: false as const,
+            attemptId: active.attempt_id,
+            turn: active.turn,
+            headMessageId: view.head_message_id,
+            deadline: active.deadline,
+            remainingTurns: view.turns_remaining,
+          };
+        }
+        throw new DiscussionError("turn_already_active", {});
+      }
+
+      if (view.turns_remaining <= 0) {
+        throw new DiscussionError("budget_exhausted", {});
+      }
+      if (guardConfig.globalKillSwitch) {
+        throw new DiscussionError("global_kill_active", {});
+      }
+      const windowStart = now - HOURLY_WINDOW_MS;
+      const recentCount = tx.countRecentWakeReservations(params.agent_id, windowStart, now);
+      if (recentCount >= guardConfig.wakeQuotaPerHour) {
+        throw new DiscussionError("quota_exceeded", {});
+      }
+
+      const turn = view.turns_used + 1;
+      const deadline = Math.min(now + view.policy.turn_timeout_ms, view.policy.conversation_deadline);
+      const note = JSON.stringify({ discussion_id: params.discussion_id, head_message_id: view.head_message_id, deadline });
+      tx.writeReceipt(view.head_message_id, params.agent_id, `discussion.wake.reserved.v1:${turn}:${candidateAttemptId}`, note);
+
+      return {
+        newlyReserved: true as const,
+        attemptId: candidateAttemptId,
+        turn,
+        headMessageId: view.head_message_id,
+        deadline,
+        remainingTurns: view.turns_remaining - 1,
+      };
+    });
+
+    if (reservation.newlyReserved) {
+      deps.notify({
+        kind: "wake_reserved",
+        discussion_id: params.discussion_id,
+        attempt_id: reservation.attemptId,
+        agent_id: params.agent_id,
+      });
+      await launchAttempt(params.discussion_id, reservation.attemptId);
+    }
+
+    return {
+      attempt_id: reservation.attemptId,
+      turn: reservation.turn,
+      head_message_id: reservation.headMessageId,
+      deadline: reservation.deadline,
+      remaining_turns: reservation.remainingTurns,
+    };
+  }
+
+  async function replyDiscussion(params: ReplyDiscussionParams): Promise<ReplyDiscussionResult> {
+    knownDiscussionIds.add(params.discussion_id);
+    const close = params.close ?? false;
+
+    const settled = deps.ledger((tx) => {
+      const now = tx.now();
+      const messages = tx.messagesByCorrelation(params.discussion_id);
+      const receipts = tx.allReceiptsForDiscussion(params.discussion_id);
+      if (messages.length === 0) {
+        throw new DiscussionError("not_found", { entity: "discussion", discussion_id: params.discussion_id });
+      }
+      const view = deriveDiscussion(params.discussion_id, messages, receipts, now);
+
+      const attempt = view.attempts.find((a) => a.attempt_id === params.attempt_id);
+      if (!attempt) {
+        throw new DiscussionError("not_found", { entity: "attempt", attempt_id: params.attempt_id });
+      }
+      if (attempt.agent_id !== params.agent_id) {
+        throw new DiscussionError("wrong_participant", { entity: "agent" });
+      }
+
+      // Deliberate resolution (this file's implementation-report note 3,
+      // against lane-1 §13 invariant 12 "at most one reply is emitted by an
+      // attempt"): a reused attempt id is rejected from the ATTEMPT's own
+      // recorded lifecycle — `second_reply`/`attempt_not_active` — before any
+      // generic aggregate-status or head check runs. Test #34 pins
+      // `second_reply` ahead of a `stale_head` reading of the same retry.
+      if (attempt.state === "completed") {
+        throw new DiscussionError("second_reply", {});
+      }
+      if (attempt.state === "failed" || attempt.state === "deadman") {
+        throw new DiscussionError("attempt_not_active", {});
+      }
+
+      if (view.status === "invalid" || view.status === "closed" || view.status === "expired") {
+        throw new DiscussionError("terminal_state", { status: view.status });
+      }
+
+      if (params.reply_to_message_id !== view.head_message_id) {
+        throw new DiscussionError("stale_head", {
+          expected_head_message_id: params.reply_to_message_id,
+          current_head_message_id: view.head_message_id,
+        });
+      }
+      if (now > attempt.deadline || now > view.policy.conversation_deadline) {
+        throw new DiscussionError("past_deadline", { deadline: attempt.deadline, now });
+      }
+
+      // `params.reply_to_message_id === view.head_message_id` was just verified
+      // above (the CAS check), so the active attempt's authorizing head IS the
+      // discussion's current canonical head — no need to recover it separately.
+      const headMessage = tx.getMessage(view.head_message_id);
+      if (!headMessage) {
+        throw new DiscussionError("not_found", { entity: "message", message_id: view.head_message_id });
+      }
+
+      const envelope: Envelope = {
+        $meshfleet: "discussion/v1",
+        discussion_id: params.discussion_id,
+        turn: attempt.turn,
+        attempt_id: params.attempt_id,
+        reply_to: params.reply_to_message_id,
+        kind: params.type,
+        body: params.payload,
+        close,
+      };
+      const serialized = JSON.stringify(envelope);
+      if (!validatePayloadSize(serialized)) {
+        throw new DiscussionError("envelope_oversize", {
+          bytes: Buffer.byteLength(serialized, "utf8"),
+          limit_bytes: DISCUSSION_MAX_PAYLOAD_BYTES,
+        });
+      }
+
+      const replyMessageId = randomUUID();
+      tx.appendMessage({
+        id: replyMessageId,
+        from_agent_id: params.agent_id,
+        to_agent_id: headMessage.from_agent_id,
+        fleet_id: headMessage.fleet_id,
+        type: params.type,
+        payload: serialized,
+        correlation_id: params.discussion_id,
+        timestamp: now,
+      });
+
+      const note = JSON.stringify({
+        discussion_id: params.discussion_id,
+        head_message_id: view.head_message_id,
+        deadline: attempt.deadline,
+        reply_message_id: replyMessageId,
+      });
+      tx.writeReceipt(view.head_message_id, params.agent_id, `discussion.wake.completed.v1:${attempt.turn}:${params.attempt_id}`, note);
+
+      const messages2 = tx.messagesByCorrelation(params.discussion_id);
+      const receipts2 = tx.allReceiptsForDiscussion(params.discussion_id);
+      const view2 = deriveDiscussion(params.discussion_id, messages2, receipts2, now);
+
+      let status: ReplyDiscussionStatus;
+      if (close) status = "closed";
+      else if (view2.turns_remaining <= 0) status = "exhausted";
+      else status = "open";
+
+      if (status === "exhausted" && guardConfig.escalateOnBudgetExhaustion) {
+        const rootEntry = view2.transcript[0];
+        const rootSenderId = rootEntry ? rootEntry.message.from_agent_id : view2.participants[0];
+        const already = tx
+          .receiptsForMessage(view2.root_message_id)
+          .some((r) => r.action === "escalate_human" && r.agent_id === rootSenderId);
+        if (!already) {
+          tx.writeReceipt(
+            view2.root_message_id,
+            rootSenderId,
+            "escalate_human",
+            JSON.stringify({
+              discussion_id: params.discussion_id,
+              reason: "budget_exhausted",
+              status: "exhausted",
+              head_message_id: view2.head_message_id,
+              turns_used: view2.turns_used,
+              max_turns: view2.policy.max_turns,
+            })
+          );
+        }
+      }
+
+      return { messageId: replyMessageId, turn: attempt.turn, status, remainingTurns: view2.turns_remaining };
+    });
+
+    deps.notify({ kind: "reply_appended", discussion_id: params.discussion_id, message_id: settled.messageId });
+    if (settled.status === "closed") {
+      deps.notify({ kind: "terminal", discussion_id: params.discussion_id, attempt_id: params.attempt_id, state: "completed" });
+    }
+
+    return {
+      message_id: settled.messageId,
+      turn: settled.turn,
+      status: settled.status,
+      remaining_turns: settled.remainingTurns,
+    };
+  }
+
+  function getDiscussion(params: GetDiscussionParams): DiscussionView {
+    knownDiscussionIds.add(params.discussion_id);
+    return deps.ledger((tx) => {
+      const now = tx.now();
+      const messages = tx.messagesByCorrelation(params.discussion_id);
+      const receipts = tx.allReceiptsForDiscussion(params.discussion_id);
+      if (messages.length === 0) {
+        throw new DiscussionError("not_found", { entity: "discussion", discussion_id: params.discussion_id });
+      }
+      const view = deriveDiscussion(params.discussion_id, messages, receipts, now);
+      if (params.include_receipts === false) {
+        return { ...view, transcript: view.transcript.map((entry) => ({ ...entry, receipts: [] })) };
+      }
+      return view;
+    });
+  }
+
+  /**
+   * Terminalizes every stranded `reserved`/`started` attempt past its
+   * recorded deadline, across every discussion this store instance has been
+   * asked about (see the "Attempt bookkeeping" note above for why that scope
+   * — not "every discussion in the ledger" — is what `LedgerTx` actually
+   * supports, and why it is still restart-safe: tests K2/K3 prime a fresh
+   * store's known-id set with an ordinary `getDiscussion` call first, exactly
+   * as a real caller resuming after a restart would).
+   */
+  async function sweepStranded(nowMs?: number): Promise<SweepResult> {
+    const sweepNow = typeof nowMs === "number" ? nowMs : deps.clock();
+    const terminalizedOut: SweepResult["terminalized"] = [];
+
+    for (const discussionId of knownDiscussionIds) {
+      const settledList = deps.ledger((tx) => {
+        const messages = tx.messagesByCorrelation(discussionId);
+        const receipts = tx.allReceiptsForDiscussion(discussionId);
+        if (messages.length === 0) return [];
+        const view = deriveDiscussion(discussionId, messages, receipts, sweepNow);
+        const stranded = view.attempts.filter((a) => (a.state === "reserved" || a.state === "started") && a.deadline <= sweepNow);
+        const out: Array<{ attemptId: string; agentId: string; turn: number; headMessageId: string }> = [];
+        for (const attempt of stranded) {
+          const headMessageId = headMessageIdForAttempt(receipts, attempt.attempt_id, view.head_message_id);
+          const note = JSON.stringify({
+            discussion_id: discussionId,
+            head_message_id: headMessageId,
+            deadline: attempt.deadline,
+          });
+          tx.writeReceipt(headMessageId, attempt.agent_id, `discussion.wake.deadman.v1:${attempt.turn}:${attempt.attempt_id}`, note);
+          out.push({ attemptId: attempt.attempt_id, agentId: attempt.agent_id, turn: attempt.turn, headMessageId });
+        }
+        return out;
+      });
+
+      for (const s of settledList) {
+        terminalizedOut.push({ discussion_id: discussionId, attempt_id: s.attemptId, state: "deadman" });
+        const handle = handleRegistry.get(s.attemptId);
+        if (handle) {
+          deps.kill(handle);
+          handleRegistry.delete(s.attemptId);
+        }
+        deps.notify({ kind: "terminal", discussion_id: discussionId, attempt_id: s.attemptId, state: "deadman" });
+      }
+    }
+
+    return { terminalized: terminalizedOut };
+  }
+
   return {
-    async openDiscussion() {
-      return notImplemented("openDiscussion");
-    },
-    async awaitAnswer() {
-      return notImplemented("awaitAnswer");
-    },
-    async wakeAgent() {
-      return notImplemented("wakeAgent");
-    },
-    async replyDiscussion() {
-      return notImplemented("replyDiscussion");
-    },
-    getDiscussion() {
-      return notImplemented("getDiscussion");
-    },
-    async sweepStranded() {
-      return notImplemented("sweepStranded");
-    },
+    openDiscussion,
+    awaitAnswer,
+    wakeAgent,
+    replyDiscussion,
+    getDiscussion,
+    sweepStranded,
   };
 }

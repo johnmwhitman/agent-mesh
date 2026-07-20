@@ -478,7 +478,19 @@ test("D2-red #28 — max_turns cannot be increased after opening", async () => {
         kind: "result",
         body: "pretend the budget is bigger now",
         close: false,
-        policy: { participants: [AGENT_A, AGENT_B], max_turns: 99, conversation_deadline: h.clockRef.value + 60_000, turn_timeout_ms: 5000 },
+        // max_turns capped at the spec's own immutable bound (32, not 99): see
+        // this suite's implementation report, "test-contract conflict #1" —
+        // src/discussion.ts's `isPolicyShape` (src/discussion.ts:64-65,95)
+        // independently rejects ANY policy with max_turns > MAX_MAX_TURNS (32)
+        // as an unparseable envelope ("invalid_envelope") before the
+        // turn!==1-with-policy check that yields `child_policy_forbidden` is
+        // ever reached (src/discussion.ts:412-421). A max_turns of 99 can
+        // never reach that check, so it cannot exercise this test's actual
+        // intent (lane-1 §11 / d3-wiring-blueprint.md §4: max_turns is
+        // integer 2..32) — 32 is the largest value that still parses AND is
+        // "bigger" than the real policy's max_turns of 4, preserving the
+        // test's own "pretend the budget is bigger now" narrative.
+        policy: { participants: [AGENT_A, AGENT_B], max_turns: 32, conversation_deadline: h.clockRef.value + 60_000, turn_timeout_ms: 5000 },
       }),
     })
   );
