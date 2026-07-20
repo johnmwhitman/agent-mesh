@@ -96,7 +96,7 @@ before a renderer is called supported.
 | Generic MCP stdio | `process-handshake-verified` | Packaged `npx -y meshfleet` starts and completes MCP initialization at the process boundary |
 | Claude Code, Codex, OpenCode config | `static-config-verified` | Slice 3B renderers produce proven shapes from README/mcp.json evidence; live semantic client execution remains unverified |
 | SSE inbox projection | `implemented` | Optional local inbox push, not a general A2A HTTP transport |
-| Durable execution coordinator | `recovery-verified` | Durable-mode `spawn_fleet` and `attach_agent` use fenced leases, persisted due retry, recovery, and compatibility projections on one SQLite authority |
+| Durable execution coordinator | `recovery-verified` | Durable-mode `spawn_fleet` and `attach_agent` use fenced leases, deterministic persisted retry, scheduled recovery, diagnostic containment, sequence-ordered outbox, and compatibility projections on one SQLite authority |
 | Outbound worker launch | `runtime-launch-verified` | `spawn_fleet` selects the internal OpenCode compatibility adapter; no public runtime selection exists |
 | OpenCode result normalization | `runtime-launch-verified` | OpenCode command, banner parsing, fallback, and provider diagnostics are isolated behind `OpenCodeRuntimeAdapter` |
 | Provider-neutral runtime SPI | `runtime-launch-verified` | Core orchestration uses normalized execution contracts and an internal registry; public runtime selection remains deferred |

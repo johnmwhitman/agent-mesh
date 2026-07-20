@@ -51,11 +51,13 @@ documents linked below.
   modes remain legacy. Shadow preserves legacy authority. Durable mode wires
   `spawn_fleet` and `attach_agent` to lease-driven execution with unchanged MCP
   inputs and outputs.
-- Durable retry and restart recovery are lease-based; non-expired work is never
-  reclaimed from PID absence, and managed durable agents are excluded from the
-  legacy PID recovery path.
+- Durable retry and restart recovery are lease-based and wake at persisted due
+  boundaries; non-expired work is never reclaimed from PID absence. Expired
+  diagnostic child PIDs are best-effort contained before replacement, while
+  managed durable agents remain excluded from legacy PID recovery.
 - Lifecycle and legacy Fleet/Agent projections settle atomically with a
-  transactional SQLite outbox. NDJSON is an idempotent, repairable projection.
+  transactional, sequence-ordered SQLite outbox. NDJSON is an idempotent,
+  repairable projection.
 
 ### Slice 3: runtime and configuration adapters
 

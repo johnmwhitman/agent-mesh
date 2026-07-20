@@ -2,11 +2,12 @@
 
 Status: **implemented as a bounded single-host lifecycle/runtime integration**
 
-This document bounds the durable lifecycle slice after the single-host retry,
-recovery, event-log, and SQLite work. The isolated kernel now implements the
-storage contract, but it is not wired into spawning, retries, PID recovery, MCP,
-or the NDJSON projection. It is not evidence that the package is ready for
-multi-host execution; Agent Mesh remains single-host.
+This document bounds the implemented durable lifecycle slice after the
+single-host retry, recovery, event-log, and SQLite work. The lifecycle kernel is
+wired to durable-mode spawning and attachment through one local SQLite
+authority; legacy and shadow behavior remain compatibility modes. It is not
+evidence that the package is ready for multi-host execution; Agent Mesh remains
+single-host.
 
 ## Current limits
 
@@ -65,6 +66,7 @@ Each attempt must persist these fields before work can be considered owned:
 | `cancelled_at` | Durable cancellation marker when cancellation has been accepted. |
 | `terminal_at` | Time at which a terminal settlement was committed, when applicable. |
 | `result` / `error` | Existing outcome data, written only by an accepted terminal settlement. |
+| `runtime_pid` / metadata | Diagnostic containment data only. It never grants or blocks lease authority. |
 
 The logical work item must also retain enough identity to link retries and
 cancellation to the same requested work without treating an OS PID as that

@@ -22,8 +22,10 @@ states reject later renewal, retry, and settlement.
 The execution coordinator consumes that authority for durable-mode fleet spawn
 and attachment. It records legacy projections and lifecycle rows on one handle,
 acquires a lease before launch, fences observed launch and settlement, persists
-retry eligibility, recovers only expired leases, and projects SQLite outbox rows
-to NDJSON idempotently. Managed durable agents are excluded from PID recovery.
+deterministic retry eligibility, wakes at persisted recovery boundaries, and
+projects sequence-ordered SQLite outbox rows to NDJSON idempotently. Expired
+diagnostic PIDs are best-effort contained without becoming authority. Managed
+durable agents are excluded from PID recovery.
 
 ## Consequences
 

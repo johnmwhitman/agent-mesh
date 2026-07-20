@@ -11,8 +11,9 @@ The ranked A2A strategy is canonical in
    internal legacy mapping are implemented. No public `send_a2a` tool, remote
    transport, or authenticated canonical ingress is shipped.
 2. **Durable lifecycle kernel** - implemented for single-host durable fleets:
-   lease-driven spawn/attach, persisted retry, recovery, fencing, and a
-   repairable event outbox. Logical ledger schema remains v2.
+   lease-driven spawn/attach, deterministic persisted retry, scheduled recovery,
+   fencing, diagnostic containment, and a sequence-ordered repairable event
+   outbox. Logical ledger schema remains v2.
 3. **Provider-neutral runtime adapters** - internal OpenCode compatibility and
    deterministic local-process proof are implemented; public selection and real
    vendor adapters remain deferred.

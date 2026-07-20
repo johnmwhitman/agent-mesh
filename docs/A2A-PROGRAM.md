@@ -23,7 +23,8 @@ verified boundaries:
   legacy mapping are implemented, verified, and independently reviewed.
 - The durable attempt lifecycle is integrated with `spawn_fleet` and
   `attach_agent` only for explicitly durable, single-host fleets. It persists
-  retries, lease recovery, and an NDJSON-repair outbox without changing MCP
+  deterministic retries, scheduled lease recovery, and a sequence-ordered
+  NDJSON-repair outbox without changing MCP
   inputs or outputs.
 - Public canonical-envelope ingress, authenticated principals, durable duplicate
   persistence, public lifecycle integration, and public runtime selection remain
