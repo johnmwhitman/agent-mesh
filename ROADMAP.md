@@ -134,3 +134,9 @@ Open a GitHub issue with the `roadmap` label. Tell us:
 - Which version it would unlock
 
 We'll move items up if the use case is clear and the implementation is contained.
+
+## Lifecycle visibility
+
+Implemented as an opt-in local inspector and namespaced integrity verification.
+Repair remains deliberately non-actionable from this surface; outbox lag is
+observable, not a daemon, dashboard, or service claim.

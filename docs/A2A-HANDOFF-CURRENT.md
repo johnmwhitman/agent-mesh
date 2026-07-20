@@ -131,3 +131,16 @@ documents linked below.
 3. Prototype authenticated cross-process transport and discovery behind the
    existing protocol/runtime boundaries; do not claim multi-host authority
    until a shared coordinator, trust model, and adversarial evidence exist.
+
+## Lifecycle visibility update
+
+- Branch base for this bounded slice: `3115a9d`.
+- Implemented: private copied-file, read-only SQLite snapshots; namespaced
+  lifecycle verifier findings; `inspect --lifecycle [fleet]` with
+  `meshfleet.lifecycle/v1`; redacted metadata summaries; outbox lag and
+  repair-needed visibility with no repair command.
+- Preserved: existing MCP stdio behavior, default inspector text, existing JSON
+  schemas, logical verifier counts, and public package version `0.14.0`.
+- Deferred: source-coordinated live-WAL certification, repair execution,
+  lifecycle controls, remote transport, multi-host ownership, daemon/dashboard,
+  and public ingress.

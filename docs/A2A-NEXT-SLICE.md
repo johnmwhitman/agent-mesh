@@ -187,3 +187,14 @@ This document is complete when the implementation, focused acceptance tests,
 backward-compatibility tests, and a review of the SQLite migration path all agree
 with the state fields and invariants above. It remains a single-host SQLite
 authority and never a distributed or multi-host capability.
+
+## Lifecycle visibility status
+
+Implemented: namespaced lifecycle findings compose into the existing logical
+`verify_ledger` response without changing its top-level shape or logical
+counts. The opt-in lifecycle inspector reports SQLite authority, mode
+semantics, redacted summaries, and NDJSON outbox lag/repair-needed metadata.
+
+Deferred: public lifecycle controls, repair execution, source-coordinated live
+WAL certification, remote ownership, multi-host coordination, and any daemon
+or dashboard surface.

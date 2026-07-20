@@ -174,3 +174,10 @@ separate human and architecture gate:
 
 Review packages, test output, and handoffs are evidence of a state; they do not
 replace these normative documents.
+
+## Lifecycle visibility update
+
+The bounded lifecycle authority now has a read-only verification and inspection
+slice. SQLite remains authority; NDJSON remains a non-authoritative projection.
+This adds no ingress, control, activation, remote transport, multi-host claim,
+or public runtime selection.

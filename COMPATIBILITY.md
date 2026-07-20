@@ -95,3 +95,16 @@ Open an issue at https://github.com/johnmwhitman/agent-mesh/issues with:
 - ledger `schema_version` (inspect `~/.config/opencode/agent-mesh.db` with `npx agent-mesh inspect --export`)
 - A redacted copy of the failing operation
 - The full error output
+
+## Lifecycle visibility compatibility
+
+- Existing MCP tools, `verify_ledger` envelope shape, default inspector text,
+  existing `--json` schemas, and package version remain unchanged.
+- `agent-mesh inspect --lifecycle [fleet]` is opt-in. Its JSON schema is
+  `meshfleet.lifecycle/v1`; it reports SQLite authority and NDJSON projection
+  metadata without exposing prompts, outcomes, runtime metadata, payloads,
+  paths, or secrets.
+- Lifecycle inspection uses a private read-only SQLite file snapshot and never
+  creates, migrates, repairs, projects, recovers, leases, or signals the
+  audited ledger. The copied snapshot is not a source-coordinated live-WAL
+  claim.
