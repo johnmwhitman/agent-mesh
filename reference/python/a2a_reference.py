@@ -12,7 +12,6 @@ import copy
 import hashlib
 import json
 import math
-import re
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
@@ -23,6 +22,8 @@ VERSION = "0.1"
 KIND = "message"
 TYPES = {"handoff", "question", "result", "alert", "request_help"}
 MAX_BODY_BYTES = 64 * 1024
+MAX_MEDIA_TYPE_BYTES = 1024
+TOKEN_CHARACTERS = frozenset("!#$%&'*+-.^_`|~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz")
 
 
 class InvalidEnvelope(ValueError):
@@ -42,8 +43,16 @@ def strict_object(pairs: List[Tuple[str, Any]]) -> Dict[str, Any]:
     return result
 
 
+def reject_constant(_value: str) -> Any:
+    raise InvalidEnvelope("nonstandard JSON numeric constant")
+
+
 def strict_json_loads(value: str) -> Any:
-    return json.loads(value, object_pairs_hook=strict_object)
+    return json.loads(value, object_pairs_hook=strict_object, parse_constant=reject_constant)
+
+
+def json_value_loads(value: str) -> Any:
+    return json.loads(value, parse_constant=reject_constant)
 
 
 def parse_raw_json(value: str) -> Any:
@@ -54,7 +63,7 @@ def parse_raw_json(value: str) -> Any:
 
 
 def stable_json(value: Any) -> str:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False)
 
 
 def expand_fixture(value: Any) -> Any:
@@ -73,6 +82,23 @@ def non_empty(value: Any, field: str) -> str:
     if any(0xD800 <= ord(character) <= 0xDFFF for character in value):
         raise InvalidEnvelope(field + " must contain only Unicode scalar values")
     return value
+
+
+def validate_scalar_tree(value: Any, field: str) -> None:
+    if isinstance(value, str):
+        if any(0xD800 <= ord(character) <= 0xDFFF for character in value):
+            raise InvalidEnvelope(field + " must contain only Unicode scalar values")
+        return
+    if isinstance(value, list):
+        for index, nested in enumerate(value):
+            validate_scalar_tree(nested, field + "[" + str(index) + "]")
+        return
+    if isinstance(value, dict):
+        for key, nested in value.items():
+            if not isinstance(key, str):
+                raise InvalidEnvelope(field + " keys must be strings")
+            validate_scalar_tree(key, field + " key")
+            validate_scalar_tree(nested, field + "." + key)
 
 
 def timestamp(value: Any, field: str) -> int:
@@ -100,11 +126,80 @@ def ref_key(ref: Dict[str, str]) -> Tuple[str, str]:
     return (ref["namespace"], ref["agent_id"])
 
 
+def consume_token(value: str, start: int) -> int:
+    index = start
+    while index < len(value) and value[index] in TOKEN_CHARACTERS:
+        index += 1
+    return index
+
+
+def consume_ows(value: str, start: int) -> int:
+    index = start
+    while index < len(value) and value[index] in (" ", "\t"):
+        index += 1
+    return index
+
+
 def media_type(value: str) -> bool:
-    return re.match(r"^[^\s/]+/[^\s/]+(?:\s*;.*)?$", value) is not None
+    # Same language-neutral grammar as the TypeScript codec: ASCII token/type,
+    # SP-or-HTAB OWS, and non-empty token or bounded-ASCII quoted parameters.
+    if not value or len(value) > MAX_MEDIA_TYPE_BYTES or any(ord(character) > 0x7F for character in value):
+        return False
+    index = consume_token(value, 0)
+    if index == 0 or index >= len(value) or value[index] != "/":
+        return False
+    index += 1
+    subtype_start = index
+    index = consume_token(value, index)
+    if index == subtype_start:
+        return False
+    while True:
+        index = consume_ows(value, index)
+        if index == len(value):
+            return True
+        if value[index] != ";":
+            return False
+        index = consume_ows(value, index + 1)
+        name_start = index
+        index = consume_token(value, index)
+        if index == name_start:
+            return False
+        index = consume_ows(value, index)
+        if index >= len(value) or value[index] != "=":
+            return False
+        index = consume_ows(value, index + 1)
+        if index < len(value) and value[index] == '"':
+            index += 1
+            closed = False
+            while index < len(value):
+                code = ord(value[index])
+                if code == 0x22:
+                    index += 1
+                    closed = True
+                    break
+                if code == 0x5C:
+                    index += 1
+                    if index >= len(value):
+                        return False
+                    escaped = ord(value[index])
+                    if not (escaped == 0x09 or 0x20 <= escaped <= 0x7E):
+                        return False
+                    index += 1
+                    continue
+                if not (code in (0x09, 0x20, 0x21) or 0x23 <= code <= 0x5B or 0x5D <= code <= 0x7E):
+                    return False
+                index += 1
+            if not closed:
+                return False
+        else:
+            value_start = index
+            index = consume_token(value, index)
+            if index == value_start:
+                return False
 
 
 def validate_envelope(input_value: Any, now_ms: int | None = None, for_acceptance: bool = False) -> Dict[str, Any]:
+    validate_scalar_tree(input_value, "envelope")
     item = record(input_value, "envelope")
     if item.get("protocol") != PROTOCOL:
         raise InvalidEnvelope("protocol must equal " + PROTOCOL)
@@ -148,10 +243,11 @@ def validate_envelope(input_value: Any, now_ms: int | None = None, for_acceptanc
         raise InvalidEnvelope("payload.body exceeds " + str(MAX_BODY_BYTES) + " UTF-8 bytes")
     if not media_type(payload_media_type):
         raise InvalidEnvelope("payload.media_type must be a valid media type")
-    base_media_type = payload_media_type.split(";", 1)[0].lower()
+    base_media_type = payload_media_type.split(";", 1)[0].rstrip(" \t").lower()
     if base_media_type == "application/json" or base_media_type.endswith("+json"):
         try:
-            json.loads(body)
+            parsed_payload = json_value_loads(body)
+            validate_scalar_tree(parsed_payload, "payload JSON")
         except (TypeError, ValueError) as error:
             raise InvalidEnvelope("payload.body must be valid JSON for a JSON media type") from error
     extensions = item.get("extensions")
@@ -372,8 +468,16 @@ def main() -> int:
     parser.add_argument("--v01-corpus", required=True)
     parser.add_argument("--ingress-corpus", required=True)
     args = parser.parse_args()
-    v01_cases = strict_json_loads(Path(args.v01_corpus).read_text(encoding="utf-8"))
-    ingress_document = strict_json_loads(Path(args.ingress_corpus).read_text(encoding="utf-8"))
+    try:
+        v01_cases = strict_json_loads(Path(args.v01_corpus).read_text(encoding="utf-8"))
+        ingress_document = strict_json_loads(Path(args.ingress_corpus).read_text(encoding="utf-8"))
+    except (InvalidEnvelope, DuplicateMember, json.JSONDecodeError):
+        print(stable_json({
+            "label": "reference-conformance-only-not-production-public-durable-authenticated",
+            "ok": False,
+            "error": "invalid_corpus_json",
+        }))
+        return 2
     v01 = run_v01(v01_cases)
     ingress = run_ingress(ingress_document["cases"])
     report = {

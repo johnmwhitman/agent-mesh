@@ -75,6 +75,27 @@ test("Python witness exits nonzero when a fixture expectation is mutated", (t) =
   }
 });
 
+test("Python witness rejects nonstandard constants in a raw corpus document", (t) => {
+  const availability = spawnSync("python3", ["--version"], { encoding: "utf8" });
+  if (availability.error || availability.status !== 0) {
+    t.skip("python3 is unavailable; strict corpus parsing self-test skipped");
+    return;
+  }
+  const directory = mkdtempSync(join(tmpdir(), "meshfleet-a2a-reference-json-"));
+  try {
+    const invalidPath = join(directory, "invalid-v01.json");
+    writeFileSync(invalidPath, "[{\"value\":NaN}]", "utf8");
+    const run = spawnSync("python3", [witness, "--v01-corpus", invalidPath, "--ingress-corpus", ingressCorpus], {
+      encoding: "utf8",
+      timeout: 10_000,
+    });
+    assert.notEqual(run.status, 0);
+    assert.match(run.stdout, /invalid_corpus_json/);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("Python witness is standalone, offline, and has no forbidden integration references", () => {
   assert.equal(existsSync(witness), true);
   const source = readFileSync(witness, "utf8");

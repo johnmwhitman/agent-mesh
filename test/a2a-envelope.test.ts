@@ -120,12 +120,22 @@ test("A2A v0.1 conformance corpus validates canonical envelopes and identity out
 test("A2A v0.1 corpus pins scalar Unicode and the current media-type grammar", () => {
   for (const name of [
     "valid-media-type-parameter",
-    "valid-media-type-empty-parameter-current-grammar",
+    "invalid-media-type-empty-parameter",
+    "valid-media-type-ascii-ows-and-token-parameter",
+    "valid-media-type-quoted-and-token-parameters",
+    "invalid-media-type-u0085",
+    "invalid-media-type-nbsp",
+    "invalid-media-type-control",
     "invalid-media-type-extra-slash",
     "invalid-media-type-parameter-missing-semicolon",
     "valid-non-bmp-scalar",
     "invalid-lone-high-surrogate",
     "invalid-lone-low-surrogate",
+    "invalid-nested-extension-high-surrogate-value",
+    "invalid-nested-extension-low-surrogate-key",
+    "invalid-json-payload-surrogate-value",
+    "invalid-json-payload-surrogate-key",
+    "valid-nested-non-bmp-scalars",
   ]) {
     assert.ok(caseByName(name), name);
   }
@@ -134,10 +144,25 @@ test("A2A v0.1 corpus pins scalar Unicode and the current media-type grammar", (
 test("duplicate raw JSON members remain a future transport parsing responsibility", () => {
   const rawCases = corpus().filter((candidate) => candidate.raw_json !== undefined);
   assert.deepEqual(rawCases.map((candidate) => candidate.name), [
+    "raw-nonstandard-nan",
+    "raw-nonstandard-infinity",
+    "raw-nonstandard-negative-infinity",
     "raw-duplicate-top-level-message-id",
     "raw-duplicate-nested-sender-agent-id",
   ]);
   assert.ok(rawCases.every((candidate) => candidate.expected === "invalid"));
+});
+
+test("canonical serialization cannot emit non-scalar envelope or JSON payload strings", () => {
+  for (const name of [
+    "invalid-nested-extension-high-surrogate-value",
+    "invalid-nested-extension-low-surrogate-key",
+    "invalid-json-payload-surrogate-value",
+    "invalid-json-payload-surrogate-key",
+  ]) {
+    assert.throws(() => encodeEnvelope(inputFor(name)), /Unicode scalar values|valid JSON/, name);
+  }
+  assert.doesNotThrow(() => encodeEnvelope(inputFor("valid-nested-non-bmp-scalars")));
 });
 
 test("A2A extensions retain runtime-like fields as opaque extension data", () => {

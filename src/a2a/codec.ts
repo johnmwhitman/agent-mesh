@@ -9,6 +9,7 @@ import {
 } from "./types.js";
 
 export const MAX_A2A_BODY_BYTES = 64 * 1024;
+const MAX_MEDIA_TYPE_BYTES = 1024;
 
 export interface ValidationOptions {
   /** Validate expiration against this clock. Omit to validate envelope shape only. */
@@ -44,6 +45,100 @@ function scalarString(value: string, field: string): string {
   return value;
 }
 
+function validateScalarTree(value: unknown, field: string, seen = new Set<object>()): void {
+  if (typeof value === "string") {
+    scalarString(value, field);
+    return;
+  }
+  if (value === null || typeof value !== "object") return;
+  if (seen.has(value)) fail(`${field} must be an acyclic JSON tree`);
+  seen.add(value);
+  if (Array.isArray(value)) {
+    value.forEach((nested, index) => validateScalarTree(nested, `${field}[${index}]`, seen));
+  } else {
+    for (const key of Object.keys(value)) {
+      scalarString(key, `${field} key`);
+      validateScalarTree((value as Record<string, unknown>)[key], `${field}.${key}`, seen);
+    }
+  }
+  seen.delete(value);
+}
+
+// Language-neutral v0.1 media grammar. All input is ASCII and at most 1024 bytes:
+// token "/" token *( OWS ";" OWS token OWS "=" OWS (token / quoted) ).
+// token is the RFC token character set; OWS is SP or HTAB only. Quoted content
+// is ASCII HTAB, SP, or visible characters, with backslash escaping one such byte.
+function isTokenCode(code: number): boolean {
+  return (code >= 0x30 && code <= 0x39)
+    || (code >= 0x41 && code <= 0x5a)
+    || (code >= 0x61 && code <= 0x7a)
+    || "!#$%&'*+-.^_`|~".includes(String.fromCharCode(code));
+}
+
+function consumeToken(value: string, start: number): number {
+  let index = start;
+  while (index < value.length && isTokenCode(value.charCodeAt(index))) index += 1;
+  return index;
+}
+
+function consumeOws(value: string, start: number): number {
+  let index = start;
+  while (index < value.length && (value.charCodeAt(index) === 0x20 || value.charCodeAt(index) === 0x09)) index += 1;
+  return index;
+}
+
+function validMediaType(value: string): boolean {
+  if (value.length === 0 || value.length > MAX_MEDIA_TYPE_BYTES) return false;
+  for (let index = 0; index < value.length; index += 1) {
+    if (value.charCodeAt(index) > 0x7f) return false;
+  }
+  let index = consumeToken(value, 0);
+  if (index === 0 || value[index] !== "/") return false;
+  index += 1;
+  const subtypeStart = index;
+  index = consumeToken(value, index);
+  if (index === subtypeStart) return false;
+  while (true) {
+    index = consumeOws(value, index);
+    if (index === value.length) return true;
+    if (value[index] !== ";") return false;
+    index = consumeOws(value, index + 1);
+    const nameStart = index;
+    index = consumeToken(value, index);
+    if (index === nameStart) return false;
+    index = consumeOws(value, index);
+    if (value[index] !== "=") return false;
+    index = consumeOws(value, index + 1);
+    if (value[index] === "\"") {
+      index += 1;
+      let closed = false;
+      while (index < value.length) {
+        const code = value.charCodeAt(index);
+        if (code === 0x22) {
+          index += 1;
+          closed = true;
+          break;
+        }
+        if (code === 0x5c) {
+          index += 1;
+          if (index >= value.length) return false;
+          const escaped = value.charCodeAt(index);
+          if (!(escaped === 0x09 || (escaped >= 0x20 && escaped <= 0x7e))) return false;
+          index += 1;
+          continue;
+        }
+        if (!(code === 0x09 || code === 0x20 || code === 0x21 || (code >= 0x23 && code <= 0x5b) || (code >= 0x5d && code <= 0x7e))) return false;
+        index += 1;
+      }
+      if (!closed) return false;
+    } else {
+      const valueStart = index;
+      index = consumeToken(value, index);
+      if (index === valueStart) return false;
+    }
+  }
+}
+
 function nonEmptyString(value: unknown, field: string): string {
   if (typeof value !== "string" || value.length === 0) fail(`${field} must be a non-empty string`);
   return scalarString(value, field);
@@ -76,13 +171,14 @@ function validatePayload(value: unknown): A2AEnvelopeV01["payload"] {
   if (Buffer.byteLength(body, "utf-8") > MAX_A2A_BODY_BYTES) {
     fail(`payload.body exceeds ${MAX_A2A_BODY_BYTES} UTF-8 bytes`);
   }
-  if (!/^[^\s/]+\/[^\s/]+(?:\s*;.*)?$/.test(mediaType)) {
+  if (!validMediaType(mediaType)) {
     fail("payload.media_type must be a valid media type");
   }
-  const baseMediaType = mediaType.split(";", 1)[0]!.toLowerCase();
+  const baseMediaType = mediaType.split(";", 1)[0]!.trimEnd().toLowerCase();
   if (baseMediaType === "application/json" || baseMediaType.endsWith("+json")) {
     try {
-      JSON.parse(body);
+      const parsed = JSON.parse(body) as unknown;
+      validateScalarTree(parsed, "payload JSON");
     } catch {
       fail("payload.body must be valid JSON for a JSON media type");
     }
@@ -98,6 +194,7 @@ function optionalOpaqueString(value: unknown, field: string): string | undefined
 /** Validate and normalize a v0.1 envelope without importing transports or runtimes. */
 export function validateEnvelope(input: unknown, options: ValidationOptions = {}): A2AEnvelopeV01 {
   if (!isRecord(input)) fail("envelope must be an object");
+  validateScalarTree(input, "envelope");
   if (input.protocol !== A2A_PROTOCOL) fail(`protocol must equal ${A2A_PROTOCOL}`);
   const version = nonEmptyString(input.version, "version");
   if (version !== A2A_VERSION) fail(`unsupported version ${version}`);
