@@ -245,6 +245,10 @@ const A2A_SCHEMA_V4: readonly A2aSchemaObject[] = [
   ]),
 ];
 
+function asciiFold(value: string): string {
+  return value.replace(/[A-Z]/g, (char) => String.fromCharCode(char.charCodeAt(0) + 32));
+}
+
 function schemaSqlTokens(sql: string): string[] {
   const tokens: string[] = [];
   let index = 0;
@@ -289,13 +293,13 @@ function schemaSqlTokens(sql: string): string[] {
         break;
       }
       if (!closed) throw new Error("invalid schema SQL: unterminated quoted identifier");
-      tokens.push("identifier:" + value.toLowerCase());
+      tokens.push("identifier:" + asciiFold(value));
       continue;
     }
     if (/[A-Za-z0-9_$]/.test(char)) {
       const start = index++;
       while (index < sql.length && /[A-Za-z0-9_$]/.test(sql[index]!)) index++;
-      tokens.push("identifier:" + sql.slice(start, index).toLowerCase());
+      tokens.push("identifier:" + asciiFold(sql.slice(start, index)));
       continue;
     }
     tokens.push("punctuation:" + char);
@@ -316,13 +320,13 @@ function a2aSchemaRows(db: Database.Database): Array<{ type: string; name: strin
 }
 
 function unexpectedA2aSchemaObject(db: Database.Database, permitExpectedObjects: boolean): { type: string; name: string } | undefined {
-  const expected = new Set(A2A_SCHEMA_V4.map((item) => item.type + ":" + item.name.toLowerCase()));
+  const expected = new Set(A2A_SCHEMA_V4.map((item) => item.type + ":" + asciiFold(item.name)));
   const tables = ["a2a_acceptance_records", "a2a_request_mappings", "a2a_decision_receipts"];
   const rows = db.prepare("SELECT type, name, tbl_name, sql FROM sqlite_schema WHERE sql IS NOT NULL AND type IN ('table', 'index', 'trigger', 'view') ORDER BY type, name").all() as Array<{ type: string; name: string; tbl_name: string; sql: string }>;
   return rows.find((row) => {
-    if (permitExpectedObjects && expected.has(row.type + ":" + row.name.toLowerCase())) return false;
-    const name = row.name.toLowerCase();
-    const table = row.tbl_name.toLowerCase();
+    if (permitExpectedObjects && expected.has(row.type + ":" + asciiFold(row.name))) return false;
+    const name = asciiFold(row.name);
+    const table = asciiFold(row.tbl_name);
     const sqlTokens = new Set(schemaSqlTokens(row.sql));
     return name.startsWith("a2a_") || tables.includes(table) || tables.some((candidate) => sqlTokens.has("identifier:" + candidate));
   });
@@ -338,10 +342,10 @@ function validateA2aV4Layout(db: Database.Database): void {
   if (unexpected) throw new Error("invalid v4 a2a layout: unexpected or dependent " + unexpected.type + " " + unexpected.name);
   const actual = a2aSchemaRows(db);
   if (actual.length !== A2A_SCHEMA_V4.length) throw new Error("invalid v4 a2a layout: unexpected object count");
-  const expected = new Map(A2A_SCHEMA_V4.map((item) => [item.type + ":" + item.name.toLowerCase(), item]));
+  const expected = new Map(A2A_SCHEMA_V4.map((item) => [item.type + ":" + asciiFold(item.name), item]));
   for (const row of actual) {
-    const item = expected.get(row.type + ":" + row.name.toLowerCase());
-    if (!item || row.tbl_name.toLowerCase() !== item.table || row.sql === null || !schemaSqlMatches(row.sql, item.sql)) {
+    const item = expected.get(row.type + ":" + asciiFold(row.name));
+    if (!item || asciiFold(row.tbl_name) !== item.table || row.sql === null || !schemaSqlMatches(row.sql, item.sql)) {
       throw new Error("invalid v4 a2a layout: " + row.type + " " + row.name);
     }
   }
