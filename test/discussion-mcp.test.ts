@@ -36,6 +36,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { randomUUID } from "node:crypto";
 
 import { withTempDb } from "./helpers/with-temp-db.js";
 import { createFleet, registerAgentInLedger, sendMessage, type Agent } from "../src/core.js";
@@ -405,7 +406,7 @@ test("D3 recorded obligation: primeDiscussionSweepIndex seeds a fresh store's kn
   }
 });
 
-test("cdx pass-1 fix: priming a ledger with many non-discussion messages + 2 discussions finds exactly 2 ids and never calls getDiscussion", async () => {
+test("cdx pass-1/pass-2 fix: priming a ledger with many non-discussion messages + canonical + non-canonical discussions finds exactly the right ids and never calls getDiscussion", async () => {
   const db = withTempDb();
   try {
     seedFleetAndAgents();
@@ -414,17 +415,51 @@ test("cdx pass-1 fix: priming a ledger with many non-discussion messages + 2 dis
     const store = getDiscussionStore();
 
     // N non-discussion messages: correlation_id set (so they pass the first
-    // early-out) but payload has no `$meshfleet` marker at all — these must
-    // be rejected by the cheap substring pre-filter, never JSON.parsed as an
-    // envelope.
+    // early-out) but payload has no `discussion/v1` fragment anywhere — these
+    // must be rejected by the cheap substring pre-filter, never
+    // JSON.parsed as an envelope.
     const N = 50;
     for (let i = 0; i < N; i++) {
       sendMessage(AGENT_A, AGENT_B, FLEET, "handoff", JSON.stringify({ note: `plain message ${i}`, i }), `not-a-discussion-${i}`);
     }
 
-    // 2 real discussions.
+    // 2 canonical discussions (real store writes: fixed key order, no
+    // whitespace — JSON.stringify's default rendering).
     const opened1 = await store.openDiscussion(askPeerDefaults({ wake_peer: false }));
     const opened2 = await store.openDiscussion(askPeerDefaults({ wake_peer: false }));
+
+    // cdx pass-2: a hand-crafted discussion root serialized NON-canonically —
+    // pretty-printed (2-space indent, so `": "` has a space the old marker
+    // `"$meshfleet":"discussion/v1"` would have missed) AND with `$meshfleet`
+    // reordered away from being the first key. The loosened bare-fragment
+    // marker (`discussion/v1`) must still find this one; `parseEnvelope`
+    // itself is whitespace/order-agnostic (it JSON.parses, then reads named
+    // fields), so this is a fully valid, derivable discussion root — just not
+    // one this codebase's own writers would ever actually produce.
+    const reorderedDiscussionId = randomUUID();
+    const now = Date.now();
+    const prettyPrintedReorderedEnvelope = JSON.stringify(
+      {
+        turn: 1,
+        kind: "question",
+        reply_to: null,
+        discussion_id: reorderedDiscussionId,
+        body: "pretty-printed, reordered-keys root",
+        close: false,
+        attempt_id: randomUUID(),
+        $meshfleet: "discussion/v1",
+        policy: {
+          participants: [AGENT_A, AGENT_B],
+          max_turns: 4,
+          conversation_deadline: now + 60_000,
+          turn_timeout_ms: 5_000,
+        },
+      },
+      null,
+      2
+    );
+    assert.ok(!prettyPrintedReorderedEnvelope.includes('"$meshfleet":"discussion/v1"'), "fixture must actually break the old canonical-only marker");
+    sendMessage(AGENT_A, AGENT_B, FLEET, "question", prettyPrintedReorderedEnvelope, reorderedDiscussionId);
 
     // Fresh store instance (simulating a restart) — getDiscussion is spied
     // so the test fails loudly if priming ever falls back to per-id
@@ -441,17 +476,17 @@ test("cdx pass-1 fix: priming a ledger with many non-discussion messages + 2 dis
 
     const primedCount = primeDiscussionSweepIndex();
 
-    assert.equal(primedCount, 2, "must find exactly the 2 real discussions, ignoring all 50 non-discussion messages");
+    assert.equal(primedCount, 3, "must find both canonical discussions AND the pretty-printed/reordered one, ignoring all 50 non-discussion messages");
     assert.equal(getDiscussionCalls, 0, "priming must never call getDiscussion (no per-id hydration)");
 
     // The seeded ids are still usable once the sweeper actually runs lazily.
     const sweep = await freshStore.sweepStranded(Date.now() + 24 * 60 * 60 * 1000);
     const sweptIds = new Set(sweep.terminalized.map((t) => t.discussion_id));
-    // Both discussions are already `closed`-eligible-or-open with no live
-    // attempt (wake_peer:false was used), so sweepStranded should find
-    // nothing to terminalize — the assertion here is just that calling it
-    // over the seeded ids does not throw and inspects both known ids
-    // (indirectly proven by it completing without a not_found-style crash).
+    // All three discussions are already `closed`-eligible-or-open with no
+    // live attempt (wake_peer:false was used / no wake ever reserved for the
+    // hand-crafted root), so sweepStranded should find nothing to
+    // terminalize — the assertion here is just that calling it over the
+    // seeded ids does not throw.
     void opened1;
     void opened2;
     void sweptIds;
