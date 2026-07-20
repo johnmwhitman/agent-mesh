@@ -111,3 +111,17 @@ Open an issue at https://github.com/johnmwhitman/agent-mesh/issues with:
 - `inspect --verify <file>` retains its existing logical report shape and now
   composes namespaced lifecycle findings from the same private-copy path when
   lifecycle tables are present; legacy and unrelated-file behavior is retained.
+
+## Slice 4 A2A compatibility posture
+
+- Slice 4A is specification, corpus, and independent-reference work only.
+  Package `0.14.0`, existing MCP tool discovery/input/output/error envelopes,
+  default inspector text, logical ledger schema v2, and physical SQLite schema
+  v3 remain unchanged.
+- `send_a2a` remains absent. The current process-local codec identity registry
+  must not be represented as durable public-ingress idempotency.
+- Status names are evidence levels: `designed`, `fixture-verified`, and
+  `reference-conformance` do not mean `implemented-public-ingress`.
+- Any Slice 4B store must use an ordered, explicit physical migration. It may
+  not hide a lazy/unversioned schema, alter legacy projections, or deliver a
+  message before separately authorized work.

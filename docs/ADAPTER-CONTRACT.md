@@ -142,3 +142,14 @@ another evidence level.
 
 Real vendor adapters remain separate work. Additional target renderers require
 separate schema evidence before they can be added to the verified matrix.
+# Minimum interoperable implementation
+
+A codec-only implementation is conforming at the protocol layer when it
+implements the v0.1 interoperability profile: validate/normalize canonical
+envelopes, preserve unknown extensions, and exchange fixtures offline. It need
+not implement MCP, a coordinator, a provider adapter, runtime execution,
+principal binding, durable persistence, or public ingress.
+
+Adapters remain the only source of a future authenticated principal context.
+They must supply it outside the envelope; the codec must not infer authority
+from sender claims, capabilities, model/runtime metadata, PIDs, or receipts.

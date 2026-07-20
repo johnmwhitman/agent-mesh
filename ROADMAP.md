@@ -18,6 +18,16 @@ The ranked A2A strategy is canonical in
 3. **Provider-neutral runtime adapters** - internal OpenCode compatibility and
    deterministic local-process proof are implemented; public selection and real
    vendor adapters remain deferred.
+4. **Slice 4A portability proof** - next: freeze canonical-ingress semantics
+   and prove the provider-neutral codec with language-neutral fixtures and an
+   independent Python reference witness. No production ingress/store/tool,
+   delivery, or authenticated-principal claim.
+5. **Slice 4B durable acceptance foundation** - after 4A: explicit physical
+   SQLite migration and dormant internal acceptance journal/decision receipts;
+   no hidden lazy schema, legacy projection, delivery, or public tool.
+6. **Slice 4C authenticated-local adapter proof** - later: prove one
+   adapter-derived authenticated local principal and semantic client path, then
+   separately review any public ingress. No remote or multi-host claim.
 
 Inbound MCP process compatibility does not imply outbound runtime neutrality,
 authenticated principal binding, lifecycle durability, or multi-host support.

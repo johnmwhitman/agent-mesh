@@ -181,3 +181,28 @@ The bounded lifecycle authority now has a read-only verification and inspection
 slice. SQLite remains authority; NDJSON remains a non-authoritative projection.
 This adds no ingress, control, activation, remote transport, multi-host claim,
 or public runtime selection.
+# Ranked Slice 4 Program
+
+The next three slices are ordered to establish portable protocol evidence before
+durable local acceptance, and durable local acceptance before any public API.
+They are additive, reversible, and do not widen the current MCP surface.
+
+1. **Slice 4A: canonical semantics and independent portability proof.** Freeze
+   `docs/A2A-INGRESS-CONTRACT-v0.1.md`; add a standalone Python reference
+   witness and language-neutral fixtures. This is codec/profile evidence only:
+   no production ingress/store/tool, delivery, legacy projection, transport,
+   authentication, or multi-host claim.
+2. **Slice 4B: explicit dormant durable acceptance foundation.** Introduce an
+   ordered physical SQLite migration plus an internal acceptance journal and
+   local decision receipts. It must be versioned, inactive by default, and
+   incapable of legacy projection or delivery. Do not use a hidden/lazy
+   unversioned schema or expose `send_a2a`.
+3. **Slice 4C: authenticated-local adapter and semantic client proof.** Prove
+   an adapter-derived authenticated local principal and one semantic client
+   path, then conduct a separate review for any public ingress surface. This
+   does not authorize remote transport or a multi-host claim.
+
+`meshfleet.a2a` v0.1 remains a codec protocol. Its process-local identity
+registry is not durable ingress identity. The public `send_a2a` tool remains
+absent until all principal-binding, authorization, durable acceptance,
+compatibility, and independent-review gates are satisfied.

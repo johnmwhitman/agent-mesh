@@ -9,6 +9,10 @@
     "docs/A2A-PROGRAM.md"
   ],
   "evidence_statuses": [
+    "designed",
+    "fixture-verified",
+    "reference-conformance",
+    "implemented-public-ingress",
     "documented",
     "static-config-verified",
     "process-handshake-verified",
@@ -39,6 +43,11 @@
   ],
   "process_handshake": [
     {"target": "packaged npx -y meshfleet stdio", "status": "process-handshake-verified", "evidence": ["test/mcp-stdio.test.ts"]}
+  ],
+  "a2a_protocol": [
+    {"target": "canonical-ingress-contract-v0.1", "status": "designed", "evidence": ["docs/A2A-INGRESS-CONTRACT-v0.1.md", "docs/adr/0004-principal-bound-canonical-ingress.md"], "notes": "Principal-bound semantic and request identity design only; no public ingress, authenticated principal, durable journal, or delivery is implemented."},
+    {"target": "minimal-interoperability-profile-v0.1", "status": "designed", "evidence": ["docs/A2A-INTEROPERABILITY-PROFILE-v0.1.md"], "notes": "Coordinator-free codec profile is specified; standalone reference-witness evidence is planned for Slice 4A."},
+    {"target": "public-canonical-send_a2a", "status": "deferred", "evidence": ["docs/A2A-PROGRAM.md", "docs/A2A-INGRESS-CONTRACT-v0.1.md"], "notes": "Absent from the MCP registry pending Slice 4B durable journal and Slice 4C adapter/authenticated-local principal evidence."}
   ],
   "gates": [
     "No public canonical-envelope ingress in this slice.",

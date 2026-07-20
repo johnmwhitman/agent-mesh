@@ -106,4 +106,18 @@ MCP reachability        != cross-host trust
 - Any real vendor or remote adapter requires explicit review of credentials,
   network access, spend, private-data egress, authentication, audience, and
   replay protection.
+# Slice 4 ingress trust boundary
+
+The envelope sender is a routing claim, not authenticated identity. A future
+adapter-derived opaque principal must be bound to the exact sender before
+authorization, identity lookup, or persistence. Message text, capabilities,
+model/runtime/PID assertions, scope, audience, and receipts never grant
+authority. Canonical fan-out must authorize all concrete recipients atomically
+and must not expand any metadata selector.
+
+An accepted future ingress decision means durable local commit only. It never
+proves recipient receipt, runtime execution, external side effect, exactly-once
+behavior, signature, attestation, remote trust, or multi-host coordination.
+Detailed policy diagnostics stay in protected local audit evidence; public
+errors must be stable and non-enumerating.
 

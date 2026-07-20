@@ -150,3 +150,16 @@ There is no public `send_a2a` tool in v0.1. Existing MCP tools remain additive
 compatibility adapters. A public canonical-envelope ingress requires a separate
 review of authenticated principals, authorization, namespace ownership,
 deduplication, and error-shape compatibility.
+# Slice 4A interoperability and ingress boundary
+
+This protocol can be implemented as a coordinator-free codec profile. A
+conforming minimum implementation needs no Meshfleet installation, MCP,
+provider, runtime, credential, network, or authenticated principal; it must
+preserve unknown extensions and never turn them into authority.
+
+Canonical public-ingress semantics are designed in
+`docs/A2A-INGRESS-CONTRACT-v0.1.md`. They distinguish bound-sender/message
+identity from adapter principal/request retry identity, normalize concrete
+recipient ordering, and prohibit recipient expansion from metadata. They are
+not implemented by this protocol document or by the current process-local
+identity registry.
