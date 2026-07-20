@@ -25,6 +25,7 @@ import { existsSync } from "fs";
 import { BROADCAST, messageRecipients, type MeshData, type Message, type Receipt } from "./core.js";
 import { MAX_TOTAL_WEIGHT, MAX_VOTE_WEIGHT, computeTally, parseVoteAction } from "./ratify.js";
 import { readLedger, readLedgerFile } from "./db.js";
+import { readLifecycleSnapshot, verifyLifecycleSnapshot } from "./lifecycle-visibility.js";
 
 export interface VerifyFinding {
   severity: "error" | "warning";
@@ -294,7 +295,18 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
 
 /** Verify the active ledger (lock-free snapshot read; never mutates). */
 export function verifyLedger(now: number = Date.now()): VerifyReport {
-  return verifyMeshData(readLedger(), now);
+  let snapshot;
+  try { snapshot = readLifecycleSnapshot(); }
+  catch (error) {
+    // Preserve the historical fresh-install verifier behavior. The opt-in
+    // lifecycle inspector remains strict and never creates an absent ledger.
+    if (error instanceof Error && error.message === "ledger file not found") return verifyMeshData(readLedger(), now);
+    throw error;
+  }
+  const core = verifyMeshData(snapshot.data, now);
+  const findings = [...core.findings, ...verifyLifecycleSnapshot(snapshot, now)];
+  const errors = findings.filter((finding) => finding.severity === "error").length;
+  return { ...core, ok: errors === 0, errors, warnings: findings.length - errors, findings };
 }
 
 /**

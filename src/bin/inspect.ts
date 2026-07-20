@@ -32,6 +32,7 @@ import {
   PROVISIONAL_NOTE,
   type AgentRow,
 } from '../inspector.js'
+import { buildLifecycleView, formatLifecycleView, readLifecycleSnapshot } from '../lifecycle-visibility.js'
 import { listFleets, loadData, readEventLog, getReceipts, CURRENT_SCHEMA_VERSION, type Agent } from '../core.js'
 import { verifyLedger, verifyLedgerFile } from '../verify.js'
 import { runDemo } from '../demo.js'
@@ -47,6 +48,7 @@ Usage:
   npx agent-mesh inspect --councils [fleet] Show councils (tally vs quorum, who voted)
   npx agent-mesh inspect --export [file]    Dump the full ledger as JSON (stdout if no file)
   npx agent-mesh inspect --verify [file]    Audit ledger integrity (exit 1 on errors); [file] audits that ledger file read-only
+  npx agent-mesh inspect --lifecycle [fleet] Show opt-in SQLite lifecycle diagnostics (--json supported)
   npx agent-mesh inspect --explain          Explain each --verify finding: meaning, benign cause, how to investigate (implies --verify)
   npx agent-mesh inspect --json             Machine-readable output for all inspect data modes
   npx agent-mesh doctor                     Diagnose install health (--json for machine output)
@@ -87,6 +89,24 @@ function main(): void {
   if (args.includes('--help') || args.includes('-h')) {
     process.stdout.write(USAGE)
     process.exit(0)
+  }
+
+  if (args.includes('--lifecycle')) {
+    const positionalLifecycle = args.filter((arg) => !arg.startsWith('-'))
+    const allowed = new Set(['--lifecycle', '--json'])
+    if (args.some((arg) => arg.startsWith('-') && !allowed.has(arg)) || positionalLifecycle.length > 1) {
+      process.stderr.write('--lifecycle accepts only an optional fleet id and --json\n')
+      process.exit(2)
+    }
+    try {
+      const view = buildLifecycleView(readLifecycleSnapshot(), positionalLifecycle[0])
+      process.stdout.write(jsonMode ? JSON.stringify({ schema: view.schema, kind: view.kind, data: view.data }, null, 2) + '\n' : formatLifecycleView(view) + '\n')
+      process.exitCode = view.missingFleet || view.exitError ? 1 : 0
+    } catch (err) {
+      process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`)
+      process.exit(2)
+    }
+    return
   }
 
   if (args.includes('--metrics')) {

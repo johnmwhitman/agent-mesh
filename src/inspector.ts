@@ -492,6 +492,7 @@ export function formatVerifyExplanation(finding: VerifyFinding): string {
 // ---------------------------------------------------------------------------
 
 export const INSPECT_JSON_SCHEMA = "meshfleet.inspect/v1";
+export { LIFECYCLE_JSON_SCHEMA, formatLifecycleView } from "./lifecycle-visibility.js";
 
 export interface InspectJsonEnvelope<K extends string, D> {
   schema: typeof INSPECT_JSON_SCHEMA;
