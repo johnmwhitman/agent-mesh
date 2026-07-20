@@ -13,7 +13,7 @@ import type { VerifyFinding } from "./verify.js";
 export const LIFECYCLE_JSON_SCHEMA = "meshfleet.lifecycle/v1";
 export const LIFECYCLE_SCAN_LIMIT = 200_000;
 const OUTBOX_LAG_MS = 60_000;
-const MAX_SUPPORTED_STORAGE_VERSION = 3;
+const MAX_SUPPORTED_STORAGE_VERSION = 4;
 const MODES = new Set(["legacy", "shadow", "durable"]);
 const WORK_STATES = new Set(["pending", "running", "succeeded", "failed", "cancelled"]);
 const ATTEMPT_STATES = new Set(["pending", "running", "expired", "succeeded", "failed", "cancelled"]);

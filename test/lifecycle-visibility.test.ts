@@ -141,22 +141,22 @@ test("attempt replay checks historical attempts without false positives for vali
   assert.ok(findings.some((finding) => finding.check === "lifecycle.replay.state_mismatch" && finding.subject === "first"));
 });
 
-test("active verifier preserves special collection keys and future storage fails closed", () => {
+test("active verifier preserves special collection keys, reports v4, and rejects future storage", () => {
   const temp = withTempDb();
   try {
     const fleets = Object.create(null) as Record<string, { id: string; status: "running"; created_at: number }>;
     Object.defineProperty(fleets, "__proto__", { value: { id: "__proto__", status: "running", created_at: 1 }, enumerable: true, configurable: true });
     temp.seed({ fleets });
-    withLedgerAndStorage((data, db) => {
+    withLedgerAndStorage((data) => {
       Object.defineProperty(data.templates!, "__proto__", { value: { name: "special" }, enumerable: true, configurable: true });
-      db.prepare("UPDATE meta SET value = '4' WHERE key = 'storage_schema_version'").run();
     });
-    assert.throws(() => readLifecycleSnapshot(temp.dbFile), /unsupported storage schema version: 4/);
-    withLedgerAndStorage((_data, db) => db.prepare("UPDATE meta SET value = '3' WHERE key = 'storage_schema_version'").run());
     const snapshot = readLifecycleSnapshot(temp.dbFile);
+    assert.equal(snapshot.storageVersion, 4);
     assert.equal(Object.hasOwn(snapshot.data.fleets, "__proto__"), true);
     assert.equal(Object.hasOwn(snapshot.data.templates!, "__proto__"), true);
     assert.equal(verifyLedger().ok, true);
+    withLedgerAndStorage((_data, db) => db.prepare("UPDATE meta SET value = '5' WHERE key = 'storage_schema_version'").run());
+    assert.throws(() => readLifecycleSnapshot(temp.dbFile), /unsupported storage schema version: 5/);
   } finally { temp.cleanup(); }
 });
 

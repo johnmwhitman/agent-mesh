@@ -78,7 +78,7 @@ test("v2 retry histories receive deterministic attempt numbers before unique ind
     `);
     raw.close();
     setDbPath(file);
-    assert.equal(getStorageSchemaVersion(), 3);
+    assert.equal(getStorageSchemaVersion(), 4);
     closeDb();
     const migrated = new Database(file, { readonly: true });
     assert.deepEqual(migrated.prepare("SELECT attempt_id, attempt_number, eligible_at FROM attempts ORDER BY attempt_id").all(), [
@@ -96,10 +96,13 @@ test("v2 retry histories receive deterministic attempt numbers before unique ind
 test("legacy v3 outbox layout upgrades to durable sequence before sequence indexing", () => {
   const temp = withTempDb();
   try {
-    assert.equal(getStorageSchemaVersion(), 3);
+    assert.equal(getStorageSchemaVersion(), 4);
     closeDb();
     const raw = new Database(temp.dbFile);
     raw.exec(`
+      DROP TABLE a2a_request_mappings;
+      DROP TABLE a2a_decision_receipts;
+      DROP TABLE a2a_acceptance_records;
       DROP TABLE lifecycle_event_outbox;
       CREATE TABLE lifecycle_event_outbox (
         event_id TEXT PRIMARY KEY, event TEXT NOT NULL, payload TEXT NOT NULL,
@@ -111,7 +114,7 @@ test("legacy v3 outbox layout upgrades to durable sequence before sequence index
     `);
     raw.close();
     setDbPath(temp.dbFile);
-    assert.equal(getStorageSchemaVersion(), 3);
+    assert.equal(getStorageSchemaVersion(), 4);
     closeDb();
     const migrated = new Database(temp.dbFile, { readonly: true });
     assert.deepEqual(migrated.prepare("SELECT seq, event_id FROM lifecycle_event_outbox ORDER BY seq").all(), [
@@ -135,10 +138,10 @@ test("partial v3 duplicate attempt numbers are repaired before uniqueness is res
     store.expireAndRetry("w", initial.attempts[0].attempt_id);
     closeDb();
     const raw = new Database(temp.dbFile);
-    raw.exec("DROP INDEX idx_attempts_work_number; UPDATE attempts SET attempt_number = 1 WHERE work_id = 'w'; UPDATE meta SET value = '3' WHERE key = 'storage_schema_version';");
+    raw.exec("DROP INDEX idx_attempts_work_number; DROP TABLE a2a_request_mappings; DROP TABLE a2a_decision_receipts; DROP TABLE a2a_acceptance_records; UPDATE attempts SET attempt_number = 1 WHERE work_id = 'w'; UPDATE meta SET value = '3' WHERE key = 'storage_schema_version';");
     raw.close();
     setDbPath(temp.dbFile);
-    assert.equal(getStorageSchemaVersion(), 3);
+    assert.equal(getStorageSchemaVersion(), 4);
     closeDb();
     const repaired = new Database(temp.dbFile, { readonly: true });
     assert.deepEqual(repaired.prepare("SELECT attempt_number FROM attempts WHERE work_id = 'w' ORDER BY created_at, attempt_id").all(), [{ attempt_number: 1 }, { attempt_number: 2 }]);

@@ -139,12 +139,12 @@ test("storage migration: v2 logical ledger is preserved, idempotent, fail-closed
     withLedger((data) => Object.assign(data, structuredClone(representative) as typeof data));
     closeDb();
     const raw = new Database(temp.dbFile);
-    raw.exec("DROP TABLE attempt_events; DROP TABLE attempts; DROP TABLE work_items;");
+    raw.exec("DROP TABLE a2a_request_mappings; DROP TABLE a2a_decision_receipts; DROP TABLE a2a_acceptance_records; DROP TABLE lifecycle_event_outbox; DROP TABLE attempt_events; DROP TABLE attempts; DROP TABLE work_items;");
     raw.prepare("DELETE FROM meta WHERE key = 'storage_schema_version'").run();
     raw.close();
     setDbPath(temp.dbFile);
     assert.deepEqual(readLedger(), representative);
-    assert.equal(getStorageSchemaVersion(), 3);
+    assert.equal(getStorageSchemaVersion(), 4);
     const logical = new Database(temp.dbFile, { readonly: true });
     assert.equal((logical.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string }).value, "2");
     assert.equal((logical.prepare("SELECT COUNT(*) AS n FROM work_items").get() as { n: number }).n, 0);
@@ -153,7 +153,7 @@ test("storage migration: v2 logical ledger is preserved, idempotent, fail-closed
     logical.close();
     closeDb();
     setDbPath(temp.dbFile);
-    assert.equal(getStorageSchemaVersion(), 3);
+    assert.equal(getStorageSchemaVersion(), 4);
     closeDb();
     const newer = new Database(temp.dbFile);
     newer.prepare("UPDATE meta SET value = '99' WHERE key = 'storage_schema_version'").run();
@@ -200,7 +200,7 @@ test("storage migration: forced failure leaves old physical layout untouched", (
     readLedger();
     closeDb();
     const raw = new Database(temp.dbFile);
-    raw.exec("DROP TABLE attempt_events; DROP TABLE attempts; DROP TABLE work_items;");
+    raw.exec("DROP TABLE a2a_request_mappings; DROP TABLE a2a_decision_receipts; DROP TABLE a2a_acceptance_records; DROP TABLE lifecycle_event_outbox; DROP TABLE attempt_events; DROP TABLE attempts; DROP TABLE work_items;");
     raw.prepare("DELETE FROM meta WHERE key = 'storage_schema_version'").run();
     raw.close();
     setStorageMigrationFaultForTest(true);

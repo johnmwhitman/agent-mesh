@@ -77,7 +77,8 @@ CREATE INDEX IF NOT EXISTS idx_ratifications_fleet ON ratifications(fleet_id);
  * imported from any supported JSON version retains that logical marker; these
  * migrations only add internal relational storage.
  */
-export const CURRENT_STORAGE_SCHEMA_VERSION = 3;
+export const CURRENT_STORAGE_SCHEMA_VERSION = 4;
+const SQLITE_SAFE_INTEGER = 9_007_199_254_740_991;
 
 const LIFECYCLE_SCHEMA_V2 = `
 CREATE TABLE IF NOT EXISTS work_items (
@@ -165,6 +166,115 @@ BEFORE UPDATE OF attempt_number, eligible_at ON attempts WHEN NEW.attempt_number
 BEGIN SELECT RAISE(ABORT, 'invalid lifecycle attempt schedule'); END;
 `;
 
+type A2aSchemaObject = {
+  type: "table" | "index" | "trigger";
+  name: string;
+  table: string;
+  sql: string;
+  faultStep: string;
+};
+
+const a2aSafeInteger = (column: string): string => "typeof(" + column + ") = 'integer' AND " + column + " BETWEEN 0 AND " + SQLITE_SAFE_INTEGER;
+const a2aLocalId = (column: string): string => "typeof(" + column + ") = 'text' AND length(" + column + ") BETWEEN 1 AND 128 AND " + column + " NOT GLOB '*[^A-Za-z0-9._:-]*'";
+const a2aKeyId = (column: string): string => "typeof(" + column + ") = 'text' AND length(" + column + ") BETWEEN 1 AND 64 AND " + column + " NOT GLOB '*[^A-Za-z0-9._-]*'";
+const a2aToken = (column: string): string => "typeof(" + column + ") = 'text' AND length(" + column + ") = 43 AND " + column + " NOT GLOB '*[^A-Za-z0-9_-]*'";
+const a2aCanonicalDigest = (column: string): string => "typeof(" + column + ") = 'text' AND length(" + column + ") = 100 AND substr(" + column + ", 1, 36) = 'meshfleet.a2a.fingerprint.v1:sha256:' AND substr(" + column + ", 37) NOT GLOB '*[^0-9a-f]*'";
+const a2aAuthorizationDigest = (column: string): string => "typeof(" + column + ") = 'text' AND length(" + column + ") = 71 AND substr(" + column + ", 1, 7) = 'sha256:' AND substr(" + column + ", 8) NOT GLOB '*[^0-9a-f]*'";
+const a2aEvaluatorVersion = (column: string): string => "typeof(" + column + ") = 'text' AND length(" + column + ") BETWEEN 1 AND 128 AND " + column + " NOT GLOB '*[^A-Za-z0-9._:-]*'";
+
+const A2A_SCHEMA_V4: readonly A2aSchemaObject[] = [
+  {
+    type: "table",
+    name: "a2a_acceptance_records",
+    table: "a2a_acceptance_records",
+    faultStep: "v4:acceptance-records",
+    sql: "CREATE TABLE a2a_acceptance_records (" +
+      "acceptance_id TEXT PRIMARY KEY NOT NULL CHECK (" + a2aLocalId("acceptance_id") + ")," +
+      "semantic_key_id TEXT NOT NULL CHECK (" + a2aKeyId("semantic_key_id") + ")," +
+      "semantic_token TEXT NOT NULL CHECK (" + a2aToken("semantic_token") + ")," +
+      "canonical_digest TEXT NOT NULL CHECK (" + a2aCanonicalDigest("canonical_digest") + ")," +
+      "accepted_at INTEGER NOT NULL CHECK (" + a2aSafeInteger("accepted_at") + ")," +
+      "expires_at INTEGER CHECK (expires_at IS NULL OR (" + a2aSafeInteger("expires_at") + " AND expires_at > accepted_at))," +
+      "authorization_context_digest TEXT NOT NULL CHECK (" + a2aAuthorizationDigest("authorization_context_digest") + ")," +
+      "authorization_evaluator_version TEXT NOT NULL CHECK (" + a2aEvaluatorVersion("authorization_evaluator_version") + ")," +
+      "receipt_id TEXT NOT NULL UNIQUE CHECK (" + a2aLocalId("receipt_id") + ")," +
+      "UNIQUE (semantic_key_id, semantic_token)," +
+      "UNIQUE (acceptance_id, canonical_digest)," +
+      "FOREIGN KEY (receipt_id) REFERENCES a2a_decision_receipts(receipt_id) ON UPDATE RESTRICT ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED" +
+    ")",
+  },
+  {
+    type: "table",
+    name: "a2a_decision_receipts",
+    table: "a2a_decision_receipts",
+    faultStep: "v4:decision-receipts",
+    sql: "CREATE TABLE a2a_decision_receipts (" +
+      "receipt_id TEXT PRIMARY KEY NOT NULL CHECK (" + a2aLocalId("receipt_id") + ")," +
+      "acceptance_id TEXT NOT NULL UNIQUE CHECK (" + a2aLocalId("acceptance_id") + ")," +
+      "decision TEXT NOT NULL CHECK (decision = 'accepted')," +
+      "evidence_level TEXT NOT NULL CHECK (evidence_level = 'internal_local_decision')," +
+      "decided_at INTEGER NOT NULL CHECK (" + a2aSafeInteger("decided_at") + ")," +
+      "UNIQUE (acceptance_id, receipt_id)," +
+      "FOREIGN KEY (acceptance_id) REFERENCES a2a_acceptance_records(acceptance_id) ON UPDATE RESTRICT ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED" +
+    ")",
+  },
+  {
+    type: "table",
+    name: "a2a_request_mappings",
+    table: "a2a_request_mappings",
+    faultStep: "v4:request-mappings",
+    sql: "CREATE TABLE a2a_request_mappings (" +
+      "principal_key_id TEXT NOT NULL CHECK (" + a2aKeyId("principal_key_id") + ")," +
+      "principal_token TEXT NOT NULL CHECK (" + a2aToken("principal_token") + ")," +
+      "request_key_id TEXT NOT NULL CHECK (" + a2aKeyId("request_key_id") + ")," +
+      "request_token TEXT NOT NULL CHECK (" + a2aToken("request_token") + ")," +
+      "acceptance_id TEXT NOT NULL CHECK (" + a2aLocalId("acceptance_id") + ")," +
+      "receipt_id TEXT NOT NULL CHECK (" + a2aLocalId("receipt_id") + ")," +
+      "canonical_digest TEXT NOT NULL CHECK (" + a2aCanonicalDigest("canonical_digest") + ")," +
+      "mapped_at INTEGER NOT NULL CHECK (" + a2aSafeInteger("mapped_at") + ")," +
+      "outcome TEXT NOT NULL CHECK (outcome IN ('accepted', 'duplicate'))," +
+      "PRIMARY KEY (principal_key_id, principal_token, request_key_id, request_token)," +
+      "FOREIGN KEY (acceptance_id, canonical_digest) REFERENCES a2a_acceptance_records(acceptance_id, canonical_digest) ON UPDATE RESTRICT ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED," +
+      "FOREIGN KEY (acceptance_id, receipt_id) REFERENCES a2a_decision_receipts(acceptance_id, receipt_id) ON UPDATE RESTRICT ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED" +
+    ")",
+  },
+  { type: "index", name: "a2a_request_mappings_acceptance_idx", table: "a2a_request_mappings", faultStep: "v4:request-acceptance-index", sql: "CREATE INDEX a2a_request_mappings_acceptance_idx ON a2a_request_mappings(acceptance_id)" },
+  { type: "index", name: "a2a_request_mappings_receipt_idx", table: "a2a_request_mappings", faultStep: "v4:request-receipt-index", sql: "CREATE INDEX a2a_request_mappings_receipt_idx ON a2a_request_mappings(receipt_id)" },
+  ...(["a2a_acceptance_records", "a2a_request_mappings", "a2a_decision_receipts"] as const).flatMap((table) => [
+    { type: "trigger" as const, name: table + "_no_update", table, faultStep: "v4:" + table + "-no-update", sql: "CREATE TRIGGER " + table + "_no_update BEFORE UPDATE ON " + table + " BEGIN SELECT RAISE(ABORT, '" + table + " is append-only'); END" },
+    { type: "trigger" as const, name: table + "_no_delete", table, faultStep: "v4:" + table + "-no-delete", sql: "CREATE TRIGGER " + table + "_no_delete BEFORE DELETE ON " + table + " BEGIN SELECT RAISE(ABORT, '" + table + " is append-only'); END" },
+  ]),
+];
+
+function normalizeSchemaSql(sql: string): string {
+  return sql.replace(/\s+/g, "").replace(/[\`"']/g, "").toLowerCase();
+}
+
+function a2aSchemaRows(db: Database.Database): Array<{ type: string; name: string; tbl_name: string; sql: string | null }> {
+  return db.prepare("SELECT type, name, tbl_name, sql FROM sqlite_schema WHERE sql IS NOT NULL AND type IN ('table', 'index', 'trigger', 'view') AND (lower(name) GLOB 'a2a_*' OR lower(tbl_name) IN ('a2a_acceptance_records', 'a2a_request_mappings', 'a2a_decision_receipts')) ORDER BY type, name").all() as Array<{ type: string; name: string; tbl_name: string; sql: string | null }>;
+}
+
+function preflightA2aNamespace(db: Database.Database): void {
+  const reserved = db.prepare("SELECT type, name FROM sqlite_schema WHERE type IN ('table', 'index', 'trigger', 'view') AND lower(name) GLOB 'a2a_*' LIMIT 1").get() as { type: string; name: string } | undefined;
+  if (reserved) throw new Error("refusing v4 migration: reserved a2a_ " + reserved.type + " already exists (" + reserved.name + ")");
+}
+
+function validateA2aV4Layout(db: Database.Database): void {
+  const actual = a2aSchemaRows(db);
+  if (actual.length !== A2A_SCHEMA_V4.length) throw new Error("invalid v4 a2a layout: unexpected object count");
+  const expected = new Map(A2A_SCHEMA_V4.map((item) => [item.type + ":" + item.name, item]));
+  for (const row of actual) {
+    const item = expected.get(row.type + ":" + row.name);
+    if (!item || row.tbl_name !== item.table || row.sql === null || normalizeSchemaSql(row.sql) !== normalizeSchemaSql(item.sql)) {
+      throw new Error("invalid v4 a2a layout: " + row.type + " " + row.name);
+    }
+  }
+  if ((db.pragma("foreign_keys", { simple: true }) as number) !== 1) throw new Error("invalid v4 a2a layout: foreign_keys is disabled");
+  if ((db.prepare("PRAGMA foreign_key_check").all() as unknown[]).length !== 0) throw new Error("invalid v4 a2a layout: foreign key check failed");
+  const integrity = db.prepare("PRAGMA integrity_check").all() as Array<{ integrity_check?: string }>;
+  if (integrity.length !== 1 || integrity[0]?.integrity_check !== "ok") throw new Error("invalid v4 a2a layout: integrity check failed");
+}
+
 function ensureColumn(db: Database.Database, table: "fleets" | "work_items" | "attempts", column: string, definition: string): void {
   const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
   if (!columns.some((item) => item.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${definition}`);
@@ -214,17 +324,46 @@ function ensureOutboxSequence(db: Database.Database): void {
 }
 
 let storageMigrationFaultForTest = false;
+let storageMigrationFaultStepForTest: string | null = null;
 
 /** Test-only fault injection proving a failing migration rolls back completely. */
 export function setStorageMigrationFaultForTest(enabled: boolean): void {
   storageMigrationFaultForTest = enabled;
 }
 
+/** Test-only v4 fault injection after an individual DDL or version-marker step. */
+export function setStorageMigrationFaultStepForTest(step: string | null): void {
+  storageMigrationFaultStepForTest = step;
+}
+
+function maybeFailStorageMigration(step: string): void {
+  if (storageMigrationFaultStepForTest === step) throw new Error("forced storage migration failure at " + step);
+}
+
+function hasInitializedPhysicalStorage(db: Database.Database): boolean {
+  return Boolean(db.prepare("SELECT 1 FROM sqlite_schema WHERE name IN ('work_items', 'attempts', 'attempt_events', 'lifecycle_event_outbox') LIMIT 1").get());
+}
+
 function physicalStorageVersion(db: Database.Database): number {
   const row = db.prepare("SELECT value FROM meta WHERE key = 'storage_schema_version'").get() as { value: string } | undefined;
-  if (!row) return 1;
-  if (!/^\d+$/.test(row.value)) throw new Error(`unsupported storage schema version: ${row.value}`);
+  if (!row) {
+    if (hasInitializedPhysicalStorage(db)) throw new Error("unsupported storage schema version: missing");
+    return 1;
+  }
+  if (!/^[1-9]\d*$/.test(row.value)) throw new Error(`unsupported storage schema version: ${row.value}`);
   return Number(row.value);
+}
+
+function migrateA2aV4(db: Database.Database): void {
+  preflightA2aNamespace(db);
+  for (const object of A2A_SCHEMA_V4) {
+    db.exec(object.sql);
+    maybeFailStorageMigration(object.faultStep);
+  }
+  validateA2aV4Layout(db);
+  const result = db.prepare("UPDATE meta SET value = '4' WHERE key = 'storage_schema_version'").run();
+  if (result.changes !== 1) throw new Error("invalid v4 migration: missing storage schema marker");
+  maybeFailStorageMigration("v4:version-marker");
 }
 
 function migrateStorage(db: Database.Database): void {
@@ -235,7 +374,7 @@ function migrateStorage(db: Database.Database): void {
         `unsupported newer storage schema version ${version}; this meshfleet build supports up to ${CURRENT_STORAGE_SCHEMA_VERSION}`
       );
     }
-    while (version < CURRENT_STORAGE_SCHEMA_VERSION) {
+    while (version < 3) {
       if (version === 1) {
         db.exec(LIFECYCLE_SCHEMA_V2);
         db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('storage_schema_version', '2')").run();
@@ -277,7 +416,10 @@ function migrateStorage(db: Database.Database): void {
       if (attemptNumbersNeedRepair(db)) backfillAttemptNumbers(db, false);
       db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_attempts_work_number ON attempts(work_id, attempt_number)");
       db.exec("CREATE INDEX IF NOT EXISTS idx_lifecycle_outbox_due ON lifecycle_event_outbox(projected_at, claimed_at, seq)");
+      migrateA2aV4(db);
+      version = 4;
     }
+    if (version === 4) validateA2aV4Layout(db);
   }).immediate;
   migrate();
 }
@@ -297,6 +439,7 @@ function getDb(): Database.Database {
   // otherwise throw "database is locked" instead of waiting.
   try {
     db.pragma("foreign_keys = ON"); // enforce relational lifecycle invariants on every handle
+    if ((db.pragma("foreign_keys", { simple: true }) as number) !== 1) throw new Error("SQLite foreign_keys could not be enabled");
     db.pragma("busy_timeout = 5000"); // wait for a concurrent writer instead of erroring
     db.pragma("journal_mode = WAL"); // local-disk only; the ledger lives under ~/.config
     db.pragma("synchronous = NORMAL"); // WAL-recommended; durable except last txn on OS crash
