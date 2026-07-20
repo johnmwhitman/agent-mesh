@@ -24,6 +24,10 @@ export type AttemptEventKind =
 export interface WorkItem {
   work_id: string;
   fleet_id: string;
+  agent_id: string | null;
+  max_attempts: number;
+  retry_base_ms: number;
+  retry_jitter: boolean;
   status: WorkStatus;
   current_attempt_id: string | null;
   owner_epoch: number;
@@ -42,6 +46,8 @@ export interface Attempt {
   owner_epoch: number;
   status: AttemptStatus;
   lease_until: number | null;
+  attempt_number: number;
+  eligible_at: number;
   created_at: number;
   updated_at: number;
   terminal_at: number | null;
@@ -71,11 +77,17 @@ export interface LifecycleStoreOptions {
   nextId?: () => string;
   /** Test-only hook invoked inside the storage transaction before commit. */
   beforeCommit?: () => void;
+  /** Internal unified-seam hook. The caller already owns BEGIN IMMEDIATE. */
+  database?: Database.Database;
 }
 
 export interface CreateWorkInput {
   workId: string;
   fleetId: string;
+  agentId?: string;
+  maxAttempts?: number;
+  retryBaseMs?: number;
+  retryJitter?: boolean;
 }
 
 export interface LeaseInput {
@@ -100,12 +112,14 @@ export type MutationResult = { accepted: true; state: LifecycleState } | { accep
 
 interface WorkRow {
   work_id: string; fleet_id: string; status: WorkStatus; current_attempt_id: string | null;
+  agent_id: string | null; max_attempts: number; retry_base_ms: number; retry_jitter: number;
   owner_epoch: number; cancelled_at: number | null; terminal_at: number | null;
   result_json: string | null; error_json: string | null; created_at: number; updated_at: number;
 }
 interface AttemptRow {
   attempt_id: string; work_id: string; owner_id: string | null; owner_epoch: number;
   status: AttemptStatus; lease_until: number | null; created_at: number; updated_at: number;
+  attempt_number: number; eligible_at: number;
   terminal_at: number | null; result_json: string | null; error_json: string | null;
 }
 
@@ -119,7 +133,7 @@ function parsed(value: string | null): unknown {
 }
 function workFrom(row: WorkRow): WorkItem {
   const { result_json, error_json, ...work } = row;
-  return { ...work, result: parsed(result_json), error: parsed(error_json) };
+  return { ...work, retry_jitter: Boolean(work.retry_jitter), result: parsed(result_json), error: parsed(error_json) };
 }
 function attemptFrom(row: AttemptRow): Attempt {
   const { result_json, error_json, ...attempt } = row;
@@ -177,27 +191,41 @@ export class LifecycleStore {
   private readonly now: () => number;
   private readonly nextId: () => string;
   private readonly beforeCommit?: () => void;
+  private readonly database?: Database.Database;
 
   constructor(options: LifecycleStoreOptions = {}) {
     this.now = options.now ?? Date.now;
     this.nextId = options.nextId ?? randomUUID;
     this.beforeCommit = options.beforeCommit;
+    this.database = options.database;
+  }
+
+  private transaction<T>(mutator: (db: Database.Database) => T): T {
+    return this.database ? mutator(this.database) : withStorageTransaction(mutator);
   }
 
   createWork(input: CreateWorkInput): LifecycleState {
     requireNonEmpty(input.workId, "workId");
     requireNonEmpty(input.fleetId, "fleetId");
-    return withStorageTransaction((db) => {
+    return this.transaction((db) => {
       const existing = this.loadWork(db, input.workId);
       if (existing) throw new Error(`work already exists: ${input.workId}`);
       const now = this.now();
+      const maxAttempts = input.maxAttempts ?? 3;
+      const retryBaseMs = input.retryBaseMs ?? 1000;
+      if (!Number.isInteger(maxAttempts) || maxAttempts < 1 || !Number.isFinite(retryBaseMs) || retryBaseMs < 0) {
+        throw new Error("invalid lifecycle retry policy");
+      }
       const attempt: Attempt = {
         attempt_id: this.nextId(), work_id: input.workId, owner_id: null, owner_epoch: 0,
         status: "pending", lease_until: null, created_at: now, updated_at: now,
+        attempt_number: 1, eligible_at: now,
         terminal_at: null, result: undefined, error: undefined,
       };
       const work: WorkItem = {
-        work_id: input.workId, fleet_id: input.fleetId, status: "pending", current_attempt_id: attempt.attempt_id,
+        work_id: input.workId, fleet_id: input.fleetId, agent_id: input.agentId ?? null,
+        max_attempts: maxAttempts, retry_base_ms: retryBaseMs, retry_jitter: input.retryJitter ?? true,
+        status: "pending", current_attempt_id: attempt.attempt_id,
         owner_epoch: 0, cancelled_at: null, terminal_at: null, result: undefined, error: undefined,
         created_at: now, updated_at: now,
       };
@@ -212,11 +240,11 @@ export class LifecycleStore {
   acquireLease(input: LeaseInput): MutationResult {
     requireNonEmpty(input.ownerId, "ownerId");
     requireLeaseMs(input.leaseMs);
-    return withStorageTransaction((db) => {
+    return this.transaction((db) => {
       const now = this.now();
       const work = this.loadWork(db, input.workId);
       const attempt = this.loadAttempt(db, input.attemptId);
-      if (!work || !attempt || attempt.work_id !== input.workId || work.current_attempt_id !== input.attemptId || terminalWork.has(work.status) || attempt.status !== "pending") {
+      if (!work || !attempt || attempt.work_id !== input.workId || work.current_attempt_id !== input.attemptId || terminalWork.has(work.status) || attempt.status !== "pending" || attempt.eligible_at > now) {
         return { accepted: false, reason: "work is not leaseable" };
       }
       const epoch = Math.max(work.owner_epoch, attempt.owner_epoch) + 1;
@@ -239,7 +267,7 @@ export class LifecycleStore {
   renewLease(input: LeaseInput): MutationResult {
     requireNonEmpty(input.ownerId, "ownerId");
     requireLeaseMs(input.leaseMs);
-    return withStorageTransaction((db) => {
+    return this.transaction((db) => {
       const now = this.now();
       const ownerEpoch = input.ownerEpoch;
       const work = this.loadWork(db, input.workId);
@@ -257,7 +285,7 @@ export class LifecycleStore {
   }
 
   expireAndRetry(workId: string, attemptId: string): MutationResult {
-    return withStorageTransaction((db) => {
+    return this.transaction((db) => {
       const now = this.now();
       const work = this.loadWork(db, workId);
       const attempt = this.loadAttempt(db, attemptId);
@@ -275,6 +303,7 @@ export class LifecycleStore {
       const retry: Attempt = {
         attempt_id: this.nextId(), work_id: workId, owner_id: null, owner_epoch: nextEpoch,
         status: "pending", lease_until: null, created_at: now, updated_at: now,
+        attempt_number: attempt.attempt_number + 1, eligible_at: now,
         terminal_at: null, result: undefined, error: undefined,
       };
       work.current_attempt_id = retry.attempt_id;
@@ -290,7 +319,7 @@ export class LifecycleStore {
   }
 
   settle(input: SettleInput): MutationResult {
-    return withStorageTransaction((db) => {
+    return this.transaction((db) => {
       const now = this.now();
       const work = this.loadWork(db, input.workId);
       const attempt = this.loadAttempt(db, input.attemptId);
@@ -317,8 +346,85 @@ export class LifecycleStore {
     });
   }
 
+  /**
+   * Settle a runtime failure and atomically create a distinct, persistently
+   * scheduled retry when the captured work policy permits it.
+   */
+  settleWithRetry(input: SettleInput): MutationResult {
+    if (input.outcome === "success") return this.settle(input);
+    return this.transaction((db) => {
+      const now = this.now();
+      const work = this.loadWork(db, input.workId);
+      const attempt = this.loadAttempt(db, input.attemptId);
+      if (!work || !attempt || !this.ownedMutationAllowed(work, attempt, input, now)) {
+        return { accepted: false, reason: "stale or terminal lease" };
+      }
+      attempt.status = "failed";
+      attempt.terminal_at = now;
+      attempt.lease_until = null;
+      attempt.result = input.result;
+      attempt.error = input.error;
+      attempt.updated_at = now;
+      this.updateAttempt(db, attempt);
+      this.appendEvent(db, "attempt_failed", work, attempt, now);
+      if (attempt.attempt_number >= work.max_attempts) {
+        work.status = "failed";
+        work.terminal_at = now;
+        work.result = input.result;
+        work.error = input.error;
+        work.updated_at = now;
+        this.updateWork(db, work);
+        this.beforeCommit?.();
+        return { accepted: true, state: this.snapshot(db, work.work_id) };
+      }
+      const epoch = Math.max(work.owner_epoch, attempt.owner_epoch) + 1;
+      const eligibleAt = now + Math.floor(work.retry_base_ms * Math.pow(2, attempt.attempt_number - 1));
+      const retry: Attempt = {
+        attempt_id: this.nextId(), work_id: work.work_id, owner_id: null, owner_epoch: epoch,
+        status: "pending", lease_until: null, attempt_number: attempt.attempt_number + 1, eligible_at: eligibleAt,
+        created_at: now, updated_at: now, terminal_at: null, result: undefined, error: undefined,
+      };
+      work.current_attempt_id = retry.attempt_id;
+      work.owner_epoch = epoch;
+      work.status = "pending";
+      work.result = undefined;
+      work.error = undefined;
+      work.updated_at = now;
+      this.updateWork(db, work);
+      this.insertAttempt(db, retry);
+      this.appendEvent(db, "attempt_retried", work, retry, now);
+      this.beforeCommit?.();
+      return { accepted: true, state: this.snapshot(db, work.work_id) };
+    });
+  }
+
+  /** Expire only a durable lease; PID state is deliberately not an input. */
+  recoverExpired(): LifecycleState[] {
+    return this.transaction((db) => {
+      const now = this.now();
+      const rows = db.prepare("SELECT work_id, current_attempt_id FROM work_items WHERE status = 'running'").all() as Array<{ work_id: string; current_attempt_id: string }>;
+      const recovered: LifecycleState[] = [];
+      const scoped = new LifecycleStore({ now: this.now, nextId: this.nextId, beforeCommit: this.beforeCommit, database: db });
+      for (const row of rows) {
+        const attempt = this.loadAttempt(db, row.current_attempt_id);
+        if (!attempt || attempt.lease_until === null || attempt.lease_until > now) continue;
+        const result = scoped.expireAndRetry(row.work_id, row.current_attempt_id);
+        if (result.accepted) recovered.push(result.state);
+      }
+      return recovered;
+    });
+  }
+
+  dueWork(): LifecycleState[] {
+    return this.transaction((db) => {
+      const now = this.now();
+      const rows = db.prepare("SELECT work_id FROM work_items WHERE status = 'pending' AND current_attempt_id IN (SELECT attempt_id FROM attempts WHERE status = 'pending' AND eligible_at <= ?)").all(now) as Array<{ work_id: string }>;
+      return rows.map((row) => this.snapshot(db, row.work_id));
+    });
+  }
+
   cancel(workId: string): MutationResult {
-    return withStorageTransaction((db) => {
+    return this.transaction((db) => {
       const now = this.now();
       const work = this.loadWork(db, workId);
       if (!work || terminalWork.has(work.status)) return { accepted: false, reason: "work is terminal or unknown" };
@@ -341,11 +447,11 @@ export class LifecycleStore {
   }
 
   getState(workId: string): LifecycleState | null {
-    return withStorageTransaction((db) => this.loadWork(db, workId) ? this.snapshot(db, workId) : null);
+    return this.transaction((db) => this.loadWork(db, workId) ? this.snapshot(db, workId) : null);
   }
 
   replay(workId: string): LifecycleState | null {
-    return withStorageTransaction((db) => {
+    return this.transaction((db) => {
       const rows = db.prepare("SELECT seq, event_id, work_id, attempt_id, owner_epoch, kind, occurred_at, payload FROM attempt_events WHERE work_id = ? ORDER BY seq").all(workId) as Array<Omit<AttemptEvent, "payload"> & { payload: string }>;
       if (!rows.length) return null;
       let work: WorkItem | undefined;
@@ -374,16 +480,16 @@ export class LifecycleStore {
     return row && attemptFrom(row);
   }
   private insertWork(db: Database.Database, work: WorkItem): void {
-    db.prepare("INSERT INTO work_items (work_id, fleet_id, status, current_attempt_id, owner_epoch, cancelled_at, terminal_at, result_json, error_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(work.work_id, work.fleet_id, work.status, work.current_attempt_id, work.owner_epoch, work.cancelled_at, work.terminal_at, json(work.result), json(work.error), work.created_at, work.updated_at);
+    db.prepare("INSERT INTO work_items (work_id, fleet_id, agent_id, max_attempts, retry_base_ms, retry_jitter, status, current_attempt_id, owner_epoch, cancelled_at, terminal_at, result_json, error_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(work.work_id, work.fleet_id, work.agent_id, work.max_attempts, work.retry_base_ms, work.retry_jitter ? 1 : 0, work.status, work.current_attempt_id, work.owner_epoch, work.cancelled_at, work.terminal_at, json(work.result), json(work.error), work.created_at, work.updated_at);
   }
   private updateWork(db: Database.Database, work: WorkItem): void {
-    db.prepare("UPDATE work_items SET status = ?, current_attempt_id = ?, owner_epoch = ?, cancelled_at = ?, terminal_at = ?, result_json = ?, error_json = ?, updated_at = ? WHERE work_id = ?").run(work.status, work.current_attempt_id, work.owner_epoch, work.cancelled_at, work.terminal_at, json(work.result), json(work.error), work.updated_at, work.work_id);
+    db.prepare("UPDATE work_items SET agent_id = ?, max_attempts = ?, retry_base_ms = ?, retry_jitter = ?, status = ?, current_attempt_id = ?, owner_epoch = ?, cancelled_at = ?, terminal_at = ?, result_json = ?, error_json = ?, updated_at = ? WHERE work_id = ?").run(work.agent_id, work.max_attempts, work.retry_base_ms, work.retry_jitter ? 1 : 0, work.status, work.current_attempt_id, work.owner_epoch, work.cancelled_at, work.terminal_at, json(work.result), json(work.error), work.updated_at, work.work_id);
   }
   private insertAttempt(db: Database.Database, attempt: Attempt): void {
-    db.prepare("INSERT INTO attempts (attempt_id, work_id, owner_id, owner_epoch, status, lease_until, created_at, updated_at, terminal_at, result_json, error_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(attempt.attempt_id, attempt.work_id, attempt.owner_id, attempt.owner_epoch, attempt.status, attempt.lease_until, attempt.created_at, attempt.updated_at, attempt.terminal_at, json(attempt.result), json(attempt.error));
+    db.prepare("INSERT INTO attempts (attempt_id, work_id, owner_id, owner_epoch, status, lease_until, attempt_number, eligible_at, created_at, updated_at, terminal_at, result_json, error_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(attempt.attempt_id, attempt.work_id, attempt.owner_id, attempt.owner_epoch, attempt.status, attempt.lease_until, attempt.attempt_number, attempt.eligible_at, attempt.created_at, attempt.updated_at, attempt.terminal_at, json(attempt.result), json(attempt.error));
   }
   private updateAttempt(db: Database.Database, attempt: Attempt): void {
-    db.prepare("UPDATE attempts SET owner_id = ?, owner_epoch = ?, status = ?, lease_until = ?, updated_at = ?, terminal_at = ?, result_json = ?, error_json = ? WHERE attempt_id = ?").run(attempt.owner_id, attempt.owner_epoch, attempt.status, attempt.lease_until, attempt.updated_at, attempt.terminal_at, json(attempt.result), json(attempt.error), attempt.attempt_id);
+    db.prepare("UPDATE attempts SET owner_id = ?, owner_epoch = ?, status = ?, lease_until = ?, attempt_number = ?, eligible_at = ?, updated_at = ?, terminal_at = ?, result_json = ?, error_json = ? WHERE attempt_id = ?").run(attempt.owner_id, attempt.owner_epoch, attempt.status, attempt.lease_until, attempt.attempt_number, attempt.eligible_at, attempt.updated_at, attempt.terminal_at, json(attempt.result), json(attempt.error), attempt.attempt_id);
   }
   private appendEvent(db: Database.Database, kind: AttemptEventKind, work: WorkItem, attempt: Attempt, now: number): void {
     db.prepare("INSERT INTO attempt_events (event_id, work_id, attempt_id, owner_epoch, kind, occurred_at, payload) VALUES (?, ?, ?, ?, ?, ?, ?)").run(this.nextId(), work.work_id, attempt.attempt_id, attempt.owner_epoch, kind, now, JSON.stringify(encodeEventPayload(work, attempt)));

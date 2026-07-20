@@ -64,6 +64,7 @@ import {
 import { recordRoutingOutcome } from "./routing-feedback.js";
 import { buildFailureDetail } from "./spawn-attempt.js";
 import { getDefaultRuntimeAdapter } from "./runtime/registry.js";
+import { defaultLifecycleMode, LifecycleExecutionCoordinator, projectLifecycleOutbox } from "./lifecycle-execution.js";
 
 // ---------------------------------------------------------------------------
 // Server
@@ -86,6 +87,7 @@ interface SpawnAgentInput {
 }
 
 const runtimeAdapter = getDefaultRuntimeAdapter();
+const lifecycleCoordinator = new LifecycleExecutionCoordinator(runtimeAdapter);
 
 /**
  * Inner spawn loop. attempt is 1-indexed (first attempt = 1).
@@ -600,6 +602,23 @@ toolHandlers["spawn_fleet"] = async (args) => {
       agent: a.agent,
     }));
 
+    let lifecycleMode;
+    try {
+      lifecycleMode = defaultLifecycleMode();
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : String(err));
+    }
+    if (lifecycleMode === "durable") {
+      try {
+        lifecycleCoordinator.createFleet(fleetId, specs.map((s) => ({ fleetId, agentId: s.agentId, role: s.role, prompt: s.prompt, agentFile: s.agent })));
+      } catch (err) {
+        // Durable mode is fail-closed: do not fall back to legacy spawning.
+        return jsonError(err instanceof Error ? err.message : String(err));
+      }
+      for (const s of specs) if (s.agent) autoRegisterFromAgent(s.agentId, fleetId, s.agent);
+      return jsonResult({ fleet_id: fleetId, agent_ids: specs.map((s) => s.agentId) });
+    }
+
     // Phase 1 — ONE txn: create the fleet + pre-register every agent row.
     // spawn() is a side-effect, so it cannot live in the txn; committing the
     // rows first means a crash after commit leaves recoverable "running" agents,
@@ -618,6 +637,7 @@ toolHandlers["spawn_fleet"] = async (args) => {
         });
       }
     });
+    if (lifecycleMode === "shadow") lifecycleCoordinator.recordMode(fleetId, "shadow");
     appendEvent("fleet_created", { fleet_id: fleetId });
     appendEvent("spawn_fleet_called", { fleet_id: fleetId, agent_count: agents.length });
 
@@ -905,6 +925,18 @@ toolHandlers["attach_agent"] = async (args) => {
       agent?: string;
     };
     const agentId = randomUUID();
+    let lifecycleMode;
+    try {
+      lifecycleMode = lifecycleCoordinator.modeForFleet(fleet_id);
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : String(err));
+    }
+    if (lifecycleMode === "durable") {
+      const check = lifecycleCoordinator.attachAgent({ fleetId: fleet_id, agentId, role, prompt, agentFile: agent });
+      if (check.error) return jsonError(check.error);
+      if (agent) autoRegisterFromAgent(agentId, fleet_id, agent);
+      return jsonResult({ agent_id: agentId, fleet_id, role, agent_file: agent ?? null, message: `Agent ${role} attached to fleet ${fleet_id}` });
+    }
     // Re-check exists && running INSIDE the txn and pre-register the row in the
     // same transaction. Checking outside (as before) let a concurrent
     // checkFleetCompletion flip the fleet to complete between check and write —
@@ -1034,6 +1066,8 @@ if (!isChildInstance) {
   // v0.7.x: recover any agents left in 'running' state from a previous
   // crashed process so fleet_status reflects reality. Liveness-probed since
   // 2026-07-03 — only agents with a missing/dead pid are flipped.
+  projectLifecycleOutbox();
+  lifecycleCoordinator.recover();
   const recoveredCount = recoverInterruptedAgents();
   if (recoveredCount > 0) {
     console.error(`Agent Mesh v${MESH_VERSION} — recovered ${recoveredCount} interrupted agent(s) from previous run`);

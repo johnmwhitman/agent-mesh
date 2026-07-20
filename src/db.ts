@@ -77,7 +77,7 @@ CREATE INDEX IF NOT EXISTS idx_ratifications_fleet ON ratifications(fleet_id);
  * imported from any supported JSON version retains that logical marker; these
  * migrations only add internal relational storage.
  */
-export const CURRENT_STORAGE_SCHEMA_VERSION = 2;
+export const CURRENT_STORAGE_SCHEMA_VERSION = 3;
 
 const LIFECYCLE_SCHEMA_V2 = `
 CREATE TABLE IF NOT EXISTS work_items (
@@ -134,6 +134,43 @@ CREATE INDEX IF NOT EXISTS idx_attempts_work ON attempts(work_id);
 CREATE INDEX IF NOT EXISTS idx_attempt_events_work_seq ON attempt_events(work_id, seq);
 `;
 
+/**
+ * Physical v3 is intentionally additive. `schema_version` in MeshData remains
+ * v2: these columns are implementation authority, not a public ledger shape.
+ */
+const LIFECYCLE_SCHEMA_V3 = `
+CREATE UNIQUE INDEX IF NOT EXISTS idx_attempts_work_number ON attempts(work_id, attempt_number);
+CREATE INDEX IF NOT EXISTS idx_attempts_due ON attempts(status, eligible_at, work_id);
+CREATE INDEX IF NOT EXISTS idx_work_items_fleet_status ON work_items(fleet_id, status);
+CREATE TABLE IF NOT EXISTS lifecycle_event_outbox (
+  event_id TEXT PRIMARY KEY,
+  event TEXT NOT NULL,
+  payload TEXT NOT NULL CHECK (json_valid(payload)),
+  created_at INTEGER NOT NULL,
+  claimed_by TEXT,
+  claimed_at INTEGER,
+  projected_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_lifecycle_outbox_due ON lifecycle_event_outbox(projected_at, claimed_at, created_at);
+CREATE TRIGGER IF NOT EXISTS lifecycle_work_retry_policy_insert
+BEFORE INSERT ON work_items WHEN NEW.max_attempts < 1 OR NEW.retry_base_ms < 0
+BEGIN SELECT RAISE(ABORT, 'invalid lifecycle retry policy'); END;
+CREATE TRIGGER IF NOT EXISTS lifecycle_work_retry_policy_update
+BEFORE UPDATE OF max_attempts, retry_base_ms ON work_items WHEN NEW.max_attempts < 1 OR NEW.retry_base_ms < 0
+BEGIN SELECT RAISE(ABORT, 'invalid lifecycle retry policy'); END;
+CREATE TRIGGER IF NOT EXISTS lifecycle_attempt_schedule_insert
+BEFORE INSERT ON attempts WHEN NEW.attempt_number < 1 OR NEW.eligible_at < 0
+BEGIN SELECT RAISE(ABORT, 'invalid lifecycle attempt schedule'); END;
+CREATE TRIGGER IF NOT EXISTS lifecycle_attempt_schedule_update
+BEFORE UPDATE OF attempt_number, eligible_at ON attempts WHEN NEW.attempt_number < 1 OR NEW.eligible_at < 0
+BEGIN SELECT RAISE(ABORT, 'invalid lifecycle attempt schedule'); END;
+`;
+
+function ensureColumn(db: Database.Database, table: "fleets" | "work_items" | "attempts", column: string, definition: string): void {
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  if (!columns.some((item) => item.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${definition}`);
+}
+
 let storageMigrationFaultForTest = false;
 
 /** Test-only fault injection proving a failing migration rolls back completely. */
@@ -157,11 +194,26 @@ function migrateStorage(db: Database.Database): void {
       );
     }
     while (version < CURRENT_STORAGE_SCHEMA_VERSION) {
-      if (version !== 1) throw new Error(`unsupported storage schema migration from version ${version}`);
-      db.exec(LIFECYCLE_SCHEMA_V2);
+      if (version === 1) {
+        db.exec(LIFECYCLE_SCHEMA_V2);
+        db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('storage_schema_version', '2')").run();
+        version = 2;
+        continue;
+      }
+      if (version !== 2) throw new Error(`unsupported storage schema migration from version ${version}`);
+      // Some early v2 development layouts carried one or more v3 columns
+      // without advancing meta. Treat them as a resumable physical migration.
+      ensureColumn(db, "fleets", "lifecycle_mode", "lifecycle_mode TEXT CHECK (lifecycle_mode IN ('legacy', 'shadow', 'durable') OR lifecycle_mode IS NULL)");
+      ensureColumn(db, "work_items", "agent_id", "agent_id TEXT");
+      ensureColumn(db, "work_items", "max_attempts", "max_attempts INTEGER NOT NULL DEFAULT 3");
+      ensureColumn(db, "work_items", "retry_base_ms", "retry_base_ms INTEGER NOT NULL DEFAULT 1000");
+      ensureColumn(db, "work_items", "retry_jitter", "retry_jitter INTEGER NOT NULL DEFAULT 1 CHECK (retry_jitter IN (0, 1))");
+      ensureColumn(db, "attempts", "attempt_number", "attempt_number INTEGER NOT NULL DEFAULT 1");
+      ensureColumn(db, "attempts", "eligible_at", "eligible_at INTEGER NOT NULL DEFAULT 0");
+      db.exec(LIFECYCLE_SCHEMA_V3);
       if (storageMigrationFaultForTest) throw new Error("forced storage migration failure");
-      db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('storage_schema_version', '2')").run();
-      version = 2;
+      db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('storage_schema_version', '3')").run();
+      version = 3;
     }
   }).immediate;
   migrate();
@@ -434,7 +486,7 @@ class LazyColl {
   /** Write the touched-row diff. Only called when the mutator kept this view. */
   persist(db: Database.Database): void {
     const upsert = db.prepare(
-      `INSERT OR REPLACE INTO ${this.spec.table} (${this.spec.cols.join(",")}) VALUES (${this.spec.cols.map(() => "?").join(",")})`,
+      `INSERT INTO ${this.spec.table} (${this.spec.cols.join(",")}) VALUES (${this.spec.cols.map(() => "?").join(",")}) ON CONFLICT(${this.spec.pk}) DO UPDATE SET ${this.spec.cols.filter((column) => column !== this.spec.pk).map((column) => `${column} = excluded.${column}`).join(", ")}`,
     );
     const del = db.prepare(`DELETE FROM ${this.spec.table} WHERE ${this.spec.pk} = ?`);
     for (const [k, v] of this.overlay) {
@@ -455,7 +507,7 @@ function eagerPersist(db: Database.Database, spec: CollSpec, cur: Record<string,
   for (const r of db.prepare(`SELECT ${spec.pk} AS k, data FROM ${spec.table}`).all() as { k: string; data: string }[]) {
     rawMap.set(r.k, r.data);
   }
-  const upsert = db.prepare(`INSERT OR REPLACE INTO ${spec.table} (${spec.cols.join(",")}) VALUES (${spec.cols.map(() => "?").join(",")})`);
+  const upsert = db.prepare(`INSERT INTO ${spec.table} (${spec.cols.join(",")}) VALUES (${spec.cols.map(() => "?").join(",")}) ON CONFLICT(${spec.pk}) DO UPDATE SET ${spec.cols.filter((column) => column !== spec.pk).map((column) => `${column} = excluded.${column}`).join(", ")}`);
   const del = db.prepare(`DELETE FROM ${spec.table} WHERE ${spec.pk} = ?`);
   const seen = new Set<string>();
   for (const [k, v] of Object.entries(cur)) {
@@ -483,9 +535,7 @@ function persistDiff(db: Database.Database, data: MeshData, raw: Map<string, str
  * (`data.inboxes = {...}`) drops that collection's lazy view; the commit
  * detects it and falls back to a full eager diff for that collection.
  */
-export function withLedger<T>(mutator: (data: MeshData) => T): T {
-  const db = getDb();
-  const run = db.transaction((m: (data: MeshData) => T): T => {
+function mutateLedger<T>(db: Database.Database, mutator: (data: MeshData, db: Database.Database) => T): T {
     txnStats = { rowsParsed: 0 };
     const views = new Map<CollSpec, LazyColl>();
     const data = emptyData();
@@ -494,7 +544,7 @@ export function withLedger<T>(mutator: (data: MeshData) => T): T {
       views.set(c, view);
       (data as unknown as Record<string, unknown>)[c.table] = view.proxy;
     }
-    const result = m(data);
+    const result = mutator(data, db);
     if (result != null && typeof (result as { then?: unknown }).then === "function") {
       throw new Error("withLedger: mutator must be synchronous (it returned a Promise)");
     }
@@ -505,8 +555,21 @@ export function withLedger<T>(mutator: (data: MeshData) => T): T {
       else eagerPersist(db, c, cur); // wholesale replacement
     }
     return result;
-  }).immediate;
-  return run(mutator);
+}
+
+export function withLedger<T>(mutator: (data: MeshData) => T): T {
+  const db = getDb();
+  return db.transaction(() => mutateLedger(db, (data) => mutator(data))).immediate();
+}
+
+/**
+ * Unified immediate transaction seam. Compatibility projections and callers'
+ * transaction-scoped lifecycle repositories share one SQLite handle and one
+ * commit; lifecycle code must not open a nested self-transaction here.
+ */
+export function withLedgerAndStorage<T>(mutator: (data: MeshData, db: Database.Database) => T): T {
+  const db = getDb();
+  return db.transaction(() => mutateLedger(db, mutator)).immediate();
 }
 
 /**

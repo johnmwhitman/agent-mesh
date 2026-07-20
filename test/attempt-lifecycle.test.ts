@@ -123,7 +123,7 @@ test("storage migration: v2 logical ledger is preserved, idempotent, fail-closed
     raw.close();
     setDbPath(temp.dbFile);
     assert.deepEqual(readLedger(), representative);
-    assert.equal(getStorageSchemaVersion(), 2);
+    assert.equal(getStorageSchemaVersion(), 3);
     const logical = new Database(temp.dbFile, { readonly: true });
     assert.equal((logical.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string }).value, "2");
     assert.equal((logical.prepare("SELECT COUNT(*) AS n FROM work_items").get() as { n: number }).n, 0);
@@ -132,7 +132,7 @@ test("storage migration: v2 logical ledger is preserved, idempotent, fail-closed
     logical.close();
     closeDb();
     setDbPath(temp.dbFile);
-    assert.equal(getStorageSchemaVersion(), 2);
+    assert.equal(getStorageSchemaVersion(), 3);
     closeDb();
     const newer = new Database(temp.dbFile);
     newer.prepare("UPDATE meta SET value = '99' WHERE key = 'storage_schema_version'").run();
