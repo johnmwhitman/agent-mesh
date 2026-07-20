@@ -882,6 +882,72 @@ T14 rejects a non-none deferred template before T15 scans normalized features
 and source-profile claims for the smallest supported path. Every call produces
 one deterministic result or one deterministic error.
 
+The exact translation-result validation API is:
+
+    validateTranslationResult(result) -> TranslationResultValidationResult
+
+`TranslationResultValidationResult` is the closed union:
+
+    {"ok":true,"value":TranslationResultValidationValue}
+    | {"ok":false,"error":TranslationResultValidationError}
+
+`TranslationResultValidationValue` is exactly:
+
+    {
+      "validation_version": "meshfleet.a2a.translation-result-validation/v0.1",
+      "normalized_result": <complete normalized TranslationResult>
+    }
+
+`TranslationResultValidationError` contains exactly `code` and `field_path`.
+`field_path` uses the field-path grammar. `code` is exactly one of:
+
+    INVALID_TRANSLATION_RESULT
+    UNKNOWN_CORE_FIELD
+    FORBIDDEN_COMPUTED_FIELD
+    FORBIDDEN_PRIVACY_FIELD
+    UNSUPPORTED_PROFILE_VERSION
+    INVALID_OPAQUE_REFERENCE
+    INVALID_PROFILE_REVISION
+    INVALID_TIME_WINDOW
+    INVALID_CLAIM_KIND
+    INVALID_CLAIM_SCHEMA
+    INVALID_CANONICAL_ID
+    INVALID_PROTOCOL_VERSION
+    INVALID_ASCII_LABEL
+    INVALID_APPLICABILITY
+    INVALID_PROVENANCE
+    INVALID_PROOF_CARRIER
+    DUPLICATE_SET_MEMBER
+    CONTRADICTORY_CLAIMS
+    INVALID_LOSS_RECORD
+    INVALID_EXTENSION_CONTAINER
+    UNSUPPORTED_EXTENSION
+
+Validation is pure structural validation and takes no evaluation-time argument.
+It MUST NOT read an ambient clock or re-evaluate profile, claim, or proof time
+validity. It applies this first-error precedence and returns no partial value:
+
+1. Malformed JSON, unsupported input type, or non-plain/non-object root returns
+   `INVALID_TRANSLATION_RESULT` at `$`.
+2. A forbidden privacy or computed field returns its stable code at the smallest
+   canonical safe path, using source indexes and reflecting no value.
+3. An unknown nonprivacy core field returns `UNKNOWN_CORE_FIELD` at the smallest
+   containing closed-object path, using source indexes and reflecting no key.
+4. Validate translation-result version, target, profile and claim core schemas,
+   launch template, cwd policy, feature and provenance schemas, loss schemas,
+   cardinalities, and duplicate rules while deferring every `extensions` and
+   `critical_extensions` container to steps 5 and 6. Return the applicable
+   closed error above at the smallest source-index path.
+5. Across result root, embedded profile, and embedded claims, a missing, null,
+   or wrong-type extension container returns `INVALID_EXTENSION_CONTAINER` at
+   the smallest container path. Claim indexes are source indexes; no
+   provisional normalization is permitted.
+6. After every container has the required type, any extension key or critical
+   extension member returns `UNSUPPORTED_EXTENSION` at the smallest container
+   path without reflecting the key or member.
+7. On success, normalize the complete result under Sections 10 and 13.3 and
+   return only the `ok: true` envelope above.
+
 Conformance maturity is rendered only by this separate pure API:
 
     renderConformance(result, registry_record)
@@ -980,36 +1046,40 @@ Every corpus record is a closed object containing exactly `case_id`, `api`,
     compare-profiles
     translate-profile
     validate-translation-result
-    validate-validation-report
-    validate-comparison-report
     render-conformance
-    normalize-profile
-    normalize-translation-input
-    normalize-translation-result
-    fingerprint-profile
-    fingerprint-claim
-    registry-consistency-check
-    static-witness-check
 
-`invocation_args` is a JSON object whose closed member set is the named
-arguments of the selected API. When present, `evaluation_time_ms` is carried as
-a raw JSON member of that object, not as harness metadata. Every ordinary
-`validate-profile`, `compare-profiles`, or `translate-profile` case MUST supply
-a nonnegative safe integer. Dedicated invalid-argument cases MAY omit the
-member or supply any raw JSON value needed by the vector and MUST expect the
-call-level error. Omission
-is represented only by structural absence of the `evaluation_time_ms` object
-member; JavaScript `undefined`, Python sentinels, default parameters, and
-out-of-band flags are forbidden. The harness MUST invoke the selected API and
-MUST NOT reject, coerce, or default the argument before the witness classifies
-it. APIs that do not accept evaluation time MUST reject that member as an
-unknown invocation argument.
+The five operation envelopes are closed and exact:
+
+| api | Exact `invocation_args` members | Exact `expected` envelope |
+|---|---|---|
+| validate-profile | Exactly `raw_profile` and `evaluation_time_ms`, except a dedicated missing-time case structurally omits only `evaluation_time_ms`. | Exactly one `ValidationResult` union value from Section 7. Profile and claim fingerprints appear only inside its `ValidationReport`; they are not separate operations. |
+| compare-profiles | Exactly `raw_profiles` and `evaluation_time_ms`, except a dedicated missing-time case structurally omits only `evaluation_time_ms`. | Exactly one `ComparisonResult` union value from Sections 7 and 11.3. |
+| translate-profile | Exactly `input` and `evaluation_time_ms`, except a dedicated missing-time case structurally omits only `evaluation_time_ms`. | Exactly one `TranslationResult` or `TranslationError` from Section 13.7. Translation normalization is exercised only through the returned translation output. |
+| validate-translation-result | Exactly `result`. | Exactly one `TranslationResultValidationResult` union value from Section 13.7. |
+| render-conformance | Exactly `result` and `registry_record`. | Exactly the closed success/error union from Section 13.7. |
+
+`invocation_args` and `expected` MUST be JSON objects conforming to the selected
+row; no extra member is allowed. `expected` is the exact JSON return envelope,
+not prose, a matcher, a partial object, or an out-of-band assertion. When
+present, `evaluation_time_ms` is a raw JSON member of `invocation_args`, not
+harness metadata. Every ordinary operation that accepts it MUST supply a
+nonnegative safe integer. Dedicated invalid-argument cases MAY omit it or
+supply the raw invalid JSON value and MUST expect the prescribed call-level
+error. Omission is represented only by structural absence of the member;
+JavaScript `undefined`, Python sentinels, default parameters, and out-of-band
+flags are forbidden. The harness MUST NOT reject, coerce, or default an
+argument before invoking the operation.
+
+Profile/claim fingerprint assertions are fields of validate-profile expected
+outputs. Translation normalization assertions compare translate-profile
+expected outputs. Registry consistency and static witness checks are ordinary
+implementation-test assertions outside this shared cross-language corpus.
 
 The shared TypeScript/Python corpus MUST include these named vectors with the
 stated result:
 
 The extension-container corpus additionally MUST expand the following closed
-Cartesian family into 40 distinct records. A generated `case_id` is exactly
+Cartesian family into 56 distinct records. A generated `case_id` is exactly
 `extension.<context>.<member>.<variant>`.
 
 | context | api | extensions path | critical_extensions path | Index rule |
@@ -1019,6 +1089,8 @@ Cartesian family into 40 distinct records. A generated `case_id` is exactly
 | translation-root | translate-profile | `$.extensions` | `$.critical_extensions` | T06 for malformed containers; T07 for nonempty containers; valid parsed target_ref is retained. |
 | translation-source-profile | translate-profile | `$.source_profile.extensions` | `$.source_profile.critical_extensions` | T06 or T07; no source-profile normalization occurs first. |
 | translation-result-root | validate-translation-result | `$.extensions` | `$.critical_extensions` | Translation-result validation, not translateProfile precedence. |
+| translation-result-profile | validate-translation-result | `$.profile.extensions` | `$.profile.critical_extensions` | Embedded profile containers validate before result normalization. |
+| translation-result-profile-claim-source-2 | validate-translation-result | `$.profile.claims[2].extensions` | `$.profile.claims[2].critical_extensions` | The malformed embedded claim is physically source element 2; the path remains 2 regardless of how valid siblings would later sort. |
 
 For each context, member is exactly `extensions` or `critical-extensions`, and
 variant is exactly `missing`, `null`, `wrong-container-type`, or `nonempty`.
