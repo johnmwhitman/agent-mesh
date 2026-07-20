@@ -208,7 +208,7 @@ TIMESTAMP            EVENT              DETAIL
 
 ---
 
-## 27 MCP tools
+## 31 MCP tools
 
 **Fleets**
 
@@ -251,7 +251,18 @@ TIMESTAMP            EVENT              DETAIL
 | `list_agents` | Discover 100+ premade agent personalities |
 | `get_health` / `ping` | Fleet health and liveness |
 
-That's 28. We counted twice this time.
+**Discussions (bounded two-agent negotiation)**
+
+| Tool | What it does |
+|---|---|
+| `ask_peer` | Open a bounded Discussion: send the root question, optionally reserve one peer attempt, wait for a settled answer |
+| `wake_agent` | The sole general-purpose Discussion run trigger — atomically reserve and launch one bounded attempt |
+| `reply_discussion` | Submit the one reply an active wake attempt is authorized to produce; never launches an agent |
+| `get_discussion` | Read-only: derive transcript, attempts, budget, and fail-closed status from durable messages and receipts |
+
+See [docs/discussions.md](docs/discussions.md) for the full quickstart, tool reference, and terminal-state precedence.
+
+That's 31. We counted twice this time.
 
 [Full API reference → AGENT-MESH-SPEC.md](AGENT-MESH-SPEC.md) · [P2P/receipts → SPEC-P2P.md](SPEC-P2P.md) · [Councils → SPEC-COUNCILS.md](SPEC-COUNCILS.md)
 

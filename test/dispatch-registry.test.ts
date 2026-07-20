@@ -74,3 +74,69 @@ test("registry has no duplicate handler registrations", () => {
   const unique = new Set(keys);
   assert.equal(keys.length, unique.size, "duplicate toolHandlers registration detected");
 });
+
+// D3 (blueprint §8 "Tool-count reconciliation" + errata item 8): the pre-D3
+// baseline was 27 advertised tools / 27 registered handlers; D3 adds exactly
+// four Discussion tools (ask_peer, wake_agent, reply_discussion,
+// get_discussion), so the post-D3 baseline is 31/31 with every original name
+// still present.
+const PRE_D3_TOOL_NAMES = [
+  "spawn_fleet",
+  "fleet_status",
+  "list_fleets",
+  "set_fleet_timeout",
+  "collect_results",
+  "send_message",
+  "send_messages",
+  "get_inbox",
+  "ack_message",
+  "receipt",
+  "get_receipts",
+  "verify_ledger",
+  "open_ratification",
+  "cast_vote",
+  "tally_ratification",
+  "sweep_ratifications",
+  "register_capability",
+  "route_work",
+  "record_routing_outcome",
+  "list_agents",
+  "attach_agent",
+  "ping",
+  "subscribe_inbox",
+  "get_health",
+  "save_fleet_template",
+  "list_fleet_templates",
+  "spawn_from_template",
+];
+
+const D3_DISCUSSION_TOOL_NAMES = ["ask_peer", "wake_agent", "reply_discussion", "get_discussion"];
+
+test("D3: advertised and handler tool counts are both exactly 31", () => {
+  const declared = declaredToolNames(source);
+  const registered = registeredHandlerNames(source);
+
+  assert.equal(declared.size, 31, `expected 31 advertised tools, got ${declared.size}: ${[...declared].sort().join(", ")}`);
+  assert.equal(registered.size, 31, `expected 31 registered handlers, got ${registered.size}: ${[...registered].sort().join(", ")}`);
+});
+
+test("D3: all 27 pre-existing tool names remain present in both registries", () => {
+  const declared = declaredToolNames(source);
+  const registered = registeredHandlerNames(source);
+
+  assert.equal(PRE_D3_TOOL_NAMES.length, 27, "pre-D3 baseline fixture must itself list exactly 27 names");
+  for (const name of PRE_D3_TOOL_NAMES) {
+    assert.ok(declared.has(name), `pre-existing tool "${name}" missing from ListTools`);
+    assert.ok(registered.has(name), `pre-existing tool "${name}" missing from toolHandlers`);
+  }
+});
+
+test("D3: the four additive Discussion tool names are present in both registries", () => {
+  const declared = declaredToolNames(source);
+  const registered = registeredHandlerNames(source);
+
+  for (const name of D3_DISCUSSION_TOOL_NAMES) {
+    assert.ok(declared.has(name), `Discussion tool "${name}" missing from ListTools`);
+    assert.ok(registered.has(name), `Discussion tool "${name}" missing from toolHandlers`);
+  }
+});
