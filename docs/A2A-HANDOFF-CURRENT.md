@@ -123,9 +123,10 @@ documents linked below.
 
 ## Next integration stages
 
-1. Add namespaced lifecycle integrity checks to `verify_ledger`, an opt-in
-   lifecycle inspector view, and explicit outbox-lag/repair visibility without
-   changing default text, JSON, or MCP output shapes.
+1. Completed: namespaced lifecycle integrity checks compose into
+   `verify_ledger` and `inspect --verify <file>`; the opt-in lifecycle inspector
+   exposes outbox-lag/repair visibility without changing default text, JSON, or
+   MCP output shapes.
 2. Design and conformance-test public canonical ingress, durable idempotency,
    principal binding, and authorization before exposing a `send_a2a` surface.
 3. Prototype authenticated cross-process transport and discovery behind the

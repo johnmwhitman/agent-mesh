@@ -108,3 +108,6 @@ Open an issue at https://github.com/johnmwhitman/agent-mesh/issues with:
   creates, migrates, repairs, projects, recovers, leases, or signals the
   audited ledger. The copied snapshot is not a source-coordinated live-WAL
   claim.
+- `inspect --verify <file>` retains its existing logical report shape and now
+  composes namespaced lifecycle findings from the same private-copy path when
+  lifecycle tables are present; legacy and unrelated-file behavior is retained.
