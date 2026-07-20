@@ -37,6 +37,19 @@ function a2aObjectCount(db: Database.Database): number {
   return Number((db.prepare("SELECT COUNT(*) AS count FROM sqlite_schema WHERE lower(name) GLOB 'a2a_*' OR lower(tbl_name) GLOB 'a2a_*'").get() as { count: number }).count);
 }
 
+function tamperSchemaLiteral(dbFile: string, from: string, to: string): void {
+  const raw = new Database(dbFile);
+  try {
+    raw.unsafeMode(true);
+    raw.pragma("writable_schema = ON");
+    const changed = raw.prepare("UPDATE sqlite_schema SET sql = replace(sql, ?, ?) WHERE type = 'table' AND name = 'a2a_decision_receipts'").run(from, to);
+    assert.equal(changed.changes, 1);
+    const version = raw.pragma("schema_version", { simple: true }) as number;
+    raw.pragma("schema_version = " + (version + 1));
+    raw.pragma("writable_schema = OFF");
+  } finally { raw.close(); }
+}
+
 const opaque = (label: string) => createHash("sha256").update(label).digest("base64url");
 const durableInput = () => ({
   semantic: { keyId: "semantic-v1", token: opaque("semantic") },
@@ -161,6 +174,27 @@ test("cached durable handle validates exact layout before any acceptance lookup 
       raw.close();
     } finally { temp.cleanup(); }
   }
+});
+
+test("exact schema comparison preserves decision literals on reopen and cached-handle validation", () => {
+  const reopen = withTempDb();
+  try {
+    assert.equal(getStorageSchemaVersion(), 4);
+    closeDb();
+    tamperSchemaLiteral(reopen.dbFile, "'accepted'", "'ACCEPTED'");
+    setDbPath(reopen.dbFile);
+    assert.throws(() => getStorageSchemaVersion(), /invalid v4 a2a layout: table a2a_decision_receipts/);
+  } finally { reopen.cleanup(); }
+
+  const cached = withTempDb();
+  try {
+    assert.equal(getStorageSchemaVersion(), 4);
+    tamperSchemaLiteral(cached.dbFile, "'internal_local_decision'", "'INTERNAL_LOCAL_DECISION'");
+    assert.throws(() => recordDurableAcceptance(durableInput(), { now: () => 1 }), /invalid v4 a2a layout: table a2a_decision_receipts/);
+    const raw = new Database(cached.dbFile, { readonly: true });
+    assert.equal(Number((raw.prepare("SELECT COUNT(*) AS count FROM a2a_acceptance_records").get() as { count: number }).count), 0);
+    raw.close();
+  } finally { cached.cleanup(); }
 });
 
 test("frozen v3 reader refuses v4 and WAL-safe SQLite backup restores readable v3", async () => {

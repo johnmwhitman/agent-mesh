@@ -245,8 +245,70 @@ const A2A_SCHEMA_V4: readonly A2aSchemaObject[] = [
   ]),
 ];
 
-function normalizeSchemaSql(sql: string): string {
-  return sql.replace(/\s+/g, "").replace(/[\`"']/g, "").toLowerCase();
+function schemaSqlTokens(sql: string): string[] {
+  const tokens: string[] = [];
+  let index = 0;
+  while (index < sql.length) {
+    const char = sql[index]!;
+    if (/\s/.test(char)) { index++; continue; }
+    if (char === "-" && sql[index + 1] === "-") {
+      index += 2;
+      while (index < sql.length && sql[index] !== "\n" && sql[index] !== "\r") index++;
+      continue;
+    }
+    if (char === "/" && sql[index + 1] === "*") {
+      const end = sql.indexOf("*/", index + 2);
+      if (end < 0) throw new Error("invalid schema SQL: unterminated comment");
+      index = end + 2;
+      continue;
+    }
+    if (char === "'") {
+      const start = index++;
+      let closed = false;
+      while (index < sql.length) {
+        if (sql[index] !== "'") { index++; continue; }
+        if (sql[index + 1] === "'") { index += 2; continue; }
+        index++;
+        closed = true;
+        break;
+      }
+      if (!closed) throw new Error("invalid schema SQL: unterminated string literal");
+      tokens.push("literal:" + sql.slice(start, index));
+      continue;
+    }
+    if (char === '"' || char === "`" || char === "[") {
+      const close = char === "[" ? "]" : char;
+      let value = "";
+      let closed = false;
+      index++;
+      while (index < sql.length) {
+        if (sql[index] !== close) { value += sql[index++]; continue; }
+        if (sql[index + 1] === close) { value += close; index += 2; continue; }
+        index++;
+        closed = true;
+        break;
+      }
+      if (!closed) throw new Error("invalid schema SQL: unterminated quoted identifier");
+      tokens.push("identifier:" + value.toLowerCase());
+      continue;
+    }
+    if (/[A-Za-z0-9_$]/.test(char)) {
+      const start = index++;
+      while (index < sql.length && /[A-Za-z0-9_$]/.test(sql[index]!)) index++;
+      tokens.push("identifier:" + sql.slice(start, index).toLowerCase());
+      continue;
+    }
+    tokens.push("punctuation:" + char);
+    index++;
+  }
+  while (tokens.at(-1) === "punctuation:;") tokens.pop();
+  return tokens;
+}
+
+function schemaSqlMatches(actual: string, expected: string): boolean {
+  const actualTokens = schemaSqlTokens(actual);
+  const expectedTokens = schemaSqlTokens(expected);
+  return actualTokens.length === expectedTokens.length && actualTokens.every((token, index) => token === expectedTokens[index]);
 }
 
 function a2aSchemaRows(db: Database.Database): Array<{ type: string; name: string; tbl_name: string; sql: string | null }> {
@@ -254,15 +316,15 @@ function a2aSchemaRows(db: Database.Database): Array<{ type: string; name: strin
 }
 
 function unexpectedA2aSchemaObject(db: Database.Database, permitExpectedObjects: boolean): { type: string; name: string } | undefined {
-  const expected = new Set(A2A_SCHEMA_V4.map((item) => item.type + ":" + item.name));
+  const expected = new Set(A2A_SCHEMA_V4.map((item) => item.type + ":" + item.name.toLowerCase()));
   const tables = ["a2a_acceptance_records", "a2a_request_mappings", "a2a_decision_receipts"];
   const rows = db.prepare("SELECT type, name, tbl_name, sql FROM sqlite_schema WHERE sql IS NOT NULL AND type IN ('table', 'index', 'trigger', 'view') ORDER BY type, name").all() as Array<{ type: string; name: string; tbl_name: string; sql: string }>;
   return rows.find((row) => {
-    if (permitExpectedObjects && expected.has(row.type + ":" + row.name)) return false;
+    if (permitExpectedObjects && expected.has(row.type + ":" + row.name.toLowerCase())) return false;
     const name = row.name.toLowerCase();
     const table = row.tbl_name.toLowerCase();
-    const sql = normalizeSchemaSql(row.sql);
-    return name.startsWith("a2a_") || tables.includes(table) || tables.some((candidate) => sql.includes(candidate));
+    const sqlTokens = new Set(schemaSqlTokens(row.sql));
+    return name.startsWith("a2a_") || tables.includes(table) || tables.some((candidate) => sqlTokens.has("identifier:" + candidate));
   });
 }
 
@@ -276,10 +338,10 @@ function validateA2aV4Layout(db: Database.Database): void {
   if (unexpected) throw new Error("invalid v4 a2a layout: unexpected or dependent " + unexpected.type + " " + unexpected.name);
   const actual = a2aSchemaRows(db);
   if (actual.length !== A2A_SCHEMA_V4.length) throw new Error("invalid v4 a2a layout: unexpected object count");
-  const expected = new Map(A2A_SCHEMA_V4.map((item) => [item.type + ":" + item.name, item]));
+  const expected = new Map(A2A_SCHEMA_V4.map((item) => [item.type + ":" + item.name.toLowerCase(), item]));
   for (const row of actual) {
-    const item = expected.get(row.type + ":" + row.name);
-    if (!item || row.tbl_name !== item.table || row.sql === null || normalizeSchemaSql(row.sql) !== normalizeSchemaSql(item.sql)) {
+    const item = expected.get(row.type + ":" + row.name.toLowerCase());
+    if (!item || row.tbl_name.toLowerCase() !== item.table || row.sql === null || !schemaSqlMatches(row.sql, item.sql)) {
       throw new Error("invalid v4 a2a layout: " + row.type + " " + row.name);
     }
   }
