@@ -1,0 +1,259 @@
+[
+  {
+    "name": "valid-direct",
+    "expected": "valid",
+    "input": {
+      "protocol": "meshfleet.a2a",
+      "version": "0.1",
+      "kind": "message",
+      "message_id": "msg-direct-1",
+      "sender": { "namespace": "mesh-local", "agent_id": "agent-a" },
+      "recipients": [{ "namespace": "mesh-local", "agent_id": "agent-b" }],
+      "type": "handoff",
+      "issued_at_ms": 1760000000000,
+      "expires_at_ms": 1760003600000,
+      "audience": "mesh-local",
+      "correlation_id": "request-1",
+      "dedupe_key": "dedupe-1",
+      "payload": { "media_type": "text/plain", "body": "Context passed to the next agent." },
+      "extensions": { "future.example": { "opaque": true } }
+    }
+  },
+  {
+    "name": "valid-empty-body",
+    "expected": "valid",
+    "input": {
+      "protocol": "meshfleet.a2a",
+      "version": "0.1",
+      "kind": "message",
+      "message_id": "msg-empty-1",
+      "sender": { "namespace": "mesh-local", "agent_id": "agent-a" },
+      "recipients": [{ "namespace": "mesh-local", "agent_id": "agent-b" }],
+      "type": "handoff",
+      "issued_at_ms": 1760000000000,
+      "payload": { "media_type": "text/plain", "body": "" }
+    }
+  },
+  {
+    "name": "valid-extensions",
+    "expected": "valid",
+    "input": {
+      "protocol": "meshfleet.a2a",
+      "version": "0.1",
+      "kind": "message",
+      "message_id": "msg-extension-1",
+      "sender": { "namespace": "mesh-local", "agent_id": "agent-a" },
+      "recipients": [{ "namespace": "mesh-local", "agent_id": "agent-b" }],
+      "type": "result",
+      "issued_at_ms": 1760000000000,
+      "payload": { "media_type": "application/json", "body": "{\"ok\":true}" },
+      "extensions": {
+        "provider": "example",
+        "model": "example-model",
+        "pid": 42,
+        "lease": "opaque",
+        "acknowledged": true
+      }
+    }
+  },
+  {
+    "name": "identity-first",
+    "expected": "valid",
+    "input": {
+      "protocol": "meshfleet.a2a",
+      "version": "0.1",
+      "kind": "message",
+      "message_id": "msg-identity-1",
+      "sender": { "namespace": "mesh-local", "agent_id": "agent-a" },
+      "recipients": [{ "namespace": "mesh-local", "agent_id": "agent-b" }],
+      "type": "result",
+      "issued_at_ms": 1760000000000,
+      "payload": { "media_type": "text/plain", "body": "identity" },
+      "extensions": { "future.example": { "alpha": 1, "beta": 2 } }
+    }
+  },
+  {
+    "name": "identity-reordered-extensions",
+    "expected": "duplicate",
+    "input": {
+      "protocol": "meshfleet.a2a",
+      "version": "0.1",
+      "kind": "message",
+      "message_id": "msg-identity-1",
+      "sender": { "agent_id": "agent-a", "namespace": "mesh-local" },
+      "recipients": [{ "agent_id": "agent-b", "namespace": "mesh-local" }],
+      "type": "result",
+      "issued_at_ms": 1760000000000,
+      "payload": { "body": "identity", "media_type": "text/plain" },
+      "extensions": { "future.example": { "beta": 2, "alpha": 1 } }
+    }
+  },
+  {
+    "name": "identity-true-conflict",
+    "expected": "conflict",
+    "input": {
+      "protocol": "meshfleet.a2a",
+      "version": "0.1",
+      "kind": "message",
+      "message_id": "msg-identity-1",
+      "sender": { "namespace": "mesh-local", "agent_id": "agent-a" },
+      "recipients": [{ "namespace": "mesh-local", "agent_id": "agent-b" }],
+      "type": "result",
+      "issued_at_ms": 1760000000000,
+      "payload": { "media_type": "text/plain", "body": "conflicting identity" },
+      "extensions": { "future.example": { "alpha": 1, "beta": 2 } }
+    }
+  },
+  {
+    "name": "missing-message-id",
+    "expected": "invalid",
+    "input": {
+      "protocol": "meshfleet.a2a",
+      "version": "0.1",
+      "kind": "message",
+      "sender": { "namespace": "mesh-local", "agent_id": "agent-a" },
+      "recipients": [{ "namespace": "mesh-local", "agent_id": "agent-b" }],
+      "type": "handoff",
+      "issued_at_ms": 1,
+      "payload": { "media_type": "text/plain", "body": "x" }
+    }
+  },
+  {
+    "name": "unsupported-version-0-2",
+    "expected": "invalid",
+    "input": {
+      "protocol": "meshfleet.a2a",
+      "version": "0.2",
+      "kind": "message",
+      "message_id": "m",
+      "sender": { "namespace": "n", "agent_id": "a" },
+      "recipients": [{ "namespace": "n", "agent_id": "b" }],
+      "type": "handoff",
+      "issued_at_ms": 1,
+      "payload": { "media_type": "text/plain", "body": "x" }
+    }
+  },
+  {
+    "name": "fractional-timestamp",
+    "expected": "invalid",
+    "input": {
+      "protocol": "meshfleet.a2a",
+      "version": "0.1",
+      "kind": "message",
+      "message_id": "m",
+      "sender": { "namespace": "n", "agent_id": "a" },
+      "recipients": [{ "namespace": "n", "agent_id": "b" }],
+      "type": "handoff",
+      "issued_at_ms": 1.5,
+      "payload": { "media_type": "text/plain", "body": "x" }
+    }
+  },
+  {
+    "name": "duplicate-recipient",
+    "expected": "invalid",
+    "input": {
+      "protocol": "meshfleet.a2a",
+      "version": "0.1",
+      "kind": "message",
+      "message_id": "m",
+      "sender": { "namespace": "n", "agent_id": "a" },
+      "recipients": [{ "namespace": "n", "agent_id": "b" }, { "namespace": "n", "agent_id": "b" }],
+      "type": "handoff",
+      "issued_at_ms": 1,
+      "payload": { "media_type": "text/plain", "body": "x" }
+    }
+  },
+  {
+    "name": "wildcard-recipient",
+    "expected": "invalid",
+    "input": {
+      "protocol": "meshfleet.a2a",
+      "version": "0.1",
+      "kind": "message",
+      "message_id": "m",
+      "sender": { "namespace": "n", "agent_id": "a" },
+      "recipients": [{ "namespace": "n", "agent_id": "*" }],
+      "type": "handoff",
+      "issued_at_ms": 1,
+      "payload": { "media_type": "text/plain", "body": "x" }
+    }
+  },
+  {
+    "name": "invalid-media-type",
+    "expected": "invalid",
+    "input": {
+      "protocol": "meshfleet.a2a",
+      "version": "0.1",
+      "kind": "message",
+      "message_id": "m",
+      "sender": { "namespace": "n", "agent_id": "a" },
+      "recipients": [{ "namespace": "n", "agent_id": "b" }],
+      "type": "handoff",
+      "issued_at_ms": 1,
+      "payload": { "media_type": "json", "body": "x" }
+    }
+  },
+  {
+    "name": "malformed-json-body",
+    "expected": "invalid",
+    "input": {
+      "protocol": "meshfleet.a2a",
+      "version": "0.1",
+      "kind": "message",
+      "message_id": "m",
+      "sender": { "namespace": "n", "agent_id": "a" },
+      "recipients": [{ "namespace": "n", "agent_id": "b" }],
+      "type": "handoff",
+      "issued_at_ms": 1,
+      "payload": { "media_type": "application/json", "body": "{" }
+    }
+  },
+  {
+    "name": "expiry-before-issue",
+    "expected": "invalid",
+    "input": {
+      "protocol": "meshfleet.a2a",
+      "version": "0.1",
+      "kind": "message",
+      "message_id": "m",
+      "sender": { "namespace": "n", "agent_id": "a" },
+      "recipients": [{ "namespace": "n", "agent_id": "b" }],
+      "type": "handoff",
+      "issued_at_ms": 2,
+      "expires_at_ms": 1,
+      "payload": { "media_type": "text/plain", "body": "x" }
+    }
+  },
+  {
+    "name": "expired-for-acceptance",
+    "expected": "invalid",
+    "options": { "forAcceptance": true, "nowMs": 2 },
+    "input": {
+      "protocol": "meshfleet.a2a",
+      "version": "0.1",
+      "kind": "message",
+      "message_id": "m",
+      "sender": { "namespace": "n", "agent_id": "a" },
+      "recipients": [{ "namespace": "n", "agent_id": "b" }],
+      "type": "handoff",
+      "issued_at_ms": 1,
+      "expires_at_ms": 2,
+      "payload": { "media_type": "text/plain", "body": "x" }
+    }
+  },
+  {
+    "name": "oversize-body",
+    "expected": "invalid",
+    "input": {
+      "protocol": "meshfleet.a2a",
+      "version": "0.1",
+      "kind": "message",
+      "message_id": "m",
+      "sender": { "namespace": "n", "agent_id": "a" },
+      "recipients": [{ "namespace": "n", "agent_id": "b" }],
+      "type": "handoff",
+      "issued_at_ms": 1,
+      "payload": { "media_type": "text/plain", "body": { "$fixture": "repeat", "value": "x", "count": 65537 } }
+    }
+  }
+]

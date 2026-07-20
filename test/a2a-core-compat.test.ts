@@ -40,3 +40,41 @@ test("existing sendMessage broadcast API preserves resolved recipients and wildc
     ledger.cleanup();
   }
 });
+
+test("existing sendMessage direct API preserves an empty legacy payload", () => {
+  const ledger = withTempDb();
+  try {
+    createFleet("f1");
+    sendMessage("a1", "a2", "f1", "result", "");
+    assert.equal(getInbox("a2")[0]!.payload, "");
+  } finally {
+    ledger.cleanup();
+  }
+});
+
+test("existing sendMessage broadcast API preserves an empty legacy payload", () => {
+  const ledger = withTempDb();
+  try {
+    createFleet("f1");
+    registerAgentInLedger(agent("a1"));
+    registerAgentInLedger(agent("a2"));
+    sendMessage("a1", "*", "f1", "handoff", "");
+    assert.equal(getInbox("a2")[0]!.payload, "");
+  } finally {
+    ledger.cleanup();
+  }
+});
+
+test("existing sendMessage preserves the focused legacy self-message exception", () => {
+  const ledger = withTempDb();
+  try {
+    createFleet("f1");
+    const result = sendMessage("a1", "a1", "f1", "question", "");
+    assert.deepEqual(result.recipients, ["a1"]);
+    const message = getInbox("a1")[0]!;
+    assert.equal(message.to_agent_id, "a1");
+    assert.equal(message.payload, "");
+  } finally {
+    ledger.cleanup();
+  }
+});

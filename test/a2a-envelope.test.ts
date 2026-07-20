@@ -7,8 +7,38 @@ import { decodeEnvelope, encodeEnvelope, EnvelopeIdentityRegistry, validateEnvel
 import { mapLegacyMessage, projectLegacyMessage } from "../src/a2a/legacy-map.js";
 import { A2A_MESSAGE_TYPES } from "../src/a2a/types.js";
 
-const fixture = (name: string): unknown => JSON.parse(readFileSync(join("test", "fixtures", "a2a", "v0.1", name), "utf8"));
-const direct = () => structuredClone(fixture("valid-direct.json"));
+type Expected = "valid" | "invalid" | "duplicate" | "conflict";
+type CorpusCase = {
+  name: string;
+  input: unknown;
+  expected: Expected;
+  options?: { forAcceptance?: boolean; nowMs?: number };
+};
+
+const corpus = (): CorpusCase[] => JSON.parse(
+  readFileSync(join("test", "fixtures", "a2a", "v0.1", "corpus.json"), "utf8"),
+) as CorpusCase[];
+
+function expandFixture(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(expandFixture);
+  if (value !== null && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    // JSON-only fixture convention for oversized strings.
+    if (record.$fixture === "repeat" && typeof record.value === "string" && Number.isInteger(record.count)) {
+      return record.value.repeat(record.count as number);
+    }
+    return Object.fromEntries(Object.entries(record).map(([key, nested]) => [key, expandFixture(nested)]));
+  }
+  return value;
+}
+
+const caseByName = (name: string): CorpusCase => {
+  const testCase = corpus().find((candidate) => candidate.name === name);
+  assert.ok(testCase, `missing corpus case ${name}`);
+  return testCase;
+};
+const inputFor = (name: string): unknown => expandFixture(caseByName(name).input);
+const direct = () => structuredClone(inputFor("valid-direct"));
 
 test("A2A v0.1 round-trips a valid envelope and preserves extensions", () => {
   const input = direct();
@@ -24,20 +54,36 @@ test("A2A v0.1 accepts all approved current message types", () => {
   }
 });
 
-test("A2A v0.1 rejects canonical shape and acceptance failures", () => {
-  for (const testCase of fixture("invalid-cases.json") as Array<{ name: string; input: unknown }>) {
-    assert.throws(() => validateEnvelope(testCase.input), undefined, testCase.name);
+test("A2A v0.1 conformance corpus validates canonical envelopes and identity outcomes", () => {
+  const registry = new EnvelopeIdentityRegistry();
+  for (const testCase of corpus()) {
+    const input = expandFixture(testCase.input);
+    if (testCase.expected === "valid") {
+      assert.doesNotThrow(() => validateEnvelope(input, testCase.options), testCase.name);
+      assert.equal(registry.accept(input), "accepted", testCase.name);
+      continue;
+    }
+    if (testCase.expected === "invalid") {
+      assert.throws(() => validateEnvelope(input, testCase.options), undefined, testCase.name);
+      continue;
+    }
+    assert.equal(registry.accept(input), testCase.expected, testCase.name);
   }
-  const expired = direct() as Record<string, unknown>;
-  expired.issued_at_ms = 1;
-  expired.expires_at_ms = 2;
-  assert.throws(() => validateEnvelope(expired, { forAcceptance: true, nowMs: 2 }), /expired/);
-  const self = direct() as Record<string, any>;
-  self.recipients = [self.sender];
-  assert.throws(() => validateEnvelope(self), /sender must not be a recipient/);
-  const oversized = direct() as Record<string, any>;
-  oversized.payload.body = "x".repeat(64 * 1024 + 1);
-  assert.throws(() => validateEnvelope(oversized), /exceeds/);
+});
+
+test("A2A extensions retain runtime-like fields as opaque extension data", () => {
+  const envelope = validateEnvelope(inputFor("valid-extensions"));
+  assert.deepEqual(envelope.extensions, {
+    provider: "example",
+    model: "example-model",
+    pid: 42,
+    lease: "opaque",
+    acknowledged: true,
+  });
+  const projected = envelope as unknown as Record<string, unknown>;
+  for (const field of ["provider", "model", "pid", "lease", "acknowledged"]) {
+    assert.equal(projected[field], undefined, `${field} must not become protocol authority`);
+  }
 });
 
 test("legacy mapping preserves direct semantic fields exactly", () => {
@@ -63,14 +109,20 @@ test("legacy broadcast mapping resolves wildcard before canonical encoding", () 
   assert.deepEqual(projectLegacyMessage(mapped, "*").recipients, ["b", "c"]);
 });
 
-test("identity registry classifies identical and conflicting id reuse", () => {
+test("canonical wire rejects sender-as-recipient while legacy mapping remains bounded", () => {
+  const self = direct() as Record<string, any>;
+  self.recipients = [self.sender];
+  assert.throws(() => validateEnvelope(self), /sender must not be a recipient/);
+  assert.throws(() => mapLegacyMessage({
+    messageId: "legacy-self", fromAgentId: "a", toAgentId: "a", fleetId: "fleet", type: "question", payload: "", timestamp: 123,
+  }), /sender must not be a recipient/);
+});
+
+test("identity registry treats reordered extensions as duplicate and changed content as conflict", () => {
   const registry = new EnvelopeIdentityRegistry();
-  const first = direct() as Record<string, any>;
-  assert.equal(registry.accept(first), "accepted");
-  assert.equal(registry.accept(structuredClone(first)), "duplicate");
-  const conflict = structuredClone(first);
-  conflict.payload.body = "different";
-  assert.equal(registry.accept(conflict), "conflict");
+  assert.equal(registry.accept(inputFor("identity-first")), "accepted");
+  assert.equal(registry.accept(inputFor("identity-reordered-extensions")), "duplicate");
+  assert.equal(registry.accept(inputFor("identity-true-conflict")), "conflict");
 });
 
 test("A2A codec and mapping have no transport, MCP, or provider imports", () => {

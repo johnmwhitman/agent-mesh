@@ -52,7 +52,8 @@ function refKey(ref: AgentRef): string {
 function validatePayload(value: unknown): A2AEnvelopeV01["payload"] {
   if (!isRecord(value)) fail("payload must be an object");
   const mediaType = nonEmptyString(value.media_type, "payload.media_type");
-  const body = nonEmptyString(value.body, "payload.body");
+  if (typeof value.body !== "string") fail("payload.body must be a string");
+  const body = value.body;
   if (Buffer.byteLength(body, "utf-8") > MAX_A2A_BODY_BYTES) {
     fail(`payload.body exceeds ${MAX_A2A_BODY_BYTES} UTF-8 bytes`);
   }
@@ -80,11 +81,7 @@ export function validateEnvelope(input: unknown, options: ValidationOptions = {}
   if (!isRecord(input)) fail("envelope must be an object");
   if (input.protocol !== A2A_PROTOCOL) fail(`protocol must equal ${A2A_PROTOCOL}`);
   const version = nonEmptyString(input.version, "version");
-  const [major, minor, ...rest] = version.split(".");
-  if (rest.length !== 0 || !/^\d+$/.test(major ?? "") || !/^\d+$/.test(minor ?? "")) {
-    fail("version must be a major.minor string");
-  }
-  if (major !== "0") fail(`unsupported major version ${major}`);
+  if (version !== A2A_VERSION) fail(`unsupported version ${version}`);
   if (input.kind !== A2A_KIND) fail(`kind must equal ${A2A_KIND}`);
 
   const sender = agentRef(input.sender, "sender");
@@ -122,7 +119,7 @@ export function validateEnvelope(input: unknown, options: ValidationOptions = {}
 
   return {
     protocol: A2A_PROTOCOL,
-    version: version === A2A_VERSION ? A2A_VERSION : version,
+    version: A2A_VERSION,
     kind: A2A_KIND,
     message_id: nonEmptyString(input.message_id, "message_id"),
     sender,
@@ -152,6 +149,19 @@ export function encodeEnvelope(input: unknown): string {
   return JSON.stringify(validateEnvelope(input));
 }
 
+/**
+ * JSON.stringify preserves insertion order for object keys. Identity must instead
+ * compare the canonical JSON value, so extension-object key ordering is inert.
+ */
+function stableJson(value: unknown): string {
+  const serialized = JSON.stringify(value, (_key, nested: unknown) => {
+    if (!isRecord(nested)) return nested;
+    return Object.fromEntries(Object.keys(nested).sort().map((key) => [key, nested[key]]));
+  });
+  if (serialized === undefined) throw new Error("Envelope fingerprint must be JSON serializable");
+  return serialized;
+}
+
 /** In-memory identity semantics for transports; persistence is deliberately out of this slice. */
 export class EnvelopeIdentityRegistry {
   private readonly fingerprints = new Map<string, string>();
@@ -159,7 +169,7 @@ export class EnvelopeIdentityRegistry {
   accept(input: unknown): EnvelopeIdentityResult {
     const envelope = validateEnvelope(input);
     const key = envelope.dedupe_key ?? envelope.message_id;
-    const fingerprint = encodeEnvelope(envelope);
+    const fingerprint = stableJson(envelope);
     const previous = this.fingerprints.get(key);
     if (previous === undefined) {
       this.fingerprints.set(key, fingerprint);
