@@ -20,8 +20,9 @@ durable commit.
 
 ## Decision
 
-Slice 4C-1 defines exactly one normative offline operation,
-`evaluate-local-admission(request, replay_oracle)`. Validation, freshness,
+Slice 4C-1 defines exactly one normative raw-UTF-8 offline operation,
+`evaluate-local-admission(raw_request_utf8, replay_oracle)`. There is no public
+object-input or direct-tree API. Validation, freshness,
 binding, all-recipient authorization, replay classification, and unseen-message
 expiry are ordered internal stages.
 
@@ -36,14 +37,17 @@ self-authenticating. Slice 4C-1 validates carrier syntax and freshness but does
 not verify credentials, signatures, trust roots, adapter identity, accounts, or
 provider sessions.
 
-Binding and authorization use explicit immutable snapshots. Authorization is
+Binding and authorization use caller-supplied fixture snapshots with closed
+IDs, versions, provenance markers, and effective intervals. A decision is
+relative to those fixtures and proves no operational freshness, revocation,
+provenance, or administrative authority. Authorization is
 for the single out-of-envelope action `a2a.message.admit`, one bound sender, one
 message type, and all concrete recipients. Audience is required and must match
 evidence and policy, but is not authentication. Capability, proof, model,
 runtime, receipt, provider, translation, and conformance evidence cannot affect
 authorization.
 
-Current authentication context, policy, binding, and all-recipient
+Evidence time validity, supplied-fixture binding, and all-recipient
 authorization are evaluated before replay-oracle consultation. A denied request
 does not call the oracle. The existing ingress dispositions remain distinct;
 unavailability alone maps to `REPLAY_PROTECTION_UNAVAILABLE`. Envelope expiry is
@@ -51,7 +55,7 @@ checked last and only for an unseen identity.
 
 ## Consequences
 
-- The contract can be implemented as a pure TypeScript/Python witness with an
+- The contract can be implemented as a raw-text TypeScript/Python witness with an
   injected, instrumented replay oracle and no persistence or network imports.
 - There is no public intermediate-success API that consumers can cache or
   mistake for authority.
@@ -60,8 +64,8 @@ checked last and only for an unseen identity.
   issuer or oracle is trustworthy in production.
 - Integrating a plan with Slice 4B requires a later contract for trust,
   transactionality, replay persistence, and lifecycle authority.
-- Static harness mapping remains a separate planning plane and always emits
-  null authentication and principal-binding inputs in this slice.
+- Static harness mapping is a closed sidecar, never a `RendererResult` field,
+  and always emits null authentication and principal-binding inputs.
 
 ## Options rejected
 
@@ -106,4 +110,3 @@ and independent contract/security review defined by the profile. Passing those
 checks would verify an offline semantic foundation only. It would not activate
 public ingress, authentication, transport, network, database integration,
 delivery, runtime execution, release, or deployment.
-

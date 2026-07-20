@@ -79,11 +79,15 @@ and the bounds in
 ## Slice 4C-1 two-plane boundary
 
 Static harness translation remains configuration/planning evidence and is not
-local authentication. For Codex, Codex CLI, Claude Code, OpenCode,
-Antigravity/Gemini, Grok, and unknown harnesses, every Slice 4C-1
-`StaticHarnessMapping` MUST emit `authentication_evidence: null` and
-`principal_binding_input: null`. Known-static launch templates remain planning
-evidence; deferred/unprofiled targets remain explicit and loss-aware.
+local authentication. Slice 4C-1 defines a closed `StaticHarnessMapping`
+sidecar, not a `RendererResult` extension. Its targets are Codex, Codex CLI,
+Claude Code, OpenCode, Antigravity/Gemini, Grok, and unknown harness; status is
+the profile's exact `known-static | deferred | unprofiled` mapping. Every
+sidecar emits `authentication_evidence: null`,
+`principal_binding_input: null`, and exactly two sorted
+`identity_not_represented`/`omitted_by_contract` losses. Existing
+static-translation conformance validates it outside the one-operation admission
+corpus.
 
 No platform configuration, template, banner, model/provider label, PID,
 receipt, login/account state, provider session, environment name/value, path,

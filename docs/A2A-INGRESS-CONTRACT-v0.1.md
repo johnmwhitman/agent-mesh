@@ -220,19 +220,22 @@ and human-gated.
 ## Slice 4C-1 local-admission design boundary
 
 [A2A-LOCAL-ADMISSION-PROFILE-v0.1.md](./A2A-LOCAL-ADMISSION-PROFILE-v0.1.md)
-defines one designed-not-implemented offline operation. It reuses this
-contract's envelope, recipient semantics, identities, digest, and dispositions
-unchanged. Its stricter consumer profile requires envelope `audience` and exact
-evidence/policy equality, but audience remains non-authenticating. Current
-freshness, exact principal binding, fixed-action message-type policy, and all
-concrete recipient authorization precede one injected replay-oracle call.
+defines one designed-not-implemented raw-UTF-8 offline operation. It reuses this
+contract's envelope, recipient/numeric/depth semantics, identities, and digest
+unchanged. Every inherited validation failure projects as
+`MALFORMED_ENVELOPE`. Its stricter consumer profile requires envelope
+`audience` and exact evidence/fixture-policy equality, but audience remains
+non-authenticating. Evidence and caller-fixture time applicability, exact
+principal/session binding, fixed-action message-type policy, and all concrete
+recipient authorization precede one injected replay-oracle call.
 
-Its `admission_plan` is not this contract's durable `accepted` disposition and
-MUST NOT be written to the dormant Slice 4B journal without a separately
-approved integration transaction. Duplicate recipients remain rejected, not
-deduplicated. Request identity remains `(principal_ref, request_id)` and
-semantic identity remains `(bound sender, message_id)`; no nonce-derived
-identity exists.
+Its `admission_plan` is the sole success and is not this contract's durable
+`accepted` disposition. Replay, conflict, and expiry outcomes are closed
+lowercase `not_admitted` dispositions. A plan MUST NOT be written to dormant
+Slice 4B without a separately approved integration transaction. Duplicate
+recipients remain rejected, not deduplicated. Request identity remains
+`(principal_ref, request_id)` and semantic identity remains `(bound sender,
+message_id)`; no nonce-derived identity exists.
 
 ## Tradeoffs and reversibility
 

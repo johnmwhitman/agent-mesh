@@ -147,19 +147,21 @@ attestation, or exactly-once behavior.
 
 Slice 4C-1 is designed, not implemented, in
 [A2A-LOCAL-ADMISSION-PROFILE-v0.1.md](./A2A-LOCAL-ADMISSION-PROFILE-v0.1.md)
-and ADR 0007. It defines exactly one offline operation and an ephemeral
-`admission_plan` that is not acceptance or lifecycle authority. The operation
-preserves the Slice 4A envelope and digest, leaves the Slice 4B journal behind
-current preauthorization, and excludes all Slice 4C-0 capability/proof evidence
-from authorization.
+and ADR 0007. It has exactly one raw-UTF-8 offline operation, no public object
+input, and one ephemeral `admission_plan` success. It preserves Slice 4A
+envelope/numeric/depth/digest semantics, leaves Slice 4B behind
+preauthorization, and excludes all 4C-0 evidence from authorization.
 
-The local adapter provenance marker is an explicit unverified trust assumption.
-There is no public ingress, auth provider, trust root, credential verification,
-replay store, 4B integration, database, MCP, transport, network, delivery,
-outbox, runtime, provider call, secret access, release, deploy, or activation.
-Static mappings emit null authentication and principal-binding inputs for every
-named and unknown harness. Released `meshfleet@0.14.0` contains none of the
-unmerged Slice 4B, Slice 4C-0, or Slice 4C-1 branch work.
+The local adapter marker is an unverified trust assumption. Binding and policy
+snapshots are caller-supplied fixtures with IDs, versions, provenance markers,
+and bounded intervals; a result proves no operational freshness, revocation, or
+provenance authority. Static harness mapping is a closed sidecar outside
+`RendererResult` and the admission corpus and emits null identity fields for all
+targets. There is no public ingress, auth provider, trust root, credential
+verification, replay store, 4B integration, DB, MCP, transport, network,
+delivery, outbox, runtime, provider call, secret access, release, deploy, or
+activation. Released `meshfleet@0.14.0` contains none of the unmerged Slice 4B,
+4C-0, or 4C-1 branch work.
 
 The next implementation boundary, if separately approved, is the pure
 TypeScript/Python one-operation witness and shared corpus. It is not active or
