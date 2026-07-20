@@ -139,4 +139,5 @@ another evidence level.
    private-data policy.
 6. Design a shared coordinator before using the phrase multi-host.
 
-Real vendor adapters and target configuration renderers remain separate work.
+Real vendor adapters remain separate work. Additional target renderers require
+separate schema evidence before they can be added to the verified matrix.

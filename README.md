@@ -66,7 +66,7 @@ Add to `~/.config/opencode/opencode.jsonc` (npm install):
 ```jsonc
 {
   "mcp": {
-    "agent-mesh": {
+    "meshfleet": {
       "type": "local",
       "enabled": true,
       "command": ["npx", "-y", "meshfleet"]
@@ -80,7 +80,7 @@ For noncanonical development-only source-checkout usage (not the recommended rel
 ```jsonc
 {
   "mcp": {
-    "agent-mesh": {
+    "meshfleet": {
       "type": "local",
       "enabled": true,
       "command": ["node", "~/.config/opencode/mcp-servers/agent-mesh/dist/index.js"]
