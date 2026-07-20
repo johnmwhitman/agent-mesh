@@ -209,8 +209,15 @@ non-plain object-level input. The raw UTF-8 input MUST be at most 128 KiB
 (`131072` bytes), the tree MUST be at most 64 containers deep, and canonical
 encoding MUST fit within the same bound.
 
-A profile contains 1 through 128 claims. It contains at most 32 profile-level
-extension members and each claim contains at most 16 extension members.
+A profile contains zero through 128 claims. An empty `claims` array is an
+explicit no-claims/unknown discovery profile: it proves only that this profile
+asserts no capabilities. It MUST NOT be treated as wildcard support, proof
+that a capability is unsupported, or a basis to select a runtime, route work,
+or make policy. Capability absence is represented only by an explicit,
+applicable `unsupported` claim from an otherwise valid profile.
+
+The profile contains at most 32 profile-level extension members and each claim
+contains at most 16 extension members.
 `critical_extensions` contains at most 16 unique ASCII extension names. An
 extension name MUST be case-sensitive, 3 through 96 ASCII characters, begin
 with `x-`, and include a namespace separator `.`. An unknown critical extension
@@ -220,13 +227,42 @@ routing, authorization, recipient expansion, runtime selection, or policy.
 
 Profiles MUST NOT contain raw principals, credentials, bearer material, API
 keys, PEM material, prompts, payloads, outputs, recipient lists, request or
-message identifiers, account IDs, hostnames, endpoints, paths, CWD, argv,
-environment names or values, process IDs, hardware identifiers, or global
-runtime fingerprints. Parsers MUST reject rather than redact-and-accept a
-field or value that encodes those categories. Diagnostics MUST use stable error
-codes and MUST NOT echo rejected values. Environment values are structurally
-forbidden in both source descriptors and translation outputs; a working
-directory can be represented only by the policy enums defined below.
+message identifiers, account IDs, hostnames, endpoints, paths, CWD,
+runtime-observed argv, dynamic arguments, environment names or values, process
+IDs, hardware identifiers, or global runtime fingerprints. Parsers MUST reject
+rather than redact-and-accept a field or value that encodes those categories.
+Diagnostics MUST use stable error codes and MUST NOT echo rejected values.
+Environment values are structurally forbidden in both source descriptors and
+translation outputs; a working directory can be represented only by the policy
+enums defined below.
+
+### Static launch-template exception
+
+An offline translation fixture MAY carry a static `launch_template` only to
+represent a target-profile-defined, allowlisted command literal and argv
+literal sequence. It is configuration shape, not runtime-observed argv, and it
+MUST NOT be accepted from a caller, process, environment, prompt, or provider
+response. v0.1 permits the single target-profile-defined template:
+
+```json
+{
+  "template_id": "meshfleet.mcp-stdio/v1",
+  "command": "npx",
+  "argv": ["-y", "meshfleet"]
+}
+```
+
+Any future template requires an explicit target-profile addition. A template
+ID is ASCII, case-sensitive, and at most 96 characters. `command` and each
+argv member MUST be an allowlisted ASCII literal of at most 96 characters;
+the argv array contains at most 16 members. Literals MUST NOT contain
+whitespace, `/`, `\\`, `$`, `~`, `=`, `:`, a `..` sequence, a path, an
+environment reference, a credential, an endpoint, or a dynamic substitution.
+The template MUST NOT carry a cwd, environment name or value, prompt, runtime
+argument, process output, diagnostic, or observed command line. A static
+template MUST NOT be cited as proof that a process ran, that a target accepts
+the configuration, or that any capability, identity, authorization, delivery,
+or execution exists.
 
 ## Contradiction and freshness semantics
 

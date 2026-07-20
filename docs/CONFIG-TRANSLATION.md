@@ -35,6 +35,22 @@ interface RendererResult<TConfig> {
 No renderer may silently drop fields. Unsupported fields are reported exactly
 once by canonical field name with a reason and optional suggestion.
 
+## Static Launch-Template Boundary
+
+The static command/argv shapes in this document are bounded target-profile
+templates for offline translation fixtures, not observed process data. The
+current allowlisted template is exactly `command: "npx"` with
+`argv: ["-y", "meshfleet"]`. It is nonsecret configuration shape only and
+MUST NOT prove that a process ran, a client accepted the configuration, or a
+capability, runtime identity, authorization, delivery, or execution exists.
+
+No caller- or runtime-supplied command data is eligible for this exception.
+Observed argv, prompts, dynamic arguments, paths, CWD, environment names or
+values, endpoints, output, and diagnostics remain prohibited from capability
+profile and translation-fixture data. A new static template requires an
+explicit target-profile-defined allowlist entry and the bounds in
+[A2A Capability Profile v0.1](./A2A-CAPABILITY-PROFILE-v0.1.md).
+
 ## Secret Rejection Policy
 
 - The canonical spec contains **zero** inline credentials, tokens, or secret-like environment keys.
