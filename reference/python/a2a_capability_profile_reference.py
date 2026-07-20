@@ -35,7 +35,7 @@ def protocol_ref(v):
 def label(v): return isinstance(v,str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+@-]{0,95}",v) is not None
 def nonce(v): return isinstance(v,str) and re.fullmatch(r"nonce_[A-Za-z0-9_-]{20,84}",v) is not None
 def proof_digest(v): return isinstance(v,str) and re.fullmatch(r"sha256:[0-9a-f]{64}",v) is not None
-def field_path(v): return isinstance(v,str) and (v == "$evaluation_time_ms" or re.fullmatch(r"\$(?:\.[a-z][a-z0-9_]*|\[[0-9]+\])*",v) is not None)
+def field_path(v): return isinstance(v,str) and len(v.encode("utf-8"))<=256 and (v == "$evaluation_time_ms" or re.fullmatch(r"\$(?:\.[a-z][a-z0-9_]*|\[[0-9]+\])*",v) is not None)
 def sort_errors(items): return sorted(items,key=lambda x:(asc(x["code"]),asc(x["field_path"])))
 def path(base,k): return base+"."+k
 RAW_INVALID = object()
@@ -50,6 +50,7 @@ def _integer(text):
     if abs(value)>SAFE: raise ValueError("unsafe integer")
     return value
 def _constant(_): raise ValueError("nonstandard number")
+def _float(_): raise ValueError("non-integer numeric lexeme")
 def _tree_domain(v,depth=1):
     if depth>64: return False
     if v is None or type(v) is bool: return True
@@ -66,7 +67,7 @@ def parsed(v):
     if isinstance(v,str):
         try:
             if len(v.encode("utf-8"))>131072: return RAW_INVALID
-            out=json.loads(v,object_pairs_hook=_pairs,parse_int=_integer,parse_constant=_constant)
+            out=json.loads(v,object_pairs_hook=_pairs,parse_int=_integer,parse_float=_float,parse_constant=_constant)
         except Exception: return RAW_INVALID
         return out if _tree_domain(out) else RAW_INVALID
     if not _tree_domain(v): return RAW_INVALID
@@ -420,12 +421,12 @@ def validate_translation_result(inp):
     return {"ok":True,"value":{"validation_version":TRVV,"normalized_result":norm}}
 def render_conformance(result,registry):
     raw=parsed(result); target=raw.get("target") if is_obj(raw) and raw.get("target") in TARGETS else None
-    if target is None: return terr("INVALID_TARGET","$.result.target","invalid")
+    if target is None: return {"ok":False,"error":terr("INVALID_TARGET","$.result.target","invalid")}
     r=parsed(registry)
-    if not is_obj(r) or len(r)!=5 or r.get("registry_version")!=RV or not opaque(r.get("record_id")) or r.get("scope")!="offline-translation": return terr("INVALID_REGISTRY_RECORD","$.registry_record",target)
-    if r.get("target") not in TARGETS: return terr("INVALID_TARGET","$.registry_record.target","invalid")
-    if r["target"]!=target: return terr("INVALID_TARGET","$.registry_record.target",r["target"])
-    if r.get("status") not in {"documented","static-profiled","static-config-verified","static-translation-verified"}: return terr("INVALID_SCOPE_STATUS","$.registry_record.status",target)
+    if not is_obj(r) or set(r)!={"registry_version","record_id","target","scope","status"} or r.get("registry_version")!=RV or not opaque(r.get("record_id")) or r.get("scope")!="offline-translation": return {"ok":False,"error":terr("INVALID_REGISTRY_RECORD","$.registry_record",target)}
+    if r.get("target") not in TARGETS: return {"ok":False,"error":terr("INVALID_TARGET","$.registry_record.target","invalid")}
+    if r["target"]!=target: return {"ok":False,"error":terr("INVALID_TARGET","$.registry_record.target",r["target"])}
+    if r.get("status") not in {"documented","static-profiled","static-config-verified","static-translation-verified"}: return {"ok":False,"error":terr("INVALID_SCOPE_STATUS","$.registry_record.status",target)}
     return {"ok":True,"value":{"record_id":r["record_id"],"target":target,"scope":"offline-translation","status":r["status"]}}
 def compare_profiles(raw,t=None):
     if not valid_time(t): return {"ok":False,"error":err("INVALID_EVALUATION_TIME","$evaluation_time_ms")}

@@ -53,66 +53,65 @@ const REQUIRED_IDS = [
   "translation.evaluation-time-non-number.array", "translation.evaluation-time-non-number.object", "translation.evaluation-time-non-integer", "translation.evaluation-time-negative",
   "translation.evaluation-time-unsafe", "translation.evaluation-time-zero-boundary", "translation.evaluation-time-max-boundary", "strict.malformed-json",
   "strict.duplicate-decoded-member", "strict.raw-size", "strict.depth", "strict.invalid-unicode",
-  "strict.unsafe-number", "translation.raw-duplicate-decoded-member", "result.raw-duplicate-decoded-member", "array.claims-reordered",
-  "array.claim-content-changed", "array.profile-critical-nonempty", "array.claim-critical-nonempty", "array.applicability-protocol-reordered",
-  "array.applicability-transport-reordered", "array.applicability-operation-reordered", "array.duplicate-set-member", "array.argv-template-reordered",
-  "array.features-reordered", "array.features-duplicate", "array.provenance-refs-reordered", "array.provenance-refs-duplicate",
-  "array.result-features-reordered", "array.result-features-duplicate", "array.result-provenance-refs-reordered", "array.result-provenance-refs-duplicate",
-  "array.result-losses-reordered", "array.result-losses-duplicate", "array.proof-results-reordered", "array.proof-results-duplicate",
-  "array.translation-input-critical-nonempty", "array.translation-result-critical-nonempty", "array.validation-errors-reordered", "array.validation-errors-duplicate",
-  "diagnostic.profile-claim-source-index", "diagnostic.translation-privacy-source-index", "diagnostic.translation-unknown-source-index", "diagnostic.translation-extension-source-index",
-  "diagnostic.translation-feature-source-index", "diagnostic.translation-provenance-source-index", "diagnostic.deferred-supported-normalized-index", "fingerprint.base",
-  "fingerprint.issuer-ref", "fingerprint.subject-ref", "fingerprint.profile-id", "fingerprint.claim-id",
-  "fingerprint.revision", "fingerprint.normalized-claim", "fingerprint.full-identity-tuple", "contradiction.exact-duplicate",
-  "contradiction.identity-grouped", "contradiction.identity-cross-profile-noncollision", "contradiction.capability-supported-unsupported", "contradiction.capability-unknown-supported",
-  "contradiction.transport-supported-unsupported", "contradiction.protocol-same-version", "contradiction.protocol-different-version", "contradiction.runtime-distinct-labels",
-  "contradiction.provider-distinct-labels", "contradiction.model-distinct-labels", "translation.target.codex", "translation.target.claude-code",
-  "translation.target.opencode", "translation.target.generic-mcp", "translation.target.generic-cli-stdio", "translation.target.antigravity-gemini",
-  "translation.target.grok", "translation.target.unknown-future-harness", "translation.each-target-minimal", "translation.codex-no-tools-discovery",
-  "translation.claude-no-tools-discovery", "translation.opencode-runtime-separate", "translation.deferred-none-return.antigravity-gemini", "translation.deferred-template-fail.antigravity-gemini",
-  "translation.deferred-supported-feature-fail.antigravity-gemini", "translation.deferred-supported-profile-claim-fail.antigravity-gemini", "translation.deferred-nonsupported-input.antigravity-gemini", "translation.deferred-none-return.grok",
-  "translation.deferred-template-fail.grok", "translation.deferred-supported-feature-fail.grok", "translation.deferred-supported-profile-claim-fail.grok", "translation.deferred-nonsupported-input.grok",
-  "translation.deferred-none-return.unknown-future-harness", "translation.deferred-template-fail.unknown-future-harness", "translation.deferred-supported-feature-fail.unknown-future-harness", "translation.deferred-supported-profile-claim-fail.unknown-future-harness",
-  "translation.deferred-nonsupported-input.unknown-future-harness", "translation.deferred-supported-path-order", "translation.feature-state-four-values", "translation.loss-order",
-  "translation.env-names-field", "translation.env-value", "translation.no-conformance-status-input", "result.no-conformance-status",
-  "result.loss-free-form-reason", "privacy.forbidden-field-names", "privacy.artifact-and-path", "privacy.extension-artifact-key",
-  "privacy.uppercase-known-path", "privacy.unknown-nonprivacy-core", "privacy.unknown-uppercase-key", "privacy.unknown-empty-key",
-  "privacy.unknown-unicode-key", "privacy.unknown-source-profile-key", "privacy.unknown-claim-key", "privacy.unknown-same-container",
-  "privacy.unknown-across-containers", "privacy.extension-unusual-keys.uppercase", "privacy.extension-unusual-keys.empty", "privacy.extension-unusual-keys.unicode",
-  "privacy.path-url-pem-bearer-token", "privacy.runtime-argv-dynamic", "translation.precedence-t00-evaluation", "translation.precedence-t01-root",
-  "translation.precedence-t02-target", "translation.precedence-t03-privacy", "translation.precedence-t04-unknown", "translation.precedence-t05-profile",
-  "translation.precedence-t06-extension-container", "translation.precedence-t07-extension-content", "translation.precedence-t08-template", "translation.precedence-t09-cwd",
-  "translation.precedence-t10-feature-schema", "translation.precedence-t11-feature-duplicate", "translation.precedence-t12-provenance-schema", "translation.precedence-t13-provenance-duplicate",
-  "translation.precedence-t14-deferred-template", "translation.precedence-t15-deferred-supported", "translation.precedence-t16-remaining-compatibility", "translation.collision-evaluation-input-target",
-  "translation.collision-evaluation-privacy-extension", "translation.collision-target-privacy-unknown", "translation.collision-privacy-unknown-profile", "translation.collision-unknown-profile-extension",
-  "translation.collision-profile-extension-container-content", "translation.collision-extension-container-content-template", "translation.collision-extension-content-template-cwd", "translation.collision-feature-schema-duplicate-provenance",
-  "translation.collision-provenance-duplicate-deferred-template", "translation.collision-deferred-template-supported", "translation.collision-nested-computed-invalid-version", "translation.collision-nested-unknown-invalid-version",
-  "result.r00", "result.r01", "result.r02", "result.r03",
-  "result.r04", "result.r05", "result.r06", "result.r07",
-  "result.r08", "result.r09", "result.r10", "result.r11",
-  "result.r12", "result.r13", "result.r14", "result.r15",
-  "result.r16", "result.r17", "result.r18", "result.r19",
-  "result.r20", "result.r21", "result.r22", "result.r11-bytewise-member-precedence",
-  "result.r18-bytewise-member-precedence", "result.collision-nested-computed-invalid-version", "result.collision-nested-unknown-invalid-version", "result.semantic-contradiction-r07",
-  "conformance.invalid-result-target", "conformance.invalid-registry-record", "conformance.invalid-registry-target", "conformance.target-mismatch",
-  "conformance.no-live-registry", "conformance.offline-status-allowlist.documented", "conformance.offline-status-allowlist.static-profiled", "conformance.offline-status-allowlist.static-config-verified",
-  "conformance.offline-status-allowlist.static-translation-verified", "conformance.higher-status-rejected", "comparison.raw-profiles-reordered", "comparison.raw-profiles-duplicate",
-  "comparison.profile-results-reordered", "comparison.profile-results-duplicate", "comparison.identity-contradictions-reordered", "comparison.identity-contradictions-duplicate",
-  "comparison.semantic-contradictions-reordered", "comparison.semantic-contradictions-duplicate", "comparison.exact-duplicates-reordered", "comparison.exact-duplicates-duplicate",
-  "comparison.errors-reordered", "comparison.errors-duplicate", "comparison.validation-error-codes-reordered", "comparison.validation-error-codes-duplicate",
-  "comparison.grouped-fingerprints-reordered", "comparison.grouped-fingerprints-duplicate", "comparison.identity-occurrence-indexes-reordered", "comparison.identity-occurrence-indexes-duplicate",
-  "comparison.semantic-supported-occurrences-reordered", "comparison.semantic-supported-occurrences-duplicate", "comparison.semantic-unsupported-occurrences-reordered", "comparison.semantic-unsupported-occurrences-duplicate",
-  "comparison.exact-duplicate-indexes-reordered", "comparison.exact-duplicate-indexes-duplicate", "comparison.identity-contradiction", "comparison.semantic-contradiction",
-  "comparison.exact-duplicates", "comparison.structural-invalid-profile", "comparison.time-invalid-profile", "claim.protocol-multiple-versions",
-  "validation.evaluation-time-non-number", "comparison.evaluation-time-non-number", "translation.evaluation-time-non-number", "extension.translation-root-extensions-missing",
-  "extension.translation-root-extensions-null", "extension.translation-root-extensions-array", "extension.translation-root-extensions-nonobject", "extension.translation-root-critical-missing",
-  "extension.translation-root-critical-null", "extension.translation-root-critical-nonarray", "extension.source-profile-container", "extension.claim-container",
-  "extension.profile-key", "extension.claim-key", "extension.translation-input-key", "extension.translation-result-key",
-  "extension.profile-critical", "extension.claim-critical", "extension.translation-input-critical", "extension.translation-result-critical",
-  "privacy.extension-unusual-keys", "translation.deferred-none-return", "translation.deferred-template-fail", "translation.deferred-supported-feature-fail",
-  "translation.deferred-supported-profile-claim-fail", "translation.deferred-nonsupported-input", "translation.target-missing", "translation.target-malformed",
-  "translation.target-unknown", "translation.error-valid-target", "conformance.offline-status-allowlist", "status.registry-values",
-  "status.runtime-evidence-pointer", "status.slice-name", "import.offline-boundary",
+  "strict.unsafe-number", "strict.non-json-whitespace.nbsp", "strict.non-json-whitespace.bom", "strict.non-json-whitespace.vertical-tab",
+  "strict.revision-decimal-lexeme", "strict.revision-exponent-lexeme", "strict.time-decimal-lexeme", "strict.time-exponent-lexeme",
+  "translation.raw-duplicate-decoded-member", "result.raw-duplicate-decoded-member", "array.claims-reordered", "array.claim-content-changed",
+  "array.profile-critical-nonempty", "array.claim-critical-nonempty", "array.applicability-protocol-reordered", "array.applicability-transport-reordered",
+  "array.applicability-operation-reordered", "array.duplicate-set-member", "array.argv-template-reordered", "array.features-reordered",
+  "array.features-duplicate", "array.provenance-refs-reordered", "array.provenance-refs-duplicate", "array.result-features-reordered",
+  "array.result-features-duplicate", "array.result-provenance-refs-reordered", "array.result-provenance-refs-duplicate", "array.result-losses-reordered",
+  "array.result-losses-duplicate", "array.proof-results-reordered", "array.translation-input-critical-nonempty", "array.translation-result-critical-nonempty",
+  "array.validation-errors-reordered", "diagnostic.profile-claim-source-index", "diagnostic.translation-privacy-source-index", "diagnostic.translation-unknown-source-index",
+  "diagnostic.translation-extension-source-index", "diagnostic.translation-feature-source-index", "diagnostic.translation-provenance-source-index", "diagnostic.deferred-supported-normalized-index",
+  "fingerprint.base", "fingerprint.issuer-ref", "fingerprint.subject-ref", "fingerprint.profile-id",
+  "fingerprint.claim-id", "fingerprint.revision", "fingerprint.normalized-claim", "fingerprint.full-identity-tuple",
+  "contradiction.exact-duplicate", "contradiction.identity-grouped", "contradiction.identity-cross-profile-noncollision", "contradiction.capability-supported-unsupported",
+  "contradiction.capability-unknown-supported", "contradiction.transport-supported-unsupported", "contradiction.protocol-same-version", "contradiction.protocol-different-version",
+  "contradiction.runtime-distinct-labels", "contradiction.provider-distinct-labels", "contradiction.model-distinct-labels", "translation.target.codex",
+  "translation.target.claude-code", "translation.target.opencode", "translation.target.generic-mcp", "translation.target.generic-cli-stdio",
+  "translation.target.antigravity-gemini", "translation.target.grok", "translation.target.unknown-future-harness", "translation.each-target-minimal",
+  "translation.codex-no-tools-discovery", "translation.claude-no-tools-discovery", "translation.opencode-runtime-separate", "translation.deferred-none-return.antigravity-gemini",
+  "translation.deferred-template-fail.antigravity-gemini", "translation.deferred-supported-feature-fail.antigravity-gemini", "translation.deferred-supported-profile-claim-fail.antigravity-gemini", "translation.deferred-nonsupported-input.antigravity-gemini",
+  "translation.deferred-none-return.grok", "translation.deferred-template-fail.grok", "translation.deferred-supported-feature-fail.grok", "translation.deferred-supported-profile-claim-fail.grok",
+  "translation.deferred-nonsupported-input.grok", "translation.deferred-none-return.unknown-future-harness", "translation.deferred-template-fail.unknown-future-harness", "translation.deferred-supported-feature-fail.unknown-future-harness",
+  "translation.deferred-supported-profile-claim-fail.unknown-future-harness", "translation.deferred-nonsupported-input.unknown-future-harness", "translation.deferred-supported-path-order", "translation.feature-state-four-values",
+  "translation.loss-order", "translation.env-names-field", "translation.env-value", "translation.no-conformance-status-input",
+  "result.no-conformance-status", "result.loss-free-form-reason", "privacy.forbidden-field-names", "privacy.artifact-and-path",
+  "privacy.extension-artifact-key", "privacy.uppercase-known-path", "privacy.unknown-nonprivacy-core", "privacy.unknown-uppercase-key",
+  "privacy.unknown-empty-key", "privacy.unknown-unicode-key", "privacy.unknown-source-profile-key", "privacy.unknown-claim-key",
+  "privacy.unknown-same-container", "privacy.unknown-across-containers", "privacy.extension-unusual-keys.uppercase", "privacy.extension-unusual-keys.empty",
+  "privacy.extension-unusual-keys.unicode", "privacy.path-url-pem-bearer-token", "privacy.runtime-argv-dynamic", "translation.precedence-t00-evaluation",
+  "translation.precedence-t01-root", "translation.precedence-t02-target", "translation.precedence-t03-privacy", "translation.precedence-t04-unknown",
+  "translation.precedence-t05-profile", "translation.precedence-t06-extension-container", "translation.precedence-t07-extension-content", "translation.precedence-t08-template",
+  "translation.precedence-t09-cwd", "translation.precedence-t10-feature-schema", "translation.precedence-t11-feature-duplicate", "translation.precedence-t12-provenance-schema",
+  "translation.precedence-t13-provenance-duplicate", "translation.precedence-t14-deferred-template", "translation.precedence-t15-deferred-supported", "translation.precedence-t16-remaining-compatibility",
+  "translation.collision-evaluation-input-target", "translation.collision-evaluation-privacy-extension", "translation.collision-target-privacy-unknown", "translation.collision-privacy-unknown-profile",
+  "translation.collision-unknown-profile-extension", "translation.collision-profile-extension-container-content", "translation.collision-extension-container-content-template", "translation.collision-extension-content-template-cwd",
+  "translation.collision-feature-schema-duplicate-provenance", "translation.collision-provenance-duplicate-deferred-template", "translation.collision-deferred-template-supported", "translation.collision-nested-computed-invalid-version",
+  "translation.collision-nested-unknown-invalid-version", "result.r00", "result.r01", "result.r02",
+  "result.r03", "result.r04", "result.r05", "result.r06",
+  "result.r07", "result.r08", "result.r09", "result.r10",
+  "result.r11", "result.r12", "result.r13", "result.r14",
+  "result.r15", "result.r16", "result.r17", "result.r18",
+  "result.r19", "result.r20", "result.r21", "result.r22",
+  "result.r11-bytewise-member-precedence", "result.r18-bytewise-member-precedence", "result.collision-nested-computed-invalid-version", "result.collision-nested-unknown-invalid-version",
+  "result.semantic-contradiction-r07", "result.loss-field-path-overlong", "conformance.invalid-result-target", "conformance.invalid-registry-record",
+  "conformance.invalid-registry-target", "conformance.target-mismatch", "conformance.no-live-registry", "conformance.offline-status-allowlist.documented",
+  "conformance.offline-status-allowlist.static-profiled", "conformance.offline-status-allowlist.static-config-verified", "conformance.offline-status-allowlist.static-translation-verified", "conformance.higher-status-rejected",
+  "comparison.raw-profiles-reordered", "comparison.raw-profiles-duplicate", "comparison.profile-results-reordered", "comparison.identity-contradictions-reordered",
+  "comparison.semantic-contradictions-reordered", "comparison.exact-duplicates-reordered", "comparison.errors-reordered", "comparison.validation-error-codes-reordered",
+  "comparison.grouped-fingerprints-reordered", "comparison.identity-occurrence-indexes-reordered", "comparison.semantic-supported-occurrences-reordered", "comparison.semantic-unsupported-occurrences-reordered",
+  "comparison.exact-duplicate-indexes-reordered", "comparison.identity-contradiction", "comparison.semantic-contradiction", "comparison.exact-duplicates",
+  "comparison.structural-invalid-profile", "comparison.time-invalid-profile", "claim.protocol-multiple-versions", "validation.evaluation-time-non-number",
+  "comparison.evaluation-time-non-number", "translation.evaluation-time-non-number", "extension.translation-root-extensions-missing", "extension.translation-root-extensions-null",
+  "extension.translation-root-extensions-array", "extension.translation-root-extensions-nonobject", "extension.translation-root-critical-missing", "extension.translation-root-critical-null",
+  "extension.translation-root-critical-nonarray", "extension.source-profile-container", "extension.claim-container", "extension.profile-key",
+  "extension.claim-key", "extension.translation-input-key", "extension.translation-result-key", "extension.profile-critical",
+  "extension.claim-critical", "extension.translation-input-critical", "extension.translation-result-critical", "privacy.extension-unusual-keys",
+  "translation.deferred-none-return", "translation.deferred-template-fail", "translation.deferred-supported-feature-fail", "translation.deferred-supported-profile-claim-fail",
+  "translation.deferred-nonsupported-input", "translation.target-missing", "translation.target-malformed", "translation.target-unknown",
+  "translation.error-valid-target", "conformance.offline-status-allowlist", "status.registry-values", "status.runtime-evidence-pointer",
+  "status.slice-name", "import.offline-boundary",
 ] as const;
 
 function corpus(): CorpusCase[] { return JSON.parse(readFileSync(corpusPath, "utf8")) as CorpusCase[]; }
@@ -135,12 +134,14 @@ function validReport(id: string): Record<string, unknown> {
 
 test("mandatory corpus inventory is explicit, closed, and complete", () => {
   const items = corpus(); const ids = items.map((item) => item.case_id);
-  assert.equal(REQUIRED_IDS.length, 367);
+  assert.equal(REQUIRED_IDS.length, 362);
   assert.equal(new Set(REQUIRED_IDS).size, REQUIRED_IDS.length);
   assert.deepEqual(ids, [...REQUIRED_IDS]);
   assert.equal(items.filter((item) => /^extension\.(?:profile-root|profile-claim-source-2|translation-root|translation-source-profile|translation-result-root|translation-result-profile|translation-result-profile-claim-source-2)\.(?:extensions|critical-extensions)\.(?:missing|null|wrong-container-type|nonempty)$/.test(item.case_id)).length, 56);
   assert.deepEqual(items.filter((item) => /^result\.r(?:0[0-9]|1[0-9]|2[0-2])$/.test(item.case_id)).map((item) => item.case_id), Array.from({ length: 23 }, (_, index) => `result.r${String(index).padStart(2, "0")}`));
   assert.deepEqual(items.filter((item) => item.case_id.startsWith("translation.target.")).map((item) => item.case_id), ["codex", "claude-code", "opencode", "generic-mcp", "generic-cli-stdio", "antigravity-gemini", "grok", "unknown-future-harness"].map((target) => `translation.target.${target}`));
+  const deferredReportIngestion = ["array.proof-results-duplicate", "array.validation-errors-duplicate", "comparison.profile-results-duplicate", "comparison.identity-contradictions-duplicate", "comparison.semantic-contradictions-duplicate", "comparison.exact-duplicates-duplicate", "comparison.errors-duplicate", "comparison.validation-error-codes-duplicate", "comparison.grouped-fingerprints-duplicate", "comparison.identity-occurrence-indexes-duplicate", "comparison.semantic-supported-occurrences-duplicate", "comparison.semantic-unsupported-occurrences-duplicate", "comparison.exact-duplicate-indexes-duplicate"];
+  assert.deepEqual(ids.filter((id) => deferredReportIngestion.includes(id)), []);
   for (const item of items) assert.deepEqual(Object.keys(item), ["case_id", "api", "invocation_args", "expected"], item.case_id);
 });
 
@@ -199,15 +200,64 @@ test("comparison and conformance vectors exercise meaningful findings and denial
   const semantic = validReport("contradiction.capability-supported-unsupported");
   assert.equal((semantic.semantic_contradictions as unknown[]).length, 1);
   for (const [id, code] of [["conformance.invalid-result-target", "INVALID_TARGET"], ["conformance.invalid-registry-record", "INVALID_REGISTRY_RECORD"], ["conformance.target-mismatch", "INVALID_TARGET"], ["conformance.higher-status-rejected", "INVALID_SCOPE_STATUS"]]) {
-    assert.equal(((invoke(byId(id)) as Record<string, unknown>).code), code, id);
+    assert.equal((((invoke(byId(id)) as Record<string, unknown>).error as Record<string, unknown>).code), code, id);
   }
 });
 
 test("malformed JSON cases remain raw text and hit strict parser boundaries", () => {
-  for (const id of ["strict.malformed-json", "strict.duplicate-decoded-member", "strict.raw-size", "strict.depth", "strict.invalid-unicode", "strict.unsafe-number", "translation.raw-duplicate-decoded-member", "result.raw-duplicate-decoded-member"]) {
+  for (const id of ["strict.malformed-json", "strict.duplicate-decoded-member", "strict.raw-size", "strict.depth", "strict.invalid-unicode", "strict.unsafe-number", "strict.non-json-whitespace.nbsp", "strict.non-json-whitespace.bom", "strict.non-json-whitespace.vertical-tab", "strict.revision-decimal-lexeme", "strict.revision-exponent-lexeme", "strict.time-decimal-lexeme", "strict.time-exponent-lexeme", "translation.raw-duplicate-decoded-member", "result.raw-duplicate-decoded-member"]) {
     const item = byId(id); const raw = item.invocation_args.raw_profile ?? item.invocation_args.input ?? item.invocation_args.result;
     assert.equal(typeof raw, "string", id);
     assert.deepEqual(invoke(item), item.expected, id);
+  }
+});
+
+test("generated validation and comparison reports contain unique canonical producer output", () => {
+  const unique = (values: unknown[], label: string) => assert.equal(new Set(values.map((value) => JSON.stringify(value))).size, values.length, label);
+  const validation = validReport("proof.results-cardinality");
+  const proofResults = validation.proof_results as Array<Record<string, unknown>>;
+  unique(proofResults.map((item) => item.claim_fingerprint), "claim fingerprints");
+  unique(proofResults.map((item) => item.claim_id), "claim IDs");
+  const structural = validReport("comparison.structural-invalid-profile");
+  unique(structural.profile_results as unknown[], "profile results");
+  unique(structural.errors as unknown[], "comparison errors");
+  for (const result of structural.profile_results as Array<Record<string, unknown>>) unique(result.validation_error_codes as unknown[], "validation error codes");
+  const identity = validReport("contradiction.identity-grouped");
+  unique(identity.identity_contradictions as unknown[], "identity contradictions");
+  for (const group of identity.identity_contradictions as Array<Record<string, unknown>>) {
+    const buckets = group.fingerprints as Array<Record<string, unknown>>; unique(buckets.map((item) => item.claim_fingerprint), "fingerprint buckets");
+    for (const bucket of buckets) unique(bucket.profile_indexes as unknown[], "identity profile indexes");
+  }
+  const semantic = validReport("contradiction.capability-supported-unsupported");
+  unique(semantic.semantic_contradictions as unknown[], "semantic contradictions");
+  for (const group of semantic.semantic_contradictions as Array<Record<string, unknown>>) {
+    unique(group.supported_occurrences as unknown[], "supported occurrences"); unique(group.unsupported_occurrences as unknown[], "unsupported occurrences");
+  }
+  const exact = validReport("contradiction.exact-duplicate");
+  unique(exact.exact_duplicates as unknown[], "exact duplicate groups");
+  for (const group of exact.exact_duplicates as Array<Record<string, unknown>>) unique(group.profile_indexes as unknown[], "exact duplicate indexes");
+});
+
+test("direct objects cannot satisfy schemas through polluted prototypes", () => {
+  const missingTarget = structuredClone(byId("translation.valid").invocation_args.input) as Record<string, unknown>; delete missingTarget.target;
+  const missingRevision = structuredClone(byId("profile.empty-claims").invocation_args.raw_profile) as Record<string, unknown>; delete missingRevision.revision;
+  const noProof = structuredClone(byId("proof.nonattested-absent").invocation_args.raw_profile) as Record<string, unknown>;
+  Object.defineProperties(Object.prototype, {
+    target: { configurable: true, value: "codex" },
+    revision: { configurable: true, value: 1 },
+    proof: { configurable: true, value: ((byId("proof.attested-complete").invocation_args.raw_profile as Record<string, unknown>).claims as Array<Record<string, unknown>>)[0]!.proof },
+  });
+  try {
+    assert.deepEqual(translateProfile(missingTarget, 1760000000000), { code: "INVALID_TARGET", field_path: "$.target", target_ref: "invalid" });
+    const revisionResult = validateProfile(missingRevision, 1760000000000) as { ok: boolean; value: Record<string, unknown> };
+    assert.equal(revisionResult.ok, true); assert.equal(revisionResult.value.valid, false);
+    assert.equal((revisionResult.value.errors as Array<Record<string, unknown>>).some((item) => item.field_path === "$.revision"), true);
+    const proofResult = validateProfile(noProof, 1760000000000) as { ok: boolean; value: Record<string, unknown> };
+    assert.equal(((proofResult.value.proof_results as Array<Record<string, unknown>>)[0]!).verification_status, "absent");
+  } finally {
+    delete (Object.prototype as Record<string, unknown>).target;
+    delete (Object.prototype as Record<string, unknown>).revision;
+    delete (Object.prototype as Record<string, unknown>).proof;
   }
 });
 

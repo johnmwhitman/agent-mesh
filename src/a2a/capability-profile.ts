@@ -40,6 +40,11 @@ function record(value: unknown): value is JsonRecord {
   const prototype = Object.getPrototypeOf(value);
   return prototype === Object.prototype || prototype === null;
 }
+function own(input: JsonRecord, key: string): boolean { return Object.prototype.hasOwnProperty.call(input, key); }
+function exactOwnKeys(input: JsonRecord, keys: readonly string[]): boolean {
+  const actual = Object.keys(input);
+  return actual.length === keys.length && keys.every((key) => own(input, key));
+}
 function ascii(value: string): string { return value.replace(/[A-Z]/g, (letter) => letter.toLowerCase()); }
 function pathJoin(base: string, member: string): string { return `${base}.${member}`; }
 function compareAscii(left: string, right: string): number { return Buffer.compare(Buffer.from(left, "utf8"), Buffer.from(right, "utf8")); }
@@ -86,7 +91,9 @@ class StrictJsonParser {
     return value;
   }
 
-  private space(): void { while (/\s/.test(this.source[this.index] ?? "")) this.index += 1; }
+  private space(): void {
+    while (this.source[this.index] === " " || this.source[this.index] === "\t" || this.source[this.index] === "\n" || this.source[this.index] === "\r") this.index += 1;
+  }
   private value(depth: number): unknown {
     this.space();
     const token = this.source[this.index];
@@ -101,7 +108,7 @@ class StrictJsonParser {
   private object(depth: number): JsonRecord {
     if (depth > 64) throw new Error("depth");
     this.index += 1; this.space();
-    const output: JsonRecord = {}; const names = new Set<string>();
+    const output = Object.create(null) as JsonRecord; const names = new Set<string>();
     if (this.source[this.index] === "}") { this.index += 1; return output; }
     while (true) {
       if (this.source[this.index] !== '"') throw new Error("object key");
@@ -156,6 +163,7 @@ class StrictJsonParser {
     const rest = this.source.slice(this.index);
     const match = /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?/.exec(rest);
     if (!match) throw new Error("number");
+    if (/[.eE]/.test(match[0])) throw new Error("non-integer numeric lexeme");
     this.index += match[0].length;
     const value = Number(match[0]);
     if (!Number.isFinite(value) || (Number.isInteger(value) && !Number.isSafeInteger(value))) throw new Error("number domain");
@@ -200,7 +208,7 @@ function unknownFields(input: JsonRecord, allowed: readonly string[], path: stri
   }
 }
 function required(input: JsonRecord, keys: readonly string[], path: string, errors: ErrorRecord[], code: string): void {
-  for (const key of keys) if (!(key in input)) errors.push({ code, field_path: pathJoin(path, key) });
+  for (const key of keys) if (!own(input, key)) errors.push({ code, field_path: pathJoin(path, key) });
 }
 function bytes64(value: bigint | number): Buffer { const buffer = Buffer.allocUnsafe(8); buffer.writeBigUInt64BE(BigInt(value)); return buffer; }
 function canonicalTree(value: unknown): Buffer {
@@ -224,8 +232,8 @@ function fingerprint(domain: string, value: unknown, labelValue: string): string
   return `${labelValue}:sha256:${createHash("sha256").update(bytes).digest("hex")}`;
 }
 function extensionErrors(input: JsonRecord, path: string, errors: ErrorRecord[]): void {
-  const extensions = input.extensions;
-  const critical = input.critical_extensions;
+  const extensions = own(input, "extensions") ? input.extensions : undefined;
+  const critical = own(input, "critical_extensions") ? input.critical_extensions : undefined;
   if (!record(extensions)) errors.push({ code: "INVALID_EXTENSION_CONTAINER", field_path: pathJoin(path, "extensions") });
   if (!Array.isArray(critical)) errors.push({ code: "INVALID_EXTENSION_CONTAINER", field_path: pathJoin(path, "critical_extensions") });
   if (record(extensions) && Object.keys(extensions).length > 0) errors.push({ code: "UNSUPPORTED_EXTENSION", field_path: pathJoin(path, "extensions") });
@@ -272,7 +280,7 @@ function normalizeProof(value: unknown, claim: JsonRecord, provenance: JsonRecor
   if (!record(value)) { errors.push({ code: "INVALID_PROOF_CARRIER", field_path: path }); return undefined; }
   const keys = ["issuer_ref", "audience_ref", "issued_at_ms", "not_before_ms", "expires_at_ms", "challenge", "proof_format", "verification_method_ref"];
   required(value, keys, path, errors, "INVALID_PROOF_CARRIER");
-  const hasDigest = "proof_digest" in value; const hasRef = "proof_ref" in value;
+  const hasDigest = own(value, "proof_digest"); const hasRef = own(value, "proof_ref");
   if (hasDigest === hasRef) errors.push({ code: "INVALID_PROOF_CARRIER", field_path: path });
   unknownFields(value, [...keys, "proof_digest", "proof_ref"], path, errors, true);
   for (const key of ["issuer_ref", "audience_ref", "verification_method_ref"]) if (!opaque(value[key])) errors.push({ code: "INVALID_PROOF_CARRIER", field_path: pathJoin(path, key) });
@@ -297,15 +305,15 @@ function normalizeClaim(value: unknown, path: string, errors: ErrorRecord[], def
   const applicability = normalizeApplicability(value.applicability, pathJoin(path, "applicability"), errors);
   const claim: JsonRecord = { claim_id: value.claim_id, kind, applicability, provenance: {}, issued_at_ms: value.issued_at_ms, expires_at_ms: value.expires_at_ms, extensions: value.extensions, critical_extensions: value.critical_extensions };
   const provenance = normalizeProvenance(value.provenance, claim, pathJoin(path, "provenance"), errors); claim.provenance = provenance;
-  const proof = normalizeProof(value.proof, claim, provenance, pathJoin(path, "proof"), errors); if (proof !== undefined) claim.proof = proof;
+  const proof = normalizeProof(own(value, "proof") ? value.proof : undefined, claim, provenance, pathJoin(path, "proof"), errors); if (proof !== undefined) claim.proof = proof;
   if (!deferExtensions) extensionErrors(value, path, errors);
-  if (kind === "capability" && !canonicalId(value.capability_id)) errors.push({ code: "INVALID_CANONICAL_ID", field_path: pathJoin(path, "capability_id") });
-  if (kind === "transport" && !canonicalId(value.transport_id)) errors.push({ code: "INVALID_CANONICAL_ID", field_path: pathJoin(path, "transport_id") });
-  if (kind === "protocol") { if (!canonicalId(value.protocol_id)) errors.push({ code: "INVALID_CANONICAL_ID", field_path: pathJoin(path, "protocol_id") }); if (!exactVersion(value.protocol_version)) errors.push({ code: "INVALID_PROTOCOL_VERSION", field_path: pathJoin(path, "protocol_version") }); }
-  if (["capability", "transport", "protocol"].includes(kind) && (!string(value.state) || !CLAIM_STATES.has(value.state))) errors.push({ code: "INVALID_CLAIM_SCHEMA", field_path: pathJoin(path, "state") });
-  if (kind === "runtime" && !label(value.runtime_label)) errors.push({ code: "INVALID_ASCII_LABEL", field_path: pathJoin(path, "runtime_label") });
-  if (kind === "provider" && !label(value.provider_label)) errors.push({ code: "INVALID_ASCII_LABEL", field_path: pathJoin(path, "provider_label") });
-  if (kind === "model" && !label(value.model_label)) errors.push({ code: "INVALID_ASCII_LABEL", field_path: pathJoin(path, "model_label") });
+  if (kind === "capability" && (!own(value, "capability_id") || !canonicalId(value.capability_id))) errors.push({ code: "INVALID_CANONICAL_ID", field_path: pathJoin(path, "capability_id") });
+  if (kind === "transport" && (!own(value, "transport_id") || !canonicalId(value.transport_id))) errors.push({ code: "INVALID_CANONICAL_ID", field_path: pathJoin(path, "transport_id") });
+  if (kind === "protocol") { if (!own(value, "protocol_id") || !canonicalId(value.protocol_id)) errors.push({ code: "INVALID_CANONICAL_ID", field_path: pathJoin(path, "protocol_id") }); if (!own(value, "protocol_version") || !exactVersion(value.protocol_version)) errors.push({ code: "INVALID_PROTOCOL_VERSION", field_path: pathJoin(path, "protocol_version") }); }
+  if (["capability", "transport", "protocol"].includes(kind) && (!own(value, "state") || !string(value.state) || !CLAIM_STATES.has(value.state))) errors.push({ code: "INVALID_CLAIM_SCHEMA", field_path: pathJoin(path, "state") });
+  if (kind === "runtime" && (!own(value, "runtime_label") || !label(value.runtime_label))) errors.push({ code: "INVALID_ASCII_LABEL", field_path: pathJoin(path, "runtime_label") });
+  if (kind === "provider" && (!own(value, "provider_label") || !label(value.provider_label))) errors.push({ code: "INVALID_ASCII_LABEL", field_path: pathJoin(path, "provider_label") });
+  if (kind === "model" && (!own(value, "model_label") || !label(value.model_label))) errors.push({ code: "INVALID_ASCII_LABEL", field_path: pathJoin(path, "model_label") });
   for (const key of kindFields[kind]!) claim[key] = value[key];
   return claim;
 }
@@ -358,7 +366,7 @@ function semanticErrors(state: ProfileState, evaluationTime: number, base = "$")
     const claimPath = `${base}.claims[${sourceIndex}]`;
     if (evaluationTime < (value.issued_at_ms as number)) errors.push({ code: "NOT_YET_VALID_CLAIM", field_path: pathJoin(claimPath, "issued_at_ms") });
     if (evaluationTime >= (value.expires_at_ms as number)) errors.push({ code: "EXPIRED_CLAIM", field_path: pathJoin(claimPath, "expires_at_ms") });
-    const proof = value.proof; if (record(proof)) { if (evaluationTime < (proof.issued_at_ms as number) || evaluationTime < (proof.not_before_ms as number)) errors.push({ code: "NOT_YET_VALID_PROOF", field_path: pathJoin(claimPath, "proof.not_before_ms") }); if (evaluationTime >= (proof.expires_at_ms as number)) errors.push({ code: "EXPIRED_PROOF", field_path: pathJoin(claimPath, "proof.expires_at_ms") }); }
+    const proof = own(value, "proof") ? value.proof : undefined; if (record(proof)) { if (evaluationTime < (proof.issued_at_ms as number) || evaluationTime < (proof.not_before_ms as number)) errors.push({ code: "NOT_YET_VALID_PROOF", field_path: pathJoin(claimPath, "proof.not_before_ms") }); if (evaluationTime >= (proof.expires_at_ms as number)) errors.push({ code: "EXPIRED_PROOF", field_path: pathJoin(claimPath, "proof.expires_at_ms") }); }
   });
   return sortErrors(errors);
 }
@@ -369,7 +377,7 @@ export function validateProfile(rawProfile: unknown, evaluationTime?: unknown): 
   if (!validTime(evaluationTime)) return evaluationError();
   const state = profileStructural(rawProfile); if (state.errors.length) return { ok: true, value: { validation_version: VALIDATION_VERSION, evaluation_time_ms: evaluationTime, valid: false, proof_results: [], errors: state.errors } };
   const errors = semanticErrors(state, evaluationTime); const profileFingerprint = fingerprint("meshfleet.a2a.capability-profile.v1", state.profile, "meshfleet.a2a.capability-profile.v1");
-  const proofResults = state.claims.map(({ value }) => ({ claim_id: value.claim_id, claim_fingerprint: claimFingerprint(state.profile, value), verification_status: value.proof === undefined ? "absent" : "unsupported" })).sort((a, b) => compareAscii(a.claim_id as string, b.claim_id as string) || compareAscii(JSON.stringify(a), JSON.stringify(b)));
+  const proofResults = state.claims.map(({ value }) => ({ claim_id: value.claim_id, claim_fingerprint: claimFingerprint(state.profile, value), verification_status: own(value, "proof") ? "unsupported" : "absent" })).sort((a, b) => compareAscii(a.claim_id as string, b.claim_id as string) || compareAscii(JSON.stringify(a), JSON.stringify(b)));
   return { ok: true, value: { validation_version: VALIDATION_VERSION, evaluation_time_ms: evaluationTime, valid: errors.length === 0, profile_fingerprint: profileFingerprint, proof_results: proofResults, errors } };
 }
 function compareIdentityObjects(left: JsonRecord, right: JsonRecord): number {
@@ -446,7 +454,7 @@ function firstClosedFieldError(value: JsonRecord, schema: "translation" | "resul
   return undefined;
 }
 function translationExtensionErrors(input: JsonRecord): ErrorRecord[] { const errors: ErrorRecord[] = []; extensionErrors(input, "$", errors); if (record(input.source_profile)) { extensionErrors(input.source_profile, "$.source_profile", errors); if (Array.isArray(input.source_profile.claims)) input.source_profile.claims.forEach((claim, index) => { if (record(claim)) extensionErrors(claim, `$.source_profile.claims[${index}]`, errors); }); } return errors; }
-function translationTemplate(value: unknown): boolean { return record(value) && ((value.template_id === "none" && value.command === "none" && Array.isArray(value.argv_template) && value.argv_template.length === 0 && Object.keys(value).length === 3) || (value.template_id === "meshfleet.mcp-stdio/v1" && value.command === "npx" && Array.isArray(value.argv_template) && JSON.stringify(value.argv_template) === JSON.stringify(["-y", "meshfleet"]) && Object.keys(value).length === 3)); }
+function translationTemplate(value: unknown): boolean { return record(value) && exactOwnKeys(value, ["template_id", "command", "argv_template"]) && ((value.template_id === "none" && value.command === "none" && Array.isArray(value.argv_template) && value.argv_template.length === 0) || (value.template_id === "meshfleet.mcp-stdio/v1" && value.command === "npx" && Array.isArray(value.argv_template) && JSON.stringify(value.argv_template) === JSON.stringify(["-y", "meshfleet"]))); }
 type NormalizedFeature = { value: JsonRecord; sourceIndex: number };
 function normalizeFeatures(value: unknown, base: string): { features: JsonRecord[]; source: NormalizedFeature[]; error?: ErrorRecord } {
   if (!Array.isArray(value) || value.length > 64) return { features: [], source: [], error: { code: "INVALID_TRANSLATION_INPUT", field_path: base } };
@@ -455,9 +463,9 @@ function normalizeFeatures(value: unknown, base: string): { features: JsonRecord
     const itemPath = `${base}[${index}]`;
     if (!record(item)) { structural.push({ code: "INVALID_TRANSLATION_INPUT", field_path: itemPath }); return; }
     const memberErrors: string[] = [];
-    if (!canonicalId(item.feature_id)) memberErrors.push(pathJoin(itemPath, "feature_id"));
-    if (!opaque(item.provenance_ref)) memberErrors.push(pathJoin(itemPath, "provenance_ref"));
-    if (!string(item.state) || !FEATURE_STATES.has(item.state)) memberErrors.push(pathJoin(itemPath, "state"));
+    if (!own(item, "feature_id") || !canonicalId(item.feature_id)) memberErrors.push(pathJoin(itemPath, "feature_id"));
+    if (!own(item, "provenance_ref") || !opaque(item.provenance_ref)) memberErrors.push(pathJoin(itemPath, "provenance_ref"));
+    if (!own(item, "state") || !string(item.state) || !FEATURE_STATES.has(item.state)) memberErrors.push(pathJoin(itemPath, "state"));
     if (memberErrors.length) { structural.push({ code: "INVALID_TRANSLATION_INPUT", field_path: memberErrors.sort(compareAscii)[0]! }); return; }
     source.push({ value: { feature_id: item.feature_id, state: item.state, provenance_ref: item.provenance_ref }, sourceIndex: index });
   });
@@ -487,10 +495,10 @@ function translationError(code: string, field_path: string, target_ref: string):
 /** Translate static evidence shape only. It cannot select or launch a runtime. */
 export function translateProfile(input: unknown, evaluationTime?: unknown): JsonRecord {
   if (!validTime(evaluationTime)) return translationError("INVALID_EVALUATION_TIME", "$evaluation_time_ms", "invalid"); const raw = parse(input); if (!record(raw)) return translationError("INVALID_TRANSLATION_INPUT", "$", "invalid");
-  if (!string(raw.target) || !(TARGETS as readonly string[]).includes(raw.target)) return translationError("INVALID_TARGET", "$.target", "invalid"); const target = raw.target;
+  if (!own(raw, "target") || !string(raw.target) || !(TARGETS as readonly string[]).includes(raw.target)) return translationError("INVALID_TARGET", "$.target", "invalid"); const target = raw.target;
   const privacy: Array<{ path: string }> = []; privacyScan(raw, "$", privacy); const firstPrivacy = minPath(privacy); if (firstPrivacy) return translationError("FORBIDDEN_PRIVACY_FIELD", firstPrivacy.path, target);
   const closedField = firstClosedFieldError(raw, "translation"); if (closedField) return translationError(closedField.code, closedField.field_path, target);
-  if (raw.translation_version !== TRANSLATION_VERSION) return translationError("INVALID_TRANSLATION_INPUT", "$.translation_version", target);
+  if (!own(raw, "translation_version") || raw.translation_version !== TRANSLATION_VERSION) return translationError("INVALID_TRANSLATION_INPUT", "$.translation_version", target);
   let state = profileStructural(raw.source_profile, "$.source_profile", true); if (state.errors.length) { const first = state.errors[0]!; return translationError(first.code, first.field_path, target); }
   const semantic = semanticErrors(state, evaluationTime, "$.source_profile"); if (semantic.length) { const first = semantic[0]!; return translationError(first.code, first.field_path, target); }
   const extension = translationExtensionErrors(raw); if (extension.length) { const containers = extension.filter((item) => item.code === "INVALID_EXTENSION_CONTAINER"); const first = minPath(containers.length ? containers.map((item) => ({ ...item, path: item.field_path })) : extension.map((item) => ({ ...item, path: item.field_path })))!; return translationError(first.code, first.field_path, target); }
@@ -513,10 +521,10 @@ function normalizeLosses(value: unknown): { losses: JsonRecord[]; error?: ErrorR
     const allowed = ["field_path", "target", "reason_code", "disposition"];
     if (Object.keys(item).some((key) => !allowed.includes(key))) return { losses: [], error: { code: "INVALID_LOSS_RECORD", field_path: itemPath } };
     const candidates: string[] = [];
-    if (!fieldPath(item.field_path)) candidates.push(pathJoin(itemPath, "field_path"));
-    if (!string(item.target) || !(TARGETS as readonly string[]).includes(item.target)) candidates.push(pathJoin(itemPath, "target"));
-    if (!string(item.reason_code) || !LOSS_REASONS.has(item.reason_code)) candidates.push(pathJoin(itemPath, "reason_code"));
-    if (!string(item.disposition) || !LOSS_DISPOSITIONS.has(item.disposition)) candidates.push(pathJoin(itemPath, "disposition"));
+    if (!own(item, "field_path") || !fieldPath(item.field_path)) candidates.push(pathJoin(itemPath, "field_path"));
+    if (!own(item, "target") || !string(item.target) || !(TARGETS as readonly string[]).includes(item.target)) candidates.push(pathJoin(itemPath, "target"));
+    if (!own(item, "reason_code") || !string(item.reason_code) || !LOSS_REASONS.has(item.reason_code)) candidates.push(pathJoin(itemPath, "reason_code"));
+    if (!own(item, "disposition") || !string(item.disposition) || !LOSS_DISPOSITIONS.has(item.disposition)) candidates.push(pathJoin(itemPath, "disposition"));
     if (candidates.length) return { losses: [], error: { code: "INVALID_LOSS_RECORD", field_path: candidates.sort(compareAscii)[0]! } };
     const normalized = { field_path: item.field_path, target: item.target, reason_code: item.reason_code, disposition: item.disposition };
     const key = canonicalTree(normalized).toString("hex");
@@ -530,8 +538,8 @@ export function validateTranslationResult(result: unknown): JsonRecord {
   const raw = parse(result); if (!record(raw)) return { ok: false, error: { code: "INVALID_TRANSLATION_RESULT", field_path: "$" } };
   const privacy: Array<{ path: string }> = []; privacyScan(raw, "$", privacy); const firstPrivacy = minPath(privacy); if (firstPrivacy) return { ok: false, error: { code: "FORBIDDEN_PRIVACY_FIELD", field_path: firstPrivacy.path } };
   const closedField = firstClosedFieldError(raw, "result"); if (closedField) return { ok: false, error: closedField };
-  if (raw.translation_version !== TRANSLATION_RESULT_VERSION) return { ok: false, error: { code: "INVALID_TRANSLATION_RESULT", field_path: "$.translation_version" } };
-  if (!string(raw.target) || !(TARGETS as readonly string[]).includes(raw.target)) return { ok: false, error: { code: "INVALID_TRANSLATION_RESULT", field_path: "$.target" } };
+  if (!own(raw, "translation_version") || raw.translation_version !== TRANSLATION_RESULT_VERSION) return { ok: false, error: { code: "INVALID_TRANSLATION_RESULT", field_path: "$.translation_version" } };
+  if (!own(raw, "target") || !string(raw.target) || !(TARGETS as readonly string[]).includes(raw.target)) return { ok: false, error: { code: "INVALID_TRANSLATION_RESULT", field_path: "$.target" } };
   if (!record(raw.profile)) return { ok: false, error: { code: "INVALID_TRANSLATION_RESULT", field_path: "$.profile" } };
   const profile = profileStructural(raw.profile, "$.profile", true); const profileErrors = sortErrors([...profile.errors, ...contradictionErrors(profile, "$.profile")]); if (profileErrors.length) return { ok: false, error: profileErrors[0]! };
   if (!translationTemplate(raw.launch_template)) return { ok: false, error: { code: "INVALID_TRANSLATION_RESULT", field_path: "$.launch_template" } }; if (!string(raw.cwd_policy) || !CWD_POLICIES.has(raw.cwd_policy)) return { ok: false, error: { code: "INVALID_TRANSLATION_RESULT", field_path: "$.cwd_policy" } };
@@ -544,5 +552,13 @@ export function validateTranslationResult(result: unknown): JsonRecord {
 }
 /** Render only an already supplied, offline conformance record. No registry is read. */
 export function renderConformance(result: unknown, registryRecord: unknown): JsonRecord {
-  const raw = parse(result); const target = record(raw) && string(raw.target) && (TARGETS as readonly string[]).includes(raw.target) ? raw.target : undefined; if (!target) return translationError("INVALID_TARGET", "$.result.target", "invalid"); const registry = parse(registryRecord); if (!record(registry) || Object.keys(registry).length !== 5 || registry.registry_version !== REGISTRY_VERSION || !opaque(registry.record_id) || registry.scope !== "offline-translation") return translationError("INVALID_REGISTRY_RECORD", "$.registry_record", target); if (!string(registry.target) || !(TARGETS as readonly string[]).includes(registry.target)) return translationError("INVALID_TARGET", "$.registry_record.target", "invalid"); if (registry.target !== target) return translationError("INVALID_TARGET", "$.registry_record.target", registry.target); if (!string(registry.status) || !new Set(["documented", "static-profiled", "static-config-verified", "static-translation-verified"]).has(registry.status)) return translationError("INVALID_SCOPE_STATUS", "$.registry_record.status", target); return { ok: true, value: { record_id: registry.record_id, target, scope: "offline-translation", status: registry.status } };
+  const failure = (code: string, field_path: string, target_ref: string): JsonRecord => ({ ok: false, error: { code, field_path, target_ref } });
+  const raw = parse(result); const target = record(raw) && own(raw, "target") && string(raw.target) && (TARGETS as readonly string[]).includes(raw.target) ? raw.target : undefined;
+  if (!target) return failure("INVALID_TARGET", "$.result.target", "invalid");
+  const registry = parse(registryRecord);
+  if (!record(registry) || !exactOwnKeys(registry, ["registry_version", "record_id", "target", "scope", "status"]) || registry.registry_version !== REGISTRY_VERSION || !opaque(registry.record_id) || registry.scope !== "offline-translation") return failure("INVALID_REGISTRY_RECORD", "$.registry_record", target);
+  if (!string(registry.target) || !(TARGETS as readonly string[]).includes(registry.target)) return failure("INVALID_TARGET", "$.registry_record.target", "invalid");
+  if (registry.target !== target) return failure("INVALID_TARGET", "$.registry_record.target", registry.target);
+  if (!string(registry.status) || !new Set(["documented", "static-profiled", "static-config-verified", "static-translation-verified"]).has(registry.status)) return failure("INVALID_SCOPE_STATUS", "$.registry_record.status", target);
+  return { ok: true, value: { record_id: registry.record_id, target, scope: "offline-translation", status: registry.status } };
 }
