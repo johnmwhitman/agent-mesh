@@ -88,6 +88,26 @@ test("lifecycle: successful settlement is unique and terminal", () => {
   } finally { temp.cleanup(); }
 });
 
+test("lifecycle: an expired final attempt does not exceed its captured retry policy", () => {
+  const temp = withTempDb();
+  try {
+    let now = 1;
+    const store = new LifecycleStore({ now: () => now, nextId: (() => { let n = 0; return () => `final-${++n}`; })() });
+    const initial = store.createWork({ workId: "final-work", fleetId: "fleet", maxAttempts: 1 });
+    const attempt = initial.attempts[0];
+    store.acquireLease({ workId: "final-work", attemptId: attempt.attempt_id, ownerId: "owner", leaseMs: 1 });
+    now = 2;
+    const expired = store.expireAndRetry("final-work", attempt.attempt_id);
+    assert.equal(expired.accepted, true);
+    if (expired.accepted) {
+      assert.equal(expired.state.work.status, "failed");
+      assert.equal(expired.state.attempts.length, 1);
+    }
+  } finally {
+    temp.cleanup();
+  }
+});
+
 test("lifecycle: mutation and event roll back together when commit hook fails", () => {
   const temp = withTempDb();
   try {

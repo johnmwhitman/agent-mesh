@@ -43,7 +43,7 @@ export function defaultLifecycleMode(): LifecycleMode {
 
 function redact(value: unknown): string {
   return String(value ?? "runtime failure")
-    .replace(/(?:Bearer\s+|api[_-]?key[=:]\s*|token[=:]\s*)[^\s,;]+/gi, "$&[redacted]")
+    .replace(/(Bearer\s+|api[_-]?key[=:]\s*|token[=:]\s*)[^\s,;]+/gi, "$1[redacted]")
     .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
     .replace(/\s+/g, " ")
     .trim()

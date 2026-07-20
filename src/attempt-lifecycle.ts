@@ -299,6 +299,15 @@ export class LifecycleStore {
       // Record the expiration against the old current attempt before a retry
       // advances ownership. This makes the ordered event stream replayable.
       this.appendEvent(db, "lease_expired", work, attempt, now);
+      if (attempt.attempt_number >= work.max_attempts) {
+        work.status = "failed";
+        work.terminal_at = now;
+        work.error = "lease expired after final allowed attempt";
+        work.updated_at = now;
+        this.updateWork(db, work);
+        this.beforeCommit?.();
+        return { accepted: true, state: this.snapshot(db, workId) };
+      }
       const nextEpoch = Math.max(work.owner_epoch, attempt.owner_epoch) + 1;
       const retry: Attempt = {
         attempt_id: this.nextId(), work_id: workId, owner_id: null, owner_epoch: nextEpoch,
