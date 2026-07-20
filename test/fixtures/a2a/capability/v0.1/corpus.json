@@ -1,0 +1,4939 @@
+[
+  {
+    "case_id": "profile.valid",
+    "api": "validate-profile",
+    "invocation_args": {
+      "raw_profile": {
+        "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+        "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+        "revision": 1,
+        "issuer": {
+          "kind": "adapter",
+          "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+        },
+        "subject": {
+          "kind": "transport",
+          "ref": "ref_ssssssssssssssssssss"
+        },
+        "issued_at_ms": 1759999999990,
+        "expires_at_ms": 1760000001000,
+        "claims": [],
+        "extensions": {},
+        "critical_extensions": []
+      },
+      "evaluation_time_ms": 1760000000000
+    },
+    "expected": {
+      "ok": true,
+      "value": {
+        "validation_version": "meshfleet.a2a.capability-validation/v0.1",
+        "evaluation_time_ms": 1760000000000,
+        "valid": true,
+        "profile_fingerprint": "meshfleet.a2a.capability-profile.v1:sha256:f807b96c7b5c236d1d716c591d44b7d2274dd6c2059344a34d82b91c572f9c1c",
+        "proof_results": [],
+        "errors": []
+      }
+    }
+  },
+  {
+    "case_id": "compare.valid",
+    "api": "compare-profiles",
+    "invocation_args": {
+      "raw_profiles": [
+        {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": {},
+          "critical_extensions": []
+        }
+      ],
+      "evaluation_time_ms": 1760000000000
+    },
+    "expected": {
+      "ok": true,
+      "value": {
+        "comparison_version": "meshfleet.a2a.capability-comparison/v0.1",
+        "evaluation_time_ms": 1760000000000,
+        "valid": true,
+        "profile_results": [
+          {
+            "profile_index": 0,
+            "structurally_valid": true,
+            "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+            "profile_fingerprint": "meshfleet.a2a.capability-profile.v1:sha256:f807b96c7b5c236d1d716c591d44b7d2274dd6c2059344a34d82b91c572f9c1c",
+            "valid": true,
+            "validation_error_codes": []
+          }
+        ],
+        "identity_contradictions": [],
+        "semantic_contradictions": [],
+        "exact_duplicates": [],
+        "errors": []
+      }
+    }
+  },
+  {
+    "case_id": "translation.valid",
+    "api": "translate-profile",
+    "invocation_args": {
+      "input": {
+        "translation_version": "meshfleet.a2a.translation/v0.1",
+        "target": "codex",
+        "source_profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": {},
+          "critical_extensions": []
+        },
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "extensions": {},
+        "critical_extensions": []
+      },
+      "evaluation_time_ms": 1760000000000
+    },
+    "expected": {
+      "translation_version": "meshfleet.a2a.translation-result/v0.1",
+      "target": "codex",
+      "launch_template": {
+        "template_id": "meshfleet.mcp-stdio/v1",
+        "command": "npx",
+        "argv_template": [
+          "-y",
+          "meshfleet"
+        ]
+      },
+      "cwd_policy": "not-represented",
+      "features": [],
+      "provenance_refs": [],
+      "profile": {
+        "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+        "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+        "revision": 1,
+        "issuer": {
+          "kind": "adapter",
+          "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+        },
+        "subject": {
+          "kind": "transport",
+          "ref": "ref_ssssssssssssssssssss"
+        },
+        "issued_at_ms": 1759999999990,
+        "expires_at_ms": 1760000001000,
+        "claims": [],
+        "extensions": {},
+        "critical_extensions": []
+      },
+      "losses": [],
+      "extensions": {},
+      "critical_extensions": []
+    }
+  },
+  {
+    "case_id": "result.valid",
+    "api": "validate-translation-result",
+    "invocation_args": {
+      "result": {
+        "translation_version": "meshfleet.a2a.translation-result/v0.1",
+        "target": "codex",
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": {},
+          "critical_extensions": []
+        },
+        "losses": [],
+        "extensions": {},
+        "critical_extensions": []
+      }
+    },
+    "expected": {
+      "ok": true,
+      "value": {
+        "validation_version": "meshfleet.a2a.translation-result-validation/v0.1",
+        "normalized_result": {
+          "translation_version": "meshfleet.a2a.translation-result/v0.1",
+          "target": "codex",
+          "launch_template": {
+            "template_id": "meshfleet.mcp-stdio/v1",
+            "command": "npx",
+            "argv_template": [
+              "-y",
+              "meshfleet"
+            ]
+          },
+          "cwd_policy": "not-represented",
+          "features": [],
+          "provenance_refs": [],
+          "profile": {
+            "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+            "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+            "revision": 1,
+            "issuer": {
+              "kind": "adapter",
+              "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+            },
+            "subject": {
+              "kind": "transport",
+              "ref": "ref_ssssssssssssssssssss"
+            },
+            "issued_at_ms": 1759999999990,
+            "expires_at_ms": 1760000001000,
+            "claims": [],
+            "extensions": {},
+            "critical_extensions": []
+          },
+          "losses": [],
+          "extensions": {},
+          "critical_extensions": []
+        }
+      }
+    }
+  },
+  {
+    "case_id": "conformance.valid",
+    "api": "render-conformance",
+    "invocation_args": {
+      "result": {
+        "translation_version": "meshfleet.a2a.translation-result/v0.1",
+        "target": "codex",
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": {},
+          "critical_extensions": []
+        },
+        "losses": [],
+        "extensions": {},
+        "critical_extensions": []
+      },
+      "registry_record": {
+        "registry_version": "meshfleet.a2a.conformance-registry/v0.1",
+        "record_id": "ref_rrrrrrrrrrrrrrrrrrrr",
+        "target": "codex",
+        "scope": "offline-translation",
+        "status": "static-translation-verified"
+      }
+    },
+    "expected": {
+      "ok": true,
+      "value": {
+        "record_id": "ref_rrrrrrrrrrrrrrrrrrrr",
+        "target": "codex",
+        "scope": "offline-translation",
+        "status": "static-translation-verified"
+      }
+    }
+  },
+  {
+    "case_id": "extension.profile-root.extensions.missing",
+    "api": "validate-profile",
+    "invocation_args": {
+      "raw_profile": {
+        "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+        "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+        "revision": 1,
+        "issuer": {
+          "kind": "adapter",
+          "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+        },
+        "subject": {
+          "kind": "transport",
+          "ref": "ref_ssssssssssssssssssss"
+        },
+        "issued_at_ms": 1759999999990,
+        "expires_at_ms": 1760000001000,
+        "claims": [],
+        "critical_extensions": []
+      },
+      "evaluation_time_ms": 1760000000000
+    },
+    "expected": {
+      "ok": true,
+      "value": {
+        "validation_version": "meshfleet.a2a.capability-validation/v0.1",
+        "evaluation_time_ms": 1760000000000,
+        "valid": false,
+        "proof_results": [],
+        "errors": [
+          {
+            "code": "INVALID_EXTENSION_CONTAINER",
+            "field_path": "$.extensions"
+          },
+          {
+            "code": "MALFORMED_CAPABILITY_PROFILE",
+            "field_path": "$.extensions"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "case_id": "extension.profile-root.extensions.null",
+    "api": "validate-profile",
+    "invocation_args": {
+      "raw_profile": {
+        "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+        "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+        "revision": 1,
+        "issuer": {
+          "kind": "adapter",
+          "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+        },
+        "subject": {
+          "kind": "transport",
+          "ref": "ref_ssssssssssssssssssss"
+        },
+        "issued_at_ms": 1759999999990,
+        "expires_at_ms": 1760000001000,
+        "claims": [],
+        "extensions": null,
+        "critical_extensions": []
+      },
+      "evaluation_time_ms": 1760000000000
+    },
+    "expected": {
+      "ok": true,
+      "value": {
+        "validation_version": "meshfleet.a2a.capability-validation/v0.1",
+        "evaluation_time_ms": 1760000000000,
+        "valid": false,
+        "proof_results": [],
+        "errors": [
+          {
+            "code": "INVALID_EXTENSION_CONTAINER",
+            "field_path": "$.extensions"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "case_id": "extension.profile-root.extensions.wrong-container-type",
+    "api": "validate-profile",
+    "invocation_args": {
+      "raw_profile": {
+        "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+        "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+        "revision": 1,
+        "issuer": {
+          "kind": "adapter",
+          "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+        },
+        "subject": {
+          "kind": "transport",
+          "ref": "ref_ssssssssssssssssssss"
+        },
+        "issued_at_ms": 1759999999990,
+        "expires_at_ms": 1760000001000,
+        "claims": [],
+        "extensions": [],
+        "critical_extensions": []
+      },
+      "evaluation_time_ms": 1760000000000
+    },
+    "expected": {
+      "ok": true,
+      "value": {
+        "validation_version": "meshfleet.a2a.capability-validation/v0.1",
+        "evaluation_time_ms": 1760000000000,
+        "valid": false,
+        "proof_results": [],
+        "errors": [
+          {
+            "code": "INVALID_EXTENSION_CONTAINER",
+            "field_path": "$.extensions"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "case_id": "extension.profile-root.extensions.nonempty",
+    "api": "validate-profile",
+    "invocation_args": {
+      "raw_profile": {
+        "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+        "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+        "revision": 1,
+        "issuer": {
+          "kind": "adapter",
+          "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+        },
+        "subject": {
+          "kind": "transport",
+          "ref": "ref_ssssssssssssssssssss"
+        },
+        "issued_at_ms": 1759999999990,
+        "expires_at_ms": 1760000001000,
+        "claims": [],
+        "extensions": {
+          "x": true
+        },
+        "critical_extensions": []
+      },
+      "evaluation_time_ms": 1760000000000
+    },
+    "expected": {
+      "ok": true,
+      "value": {
+        "validation_version": "meshfleet.a2a.capability-validation/v0.1",
+        "evaluation_time_ms": 1760000000000,
+        "valid": false,
+        "proof_results": [],
+        "errors": [
+          {
+            "code": "UNSUPPORTED_EXTENSION",
+            "field_path": "$.extensions"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "case_id": "extension.profile-root.critical-extensions.missing",
+    "api": "validate-profile",
+    "invocation_args": {
+      "raw_profile": {
+        "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+        "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+        "revision": 1,
+        "issuer": {
+          "kind": "adapter",
+          "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+        },
+        "subject": {
+          "kind": "transport",
+          "ref": "ref_ssssssssssssssssssss"
+        },
+        "issued_at_ms": 1759999999990,
+        "expires_at_ms": 1760000001000,
+        "claims": [],
+        "extensions": {}
+      },
+      "evaluation_time_ms": 1760000000000
+    },
+    "expected": {
+      "ok": true,
+      "value": {
+        "validation_version": "meshfleet.a2a.capability-validation/v0.1",
+        "evaluation_time_ms": 1760000000000,
+        "valid": false,
+        "proof_results": [],
+        "errors": [
+          {
+            "code": "INVALID_EXTENSION_CONTAINER",
+            "field_path": "$.critical_extensions"
+          },
+          {
+            "code": "MALFORMED_CAPABILITY_PROFILE",
+            "field_path": "$.critical_extensions"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "case_id": "extension.profile-root.critical-extensions.null",
+    "api": "validate-profile",
+    "invocation_args": {
+      "raw_profile": {
+        "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+        "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+        "revision": 1,
+        "issuer": {
+          "kind": "adapter",
+          "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+        },
+        "subject": {
+          "kind": "transport",
+          "ref": "ref_ssssssssssssssssssss"
+        },
+        "issued_at_ms": 1759999999990,
+        "expires_at_ms": 1760000001000,
+        "claims": [],
+        "extensions": {},
+        "critical_extensions": null
+      },
+      "evaluation_time_ms": 1760000000000
+    },
+    "expected": {
+      "ok": true,
+      "value": {
+        "validation_version": "meshfleet.a2a.capability-validation/v0.1",
+        "evaluation_time_ms": 1760000000000,
+        "valid": false,
+        "proof_results": [],
+        "errors": [
+          {
+            "code": "INVALID_EXTENSION_CONTAINER",
+            "field_path": "$.critical_extensions"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "case_id": "extension.profile-root.critical-extensions.wrong-container-type",
+    "api": "validate-profile",
+    "invocation_args": {
+      "raw_profile": {
+        "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+        "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+        "revision": 1,
+        "issuer": {
+          "kind": "adapter",
+          "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+        },
+        "subject": {
+          "kind": "transport",
+          "ref": "ref_ssssssssssssssssssss"
+        },
+        "issued_at_ms": 1759999999990,
+        "expires_at_ms": 1760000001000,
+        "claims": [],
+        "extensions": {},
+        "critical_extensions": {}
+      },
+      "evaluation_time_ms": 1760000000000
+    },
+    "expected": {
+      "ok": true,
+      "value": {
+        "validation_version": "meshfleet.a2a.capability-validation/v0.1",
+        "evaluation_time_ms": 1760000000000,
+        "valid": false,
+        "proof_results": [],
+        "errors": [
+          {
+            "code": "INVALID_EXTENSION_CONTAINER",
+            "field_path": "$.critical_extensions"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "case_id": "extension.profile-root.critical-extensions.nonempty",
+    "api": "validate-profile",
+    "invocation_args": {
+      "raw_profile": {
+        "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+        "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+        "revision": 1,
+        "issuer": {
+          "kind": "adapter",
+          "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+        },
+        "subject": {
+          "kind": "transport",
+          "ref": "ref_ssssssssssssssssssss"
+        },
+        "issued_at_ms": 1759999999990,
+        "expires_at_ms": 1760000001000,
+        "claims": [],
+        "extensions": {},
+        "critical_extensions": [
+          true
+        ]
+      },
+      "evaluation_time_ms": 1760000000000
+    },
+    "expected": {
+      "ok": true,
+      "value": {
+        "validation_version": "meshfleet.a2a.capability-validation/v0.1",
+        "evaluation_time_ms": 1760000000000,
+        "valid": false,
+        "proof_results": [],
+        "errors": [
+          {
+            "code": "UNSUPPORTED_EXTENSION",
+            "field_path": "$.critical_extensions"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "case_id": "extension.profile-claim-source-2.extensions.missing",
+    "api": "validate-profile",
+    "invocation_args": {
+      "raw_profile": {
+        "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+        "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+        "revision": 1,
+        "issuer": {
+          "kind": "adapter",
+          "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+        },
+        "subject": {
+          "kind": "transport",
+          "ref": "ref_ssssssssssssssssssss"
+        },
+        "issued_at_ms": 1759999999990,
+        "expires_at_ms": 1760000001000,
+        "claims": [
+          {
+            "claim_id": "clm_aaaaaaaaaaaaaaaaaaaa",
+            "kind": "capability",
+            "applicability": {
+              "protocol_versions": [],
+              "transport_families": [],
+              "operations": []
+            },
+            "provenance": {
+              "level": "advertised"
+            },
+            "issued_at_ms": 1759999999990,
+            "expires_at_ms": 1760000001000,
+            "extensions": {},
+            "critical_extensions": [],
+            "capability_id": "a2a.capability.a",
+            "state": "unknown"
+          },
+          {
+            "claim_id": "clm_bbbbbbbbbbbbbbbbbbbb",
+            "kind": "capability",
+            "applicability": {
+              "protocol_versions": [],
+              "transport_families": [],
+              "operations": []
+            },
+            "provenance": {
+              "level": "advertised"
+            },
+            "issued_at_ms": 1759999999990,
+            "expires_at_ms": 1760000001000,
+            "extensions": {},
+            "critical_extensions": [],
+            "capability_id": "a2a.capability.b",
+            "state": "unknown"
+          },
+          {
+            "claim_id": "clm_cccccccccccccccccccc",
+            "kind": "capability",
+            "applicability": {
+              "protocol_versions": [],
+              "transport_families": [],
+              "operations": []
+            },
+            "provenance": {
+              "level": "advertised"
+            },
+            "issued_at_ms": 1759999999990,
+            "expires_at_ms": 1760000001000,
+            "critical_extensions": [],
+            "capability_id": "a2a.capability.c",
+            "state": "unknown"
+          }
+        ],
+        "extensions": {},
+        "critical_extensions": []
+      },
+      "evaluation_time_ms": 1760000000000
+    },
+    "expected": {
+      "ok": true,
+      "value": {
+        "validation_version": "meshfleet.a2a.capability-validation/v0.1",
+        "evaluation_time_ms": 1760000000000,
+        "valid": false,
+        "proof_results": [],
+        "errors": [
+          {
+            "code": "INVALID_CLAIM_SCHEMA",
+            "field_path": "$.claims[2].extensions"
+          },
+          {
+            "code": "INVALID_EXTENSION_CONTAINER",
+            "field_path": "$.claims[2].extensions"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "case_id": "extension.profile-claim-source-2.extensions.null",
+    "api": "validate-profile",
+    "invocation_args": {
+      "raw_profile": {
+        "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+        "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+        "revision": 1,
+        "issuer": {
+          "kind": "adapter",
+          "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+        },
+        "subject": {
+          "kind": "transport",
+          "ref": "ref_ssssssssssssssssssss"
+        },
+        "issued_at_ms": 1759999999990,
+        "expires_at_ms": 1760000001000,
+        "claims": [
+          {
+            "claim_id": "clm_aaaaaaaaaaaaaaaaaaaa",
+            "kind": "capability",
+            "applicability": {
+              "protocol_versions": [],
+              "transport_families": [],
+              "operations": []
+            },
+            "provenance": {
+              "level": "advertised"
+            },
+            "issued_at_ms": 1759999999990,
+            "expires_at_ms": 1760000001000,
+            "extensions": {},
+            "critical_extensions": [],
+            "capability_id": "a2a.capability.a",
+            "state": "unknown"
+          },
+          {
+            "claim_id": "clm_bbbbbbbbbbbbbbbbbbbb",
+            "kind": "capability",
+            "applicability": {
+              "protocol_versions": [],
+              "transport_families": [],
+              "operations": []
+            },
+            "provenance": {
+              "level": "advertised"
+            },
+            "issued_at_ms": 1759999999990,
+            "expires_at_ms": 1760000001000,
+            "extensions": {},
+            "critical_extensions": [],
+            "capability_id": "a2a.capability.b",
+            "state": "unknown"
+          },
+          {
+            "claim_id": "clm_cccccccccccccccccccc",
+            "kind": "capability",
+            "applicability": {
+              "protocol_versions": [],
+              "transport_families": [],
+              "operations": []
+            },
+            "provenance": {
+              "level": "advertised"
+            },
+            "issued_at_ms": 1759999999990,
+            "expires_at_ms": 1760000001000,
+            "extensions": null,
+            "critical_extensions": [],
+            "capability_id": "a2a.capability.c",
+            "state": "unknown"
+          }
+        ],
+        "extensions": {},
+        "critical_extensions": []
+      },
+      "evaluation_time_ms": 1760000000000
+    },
+    "expected": {
+      "ok": true,
+      "value": {
+        "validation_version": "meshfleet.a2a.capability-validation/v0.1",
+        "evaluation_time_ms": 1760000000000,
+        "valid": false,
+        "proof_results": [],
+        "errors": [
+          {
+            "code": "INVALID_EXTENSION_CONTAINER",
+            "field_path": "$.claims[2].extensions"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "case_id": "extension.profile-claim-source-2.extensions.wrong-container-type",
+    "api": "validate-profile",
+    "invocation_args": {
+      "raw_profile": {
+        "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+        "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+        "revision": 1,
+        "issuer": {
+          "kind": "adapter",
+          "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+        },
+        "subject": {
+          "kind": "transport",
+          "ref": "ref_ssssssssssssssssssss"
+        },
+        "issued_at_ms": 1759999999990,
+        "expires_at_ms": 1760000001000,
+        "claims": [
+          {
+            "claim_id": "clm_aaaaaaaaaaaaaaaaaaaa",
+            "kind": "capability",
+            "applicability": {
+              "protocol_versions": [],
+              "transport_families": [],
+              "operations": []
+            },
+            "provenance": {
+              "level": "advertised"
+            },
+            "issued_at_ms": 1759999999990,
+            "expires_at_ms": 1760000001000,
+            "extensions": {},
+            "critical_extensions": [],
+            "capability_id": "a2a.capability.a",
+            "state": "unknown"
+          },
+          {
+            "claim_id": "clm_bbbbbbbbbbbbbbbbbbbb",
+            "kind": "capability",
+            "applicability": {
+              "protocol_versions": [],
+              "transport_families": [],
+              "operations": []
+            },
+            "provenance": {
+              "level": "advertised"
+            },
+            "issued_at_ms": 1759999999990,
+            "expires_at_ms": 1760000001000,
+            "extensions": {},
+            "critical_extensions": [],
+            "capability_id": "a2a.capability.b",
+            "state": "unknown"
+          },
+          {
+            "claim_id": "clm_cccccccccccccccccccc",
+            "kind": "capability",
+            "applicability": {
+              "protocol_versions": [],
+              "transport_families": [],
+              "operations": []
+            },
+            "provenance": {
+              "level": "advertised"
+            },
+            "issued_at_ms": 1759999999990,
+            "expires_at_ms": 1760000001000,
+            "extensions": [],
+            "critical_extensions": [],
+            "capability_id": "a2a.capability.c",
+            "state": "unknown"
+          }
+        ],
+        "extensions": {},
+        "critical_extensions": []
+      },
+      "evaluation_time_ms": 1760000000000
+    },
+    "expected": {
+      "ok": true,
+      "value": {
+        "validation_version": "meshfleet.a2a.capability-validation/v0.1",
+        "evaluation_time_ms": 1760000000000,
+        "valid": false,
+        "proof_results": [],
+        "errors": [
+          {
+            "code": "INVALID_EXTENSION_CONTAINER",
+            "field_path": "$.claims[2].extensions"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "case_id": "extension.profile-claim-source-2.extensions.nonempty",
+    "api": "validate-profile",
+    "invocation_args": {
+      "raw_profile": {
+        "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+        "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+        "revision": 1,
+        "issuer": {
+          "kind": "adapter",
+          "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+        },
+        "subject": {
+          "kind": "transport",
+          "ref": "ref_ssssssssssssssssssss"
+        },
+        "issued_at_ms": 1759999999990,
+        "expires_at_ms": 1760000001000,
+        "claims": [
+          {
+            "claim_id": "clm_aaaaaaaaaaaaaaaaaaaa",
+            "kind": "capability",
+            "applicability": {
+              "protocol_versions": [],
+              "transport_families": [],
+              "operations": []
+            },
+            "provenance": {
+              "level": "advertised"
+            },
+            "issued_at_ms": 1759999999990,
+            "expires_at_ms": 1760000001000,
+            "extensions": {},
+            "critical_extensions": [],
+            "capability_id": "a2a.capability.a",
+            "state": "unknown"
+          },
+          {
+            "claim_id": "clm_bbbbbbbbbbbbbbbbbbbb",
+            "kind": "capability",
+            "applicability": {
+              "protocol_versions": [],
+              "transport_families": [],
+              "operations": []
+            },
+            "provenance": {
+              "level": "advertised"
+            },
+            "issued_at_ms": 1759999999990,
+            "expires_at_ms": 1760000001000,
+            "extensions": {},
+            "critical_extensions": [],
+            "capability_id": "a2a.capability.b",
+            "state": "unknown"
+          },
+          {
+            "claim_id": "clm_cccccccccccccccccccc",
+            "kind": "capability",
+            "applicability": {
+              "protocol_versions": [],
+              "transport_families": [],
+              "operations": []
+            },
+            "provenance": {
+              "level": "advertised"
+            },
+            "issued_at_ms": 1759999999990,
+            "expires_at_ms": 1760000001000,
+            "extensions": {
+              "x": true
+            },
+            "critical_extensions": [],
+            "capability_id": "a2a.capability.c",
+            "state": "unknown"
+          }
+        ],
+        "extensions": {},
+        "critical_extensions": []
+      },
+      "evaluation_time_ms": 1760000000000
+    },
+    "expected": {
+      "ok": true,
+      "value": {
+        "validation_version": "meshfleet.a2a.capability-validation/v0.1",
+        "evaluation_time_ms": 1760000000000,
+        "valid": false,
+        "proof_results": [],
+        "errors": [
+          {
+            "code": "UNSUPPORTED_EXTENSION",
+            "field_path": "$.claims[2].extensions"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "case_id": "extension.profile-claim-source-2.critical-extensions.missing",
+    "api": "validate-profile",
+    "invocation_args": {
+      "raw_profile": {
+        "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+        "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+        "revision": 1,
+        "issuer": {
+          "kind": "adapter",
+          "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+        },
+        "subject": {
+          "kind": "transport",
+          "ref": "ref_ssssssssssssssssssss"
+        },
+        "issued_at_ms": 1759999999990,
+        "expires_at_ms": 1760000001000,
+        "claims": [
+          {
+            "claim_id": "clm_aaaaaaaaaaaaaaaaaaaa",
+            "kind": "capability",
+            "applicability": {
+              "protocol_versions": [],
+              "transport_families": [],
+              "operations": []
+            },
+            "provenance": {
+              "level": "advertised"
+            },
+            "issued_at_ms": 1759999999990,
+            "expires_at_ms": 1760000001000,
+            "extensions": {},
+            "critical_extensions": [],
+            "capability_id": "a2a.capability.a",
+            "state": "unknown"
+          },
+          {
+            "claim_id": "clm_bbbbbbbbbbbbbbbbbbbb",
+            "kind": "capability",
+            "applicability": {
+              "protocol_versions": [],
+              "transport_families": [],
+              "operations": []
+            },
+            "provenance": {
+              "level": "advertised"
+            },
+            "issued_at_ms": 1759999999990,
+            "expires_at_ms": 1760000001000,
+            "extensions": {},
+            "critical_extensions": [],
+            "capability_id": "a2a.capability.b",
+            "state": "unknown"
+          },
+          {
+            "claim_id": "clm_cccccccccccccccccccc",
+            "kind": "capability",
+            "applicability": {
+              "protocol_versions": [],
+              "transport_families": [],
+              "operations": []
+            },
+            "provenance": {
+              "level": "advertised"
+            },
+            "issued_at_ms": 1759999999990,
+            "expires_at_ms": 1760000001000,
+            "extensions": {},
+            "capability_id": "a2a.capability.c",
+            "state": "unknown"
+          }
+        ],
+        "extensions": {},
+        "critical_extensions": []
+      },
+      "evaluation_time_ms": 1760000000000
+    },
+    "expected": {
+      "ok": true,
+      "value": {
+        "validation_version": "meshfleet.a2a.capability-validation/v0.1",
+        "evaluation_time_ms": 1760000000000,
+        "valid": false,
+        "proof_results": [],
+        "errors": [
+          {
+            "code": "INVALID_CLAIM_SCHEMA",
+            "field_path": "$.claims[2].critical_extensions"
+          },
+          {
+            "code": "INVALID_EXTENSION_CONTAINER",
+            "field_path": "$.claims[2].critical_extensions"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "case_id": "extension.profile-claim-source-2.critical-extensions.null",
+    "api": "validate-profile",
+    "invocation_args": {
+      "raw_profile": {
+        "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+        "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+        "revision": 1,
+        "issuer": {
+          "kind": "adapter",
+          "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+        },
+        "subject": {
+          "kind": "transport",
+          "ref": "ref_ssssssssssssssssssss"
+        },
+        "issued_at_ms": 1759999999990,
+        "expires_at_ms": 1760000001000,
+        "claims": [
+          {
+            "claim_id": "clm_aaaaaaaaaaaaaaaaaaaa",
+            "kind": "capability",
+            "applicability": {
+              "protocol_versions": [],
+              "transport_families": [],
+              "operations": []
+            },
+            "provenance": {
+              "level": "advertised"
+            },
+            "issued_at_ms": 1759999999990,
+            "expires_at_ms": 1760000001000,
+            "extensions": {},
+            "critical_extensions": [],
+            "capability_id": "a2a.capability.a",
+            "state": "unknown"
+          },
+          {
+            "claim_id": "clm_bbbbbbbbbbbbbbbbbbbb",
+            "kind": "capability",
+            "applicability": {
+              "protocol_versions": [],
+              "transport_families": [],
+              "operations": []
+            },
+            "provenance": {
+              "level": "advertised"
+            },
+            "issued_at_ms": 1759999999990,
+            "expires_at_ms": 1760000001000,
+            "extensions": {},
+            "critical_extensions": [],
+            "capability_id": "a2a.capability.b",
+            "state": "unknown"
+          },
+          {
+            "claim_id": "clm_cccccccccccccccccccc",
+            "kind": "capability",
+            "applicability": {
+              "protocol_versions": [],
+              "transport_families": [],
+              "operations": []
+            },
+            "provenance": {
+              "level": "advertised"
+            },
+            "issued_at_ms": 1759999999990,
+            "expires_at_ms": 1760000001000,
+            "extensions": {},
+            "critical_extensions": null,
+            "capability_id": "a2a.capability.c",
+            "state": "unknown"
+          }
+        ],
+        "extensions": {},
+        "critical_extensions": []
+      },
+      "evaluation_time_ms": 1760000000000
+    },
+    "expected": {
+      "ok": true,
+      "value": {
+        "validation_version": "meshfleet.a2a.capability-validation/v0.1",
+        "evaluation_time_ms": 1760000000000,
+        "valid": false,
+        "proof_results": [],
+        "errors": [
+          {
+            "code": "INVALID_EXTENSION_CONTAINER",
+            "field_path": "$.claims[2].critical_extensions"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "case_id": "extension.profile-claim-source-2.critical-extensions.wrong-container-type",
+    "api": "validate-profile",
+    "invocation_args": {
+      "raw_profile": {
+        "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+        "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+        "revision": 1,
+        "issuer": {
+          "kind": "adapter",
+          "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+        },
+        "subject": {
+          "kind": "transport",
+          "ref": "ref_ssssssssssssssssssss"
+        },
+        "issued_at_ms": 1759999999990,
+        "expires_at_ms": 1760000001000,
+        "claims": [
+          {
+            "claim_id": "clm_aaaaaaaaaaaaaaaaaaaa",
+            "kind": "capability",
+            "applicability": {
+              "protocol_versions": [],
+              "transport_families": [],
+              "operations": []
+            },
+            "provenance": {
+              "level": "advertised"
+            },
+            "issued_at_ms": 1759999999990,
+            "expires_at_ms": 1760000001000,
+            "extensions": {},
+            "critical_extensions": [],
+            "capability_id": "a2a.capability.a",
+            "state": "unknown"
+          },
+          {
+            "claim_id": "clm_bbbbbbbbbbbbbbbbbbbb",
+            "kind": "capability",
+            "applicability": {
+              "protocol_versions": [],
+              "transport_families": [],
+              "operations": []
+            },
+            "provenance": {
+              "level": "advertised"
+            },
+            "issued_at_ms": 1759999999990,
+            "expires_at_ms": 1760000001000,
+            "extensions": {},
+            "critical_extensions": [],
+            "capability_id": "a2a.capability.b",
+            "state": "unknown"
+          },
+          {
+            "claim_id": "clm_cccccccccccccccccccc",
+            "kind": "capability",
+            "applicability": {
+              "protocol_versions": [],
+              "transport_families": [],
+              "operations": []
+            },
+            "provenance": {
+              "level": "advertised"
+            },
+            "issued_at_ms": 1759999999990,
+            "expires_at_ms": 1760000001000,
+            "extensions": {},
+            "critical_extensions": {},
+            "capability_id": "a2a.capability.c",
+            "state": "unknown"
+          }
+        ],
+        "extensions": {},
+        "critical_extensions": []
+      },
+      "evaluation_time_ms": 1760000000000
+    },
+    "expected": {
+      "ok": true,
+      "value": {
+        "validation_version": "meshfleet.a2a.capability-validation/v0.1",
+        "evaluation_time_ms": 1760000000000,
+        "valid": false,
+        "proof_results": [],
+        "errors": [
+          {
+            "code": "INVALID_EXTENSION_CONTAINER",
+            "field_path": "$.claims[2].critical_extensions"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "case_id": "extension.profile-claim-source-2.critical-extensions.nonempty",
+    "api": "validate-profile",
+    "invocation_args": {
+      "raw_profile": {
+        "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+        "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+        "revision": 1,
+        "issuer": {
+          "kind": "adapter",
+          "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+        },
+        "subject": {
+          "kind": "transport",
+          "ref": "ref_ssssssssssssssssssss"
+        },
+        "issued_at_ms": 1759999999990,
+        "expires_at_ms": 1760000001000,
+        "claims": [
+          {
+            "claim_id": "clm_aaaaaaaaaaaaaaaaaaaa",
+            "kind": "capability",
+            "applicability": {
+              "protocol_versions": [],
+              "transport_families": [],
+              "operations": []
+            },
+            "provenance": {
+              "level": "advertised"
+            },
+            "issued_at_ms": 1759999999990,
+            "expires_at_ms": 1760000001000,
+            "extensions": {},
+            "critical_extensions": [],
+            "capability_id": "a2a.capability.a",
+            "state": "unknown"
+          },
+          {
+            "claim_id": "clm_bbbbbbbbbbbbbbbbbbbb",
+            "kind": "capability",
+            "applicability": {
+              "protocol_versions": [],
+              "transport_families": [],
+              "operations": []
+            },
+            "provenance": {
+              "level": "advertised"
+            },
+            "issued_at_ms": 1759999999990,
+            "expires_at_ms": 1760000001000,
+            "extensions": {},
+            "critical_extensions": [],
+            "capability_id": "a2a.capability.b",
+            "state": "unknown"
+          },
+          {
+            "claim_id": "clm_cccccccccccccccccccc",
+            "kind": "capability",
+            "applicability": {
+              "protocol_versions": [],
+              "transport_families": [],
+              "operations": []
+            },
+            "provenance": {
+              "level": "advertised"
+            },
+            "issued_at_ms": 1759999999990,
+            "expires_at_ms": 1760000001000,
+            "extensions": {},
+            "critical_extensions": [
+              true
+            ],
+            "capability_id": "a2a.capability.c",
+            "state": "unknown"
+          }
+        ],
+        "extensions": {},
+        "critical_extensions": []
+      },
+      "evaluation_time_ms": 1760000000000
+    },
+    "expected": {
+      "ok": true,
+      "value": {
+        "validation_version": "meshfleet.a2a.capability-validation/v0.1",
+        "evaluation_time_ms": 1760000000000,
+        "valid": false,
+        "proof_results": [],
+        "errors": [
+          {
+            "code": "UNSUPPORTED_EXTENSION",
+            "field_path": "$.claims[2].critical_extensions"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "case_id": "extension.translation-root.extensions.missing",
+    "api": "translate-profile",
+    "invocation_args": {
+      "input": {
+        "translation_version": "meshfleet.a2a.translation/v0.1",
+        "target": "codex",
+        "source_profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": {},
+          "critical_extensions": []
+        },
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "critical_extensions": []
+      },
+      "evaluation_time_ms": 1760000000000
+    },
+    "expected": {
+      "code": "INVALID_EXTENSION_CONTAINER",
+      "field_path": "$.extensions",
+      "target_ref": "codex"
+    }
+  },
+  {
+    "case_id": "extension.translation-root.extensions.null",
+    "api": "translate-profile",
+    "invocation_args": {
+      "input": {
+        "translation_version": "meshfleet.a2a.translation/v0.1",
+        "target": "codex",
+        "source_profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": {},
+          "critical_extensions": []
+        },
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "extensions": null,
+        "critical_extensions": []
+      },
+      "evaluation_time_ms": 1760000000000
+    },
+    "expected": {
+      "code": "INVALID_EXTENSION_CONTAINER",
+      "field_path": "$.extensions",
+      "target_ref": "codex"
+    }
+  },
+  {
+    "case_id": "extension.translation-root.extensions.wrong-container-type",
+    "api": "translate-profile",
+    "invocation_args": {
+      "input": {
+        "translation_version": "meshfleet.a2a.translation/v0.1",
+        "target": "codex",
+        "source_profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": {},
+          "critical_extensions": []
+        },
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "extensions": [],
+        "critical_extensions": []
+      },
+      "evaluation_time_ms": 1760000000000
+    },
+    "expected": {
+      "code": "INVALID_EXTENSION_CONTAINER",
+      "field_path": "$.extensions",
+      "target_ref": "codex"
+    }
+  },
+  {
+    "case_id": "extension.translation-root.extensions.nonempty",
+    "api": "translate-profile",
+    "invocation_args": {
+      "input": {
+        "translation_version": "meshfleet.a2a.translation/v0.1",
+        "target": "codex",
+        "source_profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": {},
+          "critical_extensions": []
+        },
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "extensions": {
+          "x": true
+        },
+        "critical_extensions": []
+      },
+      "evaluation_time_ms": 1760000000000
+    },
+    "expected": {
+      "code": "UNSUPPORTED_EXTENSION",
+      "field_path": "$.extensions",
+      "target_ref": "codex"
+    }
+  },
+  {
+    "case_id": "extension.translation-root.critical-extensions.missing",
+    "api": "translate-profile",
+    "invocation_args": {
+      "input": {
+        "translation_version": "meshfleet.a2a.translation/v0.1",
+        "target": "codex",
+        "source_profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": {},
+          "critical_extensions": []
+        },
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "extensions": {}
+      },
+      "evaluation_time_ms": 1760000000000
+    },
+    "expected": {
+      "code": "INVALID_EXTENSION_CONTAINER",
+      "field_path": "$.critical_extensions",
+      "target_ref": "codex"
+    }
+  },
+  {
+    "case_id": "extension.translation-root.critical-extensions.null",
+    "api": "translate-profile",
+    "invocation_args": {
+      "input": {
+        "translation_version": "meshfleet.a2a.translation/v0.1",
+        "target": "codex",
+        "source_profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": {},
+          "critical_extensions": []
+        },
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "extensions": {},
+        "critical_extensions": null
+      },
+      "evaluation_time_ms": 1760000000000
+    },
+    "expected": {
+      "code": "INVALID_EXTENSION_CONTAINER",
+      "field_path": "$.critical_extensions",
+      "target_ref": "codex"
+    }
+  },
+  {
+    "case_id": "extension.translation-root.critical-extensions.wrong-container-type",
+    "api": "translate-profile",
+    "invocation_args": {
+      "input": {
+        "translation_version": "meshfleet.a2a.translation/v0.1",
+        "target": "codex",
+        "source_profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": {},
+          "critical_extensions": []
+        },
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "extensions": {},
+        "critical_extensions": {}
+      },
+      "evaluation_time_ms": 1760000000000
+    },
+    "expected": {
+      "code": "INVALID_EXTENSION_CONTAINER",
+      "field_path": "$.critical_extensions",
+      "target_ref": "codex"
+    }
+  },
+  {
+    "case_id": "extension.translation-root.critical-extensions.nonempty",
+    "api": "translate-profile",
+    "invocation_args": {
+      "input": {
+        "translation_version": "meshfleet.a2a.translation/v0.1",
+        "target": "codex",
+        "source_profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": {},
+          "critical_extensions": []
+        },
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "extensions": {},
+        "critical_extensions": [
+          true
+        ]
+      },
+      "evaluation_time_ms": 1760000000000
+    },
+    "expected": {
+      "code": "UNSUPPORTED_EXTENSION",
+      "field_path": "$.critical_extensions",
+      "target_ref": "codex"
+    }
+  },
+  {
+    "case_id": "extension.translation-source-profile.extensions.missing",
+    "api": "translate-profile",
+    "invocation_args": {
+      "input": {
+        "translation_version": "meshfleet.a2a.translation/v0.1",
+        "target": "codex",
+        "source_profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "critical_extensions": []
+        },
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "extensions": {},
+        "critical_extensions": []
+      },
+      "evaluation_time_ms": 1760000000000
+    },
+    "expected": {
+      "code": "MALFORMED_CAPABILITY_PROFILE",
+      "field_path": "$.source_profile.extensions",
+      "target_ref": "codex"
+    }
+  },
+  {
+    "case_id": "extension.translation-source-profile.extensions.null",
+    "api": "translate-profile",
+    "invocation_args": {
+      "input": {
+        "translation_version": "meshfleet.a2a.translation/v0.1",
+        "target": "codex",
+        "source_profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": null,
+          "critical_extensions": []
+        },
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "extensions": {},
+        "critical_extensions": []
+      },
+      "evaluation_time_ms": 1760000000000
+    },
+    "expected": {
+      "code": "INVALID_EXTENSION_CONTAINER",
+      "field_path": "$.source_profile.extensions",
+      "target_ref": "codex"
+    }
+  },
+  {
+    "case_id": "extension.translation-source-profile.extensions.wrong-container-type",
+    "api": "translate-profile",
+    "invocation_args": {
+      "input": {
+        "translation_version": "meshfleet.a2a.translation/v0.1",
+        "target": "codex",
+        "source_profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": [],
+          "critical_extensions": []
+        },
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "extensions": {},
+        "critical_extensions": []
+      },
+      "evaluation_time_ms": 1760000000000
+    },
+    "expected": {
+      "code": "INVALID_EXTENSION_CONTAINER",
+      "field_path": "$.source_profile.extensions",
+      "target_ref": "codex"
+    }
+  },
+  {
+    "case_id": "extension.translation-source-profile.extensions.nonempty",
+    "api": "translate-profile",
+    "invocation_args": {
+      "input": {
+        "translation_version": "meshfleet.a2a.translation/v0.1",
+        "target": "codex",
+        "source_profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": {
+            "x": true
+          },
+          "critical_extensions": []
+        },
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "extensions": {},
+        "critical_extensions": []
+      },
+      "evaluation_time_ms": 1760000000000
+    },
+    "expected": {
+      "code": "UNSUPPORTED_EXTENSION",
+      "field_path": "$.source_profile.extensions",
+      "target_ref": "codex"
+    }
+  },
+  {
+    "case_id": "extension.translation-source-profile.critical-extensions.missing",
+    "api": "translate-profile",
+    "invocation_args": {
+      "input": {
+        "translation_version": "meshfleet.a2a.translation/v0.1",
+        "target": "codex",
+        "source_profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": {}
+        },
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "extensions": {},
+        "critical_extensions": []
+      },
+      "evaluation_time_ms": 1760000000000
+    },
+    "expected": {
+      "code": "MALFORMED_CAPABILITY_PROFILE",
+      "field_path": "$.source_profile.critical_extensions",
+      "target_ref": "codex"
+    }
+  },
+  {
+    "case_id": "extension.translation-source-profile.critical-extensions.null",
+    "api": "translate-profile",
+    "invocation_args": {
+      "input": {
+        "translation_version": "meshfleet.a2a.translation/v0.1",
+        "target": "codex",
+        "source_profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": {},
+          "critical_extensions": null
+        },
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "extensions": {},
+        "critical_extensions": []
+      },
+      "evaluation_time_ms": 1760000000000
+    },
+    "expected": {
+      "code": "INVALID_EXTENSION_CONTAINER",
+      "field_path": "$.source_profile.critical_extensions",
+      "target_ref": "codex"
+    }
+  },
+  {
+    "case_id": "extension.translation-source-profile.critical-extensions.wrong-container-type",
+    "api": "translate-profile",
+    "invocation_args": {
+      "input": {
+        "translation_version": "meshfleet.a2a.translation/v0.1",
+        "target": "codex",
+        "source_profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": {},
+          "critical_extensions": {}
+        },
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "extensions": {},
+        "critical_extensions": []
+      },
+      "evaluation_time_ms": 1760000000000
+    },
+    "expected": {
+      "code": "INVALID_EXTENSION_CONTAINER",
+      "field_path": "$.source_profile.critical_extensions",
+      "target_ref": "codex"
+    }
+  },
+  {
+    "case_id": "extension.translation-source-profile.critical-extensions.nonempty",
+    "api": "translate-profile",
+    "invocation_args": {
+      "input": {
+        "translation_version": "meshfleet.a2a.translation/v0.1",
+        "target": "codex",
+        "source_profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": {},
+          "critical_extensions": [
+            true
+          ]
+        },
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "extensions": {},
+        "critical_extensions": []
+      },
+      "evaluation_time_ms": 1760000000000
+    },
+    "expected": {
+      "code": "UNSUPPORTED_EXTENSION",
+      "field_path": "$.source_profile.critical_extensions",
+      "target_ref": "codex"
+    }
+  },
+  {
+    "case_id": "extension.translation-result-root.extensions.missing",
+    "api": "validate-translation-result",
+    "invocation_args": {
+      "result": {
+        "translation_version": "meshfleet.a2a.translation-result/v0.1",
+        "target": "codex",
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": {},
+          "critical_extensions": []
+        },
+        "losses": [],
+        "critical_extensions": []
+      }
+    },
+    "expected": {
+      "ok": false,
+      "error": {
+        "code": "INVALID_EXTENSION_CONTAINER",
+        "field_path": "$.extensions"
+      }
+    }
+  },
+  {
+    "case_id": "extension.translation-result-root.extensions.null",
+    "api": "validate-translation-result",
+    "invocation_args": {
+      "result": {
+        "translation_version": "meshfleet.a2a.translation-result/v0.1",
+        "target": "codex",
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": {},
+          "critical_extensions": []
+        },
+        "losses": [],
+        "extensions": null,
+        "critical_extensions": []
+      }
+    },
+    "expected": {
+      "ok": false,
+      "error": {
+        "code": "INVALID_EXTENSION_CONTAINER",
+        "field_path": "$.extensions"
+      }
+    }
+  },
+  {
+    "case_id": "extension.translation-result-root.extensions.wrong-container-type",
+    "api": "validate-translation-result",
+    "invocation_args": {
+      "result": {
+        "translation_version": "meshfleet.a2a.translation-result/v0.1",
+        "target": "codex",
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": {},
+          "critical_extensions": []
+        },
+        "losses": [],
+        "extensions": [],
+        "critical_extensions": []
+      }
+    },
+    "expected": {
+      "ok": false,
+      "error": {
+        "code": "INVALID_EXTENSION_CONTAINER",
+        "field_path": "$.extensions"
+      }
+    }
+  },
+  {
+    "case_id": "extension.translation-result-root.extensions.nonempty",
+    "api": "validate-translation-result",
+    "invocation_args": {
+      "result": {
+        "translation_version": "meshfleet.a2a.translation-result/v0.1",
+        "target": "codex",
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": {},
+          "critical_extensions": []
+        },
+        "losses": [],
+        "extensions": {
+          "x": true
+        },
+        "critical_extensions": []
+      }
+    },
+    "expected": {
+      "ok": false,
+      "error": {
+        "code": "UNSUPPORTED_EXTENSION",
+        "field_path": "$.extensions"
+      }
+    }
+  },
+  {
+    "case_id": "extension.translation-result-root.critical-extensions.missing",
+    "api": "validate-translation-result",
+    "invocation_args": {
+      "result": {
+        "translation_version": "meshfleet.a2a.translation-result/v0.1",
+        "target": "codex",
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": {},
+          "critical_extensions": []
+        },
+        "losses": [],
+        "extensions": {}
+      }
+    },
+    "expected": {
+      "ok": false,
+      "error": {
+        "code": "INVALID_EXTENSION_CONTAINER",
+        "field_path": "$.critical_extensions"
+      }
+    }
+  },
+  {
+    "case_id": "extension.translation-result-root.critical-extensions.null",
+    "api": "validate-translation-result",
+    "invocation_args": {
+      "result": {
+        "translation_version": "meshfleet.a2a.translation-result/v0.1",
+        "target": "codex",
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": {},
+          "critical_extensions": []
+        },
+        "losses": [],
+        "extensions": {},
+        "critical_extensions": null
+      }
+    },
+    "expected": {
+      "ok": false,
+      "error": {
+        "code": "INVALID_EXTENSION_CONTAINER",
+        "field_path": "$.critical_extensions"
+      }
+    }
+  },
+  {
+    "case_id": "extension.translation-result-root.critical-extensions.wrong-container-type",
+    "api": "validate-translation-result",
+    "invocation_args": {
+      "result": {
+        "translation_version": "meshfleet.a2a.translation-result/v0.1",
+        "target": "codex",
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": {},
+          "critical_extensions": []
+        },
+        "losses": [],
+        "extensions": {},
+        "critical_extensions": {}
+      }
+    },
+    "expected": {
+      "ok": false,
+      "error": {
+        "code": "INVALID_EXTENSION_CONTAINER",
+        "field_path": "$.critical_extensions"
+      }
+    }
+  },
+  {
+    "case_id": "extension.translation-result-root.critical-extensions.nonempty",
+    "api": "validate-translation-result",
+    "invocation_args": {
+      "result": {
+        "translation_version": "meshfleet.a2a.translation-result/v0.1",
+        "target": "codex",
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": {},
+          "critical_extensions": []
+        },
+        "losses": [],
+        "extensions": {},
+        "critical_extensions": [
+          true
+        ]
+      }
+    },
+    "expected": {
+      "ok": false,
+      "error": {
+        "code": "UNSUPPORTED_EXTENSION",
+        "field_path": "$.critical_extensions"
+      }
+    }
+  },
+  {
+    "case_id": "extension.translation-result-profile.extensions.missing",
+    "api": "validate-translation-result",
+    "invocation_args": {
+      "result": {
+        "translation_version": "meshfleet.a2a.translation-result/v0.1",
+        "target": "codex",
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "critical_extensions": []
+        },
+        "losses": [],
+        "extensions": {},
+        "critical_extensions": []
+      }
+    },
+    "expected": {
+      "ok": false,
+      "error": {
+        "code": "MALFORMED_CAPABILITY_PROFILE",
+        "field_path": "$.profile.extensions"
+      }
+    }
+  },
+  {
+    "case_id": "extension.translation-result-profile.extensions.null",
+    "api": "validate-translation-result",
+    "invocation_args": {
+      "result": {
+        "translation_version": "meshfleet.a2a.translation-result/v0.1",
+        "target": "codex",
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": null,
+          "critical_extensions": []
+        },
+        "losses": [],
+        "extensions": {},
+        "critical_extensions": []
+      }
+    },
+    "expected": {
+      "ok": false,
+      "error": {
+        "code": "INVALID_EXTENSION_CONTAINER",
+        "field_path": "$.profile.extensions"
+      }
+    }
+  },
+  {
+    "case_id": "extension.translation-result-profile.extensions.wrong-container-type",
+    "api": "validate-translation-result",
+    "invocation_args": {
+      "result": {
+        "translation_version": "meshfleet.a2a.translation-result/v0.1",
+        "target": "codex",
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": [],
+          "critical_extensions": []
+        },
+        "losses": [],
+        "extensions": {},
+        "critical_extensions": []
+      }
+    },
+    "expected": {
+      "ok": false,
+      "error": {
+        "code": "INVALID_EXTENSION_CONTAINER",
+        "field_path": "$.profile.extensions"
+      }
+    }
+  },
+  {
+    "case_id": "extension.translation-result-profile.extensions.nonempty",
+    "api": "validate-translation-result",
+    "invocation_args": {
+      "result": {
+        "translation_version": "meshfleet.a2a.translation-result/v0.1",
+        "target": "codex",
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": {
+            "x": true
+          },
+          "critical_extensions": []
+        },
+        "losses": [],
+        "extensions": {},
+        "critical_extensions": []
+      }
+    },
+    "expected": {
+      "ok": false,
+      "error": {
+        "code": "UNSUPPORTED_EXTENSION",
+        "field_path": "$.profile.extensions"
+      }
+    }
+  },
+  {
+    "case_id": "extension.translation-result-profile.critical-extensions.missing",
+    "api": "validate-translation-result",
+    "invocation_args": {
+      "result": {
+        "translation_version": "meshfleet.a2a.translation-result/v0.1",
+        "target": "codex",
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": {}
+        },
+        "losses": [],
+        "extensions": {},
+        "critical_extensions": []
+      }
+    },
+    "expected": {
+      "ok": false,
+      "error": {
+        "code": "MALFORMED_CAPABILITY_PROFILE",
+        "field_path": "$.profile.critical_extensions"
+      }
+    }
+  },
+  {
+    "case_id": "extension.translation-result-profile.critical-extensions.null",
+    "api": "validate-translation-result",
+    "invocation_args": {
+      "result": {
+        "translation_version": "meshfleet.a2a.translation-result/v0.1",
+        "target": "codex",
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": {},
+          "critical_extensions": null
+        },
+        "losses": [],
+        "extensions": {},
+        "critical_extensions": []
+      }
+    },
+    "expected": {
+      "ok": false,
+      "error": {
+        "code": "INVALID_EXTENSION_CONTAINER",
+        "field_path": "$.profile.critical_extensions"
+      }
+    }
+  },
+  {
+    "case_id": "extension.translation-result-profile.critical-extensions.wrong-container-type",
+    "api": "validate-translation-result",
+    "invocation_args": {
+      "result": {
+        "translation_version": "meshfleet.a2a.translation-result/v0.1",
+        "target": "codex",
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": {},
+          "critical_extensions": {}
+        },
+        "losses": [],
+        "extensions": {},
+        "critical_extensions": []
+      }
+    },
+    "expected": {
+      "ok": false,
+      "error": {
+        "code": "INVALID_EXTENSION_CONTAINER",
+        "field_path": "$.profile.critical_extensions"
+      }
+    }
+  },
+  {
+    "case_id": "extension.translation-result-profile.critical-extensions.nonempty",
+    "api": "validate-translation-result",
+    "invocation_args": {
+      "result": {
+        "translation_version": "meshfleet.a2a.translation-result/v0.1",
+        "target": "codex",
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": {},
+          "critical_extensions": [
+            true
+          ]
+        },
+        "losses": [],
+        "extensions": {},
+        "critical_extensions": []
+      }
+    },
+    "expected": {
+      "ok": false,
+      "error": {
+        "code": "UNSUPPORTED_EXTENSION",
+        "field_path": "$.profile.critical_extensions"
+      }
+    }
+  },
+  {
+    "case_id": "extension.translation-result-profile-claim-source-2.extensions.missing",
+    "api": "validate-translation-result",
+    "invocation_args": {
+      "result": {
+        "translation_version": "meshfleet.a2a.translation-result/v0.1",
+        "target": "codex",
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [
+            {
+              "claim_id": "clm_aaaaaaaaaaaaaaaaaaaa",
+              "kind": "capability",
+              "applicability": {
+                "protocol_versions": [],
+                "transport_families": [],
+                "operations": []
+              },
+              "provenance": {
+                "level": "advertised"
+              },
+              "issued_at_ms": 1759999999990,
+              "expires_at_ms": 1760000001000,
+              "extensions": {},
+              "critical_extensions": [],
+              "capability_id": "a2a.capability.a",
+              "state": "unknown"
+            },
+            {
+              "claim_id": "clm_bbbbbbbbbbbbbbbbbbbb",
+              "kind": "capability",
+              "applicability": {
+                "protocol_versions": [],
+                "transport_families": [],
+                "operations": []
+              },
+              "provenance": {
+                "level": "advertised"
+              },
+              "issued_at_ms": 1759999999990,
+              "expires_at_ms": 1760000001000,
+              "extensions": {},
+              "critical_extensions": [],
+              "capability_id": "a2a.capability.b",
+              "state": "unknown"
+            },
+            {
+              "claim_id": "clm_cccccccccccccccccccc",
+              "kind": "capability",
+              "applicability": {
+                "protocol_versions": [],
+                "transport_families": [],
+                "operations": []
+              },
+              "provenance": {
+                "level": "advertised"
+              },
+              "issued_at_ms": 1759999999990,
+              "expires_at_ms": 1760000001000,
+              "critical_extensions": [],
+              "capability_id": "a2a.capability.c",
+              "state": "unknown"
+            }
+          ],
+          "extensions": {},
+          "critical_extensions": []
+        },
+        "losses": [],
+        "extensions": {},
+        "critical_extensions": []
+      }
+    },
+    "expected": {
+      "ok": false,
+      "error": {
+        "code": "INVALID_CLAIM_SCHEMA",
+        "field_path": "$.profile.claims[2].extensions"
+      }
+    }
+  },
+  {
+    "case_id": "extension.translation-result-profile-claim-source-2.extensions.null",
+    "api": "validate-translation-result",
+    "invocation_args": {
+      "result": {
+        "translation_version": "meshfleet.a2a.translation-result/v0.1",
+        "target": "codex",
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [
+            {
+              "claim_id": "clm_aaaaaaaaaaaaaaaaaaaa",
+              "kind": "capability",
+              "applicability": {
+                "protocol_versions": [],
+                "transport_families": [],
+                "operations": []
+              },
+              "provenance": {
+                "level": "advertised"
+              },
+              "issued_at_ms": 1759999999990,
+              "expires_at_ms": 1760000001000,
+              "extensions": {},
+              "critical_extensions": [],
+              "capability_id": "a2a.capability.a",
+              "state": "unknown"
+            },
+            {
+              "claim_id": "clm_bbbbbbbbbbbbbbbbbbbb",
+              "kind": "capability",
+              "applicability": {
+                "protocol_versions": [],
+                "transport_families": [],
+                "operations": []
+              },
+              "provenance": {
+                "level": "advertised"
+              },
+              "issued_at_ms": 1759999999990,
+              "expires_at_ms": 1760000001000,
+              "extensions": {},
+              "critical_extensions": [],
+              "capability_id": "a2a.capability.b",
+              "state": "unknown"
+            },
+            {
+              "claim_id": "clm_cccccccccccccccccccc",
+              "kind": "capability",
+              "applicability": {
+                "protocol_versions": [],
+                "transport_families": [],
+                "operations": []
+              },
+              "provenance": {
+                "level": "advertised"
+              },
+              "issued_at_ms": 1759999999990,
+              "expires_at_ms": 1760000001000,
+              "extensions": null,
+              "critical_extensions": [],
+              "capability_id": "a2a.capability.c",
+              "state": "unknown"
+            }
+          ],
+          "extensions": {},
+          "critical_extensions": []
+        },
+        "losses": [],
+        "extensions": {},
+        "critical_extensions": []
+      }
+    },
+    "expected": {
+      "ok": false,
+      "error": {
+        "code": "INVALID_EXTENSION_CONTAINER",
+        "field_path": "$.profile.claims[2].extensions"
+      }
+    }
+  },
+  {
+    "case_id": "extension.translation-result-profile-claim-source-2.extensions.wrong-container-type",
+    "api": "validate-translation-result",
+    "invocation_args": {
+      "result": {
+        "translation_version": "meshfleet.a2a.translation-result/v0.1",
+        "target": "codex",
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [
+            {
+              "claim_id": "clm_aaaaaaaaaaaaaaaaaaaa",
+              "kind": "capability",
+              "applicability": {
+                "protocol_versions": [],
+                "transport_families": [],
+                "operations": []
+              },
+              "provenance": {
+                "level": "advertised"
+              },
+              "issued_at_ms": 1759999999990,
+              "expires_at_ms": 1760000001000,
+              "extensions": {},
+              "critical_extensions": [],
+              "capability_id": "a2a.capability.a",
+              "state": "unknown"
+            },
+            {
+              "claim_id": "clm_bbbbbbbbbbbbbbbbbbbb",
+              "kind": "capability",
+              "applicability": {
+                "protocol_versions": [],
+                "transport_families": [],
+                "operations": []
+              },
+              "provenance": {
+                "level": "advertised"
+              },
+              "issued_at_ms": 1759999999990,
+              "expires_at_ms": 1760000001000,
+              "extensions": {},
+              "critical_extensions": [],
+              "capability_id": "a2a.capability.b",
+              "state": "unknown"
+            },
+            {
+              "claim_id": "clm_cccccccccccccccccccc",
+              "kind": "capability",
+              "applicability": {
+                "protocol_versions": [],
+                "transport_families": [],
+                "operations": []
+              },
+              "provenance": {
+                "level": "advertised"
+              },
+              "issued_at_ms": 1759999999990,
+              "expires_at_ms": 1760000001000,
+              "extensions": [],
+              "critical_extensions": [],
+              "capability_id": "a2a.capability.c",
+              "state": "unknown"
+            }
+          ],
+          "extensions": {},
+          "critical_extensions": []
+        },
+        "losses": [],
+        "extensions": {},
+        "critical_extensions": []
+      }
+    },
+    "expected": {
+      "ok": false,
+      "error": {
+        "code": "INVALID_EXTENSION_CONTAINER",
+        "field_path": "$.profile.claims[2].extensions"
+      }
+    }
+  },
+  {
+    "case_id": "extension.translation-result-profile-claim-source-2.extensions.nonempty",
+    "api": "validate-translation-result",
+    "invocation_args": {
+      "result": {
+        "translation_version": "meshfleet.a2a.translation-result/v0.1",
+        "target": "codex",
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [
+            {
+              "claim_id": "clm_aaaaaaaaaaaaaaaaaaaa",
+              "kind": "capability",
+              "applicability": {
+                "protocol_versions": [],
+                "transport_families": [],
+                "operations": []
+              },
+              "provenance": {
+                "level": "advertised"
+              },
+              "issued_at_ms": 1759999999990,
+              "expires_at_ms": 1760000001000,
+              "extensions": {},
+              "critical_extensions": [],
+              "capability_id": "a2a.capability.a",
+              "state": "unknown"
+            },
+            {
+              "claim_id": "clm_bbbbbbbbbbbbbbbbbbbb",
+              "kind": "capability",
+              "applicability": {
+                "protocol_versions": [],
+                "transport_families": [],
+                "operations": []
+              },
+              "provenance": {
+                "level": "advertised"
+              },
+              "issued_at_ms": 1759999999990,
+              "expires_at_ms": 1760000001000,
+              "extensions": {},
+              "critical_extensions": [],
+              "capability_id": "a2a.capability.b",
+              "state": "unknown"
+            },
+            {
+              "claim_id": "clm_cccccccccccccccccccc",
+              "kind": "capability",
+              "applicability": {
+                "protocol_versions": [],
+                "transport_families": [],
+                "operations": []
+              },
+              "provenance": {
+                "level": "advertised"
+              },
+              "issued_at_ms": 1759999999990,
+              "expires_at_ms": 1760000001000,
+              "extensions": {
+                "x": true
+              },
+              "critical_extensions": [],
+              "capability_id": "a2a.capability.c",
+              "state": "unknown"
+            }
+          ],
+          "extensions": {},
+          "critical_extensions": []
+        },
+        "losses": [],
+        "extensions": {},
+        "critical_extensions": []
+      }
+    },
+    "expected": {
+      "ok": false,
+      "error": {
+        "code": "UNSUPPORTED_EXTENSION",
+        "field_path": "$.profile.claims[2].extensions"
+      }
+    }
+  },
+  {
+    "case_id": "extension.translation-result-profile-claim-source-2.critical-extensions.missing",
+    "api": "validate-translation-result",
+    "invocation_args": {
+      "result": {
+        "translation_version": "meshfleet.a2a.translation-result/v0.1",
+        "target": "codex",
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [
+            {
+              "claim_id": "clm_aaaaaaaaaaaaaaaaaaaa",
+              "kind": "capability",
+              "applicability": {
+                "protocol_versions": [],
+                "transport_families": [],
+                "operations": []
+              },
+              "provenance": {
+                "level": "advertised"
+              },
+              "issued_at_ms": 1759999999990,
+              "expires_at_ms": 1760000001000,
+              "extensions": {},
+              "critical_extensions": [],
+              "capability_id": "a2a.capability.a",
+              "state": "unknown"
+            },
+            {
+              "claim_id": "clm_bbbbbbbbbbbbbbbbbbbb",
+              "kind": "capability",
+              "applicability": {
+                "protocol_versions": [],
+                "transport_families": [],
+                "operations": []
+              },
+              "provenance": {
+                "level": "advertised"
+              },
+              "issued_at_ms": 1759999999990,
+              "expires_at_ms": 1760000001000,
+              "extensions": {},
+              "critical_extensions": [],
+              "capability_id": "a2a.capability.b",
+              "state": "unknown"
+            },
+            {
+              "claim_id": "clm_cccccccccccccccccccc",
+              "kind": "capability",
+              "applicability": {
+                "protocol_versions": [],
+                "transport_families": [],
+                "operations": []
+              },
+              "provenance": {
+                "level": "advertised"
+              },
+              "issued_at_ms": 1759999999990,
+              "expires_at_ms": 1760000001000,
+              "extensions": {},
+              "capability_id": "a2a.capability.c",
+              "state": "unknown"
+            }
+          ],
+          "extensions": {},
+          "critical_extensions": []
+        },
+        "losses": [],
+        "extensions": {},
+        "critical_extensions": []
+      }
+    },
+    "expected": {
+      "ok": false,
+      "error": {
+        "code": "INVALID_CLAIM_SCHEMA",
+        "field_path": "$.profile.claims[2].critical_extensions"
+      }
+    }
+  },
+  {
+    "case_id": "extension.translation-result-profile-claim-source-2.critical-extensions.null",
+    "api": "validate-translation-result",
+    "invocation_args": {
+      "result": {
+        "translation_version": "meshfleet.a2a.translation-result/v0.1",
+        "target": "codex",
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [
+            {
+              "claim_id": "clm_aaaaaaaaaaaaaaaaaaaa",
+              "kind": "capability",
+              "applicability": {
+                "protocol_versions": [],
+                "transport_families": [],
+                "operations": []
+              },
+              "provenance": {
+                "level": "advertised"
+              },
+              "issued_at_ms": 1759999999990,
+              "expires_at_ms": 1760000001000,
+              "extensions": {},
+              "critical_extensions": [],
+              "capability_id": "a2a.capability.a",
+              "state": "unknown"
+            },
+            {
+              "claim_id": "clm_bbbbbbbbbbbbbbbbbbbb",
+              "kind": "capability",
+              "applicability": {
+                "protocol_versions": [],
+                "transport_families": [],
+                "operations": []
+              },
+              "provenance": {
+                "level": "advertised"
+              },
+              "issued_at_ms": 1759999999990,
+              "expires_at_ms": 1760000001000,
+              "extensions": {},
+              "critical_extensions": [],
+              "capability_id": "a2a.capability.b",
+              "state": "unknown"
+            },
+            {
+              "claim_id": "clm_cccccccccccccccccccc",
+              "kind": "capability",
+              "applicability": {
+                "protocol_versions": [],
+                "transport_families": [],
+                "operations": []
+              },
+              "provenance": {
+                "level": "advertised"
+              },
+              "issued_at_ms": 1759999999990,
+              "expires_at_ms": 1760000001000,
+              "extensions": {},
+              "critical_extensions": null,
+              "capability_id": "a2a.capability.c",
+              "state": "unknown"
+            }
+          ],
+          "extensions": {},
+          "critical_extensions": []
+        },
+        "losses": [],
+        "extensions": {},
+        "critical_extensions": []
+      }
+    },
+    "expected": {
+      "ok": false,
+      "error": {
+        "code": "INVALID_EXTENSION_CONTAINER",
+        "field_path": "$.profile.claims[2].critical_extensions"
+      }
+    }
+  },
+  {
+    "case_id": "extension.translation-result-profile-claim-source-2.critical-extensions.wrong-container-type",
+    "api": "validate-translation-result",
+    "invocation_args": {
+      "result": {
+        "translation_version": "meshfleet.a2a.translation-result/v0.1",
+        "target": "codex",
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [
+            {
+              "claim_id": "clm_aaaaaaaaaaaaaaaaaaaa",
+              "kind": "capability",
+              "applicability": {
+                "protocol_versions": [],
+                "transport_families": [],
+                "operations": []
+              },
+              "provenance": {
+                "level": "advertised"
+              },
+              "issued_at_ms": 1759999999990,
+              "expires_at_ms": 1760000001000,
+              "extensions": {},
+              "critical_extensions": [],
+              "capability_id": "a2a.capability.a",
+              "state": "unknown"
+            },
+            {
+              "claim_id": "clm_bbbbbbbbbbbbbbbbbbbb",
+              "kind": "capability",
+              "applicability": {
+                "protocol_versions": [],
+                "transport_families": [],
+                "operations": []
+              },
+              "provenance": {
+                "level": "advertised"
+              },
+              "issued_at_ms": 1759999999990,
+              "expires_at_ms": 1760000001000,
+              "extensions": {},
+              "critical_extensions": [],
+              "capability_id": "a2a.capability.b",
+              "state": "unknown"
+            },
+            {
+              "claim_id": "clm_cccccccccccccccccccc",
+              "kind": "capability",
+              "applicability": {
+                "protocol_versions": [],
+                "transport_families": [],
+                "operations": []
+              },
+              "provenance": {
+                "level": "advertised"
+              },
+              "issued_at_ms": 1759999999990,
+              "expires_at_ms": 1760000001000,
+              "extensions": {},
+              "critical_extensions": {},
+              "capability_id": "a2a.capability.c",
+              "state": "unknown"
+            }
+          ],
+          "extensions": {},
+          "critical_extensions": []
+        },
+        "losses": [],
+        "extensions": {},
+        "critical_extensions": []
+      }
+    },
+    "expected": {
+      "ok": false,
+      "error": {
+        "code": "INVALID_EXTENSION_CONTAINER",
+        "field_path": "$.profile.claims[2].critical_extensions"
+      }
+    }
+  },
+  {
+    "case_id": "extension.translation-result-profile-claim-source-2.critical-extensions.nonempty",
+    "api": "validate-translation-result",
+    "invocation_args": {
+      "result": {
+        "translation_version": "meshfleet.a2a.translation-result/v0.1",
+        "target": "codex",
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [
+            {
+              "claim_id": "clm_aaaaaaaaaaaaaaaaaaaa",
+              "kind": "capability",
+              "applicability": {
+                "protocol_versions": [],
+                "transport_families": [],
+                "operations": []
+              },
+              "provenance": {
+                "level": "advertised"
+              },
+              "issued_at_ms": 1759999999990,
+              "expires_at_ms": 1760000001000,
+              "extensions": {},
+              "critical_extensions": [],
+              "capability_id": "a2a.capability.a",
+              "state": "unknown"
+            },
+            {
+              "claim_id": "clm_bbbbbbbbbbbbbbbbbbbb",
+              "kind": "capability",
+              "applicability": {
+                "protocol_versions": [],
+                "transport_families": [],
+                "operations": []
+              },
+              "provenance": {
+                "level": "advertised"
+              },
+              "issued_at_ms": 1759999999990,
+              "expires_at_ms": 1760000001000,
+              "extensions": {},
+              "critical_extensions": [],
+              "capability_id": "a2a.capability.b",
+              "state": "unknown"
+            },
+            {
+              "claim_id": "clm_cccccccccccccccccccc",
+              "kind": "capability",
+              "applicability": {
+                "protocol_versions": [],
+                "transport_families": [],
+                "operations": []
+              },
+              "provenance": {
+                "level": "advertised"
+              },
+              "issued_at_ms": 1759999999990,
+              "expires_at_ms": 1760000001000,
+              "extensions": {},
+              "critical_extensions": [
+                true
+              ],
+              "capability_id": "a2a.capability.c",
+              "state": "unknown"
+            }
+          ],
+          "extensions": {},
+          "critical_extensions": []
+        },
+        "losses": [],
+        "extensions": {},
+        "critical_extensions": []
+      }
+    },
+    "expected": {
+      "ok": false,
+      "error": {
+        "code": "UNSUPPORTED_EXTENSION",
+        "field_path": "$.profile.claims[2].critical_extensions"
+      }
+    }
+  },
+  {
+    "case_id": "result.r00",
+    "api": "validate-translation-result",
+    "invocation_args": {
+      "result": null
+    },
+    "expected": {
+      "ok": false,
+      "error": {
+        "code": "INVALID_TRANSLATION_RESULT",
+        "field_path": "$"
+      }
+    }
+  },
+  {
+    "case_id": "result.r01",
+    "api": "validate-translation-result",
+    "invocation_args": {
+      "result": {
+        "translation_version": "meshfleet.a2a.translation-result/v0.1",
+        "target": "codex",
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": {},
+          "critical_extensions": []
+        },
+        "losses": [],
+        "extensions": {},
+        "critical_extensions": [],
+        "secret": "x"
+      }
+    },
+    "expected": {
+      "ok": false,
+      "error": {
+        "code": "FORBIDDEN_PRIVACY_FIELD",
+        "field_path": "$.secret"
+      }
+    }
+  },
+  {
+    "case_id": "result.r02",
+    "api": "validate-translation-result",
+    "invocation_args": {
+      "result": {
+        "translation_version": "meshfleet.a2a.translation-result/v0.1",
+        "target": "codex",
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": {},
+          "critical_extensions": []
+        },
+        "losses": [],
+        "extensions": {},
+        "critical_extensions": [],
+        "profile_fingerprint": "x"
+      }
+    },
+    "expected": {
+      "ok": false,
+      "error": {
+        "code": "FORBIDDEN_COMPUTED_FIELD",
+        "field_path": "$.profile_fingerprint"
+      }
+    }
+  },
+  {
+    "case_id": "result.r03",
+    "api": "validate-translation-result",
+    "invocation_args": {
+      "result": {
+        "translation_version": "meshfleet.a2a.translation-result/v0.1",
+        "target": "codex",
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": {},
+          "critical_extensions": []
+        },
+        "losses": [],
+        "extensions": {},
+        "critical_extensions": [],
+        "widget_hint": true
+      }
+    },
+    "expected": {
+      "ok": false,
+      "error": {
+        "code": "UNKNOWN_CORE_FIELD",
+        "field_path": "$"
+      }
+    }
+  },
+  {
+    "case_id": "result.r04",
+    "api": "validate-translation-result",
+    "invocation_args": {
+      "result": {
+        "translation_version": "no",
+        "target": "codex",
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": {},
+          "critical_extensions": []
+        },
+        "losses": [],
+        "extensions": {},
+        "critical_extensions": []
+      }
+    },
+    "expected": {
+      "ok": false,
+      "error": {
+        "code": "INVALID_TRANSLATION_RESULT",
+        "field_path": "$.translation_version"
+      }
+    }
+  },
+  {
+    "case_id": "result.r05",
+    "api": "validate-translation-result",
+    "invocation_args": {
+      "result": {
+        "translation_version": "meshfleet.a2a.translation-result/v0.1",
+        "target": "bogus",
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": {},
+          "critical_extensions": []
+        },
+        "losses": [],
+        "extensions": {},
+        "critical_extensions": []
+      }
+    },
+    "expected": {
+      "ok": false,
+      "error": {
+        "code": "INVALID_TRANSLATION_RESULT",
+        "field_path": "$.target"
+      }
+    }
+  },
+  {
+    "case_id": "result.r06",
+    "api": "validate-translation-result",
+    "invocation_args": {
+      "result": {
+        "translation_version": "meshfleet.a2a.translation-result/v0.1",
+        "target": "codex",
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "profile": null,
+        "losses": [],
+        "extensions": {},
+        "critical_extensions": []
+      }
+    },
+    "expected": {
+      "ok": false,
+      "error": {
+        "code": "INVALID_TRANSLATION_RESULT",
+        "field_path": "$.profile"
+      }
+    }
+  },
+  {
+    "case_id": "result.r07",
+    "api": "validate-translation-result",
+    "invocation_args": {
+      "result": {
+        "translation_version": "meshfleet.a2a.translation-result/v0.1",
+        "target": "codex",
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 0,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": {},
+          "critical_extensions": []
+        },
+        "losses": [],
+        "extensions": {},
+        "critical_extensions": []
+      }
+    },
+    "expected": {
+      "ok": false,
+      "error": {
+        "code": "INVALID_PROFILE_REVISION",
+        "field_path": "$.profile.revision"
+      }
+    }
+  },
+  {
+    "case_id": "result.r08",
+    "api": "validate-translation-result",
+    "invocation_args": {
+      "result": {
+        "translation_version": "meshfleet.a2a.translation-result/v0.1",
+        "target": "codex",
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "node",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": {},
+          "critical_extensions": []
+        },
+        "losses": [],
+        "extensions": {},
+        "critical_extensions": []
+      }
+    },
+    "expected": {
+      "ok": false,
+      "error": {
+        "code": "INVALID_TRANSLATION_RESULT",
+        "field_path": "$.launch_template"
+      }
+    }
+  },
+  {
+    "case_id": "result.r09",
+    "api": "validate-translation-result",
+    "invocation_args": {
+      "result": {
+        "translation_version": "meshfleet.a2a.translation-result/v0.1",
+        "target": "codex",
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "bad",
+        "features": [],
+        "provenance_refs": [],
+        "profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": {},
+          "critical_extensions": []
+        },
+        "losses": [],
+        "extensions": {},
+        "critical_extensions": []
+      }
+    },
+    "expected": {
+      "ok": false,
+      "error": {
+        "code": "INVALID_TRANSLATION_RESULT",
+        "field_path": "$.cwd_policy"
+      }
+    }
+  },
+  {
+    "case_id": "result.r10",
+    "api": "validate-translation-result",
+    "invocation_args": {
+      "result": {
+        "translation_version": "meshfleet.a2a.translation-result/v0.1",
+        "target": "codex",
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "provenance_refs": [],
+        "profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": {},
+          "critical_extensions": []
+        },
+        "losses": [],
+        "extensions": {},
+        "critical_extensions": []
+      }
+    },
+    "expected": {
+      "ok": false,
+      "error": {
+        "code": "INVALID_TRANSLATION_RESULT",
+        "field_path": "$.features"
+      }
+    }
+  },
+  {
+    "case_id": "result.r11",
+    "api": "validate-translation-result",
+    "invocation_args": {
+      "result": {
+        "translation_version": "meshfleet.a2a.translation-result/v0.1",
+        "target": "codex",
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [
+          {}
+        ],
+        "provenance_refs": [],
+        "profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": {},
+          "critical_extensions": []
+        },
+        "losses": [],
+        "extensions": {},
+        "critical_extensions": []
+      }
+    },
+    "expected": {
+      "ok": false,
+      "error": {
+        "code": "INVALID_TRANSLATION_RESULT",
+        "field_path": "$.features[0].feature_id"
+      }
+    }
+  },
+  {
+    "case_id": "result.r12",
+    "api": "validate-translation-result",
+    "invocation_args": {
+      "result": {
+        "translation_version": "meshfleet.a2a.translation-result/v0.1",
+        "target": "codex",
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [
+          {
+            "feature_id": "a2a.feature",
+            "state": "unknown",
+            "provenance_ref": "ref_pppppppppppppppppppp"
+          },
+          {
+            "feature_id": "a2a.feature",
+            "state": "unknown",
+            "provenance_ref": "ref_pppppppppppppppppppp"
+          }
+        ],
+        "provenance_refs": [
+          "ref_pppppppppppppppppppp"
+        ],
+        "profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": {},
+          "critical_extensions": []
+        },
+        "losses": [],
+        "extensions": {},
+        "critical_extensions": []
+      }
+    },
+    "expected": {
+      "ok": false,
+      "error": {
+        "code": "INVALID_TRANSLATION_RESULT",
+        "field_path": "$.features[1].feature_id"
+      }
+    }
+  },
+  {
+    "case_id": "result.r13",
+    "api": "validate-translation-result",
+    "invocation_args": {
+      "result": {
+        "translation_version": "meshfleet.a2a.translation-result/v0.1",
+        "target": "codex",
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": {},
+          "critical_extensions": []
+        },
+        "losses": [],
+        "extensions": {},
+        "critical_extensions": []
+      }
+    },
+    "expected": {
+      "ok": false,
+      "error": {
+        "code": "INVALID_TRANSLATION_RESULT",
+        "field_path": "$.provenance_refs"
+      }
+    }
+  },
+  {
+    "case_id": "result.r14",
+    "api": "validate-translation-result",
+    "invocation_args": {
+      "result": {
+        "translation_version": "meshfleet.a2a.translation-result/v0.1",
+        "target": "codex",
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [
+          "bad"
+        ],
+        "profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": {},
+          "critical_extensions": []
+        },
+        "losses": [],
+        "extensions": {},
+        "critical_extensions": []
+      }
+    },
+    "expected": {
+      "ok": false,
+      "error": {
+        "code": "INVALID_TRANSLATION_RESULT",
+        "field_path": "$.provenance_refs[0]"
+      }
+    }
+  },
+  {
+    "case_id": "result.r15",
+    "api": "validate-translation-result",
+    "invocation_args": {
+      "result": {
+        "translation_version": "meshfleet.a2a.translation-result/v0.1",
+        "target": "codex",
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [
+          "ref_pppppppppppppppppppp",
+          "ref_pppppppppppppppppppp"
+        ],
+        "profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": {},
+          "critical_extensions": []
+        },
+        "losses": [],
+        "extensions": {},
+        "critical_extensions": []
+      }
+    },
+    "expected": {
+      "ok": false,
+      "error": {
+        "code": "DUPLICATE_SET_MEMBER",
+        "field_path": "$.provenance_refs[1]"
+      }
+    }
+  },
+  {
+    "case_id": "result.r16",
+    "api": "validate-translation-result",
+    "invocation_args": {
+      "result": {
+        "translation_version": "meshfleet.a2a.translation-result/v0.1",
+        "target": "codex",
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [
+          {
+            "feature_id": "a2a.feature",
+            "state": "unknown",
+            "provenance_ref": "ref_qqqqqqqqqqqqqqqqqqqq"
+          }
+        ],
+        "provenance_refs": [
+          "ref_pppppppppppppppppppp"
+        ],
+        "profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": {},
+          "critical_extensions": []
+        },
+        "losses": [],
+        "extensions": {},
+        "critical_extensions": []
+      }
+    },
+    "expected": {
+      "ok": false,
+      "error": {
+        "code": "INVALID_TRANSLATION_RESULT",
+        "field_path": "$.features[0].provenance_ref"
+      }
+    }
+  },
+  {
+    "case_id": "result.r17",
+    "api": "validate-translation-result",
+    "invocation_args": {
+      "result": {
+        "translation_version": "meshfleet.a2a.translation-result/v0.1",
+        "target": "codex",
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": {},
+          "critical_extensions": []
+        },
+        "extensions": {},
+        "critical_extensions": []
+      }
+    },
+    "expected": {
+      "ok": false,
+      "error": {
+        "code": "INVALID_TRANSLATION_RESULT",
+        "field_path": "$.losses"
+      }
+    }
+  },
+  {
+    "case_id": "result.r18",
+    "api": "validate-translation-result",
+    "invocation_args": {
+      "result": {
+        "translation_version": "meshfleet.a2a.translation-result/v0.1",
+        "target": "codex",
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": {},
+          "critical_extensions": []
+        },
+        "losses": [
+          {}
+        ],
+        "extensions": {},
+        "critical_extensions": []
+      }
+    },
+    "expected": {
+      "ok": false,
+      "error": {
+        "code": "INVALID_LOSS_RECORD",
+        "field_path": "$.losses[0]"
+      }
+    }
+  },
+  {
+    "case_id": "result.r19",
+    "api": "validate-translation-result",
+    "invocation_args": {
+      "result": {
+        "translation_version": "meshfleet.a2a.translation-result/v0.1",
+        "target": "codex",
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": {},
+          "critical_extensions": []
+        },
+        "losses": [
+          {
+            "field_path": "$.cwd_policy",
+            "target": "codex",
+            "reason_code": "cwd_not_represented",
+            "disposition": "omitted_by_contract"
+          },
+          {
+            "field_path": "$.cwd_policy",
+            "target": "codex",
+            "reason_code": "cwd_not_represented",
+            "disposition": "omitted_by_contract"
+          }
+        ],
+        "extensions": {},
+        "critical_extensions": []
+      }
+    },
+    "expected": {
+      "ok": false,
+      "error": {
+        "code": "INVALID_TRANSLATION_RESULT",
+        "field_path": "$.losses[1]"
+      }
+    }
+  },
+  {
+    "case_id": "result.r20",
+    "api": "validate-translation-result",
+    "invocation_args": {
+      "result": {
+        "translation_version": "meshfleet.a2a.translation-result/v0.1",
+        "target": "codex",
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": {},
+          "critical_extensions": []
+        },
+        "losses": [],
+        "critical_extensions": []
+      }
+    },
+    "expected": {
+      "ok": false,
+      "error": {
+        "code": "INVALID_EXTENSION_CONTAINER",
+        "field_path": "$.extensions"
+      }
+    }
+  },
+  {
+    "case_id": "result.r21",
+    "api": "validate-translation-result",
+    "invocation_args": {
+      "result": {
+        "translation_version": "meshfleet.a2a.translation-result/v0.1",
+        "target": "codex",
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": {},
+          "critical_extensions": []
+        },
+        "losses": [],
+        "extensions": {
+          "x": true
+        },
+        "critical_extensions": []
+      }
+    },
+    "expected": {
+      "ok": false,
+      "error": {
+        "code": "UNSUPPORTED_EXTENSION",
+        "field_path": "$.extensions"
+      }
+    }
+  },
+  {
+    "case_id": "result.r22",
+    "api": "validate-translation-result",
+    "invocation_args": {
+      "result": {
+        "translation_version": "meshfleet.a2a.translation-result/v0.1",
+        "target": "codex",
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": {},
+          "critical_extensions": []
+        },
+        "losses": [],
+        "extensions": {},
+        "critical_extensions": []
+      }
+    },
+    "expected": {
+      "ok": true,
+      "value": {
+        "validation_version": "meshfleet.a2a.translation-result-validation/v0.1",
+        "normalized_result": {
+          "translation_version": "meshfleet.a2a.translation-result/v0.1",
+          "target": "codex",
+          "launch_template": {
+            "template_id": "meshfleet.mcp-stdio/v1",
+            "command": "npx",
+            "argv_template": [
+              "-y",
+              "meshfleet"
+            ]
+          },
+          "cwd_policy": "not-represented",
+          "features": [],
+          "provenance_refs": [],
+          "profile": {
+            "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+            "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+            "revision": 1,
+            "issuer": {
+              "kind": "adapter",
+              "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+            },
+            "subject": {
+              "kind": "transport",
+              "ref": "ref_ssssssssssssssssssss"
+            },
+            "issued_at_ms": 1759999999990,
+            "expires_at_ms": 1760000001000,
+            "claims": [],
+            "extensions": {},
+            "critical_extensions": []
+          },
+          "losses": [],
+          "extensions": {},
+          "critical_extensions": []
+        }
+      }
+    }
+  }
+]
