@@ -104,13 +104,17 @@ test("lifecycle CLI scopes event issues and reports missing fleets exactly", () 
   try {
     withLedgerAndStorage((_data, db) => db.prepare("UPDATE fleets SET lifecycle_mode = 'durable' WHERE id = ?").run("f"));
     new LifecycleStore({ now: () => 1, nextId: () => "attempt" }).createWork({ workId: "a", fleetId: "f", agentId: "a" });
-    withLedgerAndStorage((_data, db) => db.prepare("UPDATE attempt_events SET seq = 2 WHERE attempt_id = ?").run("attempt"));
+    withLedgerAndStorage((_data, db) => {
+      db.prepare("UPDATE attempt_events SET seq = 2 WHERE attempt_id = ?").run("attempt");
+      db.prepare("INSERT INTO lifecycle_event_outbox (event_id, event, payload, created_at, projected_at) VALUES ('outbox', 'test', '{\"work_id\":\"a\"}', 1, 0)").run();
+    });
     const env = { ...process.env, MESHFLEET_DB_FILE: temp.dbFile };
     const scoped = spawnSync(process.execPath, ["--import", "tsx", "src/bin/inspect.ts", "--lifecycle", "f", "--json"], { cwd: process.cwd(), env, encoding: "utf8" });
     assert.equal(scoped.status, 1);
     const scopedJson = JSON.parse(scoped.stdout);
     assert.equal(scopedJson.schema, "meshfleet.lifecycle/v1");
     assert.ok(scopedJson.data.issues.some((finding: { check: string }) => finding.check === "lifecycle.event.sequence"));
+    assert.ok(scopedJson.data.issues.some((finding: { check: string }) => finding.check === "lifecycle.outbox.projected_before_created"));
     const missing = spawnSync(process.execPath, ["--import", "tsx", "src/bin/inspect.ts", "--lifecycle", "missing", "--json"], { cwd: process.cwd(), env, encoding: "utf8" });
     assert.equal(missing.status, 1);
     const missingJson = JSON.parse(missing.stdout);

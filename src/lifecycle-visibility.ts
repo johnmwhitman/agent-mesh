@@ -242,14 +242,14 @@ export function verifyLifecycleSnapshot(snapshot: LifecycleSnapshot, now: number
 }
 
 export interface LifecycleView { schema: typeof LIFECYCLE_JSON_SCHEMA; kind: "lifecycle"; data: Record<string, unknown>; missingFleet: boolean; exitError: boolean; }
-function outboxReferencesScope(row: Row, fleetId: string, agentIds: ReadonlySet<string>): boolean {
+function outboxReferencesScope(row: Row, fleetId: string, scopedIds: ReadonlySet<string>): boolean {
   let body: unknown;
   try { body = json(row.payload, "outbox payload"); } catch { return false; }
   const visit = (value: unknown, depth: number): boolean => {
     if (depth > 3 || value === null || typeof value !== "object") return false;
     for (const [key, nested] of Object.entries(value as Row)) {
       if ((key === "fleet_id" || key === "fleetId") && nested === fleetId) return true;
-      if ((key === "agent_id" || key === "agentId" || key === "work_id" || key === "workId") && typeof nested === "string" && agentIds.has(nested)) return true;
+      if ((key === "agent_id" || key === "agentId" || key === "work_id" || key === "workId") && typeof nested === "string" && scopedIds.has(nested)) return true;
       if (visit(nested, depth + 1)) return true;
     }
     return false;
@@ -262,8 +262,9 @@ export function buildLifecycleView(snapshot: LifecycleSnapshot, fleetId?: string
   const scopedIds = new Set(scopedWork.map((row) => String(row.work_id)));
   const scopedAttempts = snapshot.attempts.filter((row) => scopedIds.has(String(row.work_id)));
   const scopedAgentIds = new Set(Object.values(snapshot.data.agents).filter((agent) => !fleetId || agent.fleet_id === fleetId).map((agent) => agent.id));
+  const scopedIdentityIds = new Set([...scopedAgentIds, ...scopedIds]);
   const scopedEventIds = new Set(snapshot.events.filter((row) => scopedIds.has(String(row.work_id))).map((row) => String(row.event_id)));
-  const scopedOutboxIds = new Set(fleetId ? snapshot.outbox.filter((row) => outboxReferencesScope(row, fleetId, scopedAgentIds)).map((row) => String(row.event_id)) : snapshot.outbox.map((row) => String(row.event_id)));
+  const scopedOutboxIds = new Set(fleetId ? snapshot.outbox.filter((row) => outboxReferencesScope(row, fleetId, scopedIdentityIds)).map((row) => String(row.event_id)) : snapshot.outbox.map((row) => String(row.event_id)));
   const issues = verifyLifecycleSnapshot(snapshot, now).filter((finding) => !fleetId || finding.subject === fleetId || scopedIds.has(finding.subject) || scopedAttempts.some((row) => String(row.attempt_id) === finding.subject) || scopedEventIds.has(finding.subject) || scopedOutboxIds.has(finding.subject));
   if (missingFleet && fleetId) issues.unshift({ severity: "error", check: "lifecycle.scope.missing_fleet", subject: fleetId, detail: "requested fleet is not present in the SQLite authority" });
   const modeCounts = { legacy: 0, shadow: 0, durable: 0 };
