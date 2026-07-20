@@ -3,11 +3,11 @@
  * registry export and no caller in the current runtime. A future trusted
  * adapter must authorize and tokenize before invoking this storage seam.
  */
-import { withStorageTransaction } from "../db.js";
+import { randomBytes } from "node:crypto";
+import { assertA2aDurableSchema, withStorageTransaction } from "../db.js";
 
-const TOKEN = /^[A-Za-z0-9_-]{43}$/;
+const OPAQUE_32 = /^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/;
 const KEY_ID = /^[A-Za-z0-9._-]{1,64}$/;
-const LOCAL_ID = /^[A-Za-z0-9._:-]{1,128}$/;
 const CANONICAL_DIGEST = /^meshfleet\.a2a\.fingerprint\.v1:sha256:[0-9a-f]{64}$/;
 const AUTHORIZATION_CONTEXT_DIGEST = /^sha256:[0-9a-f]{64}$/;
 const EVALUATOR_VERSION = /^[A-Za-z0-9._:-]{1,128}$/;
@@ -18,8 +18,6 @@ export interface DurableAcceptanceToken {
 }
 
 export interface DurableAcceptanceInput {
-  /** Assertion from the trusted caller; this module neither verifies nor creates it. */
-  preAuthorized: true;
   semantic: DurableAcceptanceToken;
   principal: DurableAcceptanceToken;
   request: DurableAcceptanceToken;
@@ -31,7 +29,6 @@ export interface DurableAcceptanceInput {
 
 export interface DurableAcceptanceHooks {
   now: () => number;
-  nextId: (kind: "acceptance" | "receipt") => string;
   /** Isolated test hook. Production callers do not provide storage mutation hooks. */
   beforeWrite?: (stage: "before_acceptance" | "between_acceptance_receipt" | "between_receipt_mapping" | "before_commit") => void;
 }
@@ -68,7 +65,13 @@ function requireString(value: unknown, expression: RegExp, label: string): asser
 function requireToken(value: DurableAcceptanceToken, label: string): void {
   if (!value || typeof value !== "object") throw new DurableAcceptanceInputError("invalid " + label);
   requireString(value.keyId, KEY_ID, label + " key id");
-  requireString(value.token, TOKEN, label + " token");
+  requireOpaque32(value.token, label + " token");
+}
+
+function requireOpaque32(value: unknown, label: string): asserts value is string {
+  if (typeof value !== "string" || !OPAQUE_32.test(value)) throw new DurableAcceptanceInputError("invalid " + label);
+  const decoded = Buffer.from(value, "base64url");
+  if (decoded.length !== 32 || decoded.toString("base64url") !== value) throw new DurableAcceptanceInputError("non-canonical " + label);
 }
 
 function sameToken(left: DurableAcceptanceToken, right: DurableAcceptanceToken): boolean {
@@ -80,7 +83,7 @@ function requireTimestamp(value: unknown, label: string): asserts value is numbe
 }
 
 function validateInput(input: DurableAcceptanceInput): void {
-  if (!input || input.preAuthorized !== true) throw new DurableAcceptanceInputError("durable storage requires a pre-authorized input");
+  if (!input || typeof input !== "object") throw new DurableAcceptanceInputError("invalid durable acceptance input");
   requireToken(input.semantic, "semantic");
   requireToken(input.principal, "principal");
   requireToken(input.request, "request");
@@ -91,10 +94,6 @@ function validateInput(input: DurableAcceptanceInput): void {
   requireString(input.authorizationContextDigest, AUTHORIZATION_CONTEXT_DIGEST, "authorization context digest");
   requireString(input.authorizationEvaluatorVersion, EVALUATOR_VERSION, "authorization evaluator version");
   if (input.expiresAt !== undefined) requireTimestamp(input.expiresAt, "expiry");
-}
-
-function requireLocalId(value: string, label: string): void {
-  requireString(value, LOCAL_ID, label);
 }
 
 type RequestRow = {
@@ -118,10 +117,11 @@ type AcceptanceRow = {
  */
 export function recordDurableAcceptance(input: DurableAcceptanceInput, hooks: DurableAcceptanceHooks): DurableAcceptanceResult {
   validateInput(input);
-  if (!hooks || typeof hooks.now !== "function" || typeof hooks.nextId !== "function") {
-    throw new DurableAcceptanceInputError("durable acceptance requires clock and id factory hooks");
+  if (!hooks || typeof hooks.now !== "function") {
+    throw new DurableAcceptanceInputError("durable acceptance requires a transaction clock hook");
   }
   return withStorageTransaction((db) => {
+    assertA2aDurableSchema(db);
     const now = hooks.now();
     requireTimestamp(now, "transaction clock");
 
@@ -177,10 +177,8 @@ export function recordDurableAcceptance(input: DurableAcceptanceInput, hooks: Du
       return { disposition: "expired" };
     }
 
-    const acceptanceId = hooks.nextId("acceptance");
-    const receiptId = hooks.nextId("receipt");
-    requireLocalId(acceptanceId, "acceptance id");
-    requireLocalId(receiptId, "receipt id");
+    const acceptanceId = randomBytes(32).toString("base64url");
+    const receiptId = randomBytes(32).toString("base64url");
     hooks.beforeWrite?.("before_acceptance");
     db.prepare(
       "INSERT INTO a2a_acceptance_records (acceptance_id, semantic_key_id, semantic_token, canonical_digest, accepted_at, expires_at, authorization_context_digest, authorization_evaluator_version, receipt_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"

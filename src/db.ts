@@ -175,9 +175,8 @@ type A2aSchemaObject = {
 };
 
 const a2aSafeInteger = (column: string): string => "typeof(" + column + ") = 'integer' AND " + column + " BETWEEN 0 AND " + SQLITE_SAFE_INTEGER;
-const a2aLocalId = (column: string): string => "typeof(" + column + ") = 'text' AND length(" + column + ") BETWEEN 1 AND 128 AND " + column + " NOT GLOB '*[^A-Za-z0-9._:-]*'";
 const a2aKeyId = (column: string): string => "typeof(" + column + ") = 'text' AND length(" + column + ") BETWEEN 1 AND 64 AND " + column + " NOT GLOB '*[^A-Za-z0-9._-]*'";
-const a2aToken = (column: string): string => "typeof(" + column + ") = 'text' AND length(" + column + ") = 43 AND " + column + " NOT GLOB '*[^A-Za-z0-9_-]*'";
+const a2aOpaque32 = (column: string): string => "typeof(" + column + ") = 'text' AND length(" + column + ") = 43 AND " + column + " NOT GLOB '*[^A-Za-z0-9_-]*' AND substr(" + column + ", 43, 1) GLOB '[AEIMQUYcgkosw048]'";
 const a2aCanonicalDigest = (column: string): string => "typeof(" + column + ") = 'text' AND length(" + column + ") = 100 AND substr(" + column + ", 1, 36) = 'meshfleet.a2a.fingerprint.v1:sha256:' AND substr(" + column + ", 37) NOT GLOB '*[^0-9a-f]*'";
 const a2aAuthorizationDigest = (column: string): string => "typeof(" + column + ") = 'text' AND length(" + column + ") = 71 AND substr(" + column + ", 1, 7) = 'sha256:' AND substr(" + column + ", 8) NOT GLOB '*[^0-9a-f]*'";
 const a2aEvaluatorVersion = (column: string): string => "typeof(" + column + ") = 'text' AND length(" + column + ") BETWEEN 1 AND 128 AND " + column + " NOT GLOB '*[^A-Za-z0-9._:-]*'";
@@ -189,15 +188,15 @@ const A2A_SCHEMA_V4: readonly A2aSchemaObject[] = [
     table: "a2a_acceptance_records",
     faultStep: "v4:acceptance-records",
     sql: "CREATE TABLE a2a_acceptance_records (" +
-      "acceptance_id TEXT PRIMARY KEY NOT NULL CHECK (" + a2aLocalId("acceptance_id") + ")," +
+      "acceptance_id TEXT PRIMARY KEY NOT NULL CHECK (" + a2aOpaque32("acceptance_id") + ")," +
       "semantic_key_id TEXT NOT NULL CHECK (" + a2aKeyId("semantic_key_id") + ")," +
-      "semantic_token TEXT NOT NULL CHECK (" + a2aToken("semantic_token") + ")," +
+      "semantic_token TEXT NOT NULL CHECK (" + a2aOpaque32("semantic_token") + ")," +
       "canonical_digest TEXT NOT NULL CHECK (" + a2aCanonicalDigest("canonical_digest") + ")," +
       "accepted_at INTEGER NOT NULL CHECK (" + a2aSafeInteger("accepted_at") + ")," +
       "expires_at INTEGER CHECK (expires_at IS NULL OR (" + a2aSafeInteger("expires_at") + " AND expires_at > accepted_at))," +
       "authorization_context_digest TEXT NOT NULL CHECK (" + a2aAuthorizationDigest("authorization_context_digest") + ")," +
       "authorization_evaluator_version TEXT NOT NULL CHECK (" + a2aEvaluatorVersion("authorization_evaluator_version") + ")," +
-      "receipt_id TEXT NOT NULL UNIQUE CHECK (" + a2aLocalId("receipt_id") + ")," +
+      "receipt_id TEXT NOT NULL UNIQUE CHECK (" + a2aOpaque32("receipt_id") + ")," +
       "UNIQUE (semantic_key_id, semantic_token)," +
       "UNIQUE (acceptance_id, canonical_digest)," +
       "FOREIGN KEY (receipt_id) REFERENCES a2a_decision_receipts(receipt_id) ON UPDATE RESTRICT ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED" +
@@ -209,8 +208,8 @@ const A2A_SCHEMA_V4: readonly A2aSchemaObject[] = [
     table: "a2a_decision_receipts",
     faultStep: "v4:decision-receipts",
     sql: "CREATE TABLE a2a_decision_receipts (" +
-      "receipt_id TEXT PRIMARY KEY NOT NULL CHECK (" + a2aLocalId("receipt_id") + ")," +
-      "acceptance_id TEXT NOT NULL UNIQUE CHECK (" + a2aLocalId("acceptance_id") + ")," +
+      "receipt_id TEXT PRIMARY KEY NOT NULL CHECK (" + a2aOpaque32("receipt_id") + ")," +
+      "acceptance_id TEXT NOT NULL UNIQUE CHECK (" + a2aOpaque32("acceptance_id") + ")," +
       "decision TEXT NOT NULL CHECK (decision = 'accepted')," +
       "evidence_level TEXT NOT NULL CHECK (evidence_level = 'internal_local_decision')," +
       "decided_at INTEGER NOT NULL CHECK (" + a2aSafeInteger("decided_at") + ")," +
@@ -225,11 +224,11 @@ const A2A_SCHEMA_V4: readonly A2aSchemaObject[] = [
     faultStep: "v4:request-mappings",
     sql: "CREATE TABLE a2a_request_mappings (" +
       "principal_key_id TEXT NOT NULL CHECK (" + a2aKeyId("principal_key_id") + ")," +
-      "principal_token TEXT NOT NULL CHECK (" + a2aToken("principal_token") + ")," +
+      "principal_token TEXT NOT NULL CHECK (" + a2aOpaque32("principal_token") + ")," +
       "request_key_id TEXT NOT NULL CHECK (" + a2aKeyId("request_key_id") + ")," +
-      "request_token TEXT NOT NULL CHECK (" + a2aToken("request_token") + ")," +
-      "acceptance_id TEXT NOT NULL CHECK (" + a2aLocalId("acceptance_id") + ")," +
-      "receipt_id TEXT NOT NULL CHECK (" + a2aLocalId("receipt_id") + ")," +
+      "request_token TEXT NOT NULL CHECK (" + a2aOpaque32("request_token") + ")," +
+      "acceptance_id TEXT NOT NULL CHECK (" + a2aOpaque32("acceptance_id") + ")," +
+      "receipt_id TEXT NOT NULL CHECK (" + a2aOpaque32("receipt_id") + ")," +
       "canonical_digest TEXT NOT NULL CHECK (" + a2aCanonicalDigest("canonical_digest") + ")," +
       "mapped_at INTEGER NOT NULL CHECK (" + a2aSafeInteger("mapped_at") + ")," +
       "outcome TEXT NOT NULL CHECK (outcome IN ('accepted', 'duplicate'))," +
@@ -254,12 +253,27 @@ function a2aSchemaRows(db: Database.Database): Array<{ type: string; name: strin
   return db.prepare("SELECT type, name, tbl_name, sql FROM sqlite_schema WHERE sql IS NOT NULL AND type IN ('table', 'index', 'trigger', 'view') AND (lower(name) GLOB 'a2a_*' OR lower(tbl_name) IN ('a2a_acceptance_records', 'a2a_request_mappings', 'a2a_decision_receipts')) ORDER BY type, name").all() as Array<{ type: string; name: string; tbl_name: string; sql: string | null }>;
 }
 
+function unexpectedA2aSchemaObject(db: Database.Database): { type: string; name: string } | undefined {
+  const expected = new Set(A2A_SCHEMA_V4.map((item) => item.type + ":" + item.name));
+  const tables = ["a2a_acceptance_records", "a2a_request_mappings", "a2a_decision_receipts"];
+  const rows = db.prepare("SELECT type, name, tbl_name, sql FROM sqlite_schema WHERE sql IS NOT NULL AND type IN ('table', 'index', 'trigger', 'view') ORDER BY type, name").all() as Array<{ type: string; name: string; tbl_name: string; sql: string }>;
+  return rows.find((row) => {
+    if (expected.has(row.type + ":" + row.name)) return false;
+    const name = row.name.toLowerCase();
+    const table = row.tbl_name.toLowerCase();
+    const sql = normalizeSchemaSql(row.sql);
+    return name.startsWith("a2a_") || tables.includes(table) || tables.some((candidate) => sql.includes(candidate));
+  });
+}
+
 function preflightA2aNamespace(db: Database.Database): void {
-  const reserved = db.prepare("SELECT type, name FROM sqlite_schema WHERE type IN ('table', 'index', 'trigger', 'view') AND lower(name) GLOB 'a2a_*' LIMIT 1").get() as { type: string; name: string } | undefined;
-  if (reserved) throw new Error("refusing v4 migration: reserved a2a_ " + reserved.type + " already exists (" + reserved.name + ")");
+  const reserved = unexpectedA2aSchemaObject(db);
+  if (reserved) throw new Error("refusing v4 migration: reserved or dependent A2A " + reserved.type + " already exists (" + reserved.name + ")");
 }
 
 function validateA2aV4Layout(db: Database.Database): void {
+  const unexpected = unexpectedA2aSchemaObject(db);
+  if (unexpected) throw new Error("invalid v4 a2a layout: unexpected or dependent " + unexpected.type + " " + unexpected.name);
   const actual = a2aSchemaRows(db);
   if (actual.length !== A2A_SCHEMA_V4.length) throw new Error("invalid v4 a2a layout: unexpected object count");
   const expected = new Map(A2A_SCHEMA_V4.map((item) => [item.type + ":" + item.name, item]));
@@ -273,6 +287,13 @@ function validateA2aV4Layout(db: Database.Database): void {
   if ((db.prepare("PRAGMA foreign_key_check").all() as unknown[]).length !== 0) throw new Error("invalid v4 a2a layout: foreign key check failed");
   const integrity = db.prepare("PRAGMA integrity_check").all() as Array<{ integrity_check?: string }>;
   if (integrity.length !== 1 || integrity[0]?.integrity_check !== "ok") throw new Error("invalid v4 a2a layout: integrity check failed");
+}
+
+/** Internal guard used as the first operation in every durable-acceptance transaction. */
+export function assertA2aDurableSchema(db: Database.Database): void {
+  const version = physicalStorageVersion(db);
+  if (version !== 4) throw new Error("durable acceptance requires physical storage schema version 4");
+  validateA2aV4Layout(db);
 }
 
 function ensureColumn(db: Database.Database, table: "fleets" | "work_items" | "attempts", column: string, definition: string): void {

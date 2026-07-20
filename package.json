@@ -4,6 +4,12 @@
   "description": "Auditable multi-agent coordination for OpenCode — parallel agent fleets with P2P messaging, witnessed receipts, and quorum ratification. Who saw this, who approved it, prove it.",
   "main": "dist/index.js",
   "type": "module",
+  "exports": {
+    ".": "./dist/index.js",
+    "./package.json": "./package.json",
+    "./bin/inspect": "./dist/bin/inspect.js",
+    "./bin/dashboard": "./dist/bin/dashboard.js"
+  },
   "bin": {
     "meshfleet": "dist/index.js",
     "agent-mesh": "dist/bin/inspect.js",

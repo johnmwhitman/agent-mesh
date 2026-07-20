@@ -1,17 +1,17 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import Database from "better-sqlite3";
+import { createHash } from "node:crypto";
 import { closeDb, getStorageSchemaVersion, setDbPath, setStorageMigrationFaultStepForTest, withLedgerAndStorage } from "../src/db.js";
 import { DurableAcceptanceInputError, recordDurableAcceptance } from "../src/a2a/durable-acceptance.js";
 import { withTempDb } from "./helpers/with-temp-db.js";
 
-const token = (label: string) => label.padEnd(43, "x").slice(0, 43);
+const token = (label: string) => createHash("sha256").update(label).digest("base64url");
 const canonicalDigest = (suffix = "a") => "meshfleet.a2a.fingerprint.v1:sha256:" + suffix.repeat(64);
 const authorizationContextDigest = (suffix = "b") => "sha256:" + suffix.repeat(64);
 
 function input(overrides: Record<string, unknown> = {}) {
   return {
-    preAuthorized: true,
     semantic: { keyId: "semantic-v1", token: token("semantic") },
     principal: { keyId: "principal-v1", token: token("principal") },
     request: { keyId: "request-v1", token: token("request") },
@@ -23,10 +23,8 @@ function input(overrides: Record<string, unknown> = {}) {
 }
 
 function hooks(now: () => number, failAt?: string) {
-  let id = 0;
   return {
     now,
-    nextId: (kind: string) => `${kind}-${++id}`,
     beforeWrite: (step: string) => { if (step === failAt) throw new Error("forced journal failure"); },
   };
 }
@@ -71,6 +69,12 @@ test("durable acceptance validates domains, commits all three rows atomically, a
 
     const accepted = recordDurableAcceptance(input(), hooks(() => 1));
     assert.equal(accepted.disposition, "accepted");
+    if (accepted.disposition !== "accepted") throw new Error("expected acceptance");
+    for (const id of [accepted.acceptanceId, accepted.receiptId]) {
+      assert.match(id, /^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/);
+      assert.equal(Buffer.from(id, "base64url").length, 32);
+      assert.equal(Buffer.from(id, "base64url").toString("base64url"), id);
+    }
     withLedgerAndStorage((_data, db) => {
       const columns = ["a2a_acceptance_records", "a2a_request_mappings", "a2a_decision_receipts"].flatMap((table) =>
         (db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map((column) => column.name)
