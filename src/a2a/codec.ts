@@ -25,9 +25,28 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+function hasUnpairedSurrogate(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const codeUnit = value.charCodeAt(index);
+    if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) {
+      const next = value.charCodeAt(index + 1);
+      if (!(next >= 0xdc00 && next <= 0xdfff)) return true;
+      index += 1;
+    } else if (codeUnit >= 0xdc00 && codeUnit <= 0xdfff) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function scalarString(value: string, field: string): string {
+  if (hasUnpairedSurrogate(value)) fail(`${field} must contain only Unicode scalar values`);
+  return value;
+}
+
 function nonEmptyString(value: unknown, field: string): string {
   if (typeof value !== "string" || value.length === 0) fail(`${field} must be a non-empty string`);
-  return value;
+  return scalarString(value, field);
 }
 
 function timestamp(value: unknown, field: string): number {
@@ -53,7 +72,7 @@ function validatePayload(value: unknown): A2AEnvelopeV01["payload"] {
   if (!isRecord(value)) fail("payload must be an object");
   const mediaType = nonEmptyString(value.media_type, "payload.media_type");
   if (typeof value.body !== "string") fail("payload.body must be a string");
-  const body = value.body;
+  const body = scalarString(value.body, "payload.body");
   if (Buffer.byteLength(body, "utf-8") > MAX_A2A_BODY_BYTES) {
     fail(`payload.body exceeds ${MAX_A2A_BODY_BYTES} UTF-8 bytes`);
   }

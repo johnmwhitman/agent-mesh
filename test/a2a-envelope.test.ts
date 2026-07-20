@@ -10,7 +10,8 @@ import { A2A_MESSAGE_TYPES } from "../src/a2a/types.js";
 type Expected = "valid" | "invalid" | "duplicate" | "conflict" | "mapping";
 type CorpusCase = {
   name: string;
-  input: unknown;
+  input?: unknown;
+  raw_json?: string;
   expected: Expected;
   kind?: "envelope" | "legacy_mapping";
   options?: { forAcceptance?: boolean; nowMs?: number };
@@ -84,6 +85,10 @@ test("A2A v0.1 accepts all approved current message types", () => {
 test("A2A v0.1 conformance corpus validates canonical envelopes and identity outcomes", () => {
   const registry = new EnvelopeIdentityRegistry();
   for (const testCase of corpus()) {
+    if (testCase.raw_json !== undefined) {
+      assert.equal(testCase.expected, "invalid", `${testCase.name} is a future strict transport parsing case`);
+      continue;
+    }
     if (testCase.kind === "legacy_mapping") {
       const mapping = legacyMappingInput(testCase);
       const actual = mapLegacyMessage(mapping.input, mapping.context);
@@ -110,6 +115,29 @@ test("A2A v0.1 conformance corpus validates canonical envelopes and identity out
     }
     assert.equal(registry.accept(input), testCase.expected, testCase.name);
   }
+});
+
+test("A2A v0.1 corpus pins scalar Unicode and the current media-type grammar", () => {
+  for (const name of [
+    "valid-media-type-parameter",
+    "valid-media-type-empty-parameter-current-grammar",
+    "invalid-media-type-extra-slash",
+    "invalid-media-type-parameter-missing-semicolon",
+    "valid-non-bmp-scalar",
+    "invalid-lone-high-surrogate",
+    "invalid-lone-low-surrogate",
+  ]) {
+    assert.ok(caseByName(name), name);
+  }
+});
+
+test("duplicate raw JSON members remain a future transport parsing responsibility", () => {
+  const rawCases = corpus().filter((candidate) => candidate.raw_json !== undefined);
+  assert.deepEqual(rawCases.map((candidate) => candidate.name), [
+    "raw-duplicate-top-level-message-id",
+    "raw-duplicate-nested-sender-agent-id",
+  ]);
+  assert.ok(rawCases.every((candidate) => candidate.expected === "invalid"));
 });
 
 test("A2A extensions retain runtime-like fields as opaque extension data", () => {

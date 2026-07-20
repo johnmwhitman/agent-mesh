@@ -12,6 +12,7 @@ import copy
 import hashlib
 import json
 import math
+import re
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
@@ -26,6 +27,30 @@ MAX_BODY_BYTES = 64 * 1024
 
 class InvalidEnvelope(ValueError):
     pass
+
+
+class DuplicateMember(ValueError):
+    pass
+
+
+def strict_object(pairs: List[Tuple[str, Any]]) -> Dict[str, Any]:
+    result: Dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise DuplicateMember("duplicate JSON object member")
+        result[key] = value
+    return result
+
+
+def strict_json_loads(value: str) -> Any:
+    return json.loads(value, object_pairs_hook=strict_object)
+
+
+def parse_raw_json(value: str) -> Any:
+    try:
+        return strict_json_loads(value)
+    except (DuplicateMember, json.JSONDecodeError) as error:
+        raise InvalidEnvelope("serialized input must be unambiguous JSON") from error
 
 
 def stable_json(value: Any) -> str:
@@ -45,6 +70,8 @@ def expand_fixture(value: Any) -> Any:
 def non_empty(value: Any, field: str) -> str:
     if not isinstance(value, str) or not value:
         raise InvalidEnvelope(field + " must be a non-empty string")
+    if any(0xD800 <= ord(character) <= 0xDFFF for character in value):
+        raise InvalidEnvelope(field + " must contain only Unicode scalar values")
     return value
 
 
@@ -74,8 +101,7 @@ def ref_key(ref: Dict[str, str]) -> Tuple[str, str]:
 
 
 def media_type(value: str) -> bool:
-    base = value.split(";", 1)[0].strip()
-    return bool(base) and "/" in base and all(part and not any(char.isspace() for char in part) for part in base.split("/", 1))
+    return re.match(r"^[^\s/]+/[^\s/]+(?:\s*;.*)?$", value) is not None
 
 
 def validate_envelope(input_value: Any, now_ms: int | None = None, for_acceptance: bool = False) -> Dict[str, Any]:
@@ -116,6 +142,8 @@ def validate_envelope(input_value: Any, now_ms: int | None = None, for_acceptanc
     body = payload.get("body")
     if not isinstance(body, str):
         raise InvalidEnvelope("payload.body must be a string")
+    if any(0xD800 <= ord(character) <= 0xDFFF for character in body):
+        raise InvalidEnvelope("payload.body must contain only Unicode scalar values")
     if len(body.encode("utf-8")) > MAX_BODY_BYTES:
         raise InvalidEnvelope("payload.body exceeds " + str(MAX_BODY_BYTES) + " UTF-8 bytes")
     if not media_type(payload_media_type):
@@ -195,7 +223,7 @@ def run_v01(cases: List[Dict[str, Any]]) -> Dict[str, Any]:
         name = case["name"]
         expected = case["expected"]
         try:
-            source = expand_fixture(case["input"])
+            source = parse_raw_json(case["raw_json"]) if "raw_json" in case else expand_fixture(case["input"])
             if case.get("kind") == "legacy_mapping":
                 options = case.get("options", {})
                 mapping = map_legacy(source, options)
@@ -252,56 +280,57 @@ def decision(disposition: str, code: str, replayed_request: bool = False) -> Dic
 def ingress_attempt(state: Dict[str, Any], policy: Dict[str, Any], step: Dict[str, Any]) -> Dict[str, Any]:
     principal_id = step.get("principal_id")
     request_id = step.get("request_id")
-    if not isinstance(principal_id, str) or not principal_id:
-        return decision("rejected", "PRINCIPAL_CONTEXT_REQUIRED")
     if not isinstance(request_id, str) or not request_id:
-        return decision("rejected", "REQUEST_ID_INVALID")
+        return decision("rejected", "request_id_invalid")
+    if not isinstance(principal_id, str) or not principal_id:
+        return decision("rejected", "principal_context_required")
+    raw_envelope = step.get("envelope")
+    if isinstance(raw_envelope, dict) and isinstance(raw_envelope.get("version"), str) and raw_envelope["version"] != VERSION:
+        return decision("rejected", "unsupported_version")
+    try:
+        envelope = sorted_envelope(validate_envelope(raw_envelope, step.get("now_ms"), False))
+    except InvalidEnvelope:
+        return decision("rejected", "malformed_envelope")
     binding = policy_ref(policy, principal_id)
     if binding is None:
-        return decision("rejected", "PRINCIPAL_UNKNOWN")
-    try:
-        envelope = sorted_envelope(validate_envelope(step.get("envelope"), step.get("now_ms"), False))
-    except InvalidEnvelope:
-        return decision("rejected", "MALFORMED_ENVELOPE")
+        return decision("rejected", "AUTHORIZATION_DENIED")
     if binding != envelope["sender"]:
-        return decision("rejected", "SENDER_BINDING_DENIED")
+        return decision("rejected", "AUTHORIZATION_DENIED")
+    grants = policy.get("grants", {}).get(principal_id, {})
+    if envelope["type"] not in grants.get("types", []):
+        return decision("rejected", "AUTHORIZATION_DENIED")
+    audience = envelope.get("audience")
+    allowed_audiences = grants.get("audiences", [])
+    if audience is not None and audience not in allowed_audiences:
+        return decision("rejected", "AUTHORIZATION_DENIED")
+    allowed_recipients = set(tuple(value) for value in grants.get("recipients", []))
+    if any(ref_key(recipient) not in allowed_recipients for recipient in envelope["recipients"]):
+        return decision("rejected", "AUTHORIZATION_DENIED")
     request_key = (principal_id, request_id)
     digest = fingerprint(envelope)
     previous_request = state["requests"].get(request_key)
     if previous_request is not None:
         if previous_request["digest"] == digest:
-            result = copy.deepcopy(previous_request["result"])
-            result["replayed_request"] = True
-            return result
-        return decision("conflict", "REQUEST_ID_REUSE")
-    grants = policy.get("grants", {}).get(principal_id, {})
-    if envelope["type"] not in grants.get("types", []):
-        return decision("rejected", "TYPE_NOT_AUTHORIZED")
-    audience = envelope.get("audience")
-    allowed_audiences = grants.get("audiences", [])
-    if audience is not None and audience not in allowed_audiences:
-        return decision("rejected", "AUDIENCE_NOT_AUTHORIZED")
-    allowed_recipients = set(tuple(value) for value in grants.get("recipients", []))
-    if any(ref_key(recipient) not in allowed_recipients for recipient in envelope["recipients"]):
-        return decision("rejected", "RECIPIENT_AUTHORIZATION_DENIED")
+            return decision("replayed_request", "replayed_request", True)
+        return decision("conflict", "request_id_reuse")
     semantic_key = (binding["namespace"], binding["agent_id"], envelope["message_id"])
     previous_message = state["messages"].get(semantic_key)
     if previous_message is not None:
         if previous_message["digest"] != digest:
-            return decision("conflict", "MESSAGE_ID_CONFLICT")
-        result = decision("duplicate", "DUPLICATE")
+            return decision("conflict", "message_id_conflict")
+        result = decision("duplicate", "duplicate")
         state["requests"][request_key] = {"digest": digest, "result": copy.deepcopy(result)}
         return result
     expires_at = envelope.get("expires_at_ms")
     if expires_at is not None and expires_at <= step.get("now_ms", 0):
-        return decision("rejected", "EXPIRED_AT_ACCEPTANCE")
+        return decision("rejected", "expired_at_acceptance")
     candidate = copy.deepcopy(state)
-    result = decision("accepted", "ACCEPTED")
+    result = decision("accepted", "accepted")
     candidate["messages"][semantic_key] = {"digest": digest, "recipients": copy.deepcopy(envelope["recipients"])}
     candidate["requests"][request_key] = {"digest": digest, "result": copy.deepcopy(result)}
     candidate["deliveries"] += len(envelope["recipients"])
     if step.get("inject_failure"):
-        return decision("rejected", "PERSISTENCE_FAILED")
+        return decision("rejected", "ingress_storage_unavailable")
     state.clear()
     state.update(candidate)
     return result
@@ -314,7 +343,16 @@ def run_ingress(cases: List[Dict[str, Any]]) -> Dict[str, Any]:
         state: Dict[str, Any] = {"messages": {}, "requests": {}, "deliveries": 0}
         case_outcomes = []
         for step in case["steps"]:
-            actual = ingress_attempt(state, case["policy"], step)
+            if "raw_json" in step:
+                try:
+                    parsed_step = parse_raw_json(step["raw_json"])
+                    if not isinstance(parsed_step, dict):
+                        raise InvalidEnvelope("ingress request must be an object")
+                    actual = ingress_attempt(state, step.get("policy", case["policy"]), parsed_step)
+                except InvalidEnvelope:
+                    actual = decision("rejected", "malformed_envelope")
+            else:
+                actual = ingress_attempt(state, step.get("policy", case["policy"]), step)
             expected = step["expected"]
             wanted = {key: expected[key] for key in ("disposition", "code", "replayed_request") if key in expected}
             observed = {key: actual[key] for key in wanted}
@@ -334,8 +372,8 @@ def main() -> int:
     parser.add_argument("--v01-corpus", required=True)
     parser.add_argument("--ingress-corpus", required=True)
     args = parser.parse_args()
-    v01_cases = json.loads(Path(args.v01_corpus).read_text(encoding="utf-8"))
-    ingress_document = json.loads(Path(args.ingress_corpus).read_text(encoding="utf-8"))
+    v01_cases = strict_json_loads(Path(args.v01_corpus).read_text(encoding="utf-8"))
+    ingress_document = strict_json_loads(Path(args.ingress_corpus).read_text(encoding="utf-8"))
     v01 = run_v01(v01_cases)
     ingress = run_ingress(ingress_document["cases"])
     report = {
