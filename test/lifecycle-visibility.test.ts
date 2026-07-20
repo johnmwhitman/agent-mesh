@@ -44,6 +44,7 @@ test("lifecycle snapshot fails closed for a missing database and does not create
 });
 
 test("lifecycle verifier emits stable namespaced tamper findings", () => {
+  const now = 100_000;
   const snapshot = {
     data: {
       fleets: { durable: { id: "durable", status: "running", created_at: 1 }, legacy: { id: "legacy", status: "running", created_at: 1 }, invalid: { id: "invalid", status: "running", created_at: 1 } },
@@ -63,16 +64,20 @@ test("lifecycle verifier emits stable namespaced tamper findings", () => {
       { attempt_id: "c", work_id: "w", owner_id: null, owner_epoch: 0, status: "pending", lease_until: 1, attempt_number: 3, eligible_at: 1, created_at: 1, updated_at: 1, terminal_at: null, launch_intent_at: 1, launch_registered_at: 0 },
     ],
     events: [{ seq: 2, event_id: "event", work_id: "w", attempt_id: "missing", kind: "bad", occurred_at: -1, payload: "{}" }],
-    outbox: [{ seq: 2, event_id: "out", payload: "not-json", created_at: 10, projected_at: 1 }], scanExceeded: false,
+    outbox: [{ seq: 2, event_id: "out", payload: "not-json", created_at: 10, projected_at: 1 }, { seq: 3, event_id: "lag", payload: "{}", created_at: 0, projected_at: null }], scanExceeded: false,
   } as unknown as LifecycleSnapshot;
-  const checks = new Set(verifyLifecycleSnapshot(snapshot, 10).map((finding) => finding.check));
+  const checks = new Set(verifyLifecycleSnapshot(snapshot, now).map((finding) => finding.check));
   for (const check of [
     "lifecycle.mode.invalid", "lifecycle.work.orphan_fleet", "lifecycle.work.non_durable_fleet", "lifecycle.work.current_attempt", "lifecycle.work.state", "lifecycle.work.timestamp_order",
     "lifecycle.attempt.orphan_work", "lifecycle.attempt.state", "lifecycle.attempt.epoch", "lifecycle.attempt.number", "lifecycle.attempt.lease_state", "lifecycle.attempt.launch_state", "lifecycle.attempt.expired_lease", "lifecycle.attempt.launch_quarantine_pending",
     "lifecycle.event.sequence", "lifecycle.event.reference", "lifecycle.event.payload", "lifecycle.replay.unreplayable", "lifecycle.replay.state_mismatch", "lifecycle.projection.missing_work", "lifecycle.projection.agent_state", "lifecycle.projection.retry_count",
-    "lifecycle.outbox.sequence", "lifecycle.outbox.payload", "lifecycle.outbox.projected_before_created",
+    "lifecycle.outbox.sequence", "lifecycle.outbox.payload", "lifecycle.outbox.projected_before_created", "lifecycle.outbox.projection_lag",
   ]) assert.ok(checks.has(check), check);
   const missingAuthority = { ...snapshot, lifecycleTablesPresent: false, work: [], attempts: [], events: [], outbox: [] };
-  assert.ok(verifyLifecycleSnapshot(missingAuthority, 10).some((finding) => finding.check === "lifecycle.schema.missing_authority"));
-  assert.ok(verifyLifecycleSnapshot({ ...snapshot, scanExceeded: true }, 10).some((finding) => finding.check === "lifecycle.verify.scan_limit"));
+  assert.ok(verifyLifecycleSnapshot(missingAuthority, now).some((finding) => finding.check === "lifecycle.schema.missing_authority"));
+  assert.ok(verifyLifecycleSnapshot({ ...snapshot, scanExceeded: true }, now).some((finding) => finding.check === "lifecycle.verify.scan_limit"));
+  const legacy = { ...snapshot, data: { ...snapshot.data, fleets: { legacy: snapshot.data.fleets.legacy }, agents: {} }, fleetModes: new Map([["legacy", null]]), work: [], attempts: [], events: [], outbox: [], scanExceeded: false } as unknown as LifecycleSnapshot;
+  assert.deepEqual(verifyLifecycleSnapshot(legacy, now), []);
+  const shadow = { ...snapshot, data: { ...snapshot.data, fleets: { durable: snapshot.data.fleets.durable }, agents: {} }, fleetModes: new Map([["durable", "shadow"]]), work: snapshot.work.filter((work) => work.fleet_id === "durable"), attempts: snapshot.attempts.filter((attempt) => attempt.work_id === "w"), events: snapshot.events, outbox: [], scanExceeded: false } as unknown as LifecycleSnapshot;
+  assert.ok(verifyLifecycleSnapshot(shadow, now).every((finding) => finding.severity === "warning"));
 });

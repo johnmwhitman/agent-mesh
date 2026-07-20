@@ -126,6 +126,7 @@ export function verifyLifecycleSnapshot(snapshot: LifecycleSnapshot, now: number
     modes.set(id, modeOf(snapshot, id));
   }
   const authoritative = [...modes.values()].some((mode) => mode !== "legacy");
+  const diagnosticMode: LifecycleMode = [...modes.values()].includes("durable") ? "durable" : [...modes.values()].includes("shadow") ? "shadow" : "legacy";
   if (!snapshot.lifecycleTablesPresent) {
     for (const [id, mode] of modes) if (mode !== "legacy") issue(findings, mode, "lifecycle.schema.missing_authority", id, "fleet declares lifecycle mode but lifecycle authority tables are absent");
     return findings;
@@ -164,10 +165,10 @@ export function verifyLifecycleSnapshot(snapshot: LifecycleSnapshot, now: number
     }
     if (list.filter((attempt) => String(attempt.status) === "running").some((attempt) => String(attempt.attempt_id) !== String(work.current_attempt_id))) issue(findings, mode, "lifecycle.attempt.state", id, "only the current attempt may run");
   }
-  for (const attempt of snapshot.attempts) if (!workById.has(String(attempt.work_id))) issue(findings, "durable", "lifecycle.attempt.orphan_work", String(attempt.attempt_id), "attempt references missing work");
+  for (const attempt of snapshot.attempts) if (!workById.has(String(attempt.work_id))) issue(findings, diagnosticMode, "lifecycle.attempt.orphan_work", String(attempt.attempt_id), "attempt references missing work");
   const ids = new Set<string>(); let expected = 1;
   for (const event of [...snapshot.events].sort((a, b) => Number(a.seq) - Number(b.seq))) {
-    const mode = workById.get(String(event.work_id)) ? fleetForWork(workById.get(String(event.work_id))!) : "durable";
+    const mode = workById.get(String(event.work_id)) ? fleetForWork(workById.get(String(event.work_id))!) : diagnosticMode;
     if (!Number.isInteger(event.seq) || Number(event.seq) !== expected++ || ids.has(String(event.event_id))) issue(findings, mode, "lifecycle.event.sequence", String(event.event_id), "event sequence is not globally contiguous or event id is duplicated");
     ids.add(String(event.event_id));
     if (!workById.has(String(event.work_id)) || (event.attempt_id != null && !attemptsById.has(String(event.attempt_id))) || !EVENT_KINDS.has(String(event.kind))) issue(findings, mode, "lifecycle.event.reference", String(event.event_id), "event references missing work/attempt or has an invalid kind");
@@ -198,11 +199,11 @@ export function verifyLifecycleSnapshot(snapshot: LifecycleSnapshot, now: number
   }
   const outIds = new Set<string>(); let outExpected = 1;
   for (const row of [...snapshot.outbox].sort((a, b) => Number(a.seq) - Number(b.seq))) {
-    if (!Number.isInteger(row.seq) || Number(row.seq) !== outExpected++ || outIds.has(String(row.event_id))) issue(findings, "durable", "lifecycle.outbox.sequence", String(row.event_id), "outbox sequence is not contiguous or event id is duplicated");
+    if (!Number.isInteger(row.seq) || Number(row.seq) !== outExpected++ || outIds.has(String(row.event_id))) issue(findings, diagnosticMode, "lifecycle.outbox.sequence", String(row.event_id), "outbox sequence is not contiguous or event id is duplicated");
     outIds.add(String(row.event_id));
-    try { json(row.payload, "outbox payload"); } catch { issue(findings, "durable", "lifecycle.outbox.payload", String(row.event_id), "outbox payload is invalid JSON"); }
-    if (!validTimestamp(row.created_at) || (row.projected_at != null && (!validTimestamp(row.projected_at) || Number(row.projected_at) < Number(row.created_at)))) issue(findings, "durable", "lifecycle.outbox.projected_before_created", String(row.event_id), "outbox projection timestamp precedes creation");
-    if (row.projected_at == null && validTimestamp(row.created_at) && now - Number(row.created_at) > OUTBOX_LAG_MS) issue(findings, "durable", "lifecycle.outbox.projection_lag", String(row.event_id), "outbox row remains unprojected beyond the lag threshold", true);
+    try { json(row.payload, "outbox payload"); } catch { issue(findings, diagnosticMode, "lifecycle.outbox.payload", String(row.event_id), "outbox payload is invalid JSON"); }
+    if (!validTimestamp(row.created_at) || (row.projected_at != null && (!validTimestamp(row.projected_at) || Number(row.projected_at) < Number(row.created_at)))) issue(findings, diagnosticMode, "lifecycle.outbox.projected_before_created", String(row.event_id), "outbox projection timestamp precedes creation");
+    if (row.projected_at == null && validTimestamp(row.created_at) && now - Number(row.created_at) > OUTBOX_LAG_MS) issue(findings, diagnosticMode, "lifecycle.outbox.projection_lag", String(row.event_id), "outbox row remains unprojected beyond the lag threshold", true);
   }
   return findings;
 }
