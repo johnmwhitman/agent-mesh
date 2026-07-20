@@ -34,6 +34,9 @@ function expandFixture(value: unknown): unknown {
     if (record.$fixture === "repeat" && typeof record.value === "string" && Number.isInteger(record.count)) {
       return record.value.repeat(record.count as number);
     }
+    if (record.$fixture === "json_depth" && Number.isInteger(record.depth) && (record.depth as number) >= 0) {
+      return "[".repeat(record.depth as number) + "null" + "]".repeat(record.depth as number);
+    }
     return Object.fromEntries(Object.entries(record).map(([key, nested]) => [key, expandFixture(nested)]));
   }
   return value;
@@ -180,6 +183,33 @@ test("canonical serialization cannot emit non-scalar envelope or JSON payload st
     assert.throws(() => encodeEnvelope(inputFor(name)), /Unicode scalar values|valid JSON/, name);
   }
   assert.doesNotThrow(() => encodeEnvelope(inputFor("valid-nested-non-bmp-scalars")));
+});
+
+test("JSON media payloads use strict parsing and the shared depth boundary", () => {
+  assert.doesNotThrow(() => validateEnvelope(inputFor("valid-json-payload-depth-64")));
+  assert.throws(() => validateEnvelope(inputFor("invalid-json-payload-depth-65")), /valid JSON/);
+  assert.throws(() => validateEnvelope(inputFor("invalid-json-payload-duplicate-nested-key")), /valid JSON/);
+  assert.throws(() => validateEnvelope(inputFor("invalid-plus-json-payload-duplicate-nested-key")), /valid JSON/);
+  const source = readFileSync("src/a2a/codec.ts", "utf8");
+  assert.match(source, /strictParseJson\(body\)/);
+  assert.doesNotMatch(source, /JSON\.parse\(body\)/);
+});
+
+test("envelope numbers and timestamps use the exact safe-integer domain", () => {
+  for (const name of ["valid-safe-integer-boundaries", "valid-finite-fraction-and-negative-zero"]) {
+    assert.doesNotThrow(() => validateEnvelope(inputFor(name)), name);
+  }
+  for (const name of [
+    "invalid-positive-unsafe-integer",
+    "invalid-negative-unsafe-integer",
+    "invalid-adjacent-unsafe-integer-a",
+    "invalid-adjacent-unsafe-integer-b",
+    "invalid-exponent-unsafe-integral",
+    "invalid-overflow-number",
+    "invalid-unsafe-timestamp",
+  ]) {
+    assert.throws(() => validateEnvelope(inputFor(name)), undefined, name);
+  }
 });
 
 test("A2A extensions retain runtime-like fields as opaque extension data", () => {

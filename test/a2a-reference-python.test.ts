@@ -166,6 +166,47 @@ test("Python digest input rejects excessive raw size and depth without recursion
   }
 });
 
+test("numeric spellings share canonical identity only inside the permitted domain", (t) => {
+  const availability = spawnSync("python3", ["--version"], { encoding: "utf8" });
+  if (availability.error || availability.status !== 0) {
+    t.skip("python3 is unavailable; numeric digest parity skipped");
+    return;
+  }
+  const digest = (a2aCodec as unknown as { canonicalEnvelopeDigest: (input: unknown) => string }).canonicalEnvelopeDigest;
+  const prefix = "{\"protocol\":\"meshfleet.a2a\",\"version\":\"0.1\",\"kind\":\"message\",\"message_id\":\"numeric-spelling\",\"sender\":{\"namespace\":\"n\",\"agent_id\":\"a\"},\"recipients\":[{\"namespace\":\"n\",\"agent_id\":\"b\"}],\"type\":\"handoff\",\"issued_at_ms\":1,\"payload\":{\"media_type\":\"text/plain\",\"body\":\"x\"},\"extensions\":{\"value\":";
+  const spellings = ["0.5", "5e-1", "-0", "0"];
+  const directory = mkdtempSync(join(tmpdir(), "meshfleet-a2a-numbers-"));
+  try {
+    const digests = new Map<string, string>();
+    for (const spelling of spellings) {
+      const raw = prefix + spelling + "}}";
+      const path = join(directory, spelling.replace(/[^a-z0-9]/gi, "_") + ".json");
+      writeFileSync(path, raw, "utf8");
+      const tsDigest = digest(a2aCodec.decodeEnvelope(raw));
+      const run = spawnSync("python3", [witness, "--digest-envelope", path], { encoding: "utf8", timeout: 10_000 });
+      assert.equal(run.status, 0, run.stderr || run.stdout);
+      const pyDigest = (JSON.parse(run.stdout) as { digest: string }).digest;
+      assert.equal(pyDigest, tsDigest, spelling);
+      digests.set(spelling, tsDigest);
+    }
+    assert.equal(digests.get("0.5"), digests.get("5e-1"));
+    assert.equal(digests.get("-0"), digests.get("0"));
+    assert.notEqual(digests.get("0.5"), digests.get("0"));
+
+    for (const unsafe of ["9007199254740992", "9007199254740993", "9.007199254740992e15", "1e309"]) {
+      const raw = prefix + unsafe + "}}";
+      assert.throws(() => a2aCodec.decodeEnvelope(raw), undefined, unsafe);
+      const path = join(directory, "unsafe_" + unsafe.replace(/[^a-z0-9]/gi, "_") + ".json");
+      writeFileSync(path, raw, "utf8");
+      const run = spawnSync("python3", [witness, "--digest-envelope", path], { encoding: "utf8", timeout: 10_000 });
+      assert.notEqual(run.status, 0, unsafe);
+      assert.match(run.stdout, /invalid_digest_json/, unsafe);
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("Python witness is standalone, offline, and has no forbidden integration references", () => {
   assert.equal(existsSync(witness), true);
   const source = readFileSync(witness, "utf8");

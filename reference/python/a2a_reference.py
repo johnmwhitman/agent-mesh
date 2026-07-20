@@ -91,8 +91,7 @@ def strict_json_loads(value: str) -> Any:
 
 
 def json_value_loads(value: str) -> Any:
-    scan_raw_bounds(value)
-    return json.loads(value, parse_constant=reject_constant)
+    return strict_json_loads(value)
 
 
 def parse_raw_json(value: str) -> Any:
@@ -124,12 +123,8 @@ def canonical_tree(value: Any) -> bytes:
     if value is True:
         return b"\x02"
     if isinstance(value, (int, float)) and not isinstance(value, bool):
-        try:
-            number = float(value)
-        except (OverflowError, ValueError) as error:
-            raise InvalidEnvelope("canonical number must fit finite binary64") from error
-        if not math.isfinite(number):
-            raise InvalidEnvelope("canonical number must fit finite binary64")
+        validate_json_number(value, "canonical number")
+        number = float(value)
         if number == 0.0:
             number = 0.0
         return b"\x03" + struct.pack(">d", number)
@@ -166,6 +161,8 @@ def expand_fixture(value: Any) -> Any:
     if isinstance(value, dict):
         if value.get("$fixture") == "repeat" and isinstance(value.get("value"), str) and isinstance(value.get("count"), int):
             return value["value"] * value["count"]
+        if value.get("$fixture") == "json_depth" and isinstance(value.get("depth"), int) and value["depth"] >= 0:
+            return "[" * value["depth"] + "null" + "]" * value["depth"]
         return {key: expand_fixture(nested) for key, nested in value.items()}
     return value
 
@@ -183,6 +180,9 @@ def validate_scalar_tree(value: Any, field: str) -> None:
         if any(0xD800 <= ord(character) <= 0xDFFF for character in value):
             raise InvalidEnvelope(field + " must contain only Unicode scalar values")
         return
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        validate_json_number(value, field)
+        return
     if isinstance(value, list):
         for index, nested in enumerate(value):
             validate_scalar_tree(nested, field + "[" + str(index) + "]")
@@ -195,10 +195,26 @@ def validate_scalar_tree(value: Any, field: str) -> None:
             validate_scalar_tree(nested, field + "." + key)
 
 
+def validate_json_number(value: int | float, field: str) -> None:
+    maximum_safe_integer = 9007199254740991
+    if isinstance(value, int):
+        if value < -maximum_safe_integer or value > maximum_safe_integer:
+            raise InvalidEnvelope(field + " integral value must be a safe integer")
+        return
+    if not math.isfinite(value):
+        raise InvalidEnvelope(field + " must be a finite binary64 number")
+    if value.is_integer() and (value < -maximum_safe_integer or value > maximum_safe_integer):
+        raise InvalidEnvelope(field + " integral value must be a safe integer")
+
+
 def timestamp(value: Any, field: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-        raise InvalidEnvelope(field + " must be a finite non-negative integer")
-    return value
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise InvalidEnvelope(field + " must be a safe non-negative integer")
+    validate_json_number(value, field)
+    number = float(value)
+    if not number.is_integer() or number < 0:
+        raise InvalidEnvelope(field + " must be a safe non-negative integer")
+    return int(number)
 
 
 def record(value: Any, field: str) -> Dict[str, Any]:

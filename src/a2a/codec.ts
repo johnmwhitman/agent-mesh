@@ -56,6 +56,10 @@ function validateScalarTree(value: unknown, field: string, seen = new Set<object
     scalarString(value, field);
     return;
   }
+  if (typeof value === "number") {
+    validateJsonNumber(value, field);
+    return;
+  }
   if (value === null || typeof value !== "object") return;
   if (seen.has(value)) fail(`${field} must be an acyclic JSON tree`);
   seen.add(value);
@@ -68,6 +72,14 @@ function validateScalarTree(value: unknown, field: string, seen = new Set<object
     }
   }
   seen.delete(value);
+}
+
+function validateJsonNumber(value: number, field: string): number {
+  if (!Number.isFinite(value)) fail(`${field} must be a finite binary64 number`);
+  if (Number.isInteger(value) && !Number.isSafeInteger(value)) {
+    fail(`${field} integral value must be a safe integer`);
+  }
+  return value;
 }
 
 // Language-neutral v0.1 media grammar. All input is ASCII and at most 1024 bytes:
@@ -170,10 +182,15 @@ class StrictJsonScanner {
   }
 
   private parseValue(depth: number): void {
-    if (depth > MAX_RAW_JSON_DEPTH) this.invalid(`nesting depth exceeds ${MAX_RAW_JSON_DEPTH}`);
     const character = this.source[this.index];
-    if (character === "{") return this.parseObject(depth);
-    if (character === "[") return this.parseArray(depth);
+    if (character === "{") {
+      if (depth >= MAX_RAW_JSON_DEPTH) this.invalid(`nesting depth exceeds ${MAX_RAW_JSON_DEPTH}`);
+      return this.parseObject(depth + 1);
+    }
+    if (character === "[") {
+      if (depth >= MAX_RAW_JSON_DEPTH) this.invalid(`nesting depth exceeds ${MAX_RAW_JSON_DEPTH}`);
+      return this.parseArray(depth + 1);
+    }
     if (character === "\"") {
       this.parseString();
       return;
@@ -205,7 +222,7 @@ class StrictJsonScanner {
       if (this.source[this.index] !== ":") this.invalid("missing object colon");
       this.index += 1;
       this.skipWhitespace();
-      this.parseValue(depth + 1);
+      this.parseValue(depth);
       this.skipWhitespace();
       if (this.source[this.index] === "}") {
         this.index += 1;
@@ -225,7 +242,7 @@ class StrictJsonScanner {
       return;
     }
     while (true) {
-      this.parseValue(depth + 1);
+      this.parseValue(depth);
       this.skipWhitespace();
       if (this.source[this.index] === "]") {
         this.index += 1;
@@ -324,7 +341,7 @@ function canonicalTree(value: unknown): Buffer {
   if (value === false) return Buffer.from([0x01]);
   if (value === true) return Buffer.from([0x02]);
   if (typeof value === "number") {
-    if (!Number.isFinite(value)) fail("canonical number must be finite binary64");
+    validateJsonNumber(value, "canonical number");
     const encoded = Buffer.allocUnsafe(8);
     encoded.writeDoubleBE(Object.is(value, -0) ? 0 : value);
     return Buffer.concat([Buffer.from([0x03]), encoded]);
@@ -350,8 +367,8 @@ function nonEmptyString(value: unknown, field: string): string {
 }
 
 function timestamp(value: unknown, field: string): number {
-  if (typeof value !== "number" || !Number.isFinite(value) || !Number.isInteger(value) || value < 0) {
-    fail(`${field} must be a finite non-negative integer`);
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+    fail(`${field} must be a safe non-negative integer`);
   }
   return value;
 }
@@ -382,7 +399,7 @@ function validatePayload(value: unknown): A2AEnvelopeV01["payload"] {
   const baseMediaType = mediaType.split(";", 1)[0]!.trimEnd().toLowerCase();
   if (baseMediaType === "application/json" || baseMediaType.endsWith("+json")) {
     try {
-      const parsed = JSON.parse(body) as unknown;
+      const parsed = strictParseJson(body);
       validateScalarTree(parsed, "payload JSON");
     } catch {
       fail("payload.body must be valid JSON for a JSON media type");
