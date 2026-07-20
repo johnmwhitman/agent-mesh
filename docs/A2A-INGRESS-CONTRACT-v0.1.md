@@ -1,10 +1,11 @@
 # Canonical Ingress Contract v0.1
 
 **Status:** Designed with fixture and independent reference-conformance
-evidence; not implemented as public or durable ingress. This document freezes
-semantic and security requirements for a future canonical ingress. It does not
-add a public tool, storage schema, authenticated principal, or delivery
-behavior.
+evidence; not implemented as public ingress. Slice 4B separately implements and
+locally verifies the downstream private dormant durable journal. This document
+freezes semantic and security requirements for a future canonical ingress. It
+does not add a public tool, authenticated principal, delivery behavior, or
+activation.
 
 ## Problem
 
@@ -229,17 +230,21 @@ a separate approved review.
 
 Current evidence proves a pure codec, preserved legacy compatibility, and an
 offline standalone Python witness agreeing with the language-neutral codec and
-ingress-contract corpora. A mutated-corpus self-test proves that the witness
-fails when an expected outcome is changed. This is reference-conformance only.
-It does not prove public or durable ingress, authenticated principals,
-production recipient authorization, remote transport, or multi-host
-coordination. Existing local SQLite durability is evidence for the lifecycle
-system, not for a canonical ingress journal.
+ingress-contract corpora. Slice 4B separately proves the private dormant
+journal at `f1f98fb`: ordered physical SQLite v4, request-first replay/conflict
+and semantic duplicate/conflict handling, expiry only for unseen identities,
+append-only accepted-decision receipts, restart and cross-process behavior,
+privacy constraints, migration rollback, and v3/WAL-safe backup compatibility.
+That is `dormant-internal-durable-verified` local storage evidence only. It does
+not prove public ingress, authenticated principals, production recipient
+authorization, delivery, activation, remote transport, or multi-host
+coordination.
 
-Before any public surface, require language-neutral fixture conformance,
-restart and concurrent-process duplicate/conflict tests, atomic rejection and
-storage-failure tests, principal/binding/recipient-policy tests, legacy MCP
-snapshots, migration/rollback evidence, and independent whole-slice review.
+Before any public surface, retain the existing language-neutral and Slice 4B
+durability evidence, then require Slice 4C-0 capability/identity/runtime-
+attestation semantics, Slice 4C-1 principal/binding/recipient-policy evidence,
+public-surface compatibility tests, and a separate independent public-ingress
+review.
 
 ## Deferred questions
 

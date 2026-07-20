@@ -26,9 +26,11 @@ verified boundaries:
   deterministic retries, launch-intent quarantine, scheduled lease recovery, and a sequence-ordered
   NDJSON-repair outbox without changing MCP
   inputs or outputs.
-- Public canonical-envelope ingress, authenticated principals, durable duplicate
-  persistence, public lifecycle controls, and public runtime selection remain
-  unimplemented. The provider-neutral RuntimeAdapter SPI plus isolated
+- Public canonical-envelope ingress and its durable duplicate persistence,
+  authenticated principals, public lifecycle controls, and public runtime
+  selection remain unimplemented. Private durable duplicate persistence is
+  implemented and verified only in the dormant Slice 4B journal. The
+  provider-neutral RuntimeAdapter SPI plus isolated
   OpenCode and deterministic local-process adapters are implemented and
   runtime-launch-verified; they are not yet public multi-runtime orchestration.
 - Slice 4A is reference-conformance verified. Slice 4B is implemented and
@@ -66,8 +68,9 @@ independent imports. Existing MCP compatibility tests must remain unchanged.
 
 **Status:** Codec, fixture corpus, and legacy internal mapping implemented and
 covered by focused conformance plus existing API-compatibility tests. Public
-canonical-envelope ingress, remote transport, authenticated principals, and
-durable duplicate detection are not implemented.
+canonical-envelope ingress, its durable duplicate detection, remote transport,
+and authenticated principals are not implemented. The private dormant Slice 4B
+journal's durable duplicate detection is implemented and locally verified.
 
 ### Slice 2: Durable lifecycle kernel
 
