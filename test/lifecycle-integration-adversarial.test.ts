@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { closeDb, getStorageSchemaVersion, setDbPath } from "../src/db.js";
 import { LifecycleStore } from "../src/attempt-lifecycle.js";
-import { defaultLifecycleMode, LifecycleExecutionCoordinator, projectLifecycleOutbox, setOutboxAfterAppendForTest } from "../src/lifecycle-execution.js";
+import { defaultLifecycleMode, LifecycleExecutionCoordinator, projectLifecycleOutbox, repairLifecycleOutbox, setOutboxAfterAppendForTest } from "../src/lifecycle-execution.js";
 import { loadData, readEventLog } from "../src/core.js";
 import type { RuntimeAdapter, RuntimeHandle, RuntimeResult } from "../src/runtime/types.js";
 import { withTempDb } from "./helpers/with-temp-db.js";
@@ -237,18 +237,41 @@ test("durable recovery wakes at a future lease boundary, contains the diagnostic
   } finally { temp.cleanup(); }
 });
 
-test("outbox projects by durable sequence and repairs a crash after append without duplication", () => {
+test("post-commit projection failure preserves durable fleet success and later repairs without duplication", () => {
   const temp = withTempDb();
   try {
     const runtime = new ControlledRuntime();
     const coordinator = new LifecycleExecutionCoordinator(runtime, { ownerId: "outbox-owner" });
     setOutboxAfterAppendForTest(() => { throw new Error("crash after append"); });
-    assert.throws(() => coordinator.createFleet("f", [{ fleetId: "f", agentId: "a", role: "r", prompt: "p" }]), /crash after append/);
+    assert.doesNotThrow(() => coordinator.createFleet("f", [{ fleetId: "f", agentId: "a", role: "r", prompt: "p" }]));
+    assert.equal(loadData().fleets.f.status, "running");
+    assert.equal(new LifecycleStore().getState("a")?.attempts.length, 1);
+    assert.equal(repairLifecycleOutbox("fault-owner", Date.now()).error, "crash after append");
     setOutboxAfterAppendForTest(undefined);
     projectLifecycleOutbox("replay-owner", Date.now() + 31_000);
     const events = readEventLog();
-    assert.deepEqual(events.map((event) => event.event), ["fleet_created", "spawn_fleet_called"]);
+    assert.deepEqual(events.map((event) => event.event), ["fleet_created", "spawn_fleet_called", "agent_launch_intended"]);
     assert.equal(new Set(events.map((event) => event.event_id)).size, events.length);
+    coordinator.stop();
+  } finally {
+    setOutboxAfterAppendForTest(undefined);
+    temp.cleanup();
+  }
+});
+
+test("retry wake scheduling survives post-settlement projection failure", async () => {
+  const temp = withTempDb();
+  try {
+    const runtime = new ControlledRuntime();
+    const coordinator = new LifecycleExecutionCoordinator(runtime, { ownerId: "projection-retry", retryBaseMs: 1, maxAttempts: 2 });
+    coordinator.createFleet("f", [{ fleetId: "f", agentId: "a", role: "r", prompt: "p" }]);
+    await tick();
+    setOutboxAfterAppendForTest(() => { throw new Error("projection unavailable"); });
+    runtime.waits[0].resolve({ ...success(), status: "failure", exitCode: 1, error: "retry" });
+    await new Promise((done) => setTimeout(done, 25));
+    assert.equal(runtime.starts, 2);
+    setOutboxAfterAppendForTest(undefined);
+    coordinator.stop();
   } finally {
     setOutboxAfterAppendForTest(undefined);
     temp.cleanup();

@@ -103,6 +103,20 @@ export function projectLifecycleOutbox(ownerId: string = randomUUID(), now: numb
   }
 }
 
+/**
+ * NDJSON is a repairable projection, never authority. A projection fault must
+ * not alter an already-committed MCP success or suppress durable scheduling.
+ */
+export function repairLifecycleOutbox(ownerId: string = randomUUID(), now: number = Date.now()): { projected: number; error?: string } {
+  try {
+    return { projected: projectLifecycleOutbox(ownerId, now) };
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    console.error(`Agent Mesh lifecycle outbox projection deferred; SQLite remains authoritative: ${detail}`);
+    return { projected: 0, error: detail };
+  }
+}
+
 export class LifecycleExecutionCoordinator {
   readonly ownerId: string;
   private readonly now: () => number;
@@ -148,7 +162,7 @@ export class LifecycleExecutionCoordinator {
       queueEvent(db, "fleet_created", { fleet_id: fleetId }, this.now());
       queueEvent(db, "spawn_fleet_called", { fleet_id: fleetId, agent_count: specs.length }, this.now());
     });
-    projectLifecycleOutbox(this.ownerId, this.now());
+    repairLifecycleOutbox(this.ownerId, this.now());
     for (const spec of specs) this.launch(spec.agentId);
     this.scheduleRecoveryWake();
   }
@@ -191,9 +205,9 @@ export class LifecycleExecutionCoordinator {
       return states;
     });
     void recovered;
-    projectLifecycleOutbox(this.ownerId, this.now());
     this.launchDue();
     this.scheduleRecoveryWake();
+    repairLifecycleOutbox(this.ownerId, this.now());
   }
 
   /** Stop local scheduling and best-effort cancel only this process's handles. */
@@ -312,10 +326,10 @@ export class LifecycleExecutionCoordinator {
       return outcome.state;
     });
     if (!settled) return; // stale completion is a no-op, including projections.
-    projectLifecycleOutbox(this.ownerId, this.now());
     const next = settled.attempts.find((attempt) => attempt.attempt_id === settled.work.current_attempt_id);
     if (next?.status === "pending") this.scheduleDue(agentId, next.eligible_at);
     this.scheduleRecoveryWake();
+    repairLifecycleOutbox(this.ownerId, this.now());
   }
 
   private projectPending(data: MeshData, state: LifecycleState, result?: RuntimeResult): void {

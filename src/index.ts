@@ -64,7 +64,7 @@ import {
 import { recordRoutingOutcome } from "./routing-feedback.js";
 import { buildFailureDetail } from "./spawn-attempt.js";
 import { getDefaultRuntimeAdapter } from "./runtime/registry.js";
-import { defaultLifecycleMode, LifecycleExecutionCoordinator, projectLifecycleOutbox } from "./lifecycle-execution.js";
+import { defaultLifecycleMode, LifecycleExecutionCoordinator, repairLifecycleOutbox } from "./lifecycle-execution.js";
 
 // ---------------------------------------------------------------------------
 // Server
@@ -1066,7 +1066,7 @@ if (!isChildInstance) {
   // v0.7.x: recover any agents left in 'running' state from a previous
   // crashed process so fleet_status reflects reality. Liveness-probed since
   // 2026-07-03 — only agents with a missing/dead pid are flipped.
-  projectLifecycleOutbox();
+  repairLifecycleOutbox();
   lifecycleCoordinator.recover();
   const recoveredCount = recoverInterruptedAgents();
   if (recoveredCount > 0) {
