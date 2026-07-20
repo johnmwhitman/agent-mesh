@@ -33,12 +33,17 @@ export interface LifecycleExecutionCoordinatorOptions {
 const DEFAULT_LEASE_MS = 30_000;
 const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_RETRY_BASE_MS = 1_000;
-const OUTBOX_CLAIM_MS = 30_000;
 let outboxAfterAppendForTest: (() => void) | undefined;
+let outboxBeforeCommitForTest: (() => void) | undefined;
 
 /** Test-only crash-window seam: invoked after append and before SQLite acknowledgement. */
 export function setOutboxAfterAppendForTest(hook: (() => void) | undefined): void {
   outboxAfterAppendForTest = hook;
+}
+
+/** Test-only seam held inside the serialized SQLite projection transaction. */
+export function setOutboxBeforeCommitForTest(hook: (() => void) | undefined): void {
+  outboxBeforeCommitForTest = hook;
 }
 
 function modeFrom(value: string | undefined): LifecycleMode {
@@ -82,26 +87,24 @@ function persistMode(db: Database.Database, fleetId: string, mode: LifecycleMode
 }
 
 export function projectLifecycleOutbox(ownerId: string = randomUUID(), now: number = Date.now()): number {
+  void ownerId;
   let projected = 0;
   while (true) {
     const row = withLedgerAndStorage((_data, db) => {
-      // Strict head-of-line ordering: a live claim on seq N blocks N+1. A
-      // crashed projector is reclaimed only after its claim becomes stale.
-      const candidate = db.prepare("SELECT seq, event_id, event, payload, claimed_at FROM lifecycle_event_outbox WHERE projected_at IS NULL ORDER BY seq LIMIT 1")
-        .get() as { seq: number; event_id: string; event: string; payload: string; claimed_at: number | null } | undefined;
+      // Keep selection, event-id dedupe/append, and the durable acknowledgement
+      // in ONE BEGIN IMMEDIATE transaction. A competing single-host projector
+      // blocks here; it can never overtake an earlier seq or append concurrently.
+      const candidate = db.prepare("SELECT seq, event_id, event, payload FROM lifecycle_event_outbox WHERE projected_at IS NULL ORDER BY seq LIMIT 1")
+        .get() as { seq: number; event_id: string; event: string; payload: string } | undefined;
       if (!candidate) return undefined;
-      if (candidate.claimed_at !== null && candidate.claimed_at > now - OUTBOX_CLAIM_MS) return undefined;
-      const claimed = db.prepare("UPDATE lifecycle_event_outbox SET claimed_by = ?, claimed_at = ? WHERE event_id = ? AND projected_at IS NULL AND (claimed_at IS NULL OR claimed_at <= ?)")
-        .run(ownerId, now, candidate.event_id, now - OUTBOX_CLAIM_MS);
-      return claimed.changes === 1 ? candidate : undefined;
+      appendEventOnce(candidate.event_id, candidate.event, JSON.parse(candidate.payload) as Record<string, unknown>);
+      outboxAfterAppendForTest?.();
+      outboxBeforeCommitForTest?.();
+      db.prepare("UPDATE lifecycle_event_outbox SET projected_at = ? WHERE event_id = ? AND projected_at IS NULL")
+        .run(now, candidate.event_id);
+      return candidate;
     });
     if (!row) return projected;
-    appendEventOnce(row.event_id, row.event, JSON.parse(row.payload) as Record<string, unknown>);
-    outboxAfterAppendForTest?.();
-    withLedgerAndStorage((_data, db) => {
-      db.prepare("UPDATE lifecycle_event_outbox SET projected_at = ? WHERE event_id = ? AND claimed_by = ? AND projected_at IS NULL")
-        .run(now, row.event_id, ownerId);
-    });
     projected++;
   }
 }

@@ -1,13 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import Database from "better-sqlite3";
-import { mkdtempSync, rmSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { closeDb, getStorageSchemaVersion, setDbPath } from "../src/db.js";
 import { LifecycleStore } from "../src/attempt-lifecycle.js";
-import { defaultLifecycleMode, LifecycleExecutionCoordinator, projectLifecycleOutbox, repairLifecycleOutbox, setOutboxAfterAppendForTest } from "../src/lifecycle-execution.js";
-import { loadData, readEventLog } from "../src/core.js";
+import { defaultLifecycleMode, LifecycleExecutionCoordinator, projectLifecycleOutbox, repairLifecycleOutbox, setOutboxAfterAppendForTest, setOutboxBeforeCommitForTest } from "../src/lifecycle-execution.js";
+import { loadData, readEventLog, resolveEventLogFile } from "../src/core.js";
 import type { RuntimeAdapter, RuntimeHandle, RuntimeResult } from "../src/runtime/types.js";
 import { withTempDb } from "./helpers/with-temp-db.js";
 
@@ -49,6 +50,17 @@ class HangingStartRuntime implements RuntimeAdapter {
 
 const success = (stdout = "ok"): RuntimeResult => ({ status: "success", stdout, stderr: "", exitCode: 0, diagnostics: [], identity: { adapterId: "controlled", evidence: "none" } });
 const tick = () => new Promise<void>((done) => setImmediate(done));
+const waitForFile = (file: string, timeoutMs = 1_000): void => {
+  const until = Date.now() + timeoutMs;
+  while (!existsSync(file)) {
+    if (Date.now() >= until) throw new Error(`timed out waiting for ${file}`);
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+  }
+};
+const waitForExit = (child: ReturnType<typeof spawn>): Promise<void> => new Promise((resolve, reject) => {
+  child.once("error", reject);
+  child.once("exit", (code) => code === 0 ? resolve() : reject(new Error(`child exited ${code}`)));
+});
 
 test("v2 retry histories receive deterministic attempt numbers before unique index creation", () => {
   const dir = mkdtempSync(join(tmpdir(), "meshfleet-v2-retry-"));
@@ -250,7 +262,7 @@ test("durable recovery wakes at a future lease boundary, contains the diagnostic
   } finally { temp.cleanup(); }
 });
 
-test("post-commit projection failure preserves durable fleet success and later repairs without duplication", () => {
+test("crash after NDJSON append before SQLite commit repairs with exactly one line", () => {
   const temp = withTempDb();
   try {
     const runtime = new ControlledRuntime();
@@ -259,9 +271,9 @@ test("post-commit projection failure preserves durable fleet success and later r
     assert.doesNotThrow(() => coordinator.createFleet("f", [{ fleetId: "f", agentId: "a", role: "r", prompt: "p" }]));
     assert.equal(loadData().fleets.f.status, "running");
     assert.equal(new LifecycleStore().getState("a")?.attempts.length, 1);
-    assert.equal(repairLifecycleOutbox("fault-owner", Date.now()).error, undefined);
+    assert.equal(repairLifecycleOutbox("fault-owner", Date.now()).error, "crash after append");
     setOutboxAfterAppendForTest(undefined);
-    projectLifecycleOutbox("replay-owner", Date.now() + 31_000);
+    projectLifecycleOutbox("replay-owner", Date.now());
     const events = readEventLog();
     assert.deepEqual(events.map((event) => event.event), ["fleet_created", "spawn_fleet_called", "agent_launch_intended"]);
     assert.equal(new Set(events.map((event) => event.event_id)).size, events.length);
@@ -272,20 +284,37 @@ test("post-commit projection failure preserves durable fleet success and later r
   }
 });
 
-test("an active seq claim blocks a second projector until the claim becomes stale", () => {
+test("a paused projector serializes a synthetic post-timeout reclaimer without overtaking", async () => {
   const temp = withTempDb();
+  let child: ReturnType<typeof spawn> | undefined;
   try {
     const coordinator = new LifecycleExecutionCoordinator(new ControlledRuntime(), { ownerId: "first-projector" });
     setOutboxAfterAppendForTest(() => { throw new Error("projector crashed"); });
     coordinator.createFleet("f", [{ fleetId: "f", agentId: "a", role: "r", prompt: "p" }]);
     setOutboxAfterAppendForTest(undefined);
-    assert.equal(projectLifecycleOutbox("second-projector", Date.now()), 0);
     assert.deepEqual(readEventLog().map((event) => event.event), ["fleet_created"]);
-    projectLifecycleOutbox("second-projector", Date.now() + 31_000);
-    assert.deepEqual(readEventLog().map((event) => event.event), ["fleet_created", "spawn_fleet_called", "agent_launch_intended"]);
+
+    const marker = join(temp.dir, "second-projector-attempting");
+    let pausedHead = false;
+    setOutboxBeforeCommitForTest(() => {
+      if (pausedHead) return;
+      pausedHead = true;
+      child = spawn(process.execPath, ["--import", "tsx", "test/helpers/outbox-projector.mjs", temp.dbFile, resolveEventLogFile(), marker], { cwd: process.cwd(), stdio: "ignore" });
+      waitForFile(marker);
+      // The child passes a timestamp beyond the former 30s claim window. It
+      // still cannot append while this BEGIN IMMEDIATE transaction is open.
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
+      assert.deepEqual(readEventLog().map((event) => event.event), ["fleet_created"]);
+    });
+    projectLifecycleOutbox("paused-projector", Date.now());
+    await waitForExit(child!);
+    const events = readEventLog();
+    assert.deepEqual(events.slice(0, 3).map((event) => event.event), ["fleet_created", "spawn_fleet_called", "agent_launch_intended"]);
+    assert.equal(new Set(events.map((event) => event.event_id)).size, events.length);
     coordinator.stop();
   } finally {
     setOutboxAfterAppendForTest(undefined);
+    setOutboxBeforeCommitForTest(undefined);
     temp.cleanup();
   }
 });
