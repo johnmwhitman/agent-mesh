@@ -31,9 +31,10 @@ verified boundaries:
   unimplemented. The provider-neutral RuntimeAdapter SPI plus isolated
   OpenCode and deterministic local-process adapters are implemented and
   runtime-launch-verified; they are not yet public multi-runtime orchestration.
-- Slice 4A is reference-conformance verified. Slice 4B now has a designed
-  dormant durable-acceptance contract; no physical v4 migration, journal, or
-  internal acceptance API is implemented yet.
+- Slice 4A is reference-conformance verified. Slice 4B is implemented and
+  locally verified, dormant, and not activated: physical SQLite v4, the private
+  acceptance journal, and its migration/privacy/atomicity evidence exist only
+  on this unmerged branch.
 
 ## Ranked program
 
@@ -196,18 +197,20 @@ They are additive, reversible, and do not widen the current MCP surface.
    witness and language-neutral fixtures. This is codec/profile evidence only:
    no production ingress/store/tool, delivery, legacy projection, transport,
    authentication, or multi-host claim.
-2. **Slice 4B: explicit dormant durable acceptance foundation.** Introduce an
-   ordered global physical SQLite v3-to-v4 migration plus a private append-only
-   acceptance journal, request mappings, and one local decision receipt per
-   acceptance. The API accepts pre-authorized keyed tokens only and performs no
-   auth or delivery. It must be versioned, dormant, incapable of legacy/
-   lifecycle/outbox/NDJSON projection, and validated on every reopen. Do not use
-   hidden/lazy schema repair or expose `send_a2a`. Contract:
-   `docs/A2A-DURABLE-ACCEPTANCE-v0.1.md`.
-3. **Slice 4C: authenticated-local adapter and semantic client proof.** Prove
-   an adapter-derived authenticated local principal and one semantic client
-   path, then conduct a separate review for any public ingress surface. This
-   does not authorize remote transport or a multi-host claim.
+2. **Slice 4B: explicit dormant durable acceptance foundation.** Implemented
+   and locally verified at `f1f98fb` over `acc4090..f1f98fb`: ordered physical
+   SQLite v4, a three-table private journal, exact schema validation,
+   request-first durable classification, and accepted-only local receipts. It
+   remains unmerged, unpublished, inactive, and below public ingress.
+3. **Slice 4C-0: capability, identity, and runtime-attestation profile.** Next
+   specification-first slice; capability claims and model banners do not grant
+   authorization.
+4. **Slice 4C-1: principal-bound authenticated-local semantic path.** Then
+   prove a local adapter path without public ingress, remote transport,
+   credentials, or delivery.
+5. **Slice 4D then 4E:** offline delivery-attempt/transport conformance
+   followed by a deterministic two-host coordinator simulation; both remain
+   unimplemented.
 
 `meshfleet.a2a` v0.1 remains a codec protocol. Its process-local identity
 registry is not durable ingress identity. The public `send_a2a` tool remains

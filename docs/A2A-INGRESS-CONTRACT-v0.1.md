@@ -197,19 +197,24 @@ not a signature, authentication, attestation, or multi-host claim.
 
 - **Slice 4A:** freeze this contract and prove codec portability with an
   independent Python reference witness and language-neutral fixtures.
-- **Slice 4B:** use an ordered physical SQLite migration for a dormant internal
-  durable acceptance journal and local decision receipts. Do not use a hidden
-  or lazy unversioned schema, expose a tool, project legacy rows, or deliver.
-- **Slice 4C:** prove an adapter-derived authenticated local principal and a
+- **Slice 4B:** implemented and locally verified as a dormant internal physical
+  SQLite v4 journal with local decision receipts. It has no hidden or lazy
+  schema, tool, legacy projection, delivery, or activation.
+- **Slice 4C-0:** define a provider-neutral capability, identity, and
+  runtime-attestation profile; capability claims and model banners do not grant
+  authorization.
+- **Slice 4C-1:** prove an adapter-derived authenticated local principal and a
   semantic client path, then separately review any public ingress surface. No
   remote or multi-host claim follows.
 
-Slice 4B is now specified by `docs/A2A-DURABLE-ACCEPTANCE-v0.1.md` and ADR 0005.
-It stores opaque precomputed keyed identity tokens and the canonical digest, not
-raw identities or envelope content. Its API is downstream of current binding
-and all-recipient authorization and cannot authenticate, authorize, or deliver.
-Until executable migration, transaction, privacy, compatibility, and review
-evidence exists, its status remains `designed`.
+Slice 4B is implemented at `f1f98fb` and specified by
+`docs/A2A-DURABLE-ACCEPTANCE-v0.1.md` and ADR 0005. It stores opaque
+precomputed keyed identity tokens and the canonical digest, not raw identities
+or envelope content. Its API is downstream of current binding and
+all-recipient authorization and cannot authenticate, authorize, or deliver. The
+complete migration, transaction, privacy, compatibility, and review evidence is
+recorded in those canonical authorities; public ingress remains unimplemented
+and human-gated.
 
 ## Tradeoffs and reversibility
 

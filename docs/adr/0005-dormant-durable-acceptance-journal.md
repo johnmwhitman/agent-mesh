@@ -111,12 +111,12 @@ populated tables as rollback.
 
 ## Evidence and validation
 
-Status remains `designed`. Implementation must satisfy the exact migration,
-reopen, atomic acceptance/replay/conflict, concurrency, append-only, privacy,
-constraint, non-coupling, backup, and compatibility cases in
-`docs/A2A-DURABLE-ACCEPTANCE-v0.1.md`, then pass the full suite and independent
-review. Only then may it become `dormant-internal-durable-verified`, still below
-public ingress.
+Status is `dormant-internal-durable-verified`: the implementation satisfied the
+exact migration, reopen, atomic acceptance/replay/conflict, concurrency,
+append-only, privacy, constraint, non-coupling, backup, and compatibility cases
+in `docs/A2A-DURABLE-ACCEPTANCE-v0.1.md`, then passed the `518/518` full suite,
+typecheck, and final independent review. It remains below public ingress and is
+unmerged, unpublished, inactive branch evidence only.
 
 ## Forbidden claims
 
