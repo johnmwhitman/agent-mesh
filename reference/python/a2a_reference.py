@@ -14,6 +14,7 @@ import json
 import math
 import struct
 import sys
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
@@ -26,6 +27,7 @@ MAX_BODY_BYTES = 64 * 1024
 MAX_MEDIA_TYPE_BYTES = 1024
 MAX_RAW_JSON_BYTES = 128 * 1024
 MAX_RAW_JSON_DEPTH = 64
+MAX_SAFE_INTEGER = 9007199254740991
 FINGERPRINT_DOMAIN = "meshfleet.a2a.fingerprint.v1"
 FINGERPRINT_LABEL = FINGERPRINT_DOMAIN + ":sha256"
 TOKEN_CHARACTERS = frozenset("!#$%&'*+-.^_`|~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz")
@@ -85,9 +87,38 @@ def reject_constant(_value: str) -> Any:
     raise InvalidEnvelope("nonstandard JSON numeric constant")
 
 
+def parse_raw_integer(token: str) -> int:
+    value = int(token)
+    if value < -MAX_SAFE_INTEGER or value > MAX_SAFE_INTEGER:
+        raise InvalidEnvelope("JSON exact integer exceeds the safe integer range")
+    return value
+
+
+def parse_raw_float(token: str) -> float:
+    try:
+        exact = Decimal(token)
+        parsed = float(token)
+    except (InvalidOperation, OverflowError, ValueError) as error:
+        raise InvalidEnvelope("invalid JSON number") from error
+    if not math.isfinite(parsed):
+        raise InvalidEnvelope("JSON number must be finite binary64")
+    if exact == exact.to_integral_value():
+        if exact < -MAX_SAFE_INTEGER or exact > MAX_SAFE_INTEGER:
+            raise InvalidEnvelope("JSON exact integer exceeds the safe integer range")
+    elif parsed.is_integer():
+        raise InvalidEnvelope("JSON non-integer must not round to an integer")
+    return parsed
+
+
 def strict_json_loads(value: str) -> Any:
     scan_raw_bounds(value)
-    return json.loads(value, object_pairs_hook=strict_object, parse_constant=reject_constant)
+    return json.loads(
+        value,
+        object_pairs_hook=strict_object,
+        parse_constant=reject_constant,
+        parse_int=parse_raw_integer,
+        parse_float=parse_raw_float,
+    )
 
 
 def json_value_loads(value: str) -> Any:
@@ -115,7 +146,9 @@ def canonical_string(value: str) -> bytes:
     return b"\x04" + length_prefix(len(encoded)) + encoded
 
 
-def canonical_tree(value: Any) -> bytes:
+def canonical_tree(value: Any, ancestors: set[int] | None = None, depth: int = 0) -> bytes:
+    if ancestors is None:
+        ancestors = set()
     if value is None:
         return b"\x00"
     if value is False:
@@ -131,21 +164,42 @@ def canonical_tree(value: Any) -> bytes:
     if isinstance(value, str):
         return canonical_string(value)
     if isinstance(value, list):
-        return b"\x05" + length_prefix(len(value)) + b"".join(canonical_tree(nested) for nested in value)
+        if depth >= MAX_RAW_JSON_DEPTH:
+            raise InvalidEnvelope("canonical tree exceeds maximum JSON depth")
+        identity = id(value)
+        if identity in ancestors:
+            raise InvalidEnvelope("canonical tree must be acyclic")
+        ancestors.add(identity)
+        try:
+            return b"\x05" + length_prefix(len(value)) + b"".join(
+                canonical_tree(nested, ancestors, depth + 1) for nested in value
+            )
+        finally:
+            ancestors.remove(identity)
     if isinstance(value, dict):
-        entries = []
-        for key, nested in value.items():
-            if not isinstance(key, str):
-                raise InvalidEnvelope("canonical object keys must be strings")
-            validate_scalar_tree(key, "canonical object key")
-            encoded_key = key.encode("utf-8")
-            entries.append((encoded_key, nested))
-        entries.sort(key=lambda entry: entry[0])
-        encoded_entries = b"".join(
-            b"\x04" + length_prefix(len(encoded_key)) + encoded_key + canonical_tree(nested)
-            for encoded_key, nested in entries
-        )
-        return b"\x06" + length_prefix(len(entries)) + encoded_entries
+        if depth >= MAX_RAW_JSON_DEPTH:
+            raise InvalidEnvelope("canonical tree exceeds maximum JSON depth")
+        identity = id(value)
+        if identity in ancestors:
+            raise InvalidEnvelope("canonical tree must be acyclic")
+        ancestors.add(identity)
+        try:
+            entries = []
+            for key, nested in value.items():
+                if not isinstance(key, str):
+                    raise InvalidEnvelope("canonical object keys must be strings")
+                validate_scalar_tree(key, "canonical object key")
+                encoded_key = key.encode("utf-8")
+                entries.append((encoded_key, nested))
+            entries.sort(key=lambda entry: entry[0])
+            encoded_entries = b"".join(
+                b"\x04" + length_prefix(len(encoded_key)) + encoded_key
+                + canonical_tree(nested, ancestors, depth + 1)
+                for encoded_key, nested in entries
+            )
+            return b"\x06" + length_prefix(len(entries)) + encoded_entries
+        finally:
+            ancestors.remove(identity)
     raise InvalidEnvelope("canonical fingerprint requires a JSON value tree")
 
 
@@ -163,6 +217,9 @@ def expand_fixture(value: Any) -> Any:
             return value["value"] * value["count"]
         if value.get("$fixture") == "json_depth" and isinstance(value.get("depth"), int) and value["depth"] >= 0:
             return "[" * value["depth"] + "null" + "]" * value["depth"]
+        if value.get("$fixture") == "number" and isinstance(value.get("value"), str):
+            token = value["value"]
+            return float(token) if any(marker in token for marker in ".eE") else int(token)
         return {key: expand_fixture(nested) for key, nested in value.items()}
     return value
 
@@ -175,7 +232,14 @@ def non_empty(value: Any, field: str) -> str:
     return value
 
 
-def validate_scalar_tree(value: Any, field: str) -> None:
+def validate_scalar_tree(
+    value: Any,
+    field: str,
+    ancestors: set[int] | None = None,
+    depth: int = 0,
+) -> None:
+    if ancestors is None:
+        ancestors = set()
     if isinstance(value, str):
         if any(0xD800 <= ord(character) <= 0xDFFF for character in value):
             raise InvalidEnvelope(field + " must contain only Unicode scalar values")
@@ -183,27 +247,48 @@ def validate_scalar_tree(value: Any, field: str) -> None:
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         validate_json_number(value, field)
         return
+    if value is None or isinstance(value, bool):
+        return
     if isinstance(value, list):
-        for index, nested in enumerate(value):
-            validate_scalar_tree(nested, field + "[" + str(index) + "]")
+        if depth >= MAX_RAW_JSON_DEPTH:
+            raise InvalidEnvelope(field + " exceeds maximum JSON depth")
+        identity = id(value)
+        if identity in ancestors:
+            raise InvalidEnvelope(field + " must be acyclic")
+        ancestors.add(identity)
+        try:
+            for index, nested in enumerate(value):
+                validate_scalar_tree(nested, field + "[" + str(index) + "]", ancestors, depth + 1)
+        finally:
+            ancestors.remove(identity)
         return
     if isinstance(value, dict):
-        for key, nested in value.items():
-            if not isinstance(key, str):
-                raise InvalidEnvelope(field + " keys must be strings")
-            validate_scalar_tree(key, field + " key")
-            validate_scalar_tree(nested, field + "." + key)
+        if depth >= MAX_RAW_JSON_DEPTH:
+            raise InvalidEnvelope(field + " exceeds maximum JSON depth")
+        identity = id(value)
+        if identity in ancestors:
+            raise InvalidEnvelope(field + " must be acyclic")
+        ancestors.add(identity)
+        try:
+            for key, nested in value.items():
+                if not isinstance(key, str):
+                    raise InvalidEnvelope(field + " keys must be strings")
+                validate_scalar_tree(key, field + " key", ancestors, depth + 1)
+                validate_scalar_tree(nested, field + "." + key, ancestors, depth + 1)
+        finally:
+            ancestors.remove(identity)
+        return
+    raise InvalidEnvelope(field + " must contain JSON values only")
 
 
 def validate_json_number(value: int | float, field: str) -> None:
-    maximum_safe_integer = 9007199254740991
     if isinstance(value, int):
-        if value < -maximum_safe_integer or value > maximum_safe_integer:
+        if value < -MAX_SAFE_INTEGER or value > MAX_SAFE_INTEGER:
             raise InvalidEnvelope(field + " integral value must be a safe integer")
         return
     if not math.isfinite(value):
         raise InvalidEnvelope(field + " must be a finite binary64 number")
-    if value.is_integer() and (value < -maximum_safe_integer or value > maximum_safe_integer):
+    if value.is_integer() and (value < -MAX_SAFE_INTEGER or value > MAX_SAFE_INTEGER):
         raise InvalidEnvelope(field + " integral value must be a safe integer")
 
 
@@ -310,6 +395,8 @@ def media_type(value: str) -> bool:
 
 def validate_envelope(input_value: Any, now_ms: int | None = None, for_acceptance: bool = False) -> Dict[str, Any]:
     validate_scalar_tree(input_value, "envelope")
+    if len(stable_json(input_value).encode("utf-8")) > MAX_RAW_JSON_BYTES:
+        raise InvalidEnvelope("envelope exceeds encoded UTF-8 size limit")
     item = record(input_value, "envelope")
     if item.get("protocol") != PROTOCOL:
         raise InvalidEnvelope("protocol must equal " + PROTOCOL)

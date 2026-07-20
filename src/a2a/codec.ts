@@ -51,7 +51,12 @@ function scalarString(value: string, field: string): string {
   return value;
 }
 
-function validateScalarTree(value: unknown, field: string, seen = new Set<object>()): void {
+function validateScalarTree(
+  value: unknown,
+  field: string,
+  ancestors = new Set<object>(),
+  depth = 0,
+): void {
   if (typeof value === "string") {
     scalarString(value, field);
     return;
@@ -60,18 +65,45 @@ function validateScalarTree(value: unknown, field: string, seen = new Set<object
     validateJsonNumber(value, field);
     return;
   }
-  if (value === null || typeof value !== "object") return;
-  if (seen.has(value)) fail(`${field} must be an acyclic JSON tree`);
-  seen.add(value);
+  if (value === null || typeof value === "boolean") return;
+  if (typeof value !== "object") fail(`${field} must contain JSON values only`);
+  if (depth >= MAX_RAW_JSON_DEPTH) fail(`${field} exceeds maximum JSON depth`);
+  if (ancestors.has(value)) fail(`${field} must be an acyclic JSON tree`);
+  ancestors.add(value);
+
   if (Array.isArray(value)) {
-    value.forEach((nested, index) => validateScalarTree(nested, `${field}[${index}]`, seen));
+    if (Object.getPrototypeOf(value) !== Array.prototype) fail(`${field} must be a plain JSON array`);
+    for (const key of Reflect.ownKeys(value)) {
+      if (typeof key !== "string") fail(`${field} must not contain symbol keys`);
+      if (key === "length") continue;
+      const index = Number(key);
+      if (!Number.isInteger(index) || index < 0 || index >= value.length || String(index) !== key) {
+        fail(`${field} must not contain non-index array properties`);
+      }
+    }
+    for (let index = 0; index < value.length; index += 1) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+      if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) {
+        fail(`${field} must not contain sparse arrays or accessor properties`);
+      }
+      validateScalarTree(descriptor.value, `${field}[${index}]`, ancestors, depth + 1);
+    }
   } else {
-    for (const key of Object.keys(value)) {
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) {
+      fail(`${field} must contain plain objects only`);
+    }
+    for (const key of Reflect.ownKeys(value)) {
+      if (typeof key !== "string") fail(`${field} must not contain symbol keys`);
       scalarString(key, `${field} key`);
-      validateScalarTree((value as Record<string, unknown>)[key], `${field}.${key}`, seen);
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) {
+        fail(`${field} must not contain accessor or non-enumerable properties`);
+      }
+      validateScalarTree(descriptor.value, `${field}.${key}`, ancestors, depth + 1);
     }
   }
-  seen.delete(value);
+  ancestors.delete(value);
 }
 
 function validateJsonNumber(value: number, field: string): number {
@@ -80,6 +112,52 @@ function validateJsonNumber(value: number, field: string): number {
     fail(`${field} integral value must be a safe integer`);
   }
   return value;
+}
+
+function validateRawNumberLexeme(token: string): number {
+  const parsed = Number(token);
+  if (!Number.isFinite(parsed)) fail("JSON number must be finite binary64");
+
+  const unsigned = token.startsWith("-") ? token.slice(1) : token;
+  const exponentIndex = unsigned.search(/[eE]/);
+  const mantissa = exponentIndex === -1 ? unsigned : unsigned.slice(0, exponentIndex);
+  const exponent = exponentIndex === -1 ? 0 : Number(unsigned.slice(exponentIndex + 1));
+  const dotIndex = mantissa.indexOf(".");
+  const fractionLength = dotIndex === -1 ? 0 : mantissa.length - dotIndex - 1;
+  const coefficient = mantissa.replace(".", "").replace(/^0+/, "");
+  if (coefficient.length === 0) return parsed;
+
+  const scale = exponent - fractionLength;
+  let exactIntegerDigits: string | undefined;
+  if (scale >= 0) {
+    if (!Number.isSafeInteger(scale) || coefficient.length + scale > 16) {
+      fail("JSON exact integer exceeds the safe integer range");
+    }
+    exactIntegerDigits = coefficient + "0".repeat(scale);
+  } else {
+    const requiredTrailingZeros = -scale;
+    let trailingZeros = 0;
+    while (trailingZeros < coefficient.length && coefficient[coefficient.length - trailingZeros - 1] === "0") {
+      trailingZeros += 1;
+    }
+    if (Number.isSafeInteger(requiredTrailingZeros) && requiredTrailingZeros <= trailingZeros) {
+      exactIntegerDigits = coefficient.slice(0, coefficient.length - requiredTrailingZeros) || "0";
+    }
+  }
+
+  if (exactIntegerDigits !== undefined) {
+    const normalized = exactIntegerDigits.replace(/^0+/, "") || "0";
+    if (
+      normalized.length > 16 ||
+      (normalized.length === 16 && BigInt(normalized) > 9007199254740991n)
+    ) {
+      fail("JSON exact integer exceeds the safe integer range");
+    }
+  } else if (Number.isInteger(parsed)) {
+    fail("JSON non-integer must not round to an integer");
+  }
+
+  return parsed;
 }
 
 // Language-neutral v0.1 media grammar. All input is ASCII and at most 1024 bytes:
@@ -311,8 +389,11 @@ class StrictJsonScanner {
       while (this.source[this.index] >= "0" && this.source[this.index] <= "9") this.index += 1;
       if (this.index === exponentStart) this.invalid("invalid number exponent");
     }
-    const number = Number(this.source.slice(start, this.index));
-    if (!Number.isFinite(number)) this.invalid("number must be finite binary64");
+    try {
+      validateRawNumberLexeme(this.source.slice(start, this.index));
+    } catch {
+      this.invalid("number is outside the permitted exact decimal domain");
+    }
   }
 }
 
@@ -417,6 +498,10 @@ function optionalOpaqueString(value: unknown, field: string): string | undefined
 export function validateEnvelope(input: unknown, options: ValidationOptions = {}): A2AEnvelopeV01 {
   if (!isRecord(input)) fail("envelope must be an object");
   validateScalarTree(input, "envelope");
+  const encodedInput = JSON.stringify(input);
+  if (Buffer.byteLength(encodedInput, "utf8") > MAX_RAW_ENVELOPE_BYTES) {
+    fail(`encoded envelope exceeds ${MAX_RAW_ENVELOPE_BYTES} UTF-8 bytes`);
+  }
   if (input.protocol !== A2A_PROTOCOL) fail(`protocol must equal ${A2A_PROTOCOL}`);
   const version = nonEmptyString(input.version, "version");
   if (version !== A2A_VERSION) fail(`unsupported version ${version}`);

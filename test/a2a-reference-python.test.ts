@@ -174,7 +174,7 @@ test("numeric spellings share canonical identity only inside the permitted domai
   }
   const digest = (a2aCodec as unknown as { canonicalEnvelopeDigest: (input: unknown) => string }).canonicalEnvelopeDigest;
   const prefix = "{\"protocol\":\"meshfleet.a2a\",\"version\":\"0.1\",\"kind\":\"message\",\"message_id\":\"numeric-spelling\",\"sender\":{\"namespace\":\"n\",\"agent_id\":\"a\"},\"recipients\":[{\"namespace\":\"n\",\"agent_id\":\"b\"}],\"type\":\"handoff\",\"issued_at_ms\":1,\"payload\":{\"media_type\":\"text/plain\",\"body\":\"x\"},\"extensions\":{\"value\":";
-  const spellings = ["0.5", "5e-1", "-0", "0"];
+  const spellings = ["0.5", "5e-1", "0.1", "0.10", "-0", "0"];
   const directory = mkdtempSync(join(tmpdir(), "meshfleet-a2a-numbers-"));
   try {
     const digests = new Map<string, string>();
@@ -190,10 +190,22 @@ test("numeric spellings share canonical identity only inside the permitted domai
       digests.set(spelling, tsDigest);
     }
     assert.equal(digests.get("0.5"), digests.get("5e-1"));
+    assert.equal(digests.get("0.1"), digests.get("0.10"));
     assert.equal(digests.get("-0"), digests.get("0"));
     assert.notEqual(digests.get("0.5"), digests.get("0"));
 
-    for (const unsafe of ["9007199254740992", "9007199254740993", "9.007199254740992e15", "1e309"]) {
+    for (const unsafe of [
+      "9007199254740992",
+      "-9007199254740992",
+      "9007199254740993",
+      "9007199254740992.0",
+      "9007199254740992e0",
+      "9.007199254740992e15",
+      "9007199254740991.1",
+      "9007199254740990.9",
+      "0.99999999999999999",
+      "1e309",
+    ]) {
       const raw = prefix + unsafe + "}}";
       assert.throws(() => a2aCodec.decodeEnvelope(raw), undefined, unsafe);
       const path = join(directory, "unsafe_" + unsafe.replace(/[^a-z0-9]/gi, "_") + ".json");

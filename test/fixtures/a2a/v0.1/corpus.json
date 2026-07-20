@@ -590,6 +590,61 @@
     "raw_json": "{\"protocol\":\"meshfleet.a2a\",\"version\":\"0.1\""
   },
   {
+    "name": "raw-valid-exact-integral-fraction",
+    "expected": "valid",
+    "raw_json": "{\"protocol\":\"meshfleet.a2a\",\"version\":\"0.1\",\"kind\":\"message\",\"message_id\":\"raw-integral-fraction-valid\",\"sender\":{\"namespace\":\"n\",\"agent_id\":\"a\"},\"recipients\":[{\"namespace\":\"n\",\"agent_id\":\"b\"}],\"type\":\"handoff\",\"issued_at_ms\":1,\"payload\":{\"media_type\":\"text/plain\",\"body\":\"x\"},\"extensions\":{\"value\":1.0}}"
+  },
+  {
+    "name": "raw-valid-exact-integral-exponent",
+    "expected": "valid",
+    "raw_json": "{\"protocol\":\"meshfleet.a2a\",\"version\":\"0.1\",\"kind\":\"message\",\"message_id\":\"raw-integral-exponent-valid\",\"sender\":{\"namespace\":\"n\",\"agent_id\":\"a\"},\"recipients\":[{\"namespace\":\"n\",\"agent_id\":\"b\"}],\"type\":\"handoff\",\"issued_at_ms\":1e3,\"payload\":{\"media_type\":\"text/plain\",\"body\":\"x\"}}"
+  },
+  {
+    "name": "raw-decimal-identity-first",
+    "expected": "valid",
+    "raw_json": "{\"protocol\":\"meshfleet.a2a\",\"version\":\"0.1\",\"kind\":\"message\",\"message_id\":\"raw-decimal-identity\",\"sender\":{\"namespace\":\"n\",\"agent_id\":\"a\"},\"recipients\":[{\"namespace\":\"n\",\"agent_id\":\"b\"}],\"type\":\"handoff\",\"issued_at_ms\":1,\"payload\":{\"media_type\":\"text/plain\",\"body\":\"x\"},\"extensions\":{\"value\":0.1}}"
+  },
+  {
+    "name": "raw-decimal-identity-equivalent",
+    "expected": "duplicate",
+    "raw_json": "{\"protocol\":\"meshfleet.a2a\",\"version\":\"0.1\",\"kind\":\"message\",\"message_id\":\"raw-decimal-identity\",\"sender\":{\"namespace\":\"n\",\"agent_id\":\"a\"},\"recipients\":[{\"namespace\":\"n\",\"agent_id\":\"b\"}],\"type\":\"handoff\",\"issued_at_ms\":1,\"payload\":{\"media_type\":\"text/plain\",\"body\":\"x\"},\"extensions\":{\"value\":0.10}}"
+  },
+  {
+    "name": "raw-invalid-fraction-rounds-up-to-safe-integer",
+    "expected": "invalid",
+    "raw_json": "{\"protocol\":\"meshfleet.a2a\",\"version\":\"0.1\",\"kind\":\"message\",\"message_id\":\"round-up-invalid\",\"sender\":{\"namespace\":\"n\",\"agent_id\":\"a\"},\"recipients\":[{\"namespace\":\"n\",\"agent_id\":\"b\"}],\"type\":\"handoff\",\"issued_at_ms\":1,\"payload\":{\"media_type\":\"text/plain\",\"body\":\"x\"},\"extensions\":{\"value\":9007199254740991.1}}"
+  },
+  {
+    "name": "raw-invalid-fraction-rounds-down-to-safe-integer",
+    "expected": "invalid",
+    "raw_json": "{\"protocol\":\"meshfleet.a2a\",\"version\":\"0.1\",\"kind\":\"message\",\"message_id\":\"round-down-invalid\",\"sender\":{\"namespace\":\"n\",\"agent_id\":\"a\"},\"recipients\":[{\"namespace\":\"n\",\"agent_id\":\"b\"}],\"type\":\"handoff\",\"issued_at_ms\":1,\"payload\":{\"media_type\":\"text/plain\",\"body\":\"x\"},\"extensions\":{\"value\":9007199254740990.9}}"
+  },
+  {
+    "name": "raw-invalid-near-one-rounds-to-integer",
+    "expected": "invalid",
+    "raw_json": "{\"protocol\":\"meshfleet.a2a\",\"version\":\"0.1\",\"kind\":\"message\",\"message_id\":\"near-one-invalid\",\"sender\":{\"namespace\":\"n\",\"agent_id\":\"a\"},\"recipients\":[{\"namespace\":\"n\",\"agent_id\":\"b\"}],\"type\":\"handoff\",\"issued_at_ms\":1,\"payload\":{\"media_type\":\"text/plain\",\"body\":\"x\"},\"extensions\":{\"value\":0.99999999999999999}}"
+  },
+  {
+    "name": "raw-invalid-positive-unsafe-integer",
+    "expected": "invalid",
+    "raw_json": "{\"protocol\":\"meshfleet.a2a\",\"version\":\"0.1\",\"kind\":\"message\",\"message_id\":\"raw-positive-unsafe\",\"sender\":{\"namespace\":\"n\",\"agent_id\":\"a\"},\"recipients\":[{\"namespace\":\"n\",\"agent_id\":\"b\"}],\"type\":\"handoff\",\"issued_at_ms\":1,\"payload\":{\"media_type\":\"text/plain\",\"body\":\"x\"},\"extensions\":{\"value\":9007199254740992}}"
+  },
+  {
+    "name": "raw-invalid-negative-unsafe-integer",
+    "expected": "invalid",
+    "raw_json": "{\"protocol\":\"meshfleet.a2a\",\"version\":\"0.1\",\"kind\":\"message\",\"message_id\":\"raw-negative-unsafe\",\"sender\":{\"namespace\":\"n\",\"agent_id\":\"a\"},\"recipients\":[{\"namespace\":\"n\",\"agent_id\":\"b\"}],\"type\":\"handoff\",\"issued_at_ms\":1,\"payload\":{\"media_type\":\"text/plain\",\"body\":\"x\"},\"extensions\":{\"value\":-9007199254740992}}"
+  },
+  {
+    "name": "raw-invalid-unsafe-integral-fraction",
+    "expected": "invalid",
+    "raw_json": "{\"protocol\":\"meshfleet.a2a\",\"version\":\"0.1\",\"kind\":\"message\",\"message_id\":\"raw-unsafe-fraction\",\"sender\":{\"namespace\":\"n\",\"agent_id\":\"a\"},\"recipients\":[{\"namespace\":\"n\",\"agent_id\":\"b\"}],\"type\":\"handoff\",\"issued_at_ms\":1,\"payload\":{\"media_type\":\"text/plain\",\"body\":\"x\"},\"extensions\":{\"value\":9007199254740992.0}}"
+  },
+  {
+    "name": "raw-invalid-unsafe-integral-exponent",
+    "expected": "invalid",
+    "raw_json": "{\"protocol\":\"meshfleet.a2a\",\"version\":\"0.1\",\"kind\":\"message\",\"message_id\":\"raw-unsafe-exponent\",\"sender\":{\"namespace\":\"n\",\"agent_id\":\"a\"},\"recipients\":[{\"namespace\":\"n\",\"agent_id\":\"b\"}],\"type\":\"handoff\",\"issued_at_ms\":1,\"payload\":{\"media_type\":\"text/plain\",\"body\":\"x\"},\"extensions\":{\"value\":9007199254740992e0}}"
+  },
+  {
     "name": "valid-json-payload-depth-64",
     "expected": "valid",
     "input": {
@@ -647,7 +702,7 @@
       "protocol": "meshfleet.a2a", "version": "0.1", "kind": "message", "message_id": "positive-unsafe-invalid",
       "sender": { "namespace": "n", "agent_id": "a" }, "recipients": [{ "namespace": "n", "agent_id": "b" }],
       "type": "handoff", "issued_at_ms": 1, "payload": { "media_type": "text/plain", "body": "x" },
-      "extensions": { "value": 9007199254740992 }
+      "extensions": { "value": { "$fixture": "number", "value": "9007199254740992" } }
     }
   },
   {
@@ -657,7 +712,7 @@
       "protocol": "meshfleet.a2a", "version": "0.1", "kind": "message", "message_id": "negative-unsafe-invalid",
       "sender": { "namespace": "n", "agent_id": "a" }, "recipients": [{ "namespace": "n", "agent_id": "b" }],
       "type": "handoff", "issued_at_ms": 1, "payload": { "media_type": "text/plain", "body": "x" },
-      "extensions": { "value": -9007199254740992 }
+      "extensions": { "value": { "$fixture": "number", "value": "-9007199254740992" } }
     }
   },
   {
@@ -667,7 +722,7 @@
       "protocol": "meshfleet.a2a", "version": "0.1", "kind": "message", "message_id": "adjacent-unsafe-a-invalid",
       "sender": { "namespace": "n", "agent_id": "a" }, "recipients": [{ "namespace": "n", "agent_id": "b" }],
       "type": "handoff", "issued_at_ms": 1, "payload": { "media_type": "text/plain", "body": "x" },
-      "extensions": { "value": 9007199254740992 }
+      "extensions": { "value": { "$fixture": "number", "value": "9007199254740992" } }
     }
   },
   {
@@ -677,7 +732,7 @@
       "protocol": "meshfleet.a2a", "version": "0.1", "kind": "message", "message_id": "adjacent-unsafe-b-invalid",
       "sender": { "namespace": "n", "agent_id": "a" }, "recipients": [{ "namespace": "n", "agent_id": "b" }],
       "type": "handoff", "issued_at_ms": 1, "payload": { "media_type": "text/plain", "body": "x" },
-      "extensions": { "value": 9007199254740993 }
+      "extensions": { "value": { "$fixture": "number", "value": "9007199254740993" } }
     }
   },
   {
@@ -697,7 +752,7 @@
       "protocol": "meshfleet.a2a", "version": "0.1", "kind": "message", "message_id": "exponent-unsafe-invalid",
       "sender": { "namespace": "n", "agent_id": "a" }, "recipients": [{ "namespace": "n", "agent_id": "b" }],
       "type": "handoff", "issued_at_ms": 1, "payload": { "media_type": "text/plain", "body": "x" },
-      "extensions": { "value": 9.007199254740992e15 }
+      "extensions": { "value": { "$fixture": "number", "value": "9.007199254740992e15" } }
     }
   },
   {
@@ -707,7 +762,7 @@
       "protocol": "meshfleet.a2a", "version": "0.1", "kind": "message", "message_id": "overflow-invalid",
       "sender": { "namespace": "n", "agent_id": "a" }, "recipients": [{ "namespace": "n", "agent_id": "b" }],
       "type": "handoff", "issued_at_ms": 1, "payload": { "media_type": "text/plain", "body": "x" },
-      "extensions": { "value": 1e309 }
+      "extensions": { "value": { "$fixture": "number", "value": "1e309" } }
     }
   },
   {
@@ -716,7 +771,7 @@
     "input": {
       "protocol": "meshfleet.a2a", "version": "0.1", "kind": "message", "message_id": "timestamp-unsafe-invalid",
       "sender": { "namespace": "n", "agent_id": "a" }, "recipients": [{ "namespace": "n", "agent_id": "b" }],
-      "type": "handoff", "issued_at_ms": 9007199254740992,
+      "type": "handoff", "issued_at_ms": { "$fixture": "number", "value": "9007199254740992" },
       "payload": { "media_type": "text/plain", "body": "x" }
     }
   },

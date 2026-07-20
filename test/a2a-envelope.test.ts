@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { decodeEnvelope, encodeEnvelope, EnvelopeIdentityRegistry, validateEnvelope } from "../src/a2a/codec.js";
+import { canonicalEnvelopeDigest, decodeEnvelope, encodeEnvelope, EnvelopeIdentityRegistry, validateEnvelope } from "../src/a2a/codec.js";
 import { mapLegacyMessage, projectLegacyMessage } from "../src/a2a/legacy-map.js";
 import { A2A_MESSAGE_TYPES } from "../src/a2a/types.js";
 
@@ -37,6 +37,7 @@ function expandFixture(value: unknown): unknown {
     if (record.$fixture === "json_depth" && Number.isInteger(record.depth) && (record.depth as number) >= 0) {
       return "[".repeat(record.depth as number) + "null" + "]".repeat(record.depth as number);
     }
+    if (record.$fixture === "number" && typeof record.value === "string") return Number(record.value);
     return Object.fromEntries(Object.entries(record).map(([key, nested]) => [key, expandFixture(nested)]));
   }
   return value;
@@ -89,8 +90,13 @@ test("A2A v0.1 conformance corpus validates canonical envelopes and identity out
   const registry = new EnvelopeIdentityRegistry();
   for (const testCase of corpus()) {
     if (testCase.raw_json !== undefined) {
-      assert.equal(testCase.expected, "invalid", `${testCase.name} is a strict serialized decoding case`);
-      assert.throws(() => decodeEnvelope(testCase.raw_json!), undefined, testCase.name);
+      if (testCase.expected === "invalid") {
+        assert.throws(() => decodeEnvelope(testCase.raw_json!), undefined, testCase.name);
+      } else {
+        const decoded = decodeEnvelope(testCase.raw_json!);
+        const actual = registry.accept(decoded);
+        assert.equal(testCase.expected === "valid" ? "accepted" : testCase.expected, actual, testCase.name);
+      }
       continue;
     }
     if (testCase.kind === "legacy_mapping") {
@@ -147,18 +153,83 @@ test("A2A v0.1 corpus pins scalar Unicode and the current media-type grammar", (
 
 test("decodeEnvelope rejects duplicate raw members while object validation stays object-level", () => {
   const rawCases = corpus().filter((candidate) => candidate.raw_json !== undefined);
-  assert.deepEqual(rawCases.map((candidate) => candidate.name), [
-    "raw-nonstandard-nan",
-    "raw-nonstandard-infinity",
-    "raw-nonstandard-negative-infinity",
-    "raw-duplicate-top-level-message-id",
-    "raw-duplicate-nested-sender-agent-id",
-    "raw-malformed-truncated-object",
-  ]);
-  assert.ok(rawCases.every((candidate) => candidate.expected === "invalid"));
+  for (const name of ["raw-duplicate-top-level-message-id", "raw-duplicate-nested-sender-agent-id", "raw-malformed-truncated-object"]) {
+    assert.ok(rawCases.some((candidate) => candidate.name === name), name);
+  }
+  assert.ok(rawCases.some((candidate) => candidate.expected === "valid"));
+  assert.ok(rawCases.some((candidate) => candidate.expected === "duplicate"));
+  assert.ok(rawCases.some((candidate) => candidate.expected === "invalid"));
   const duplicateTopLevel = caseByName("raw-duplicate-top-level-message-id").raw_json!;
   assert.doesNotThrow(() => validateEnvelope(JSON.parse(duplicateTopLevel)), "already-collapsed objects have no duplicate-member evidence");
   assert.throws(() => decodeEnvelope(duplicateTopLevel), /duplicate object member/);
+});
+
+test("object-level envelope validation rejects every non-JSON shape without invoking accessors", () => {
+  class CustomValue { value = "x"; }
+  let getterCalls = 0;
+  const accessor = Object.create(null) as Record<string, unknown>;
+  Object.defineProperty(accessor, "secret", {
+    enumerable: true,
+    get() {
+      getterCalls += 1;
+      return "secret";
+    },
+  });
+  const sparse = new Array(2);
+  sparse[1] = "value";
+  const cycle: Record<string, unknown> = {};
+  cycle.self = cycle;
+  let deep: Record<string, unknown> = {};
+  for (let index = 0; index < 70; index += 1) deep = { nested: deep };
+
+  const invalidValues: Array<[string, unknown]> = [
+    ["undefined", undefined],
+    ["function", () => "x"],
+    ["symbol", Symbol("x")],
+    ["bigint", 1n],
+    ["Date", new Date(0)],
+    ["Map", new Map([["x", 1]])],
+    ["Set", new Set([1])],
+    ["class instance", new CustomValue()],
+    ["sparse array", sparse],
+    ["accessor", accessor],
+    ["cycle", cycle],
+    ["depth", deep],
+  ];
+  for (const [name, invalid] of invalidValues) {
+    for (const operation of [validateEnvelope, encodeEnvelope, canonicalEnvelopeDigest]) {
+      const envelope = direct() as Record<string, unknown>;
+      envelope.extensions = { invalid };
+      assert.throws(() => operation(envelope), undefined, `${name}:${operation.name}`);
+    }
+  }
+  assert.equal(getterCalls, 0, "validation must inspect descriptors without invoking getters");
+});
+
+test("object-level validation preserves ordinary and null-prototype JSON extensions", () => {
+  const nested = Object.create(null) as Record<string, unknown>;
+  nested.answer = 42;
+  nested.label = "unknown extension";
+  const extensions = Object.create(null) as Record<string, unknown>;
+  extensions.nested = nested;
+  extensions.array = [null, true, 0.1, "value"];
+  const envelope = direct() as Record<string, unknown>;
+  envelope.extensions = extensions;
+  const validated = validateEnvelope(envelope);
+  assert.equal(validated.extensions, extensions);
+  assert.deepEqual(JSON.parse(encodeEnvelope(envelope)).extensions, {
+    nested: { answer: 42, label: "unknown extension" },
+    array: [null, true, 0.1, "value"],
+  });
+  assert.match(canonicalEnvelopeDigest(envelope), /^meshfleet\.a2a\.fingerprint\.v1:sha256:/);
+});
+
+test("object-level validation enforces the serialized 128 KiB envelope bound", () => {
+  const envelope = direct() as Record<string, unknown>;
+  envelope.extensions = { padding: "x".repeat(140_000) };
+  for (const operation of [validateEnvelope, encodeEnvelope, canonicalEnvelopeDigest]) {
+    assert.throws(() => operation(envelope), /encoded envelope|serialized input/, operation.name);
+  }
 });
 
 test("decodeEnvelope bounds raw input size and nesting depth before parsing", () => {
