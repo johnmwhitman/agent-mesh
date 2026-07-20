@@ -14,7 +14,7 @@ import {
   INSPECT_JSON_SCHEMA,
   type FleetSummary,
 } from "../src/inspector.js";
-import type { Ratification, Receipt } from "../src/core.js";
+import type { MeshData, Ratification, Receipt } from "../src/core.js";
 import type { VerifyReport } from "../src/verify.js";
 import { closeDb, getDbPathOverride, importSnapshot, setDbPath } from "../src/db.js";
 
@@ -32,13 +32,13 @@ function runInspect(dbFile: string, args: string[]) {
   );
 }
 
-function withCliLedger(run: (dbFile: string) => void): void {
+function withCliLedger(run: (dbFile: string) => void, snapshot: Partial<MeshData> = {}): void {
   const previous = getDbPathOverride();
   const dir = mkdtempSync(join(tmpdir(), "meshfleet-inspect-json-"));
   const dbFile = join(dir, "ledger.db");
   try {
     setDbPath(dbFile);
-    importSnapshot({
+    const base: MeshData = {
       fleets: {
         f1: { id: "f1", status: "running", created_at: 1_000 },
       },
@@ -51,7 +51,8 @@ function withCliLedger(run: (dbFile: string) => void): void {
       receipts: {},
       ratifications: {},
       templates: {},
-    });
+    };
+    importSnapshot({ ...base, ...snapshot });
     closeDb();
     run(dbFile);
   } finally {
@@ -214,4 +215,67 @@ test("inspect --json missing fleet returns exit 1 and one JSON error document", 
     assert.equal(parsed.kind, "error");
     assert.equal(parsed.error, "Fleet missing not found");
   });
+});
+
+test("inspect text fleet detail remains the existing non-JSON output", () => {
+  withCliLedger((dbFile) => {
+    const result = runInspect(dbFile, ["f1"]);
+    assert.equal(result.status, 0);
+    assert.equal(result.stderr, "");
+    assert.equal(
+      result.stdout,
+      "Fleet f1\n" +
+        "Status: running\n" +
+        "Created: 1970-01-01T00:00:01.000Z\n" +
+        "\nAgents (1):\n" +
+        "  ◐  worker  running \n",
+    );
+    assert.doesNotMatch(result.stdout, /\"schema\"|\"kind\"|\"data\"/);
+  });
+});
+
+test("inspect JSON receipts includes a non-empty message and receipt trail", () => {
+  const message = {
+    id: "m1",
+    from_agent_id: "a1",
+    to_agent_id: "a2",
+    fleet_id: "f1",
+    type: "result" as const,
+    payload: "result payload",
+    timestamp: 2_000,
+    acknowledged: true,
+  };
+  const receipt = {
+    message_id: "m1",
+    agent_id: "a2",
+    action: "ack",
+    timestamp: 3_000,
+  };
+
+  withCliLedger((dbFile) => {
+    const result = runInspect(dbFile, ["--json", "--receipts"]);
+    assert.equal(result.status, 0);
+    assert.equal(result.stderr, "");
+    assert.doesNotMatch(result.stdout, /Provisional/);
+    const parsed = JSON.parse(result.stdout);
+    assert.equal(parsed.schema, "meshfleet.receipts/v1");
+    assert.equal(parsed.items.length, 1);
+    assert.deepEqual(parsed.items[0].message, message);
+    assert.deepEqual(parsed.items[0].receipts, [receipt]);
+  }, {
+    agents: {
+      a1: { id: "a1", fleet_id: "f1", role: "worker", prompt: "p", status: "running" },
+      a2: { id: "a2", fleet_id: "f1", role: "reviewer", prompt: "p", status: "running" },
+    },
+    messages: { m1: message },
+    receipts: { "m1:a2:ack": receipt },
+    inboxes: { a1: [], a2: [] },
+  });
+});
+
+test("JSON missing-fleet handling uses exitCode so stdout can flush", () => {
+  const src = readFileSync(join(ROOT, "src", "bin", "inspect.ts"), "utf8");
+  const printOneFleet = src.slice(src.indexOf("function printOneFleet"));
+  assert.match(printOneFleet, /process\.exitCode\s*=\s*1/);
+  assert.doesNotMatch(printOneFleet, /process\.exit\(1\)/);
 });

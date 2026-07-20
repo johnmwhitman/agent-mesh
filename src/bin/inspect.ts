@@ -232,7 +232,8 @@ function printOneFleet(fleetId: string, json = false): void {
     } else {
       process.stderr.write(`Fleet ${fleetId} not found.\n`)
     }
-    process.exit(1)
+    process.exitCode = 1
+    return
   }
 
   const agents: Agent[] = Object.values(data.agents).filter(
