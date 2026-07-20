@@ -130,6 +130,22 @@ Requested model, advertised capability, observed banner, reported runtime, and
 attested identity MUST remain distinct fields. None may be silently promoted to
 another evidence level.
 
+## Slice 4C-1 adapter-evidence design boundary
+
+The designed-not-implemented local admission profile defines a closed
+adapter-issued evidence carrier with an explicit `trusted_local_adapter`
+provenance marker. The marker records an assumed boundary; it does not verify
+the adapter, credential, signature, trust root, login, account, provider
+session, PID, banner, model, or receipt. Static harness mappings for Codex,
+Codex CLI, Claude Code, OpenCode, Antigravity/Gemini, Grok, and unknown
+harnesses MUST emit `authentication_evidence: null` and
+`principal_binding_input: null` in Slice 4C-1.
+
+No current `TransportAdapter`, `RuntimeAdapter`, configuration renderer, MCP
+session, or process receipt implements the 4C-1 trust boundary. The sole
+offline result is an ephemeral admission plan, not an adapter acceptance or
+lifecycle transition.
+
 ## Adoption sequence
 
 1. Define the pure envelope and conformance fixtures.

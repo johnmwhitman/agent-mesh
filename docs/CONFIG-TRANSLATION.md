@@ -76,6 +76,21 @@ and the bounds in
 - Every canonical field must be either represented by emitted target data or
   listed once in `unsupported`; no renderer may silently drop a field.
 
+## Slice 4C-1 two-plane boundary
+
+Static harness translation remains configuration/planning evidence and is not
+local authentication. For Codex, Codex CLI, Claude Code, OpenCode,
+Antigravity/Gemini, Grok, and unknown harnesses, every Slice 4C-1
+`StaticHarnessMapping` MUST emit `authentication_evidence: null` and
+`principal_binding_input: null`. Known-static launch templates remain planning
+evidence; deferred/unprofiled targets remain explicit and loss-aware.
+
+No platform configuration, template, banner, model/provider label, PID,
+receipt, login/account state, provider session, environment name/value, path,
+prompt, runtime argv, or diagnostic may manufacture identity metadata or
+authorization input. The admission profile is a separate offline semantic
+contract and does not change the existing renderer API.
+
 ## Inbound vs Outbound
 
 - **Inbound** (this slice): configuration that lets a client start the packaged `meshfleet` stdio server. Covered by `static-config-verified` and `process-handshake-verified`.

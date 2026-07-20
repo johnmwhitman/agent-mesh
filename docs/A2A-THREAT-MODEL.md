@@ -95,6 +95,24 @@ message acknowledgment  != task completion
 MCP reachability        != cross-host trust
 ```
 
+## Slice 4C-1 local admission threats
+
+Slice 4C-1 is a designed, dormant semantic profile. Its literal
+`trusted_local_adapter` provenance marker exposes an assumption and MUST NOT be
+treated as self-authentication. The profile mitigates confused-deputy and
+enumeration risks by requiring one exact principal binding, one fixed action,
+the current message type, all concrete recipients, and exact audience/session
+context before replay consultation. Denials collapse externally to
+`AUTHORIZATION_DENIED`; only protected local diagnostics may retain a closed
+cause.
+
+The profile does not mitigate compromise of the assumed adapter, forged
+carriers, snapshot tampering, trust-root/key lifecycle, replay-store compromise,
+or plan-to-journal races. Those remain activation gates. An admission plan is
+not durable acceptance, a receipt, delivery evidence, or lifecycle authority.
+Capabilities, proofs, models, runtimes, receipts, provider state, and
+conformance cannot influence authorization.
+
 ## Security gates for the program
 
 - Slice 1 must reject invalid versions, recipients, timestamps, expiry, body

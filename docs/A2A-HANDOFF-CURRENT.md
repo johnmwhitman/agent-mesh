@@ -143,6 +143,28 @@ attestation, or exactly-once behavior.
    monotonic fencing, cancellation, partition, retry, and recovery semantics
    before any operational multi-host work.
 
+## Slice 4C-1 contract synthesis
+
+Slice 4C-1 is designed, not implemented, in
+[A2A-LOCAL-ADMISSION-PROFILE-v0.1.md](./A2A-LOCAL-ADMISSION-PROFILE-v0.1.md)
+and ADR 0007. It defines exactly one offline operation and an ephemeral
+`admission_plan` that is not acceptance or lifecycle authority. The operation
+preserves the Slice 4A envelope and digest, leaves the Slice 4B journal behind
+current preauthorization, and excludes all Slice 4C-0 capability/proof evidence
+from authorization.
+
+The local adapter provenance marker is an explicit unverified trust assumption.
+There is no public ingress, auth provider, trust root, credential verification,
+replay store, 4B integration, database, MCP, transport, network, delivery,
+outbox, runtime, provider call, secret access, release, deploy, or activation.
+Static mappings emit null authentication and principal-binding inputs for every
+named and unknown harness. Released `meshfleet@0.14.0` contains none of the
+unmerged Slice 4B, Slice 4C-0, or Slice 4C-1 branch work.
+
+The next implementation boundary, if separately approved, is the pure
+TypeScript/Python one-operation witness and shared corpus. It is not active or
+approved by this design closeout.
+
 ## Next proposed implementation boundary
 
 Slice 4C-1 is the proposed next program slice: a principal-bound

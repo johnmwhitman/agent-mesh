@@ -38,6 +38,20 @@ verified boundaries:
   acceptance journal, and its migration/privacy/atomicity evidence exist only
   on this unmerged branch.
 
+## Slice 4C-1 designed contract
+
+Slice 4C-1 is now specified, but not implemented, by the local admission
+profile and ADR 0007. It defines exactly one normative offline operation,
+`evaluate-local-admission(request, replay_oracle)`, whose sole success is an
+ephemeral `admission_plan`. Internal validation, binding, authorization, replay
+classification, and unseen-message expiry are not public APIs.
+
+The design preserves Slice 4A envelope/recipient/digest semantics, keeps the
+Slice 4B journal behind current preauthorization, and keeps Slice 4C-0 evidence
+non-authoritative. It adds no public ingress, auth provider, trust root,
+credential verification, replay store, persistence integration, MCP, network,
+transport, delivery, runtime, provider call, release, or activation.
+
 ## Ranked program
 
 ### Slice 1: Canonical A2A envelope and conformance
