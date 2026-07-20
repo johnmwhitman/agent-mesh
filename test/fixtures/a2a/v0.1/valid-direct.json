@@ -1,0 +1,16 @@
+{
+  "protocol": "meshfleet.a2a",
+  "version": "0.1",
+  "kind": "message",
+  "message_id": "msg-direct-1",
+  "sender": { "namespace": "mesh-local", "agent_id": "agent-a" },
+  "recipients": [{ "namespace": "mesh-local", "agent_id": "agent-b" }],
+  "type": "handoff",
+  "issued_at_ms": 1760000000000,
+  "expires_at_ms": 1760003600000,
+  "audience": "mesh-local",
+  "correlation_id": "request-1",
+  "dedupe_key": "dedupe-1",
+  "payload": { "media_type": "text/plain", "body": "Context passed to the next agent." },
+  "extensions": { "future.example": { "opaque": true } }
+}

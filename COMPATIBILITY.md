@@ -30,7 +30,7 @@ configuration as a working integration:
 | Claude Code, Codex, OpenCode inbound configs | `documented` | Each is documented against the same inbound stdio shape; live client semantics are not claimed | `README.md` |
 | SSE inbox projection | `implemented` | Optional local inbox push, not general A2A HTTP | `src/sse-server.ts` |
 | Outbound worker execution | `coupled` | Current worker launch and parsing remain OpenCode-specific | `src/index.ts`, `src/spawn-result.ts` |
-| `meshfleet.a2a` v0.1 envelope | `proposed` | Normative protocol is documented; codec and fixtures are pending | `docs/A2A-PROTOCOL-v0.1.md` |
+| `meshfleet.a2a` v0.1 codec and fixtures | `semantic-tool-verified` | Pure provider-neutral validation, codec, fixtures, and legacy internal mapping are covered by conformance tests; public canonical ingress is not implemented | `docs/A2A-PROTOCOL-v0.1.md`, `test/a2a-envelope.test.ts` |
 | Durable attempt lifecycle | `proposed` | Single-authority lifecycle contract is documented; implementation is pending | `docs/A2A-NEXT-SLICE.md` |
 | Provider-neutral runtime adapters | `proposed` | Adapter boundary is documented; current core remains OpenCode-coupled | `docs/ADAPTER-CONTRACT.md` |
 | Multi-host coordination | `deferred` | No shared remote ownership authority exists | `docs/A2A-PROGRAM.md` |

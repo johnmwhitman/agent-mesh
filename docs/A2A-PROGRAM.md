@@ -50,7 +50,10 @@ unknown-major rejection, timestamp and payload limits, duplicate and conflicting
 ID behavior, deterministic broadcast expansion, legacy projection, and provider-
 independent imports. Existing MCP compatibility tests must remain unchanged.
 
-**Status:** Designed in this program. Implementation pending.
+**Status:** Codec, fixture corpus, and legacy internal mapping implemented and
+covered by focused conformance plus existing API-compatibility tests. Public
+canonical-envelope ingress, remote transport, authenticated principals, and
+durable duplicate detection are not implemented.
 
 ### Slice 2: Durable lifecycle kernel
 
@@ -152,4 +155,3 @@ separate human and architecture gate:
 
 Review packages, test output, and handoffs are evidence of a state; they do not
 replace these normative documents.
-

@@ -8,6 +8,8 @@ import { expandKeywordsWithSynonyms } from "./synonyms.js";
 import { getSkillTaxonomy, scoreSkillsAgainstKeywords } from "./skill-taxonomy.js";
 import { resolveEnv } from "./env.js";
 import { withLedger, readLedger, importSnapshot } from "./db.js";
+import { mapLegacyMessage, projectLegacyMessage } from "./a2a/legacy-map.js";
+import { A2A_MESSAGE_TYPES, type A2AMessageType } from "./a2a/types.js";
 
 // ---------------------------------------------------------------------------
 // Data Models
@@ -38,15 +40,9 @@ export interface Fleet {
   timeout_ms?: number;
 }
 
-export const MESSAGE_TYPES = [
-  "handoff",
-  "question",
-  "result",
-  "alert",
-  "request_help",
-] as const;
+export const MESSAGE_TYPES = A2A_MESSAGE_TYPES;
 
-export type MessageType = (typeof MESSAGE_TYPES)[number];
+export type MessageType = A2AMessageType;
 
 export interface Message {
   id: string;
@@ -596,20 +592,30 @@ export function _sendMessage(
       );
     }
   }
-  const message: Message = {
-    id: messageId,
-    from_agent_id: fromAgentId,
-    to_agent_id: toAgentId,
-    fleet_id: fleetId,
-    type,
-    payload,
-    correlation_id: correlationId,
-    timestamp: Date.now(),
-    acknowledged: false,
-    ...(recipients ? { recipients } : {}),
-  };
-  data.messages[messageId] = message;
   const delivered = recipients ?? [toAgentId];
+  // Direct self-messages are a legacy-valid local operation but cannot be
+  // represented by a canonical envelope, which forbids sender-as-recipient.
+  // Preserve that compatibility edge without extending the wire contract.
+  const message: Message = fromAgentId === toAgentId
+    ? {
+        id: messageId, from_agent_id: fromAgentId, to_agent_id: toAgentId,
+        fleet_id: fleetId, type, payload, correlation_id: correlationId,
+        timestamp: Date.now(), acknowledged: false,
+      }
+    : projectLegacyMessage(
+        mapLegacyMessage({
+          messageId,
+          fromAgentId,
+          toAgentId,
+          fleetId,
+          type,
+          payload,
+          timestamp: Date.now(),
+          correlationId,
+        }, recipients ? { broadcastRecipients: recipients } : {}),
+        toAgentId,
+      );
+  data.messages[messageId] = message;
   for (const recipient of delivered) {
     if (!data.inboxes[recipient]) data.inboxes[recipient] = [];
     data.inboxes[recipient].push(messageId);

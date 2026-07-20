@@ -67,8 +67,9 @@ The terms MUST, MUST NOT, SHOULD, and MAY are normative.
   detection.
 - `payload.media_type` MUST be a non-empty media-type string. v0.1 transports
   the body opaquely; `text/plain` is the compatibility default.
-- `payload.body` MUST be a string no larger than 64 KiB when measured as UTF-8
-  bytes. JSON media types are not parsed by the envelope codec in v0.1.
+- `payload.body` MUST be a non-empty string no larger than 64 KiB when measured
+  as UTF-8 bytes. `application/json` and `*+json` bodies MUST contain valid JSON;
+  all other v0.1 media types are transported as opaque strings.
 - `extensions`, when present, MUST be a JSON object. Extension names and values
   MUST NOT change the meaning of required protocol fields. Implementations MAY
   preserve unknown extensions and MUST NOT promote them to trust claims.
@@ -128,7 +129,7 @@ MUST include JSON inputs and an expected outcome for at least:
 - Provider/model/PID/lease/acknowledged fields appearing as extensions without
   being treated as protocol authority.
 
-The planned fixture root is `docs/fixtures/a2a/v0.1/`. A fixture runner must
+The fixture root is `test/fixtures/a2a/v0.1/`. A fixture runner must
 report `valid`, `invalid`, or `conflict` without importing the MCP SDK, a
 provider SDK, or a runtime executable. The fixture corpus and pure codec are
 Slice 1 implementation work; they are not yet present merely because this
@@ -140,4 +141,3 @@ There is no public `send_a2a` tool in v0.1. Existing MCP tools remain additive
 compatibility adapters. A public canonical-envelope ingress requires a separate
 review of authenticated principals, authorization, namespace ownership,
 deduplication, and error-shape compatibility.
-

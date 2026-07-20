@@ -7,9 +7,9 @@ Agent Mesh is on a fast iteration cycle. This document tracks what's shipped, wh
 The ranked A2A strategy is canonical in
 [`docs/A2A-PROGRAM.md`](docs/A2A-PROGRAM.md):
 
-1. **Canonical envelope and conformance** - implementation pending. The
-   normative `meshfleet.a2a` v0.1 contract is documented, but no public
-   `send_a2a` tool or codec is shipped.
+1. **Canonical envelope and conformance** - pure v0.1 codec, fixtures, and
+   internal legacy mapping are implemented. No public `send_a2a` tool, remote
+   transport, or authenticated canonical ingress is shipped.
 2. **Durable lifecycle kernel** - contract documented, implementation pending.
    The next lifecycle work is single-authority SQLite durability, not
    multi-host coordination.
