@@ -8,9 +8,19 @@
  * The actual CLI binary lives in src/bin/inspect.ts (added in a follow-up).
  */
 
-import { loadData, messageRecipients, FleetSummary, MessageType, type Message, type Receipt, type Ratification } from './core.js'
+import {
+  BROADCAST,
+  loadData,
+  messageRecipients,
+  type MeshData,
+  FleetSummary,
+  MessageType,
+  type Message,
+  type Receipt,
+  type Ratification,
+} from './core.js'
 import type { VerifyFinding, VerifyReport } from './verify.js'
-import { computeTally } from './ratify.js'
+import { computeTally, parseVoteAction } from './ratify.js'
 
 // ---------------------------------------------------------------------------
 // Time formatting
@@ -30,6 +40,145 @@ function formatTimestamp(ts: number): string {
 function truncate(s: string, max: number): string {
   if (s.length <= max) return s
   return s.slice(0, max - 1) + '…'
+}
+
+function shortId(s: string): string {
+  if (s.length <= 8) return s
+  return s.slice(0, 8)
+}
+
+function timelineRowSortId(row: TimelineRow): string {
+  const base = row.refs.message_id ?? ''
+  if (row.kind === 'receipt') {
+    const agent = row.refs.agent_id ?? ''
+    const action = row.refs.action ?? ''
+    return `${base}:${agent}:${action}`
+  }
+  return base
+}
+
+function messageTimelineSummary(message: Message): string {
+  if (message.to_agent_id === BROADCAST) {
+    return `${message.type} ${message.from_agent_id}→* (${message.recipients?.length ?? 0} recipients)`
+  }
+  return `${message.type} ${message.from_agent_id}→${message.to_agent_id}`
+}
+
+function receiptTimelineSummary(messageId: string, receipt: Receipt): string {
+  const short = shortId(messageId)
+  const vote = parseVoteAction(receipt.action)
+  if (vote !== null) {
+    const action = vote.approve ? 'approve' : 'decline'
+    const cast = vote.seq > 0 ? ` (re-cast #${vote.seq})` : ''
+    return `vote ${action}${cast} by ${receipt.agent_id} on ${short}`
+  }
+  if (receipt.action === 'ack') {
+    return `ack by ${receipt.agent_id} on ${short}`
+  }
+  return `${receipt.action} by ${receipt.agent_id} on ${short}`
+}
+
+function councilOpenSummary(r: Ratification): string {
+  return `council opened: ${r.subject} quorum ${r.quorum}`
+}
+
+function councilResolveSummary(r: Ratification): string {
+  return `council ${r.status}: ${r.subject}`
+}
+
+/** One causally-ordered timeline row for a ledger row. */
+export interface TimelineRow {
+  ts: number
+  kind: 'message' | 'receipt' | 'council_open' | 'council_resolve'
+  fleet_id: string
+  summary: string
+  refs: {
+    message_id?: string
+    agent_id?: string
+    action?: string
+  }
+}
+
+export function buildTimeline(
+  data: MeshData,
+  opts: { fleetId?: string } = {}
+): TimelineRow[] {
+  const messages = Object.values(data.messages).filter((m) => !opts.fleetId || m.fleet_id === opts.fleetId)
+  const rows: TimelineRow[] = [
+    ...messages.map((m): TimelineRow => ({
+      ts: m.timestamp,
+      kind: 'message',
+      fleet_id: m.fleet_id,
+      summary: messageTimelineSummary(m),
+      refs: { message_id: m.id },
+    })),
+  ]
+
+  const receipts = Object.values(data.receipts ?? {})
+  for (const receipt of receipts) {
+    const msg = data.messages[receipt.message_id]
+    if (!msg) continue
+    if (opts.fleetId && msg.fleet_id !== opts.fleetId) continue
+    rows.push({
+      ts: receipt.timestamp,
+      kind: 'receipt',
+      fleet_id: msg.fleet_id,
+      summary: receiptTimelineSummary(msg.id, receipt),
+      refs: {
+        message_id: receipt.message_id,
+        agent_id: receipt.agent_id,
+        action: receipt.action,
+      },
+    })
+  }
+
+  for (const ratification of Object.values(data.ratifications ?? {})) {
+    if (opts.fleetId && ratification.fleet_id !== opts.fleetId) continue
+    rows.push({
+      ts: ratification.opened_at,
+      kind: 'council_open',
+      fleet_id: ratification.fleet_id,
+      summary: councilOpenSummary(ratification),
+      refs: { message_id: ratification.message_id },
+    })
+    if (ratification.resolved_at !== undefined) {
+      rows.push({
+        ts: ratification.resolved_at,
+        kind: 'council_resolve',
+        fleet_id: ratification.fleet_id,
+        summary: councilResolveSummary(ratification),
+        refs: { message_id: ratification.message_id },
+      })
+    }
+  }
+
+  rows.sort((a, b) => {
+    if (a.ts !== b.ts) return a.ts - b.ts
+    if (a.kind !== b.kind) return a.kind.localeCompare(b.kind)
+    return timelineRowSortId(a).localeCompare(timelineRowSortId(b))
+  })
+  return rows
+}
+
+export function formatTimeline(rows: ReadonlyArray<TimelineRow>): string {
+  if (rows.length === 0) {
+    return 'No timeline events recorded.'
+  }
+  const lines: string[] = []
+  lines.push('TIMESTAMP            KIND                SUMMARY')
+  lines.push('─'.repeat(70))
+
+  for (const row of rows) {
+    const ts = formatTimestamp(row.ts)
+    const kind = row.kind.padEnd(18)
+    lines.push(`${ts}  ${kind}  ${row.summary}`)
+  }
+
+  return lines.join('\n')
+}
+
+export function buildTimelineJson(rows: TimelineRow[]): InspectJsonEnvelope<'timeline', TimelineRow[]> {
+  return { schema: INSPECT_JSON_SCHEMA, kind: 'timeline', data: rows }
 }
 
 // ---------------------------------------------------------------------------
