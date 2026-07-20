@@ -253,12 +253,12 @@ function a2aSchemaRows(db: Database.Database): Array<{ type: string; name: strin
   return db.prepare("SELECT type, name, tbl_name, sql FROM sqlite_schema WHERE sql IS NOT NULL AND type IN ('table', 'index', 'trigger', 'view') AND (lower(name) GLOB 'a2a_*' OR lower(tbl_name) IN ('a2a_acceptance_records', 'a2a_request_mappings', 'a2a_decision_receipts')) ORDER BY type, name").all() as Array<{ type: string; name: string; tbl_name: string; sql: string | null }>;
 }
 
-function unexpectedA2aSchemaObject(db: Database.Database): { type: string; name: string } | undefined {
+function unexpectedA2aSchemaObject(db: Database.Database, permitExpectedObjects: boolean): { type: string; name: string } | undefined {
   const expected = new Set(A2A_SCHEMA_V4.map((item) => item.type + ":" + item.name));
   const tables = ["a2a_acceptance_records", "a2a_request_mappings", "a2a_decision_receipts"];
   const rows = db.prepare("SELECT type, name, tbl_name, sql FROM sqlite_schema WHERE sql IS NOT NULL AND type IN ('table', 'index', 'trigger', 'view') ORDER BY type, name").all() as Array<{ type: string; name: string; tbl_name: string; sql: string }>;
   return rows.find((row) => {
-    if (expected.has(row.type + ":" + row.name)) return false;
+    if (permitExpectedObjects && expected.has(row.type + ":" + row.name)) return false;
     const name = row.name.toLowerCase();
     const table = row.tbl_name.toLowerCase();
     const sql = normalizeSchemaSql(row.sql);
@@ -267,12 +267,12 @@ function unexpectedA2aSchemaObject(db: Database.Database): { type: string; name:
 }
 
 function preflightA2aNamespace(db: Database.Database): void {
-  const reserved = unexpectedA2aSchemaObject(db);
+  const reserved = unexpectedA2aSchemaObject(db, false);
   if (reserved) throw new Error("refusing v4 migration: reserved or dependent A2A " + reserved.type + " already exists (" + reserved.name + ")");
 }
 
 function validateA2aV4Layout(db: Database.Database): void {
-  const unexpected = unexpectedA2aSchemaObject(db);
+  const unexpected = unexpectedA2aSchemaObject(db, true);
   if (unexpected) throw new Error("invalid v4 a2a layout: unexpected or dependent " + unexpected.type + " " + unexpected.name);
   const actual = a2aSchemaRows(db);
   if (actual.length !== A2A_SCHEMA_V4.length) throw new Error("invalid v4 a2a layout: unexpected object count");

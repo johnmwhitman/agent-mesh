@@ -139,17 +139,18 @@ function directInsert(overrides: DirectOverrides = {}): void {
   const values = {
     acceptanceId: opaque("direct-acceptance"), receiptId: opaque("direct-receipt"), semanticToken: opaque("direct-semantic"),
     principalToken: opaque("direct-principal"), requestToken: opaque("direct-request"), digest: canonicalDigest(), mappingDigest: canonicalDigest(),
+    semanticKeyId: "semantic-v1", principalKeyId: "principal-v1", requestKeyId: "request-v1",
     acceptedAt: 1, expiresAt: 2, authorizationDigest: authorizationDigest(), evaluator: "policy-v1", decision: "accepted",
     evidence: "internal_local_decision", decidedAt: 1, mappedAt: 1, outcome: "accepted", mappingAcceptanceId: undefined, mappingReceiptId: undefined,
     ...overrides,
   };
   withLedgerAndStorage((_data, db) => {
-    db.prepare("INSERT INTO a2a_acceptance_records (acceptance_id, semantic_key_id, semantic_token, canonical_digest, accepted_at, expires_at, authorization_context_digest, authorization_evaluator_version, receipt_id) VALUES (?, 'semantic-v1', ?, ?, ?, ?, ?, ?, ?)")
-      .run(values.acceptanceId, values.semanticToken, values.digest, values.acceptedAt, values.expiresAt, values.authorizationDigest, values.evaluator, values.receiptId);
+    db.prepare("INSERT INTO a2a_acceptance_records (acceptance_id, semantic_key_id, semantic_token, canonical_digest, accepted_at, expires_at, authorization_context_digest, authorization_evaluator_version, receipt_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(values.acceptanceId, values.semanticKeyId, values.semanticToken, values.digest, values.acceptedAt, values.expiresAt, values.authorizationDigest, values.evaluator, values.receiptId);
     db.prepare("INSERT INTO a2a_decision_receipts (receipt_id, acceptance_id, decision, evidence_level, decided_at) VALUES (?, ?, ?, ?, ?)")
       .run(values.receiptId, values.acceptanceId, values.decision, values.evidence, values.decidedAt);
-    db.prepare("INSERT INTO a2a_request_mappings (principal_key_id, principal_token, request_key_id, request_token, acceptance_id, receipt_id, canonical_digest, mapped_at, outcome) VALUES ('principal-v1', ?, 'request-v1', ?, ?, ?, ?, ?, ?)")
-      .run(values.principalToken, values.requestToken, values.mappingAcceptanceId ?? values.acceptanceId, values.mappingReceiptId ?? values.receiptId, values.mappingDigest, values.mappedAt, values.outcome);
+    db.prepare("INSERT INTO a2a_request_mappings (principal_key_id, principal_token, request_key_id, request_token, acceptance_id, receipt_id, canonical_digest, mapped_at, outcome) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(values.principalKeyId, values.principalToken, values.requestKeyId, values.requestToken, values.mappingAcceptanceId ?? values.acceptanceId, values.mappingReceiptId ?? values.receiptId, values.mappingDigest, values.mappedAt, values.outcome);
   });
 }
 
@@ -158,11 +159,12 @@ test("direct SQL constraint matrix rejects noncanonical, out-of-range, closed-va
   const alias = aliasOf(opaque("direct-semantic"));
   const cases: Array<[string, DirectOverrides]> = [
     ["acceptance id", { acceptanceId: alias }], ["receipt id", { receiptId: alias }], ["semantic token", { semanticToken: alias }],
+    ["semantic key id", { semanticKeyId: "bad key" }], ["principal key id", { principalKeyId: "bad key" }], ["request key id", { requestKeyId: "bad key" }],
     ["principal token", { principalToken: alias }], ["request token", { requestToken: alias }],
     ["canonical digest", { digest: "meshfleet.a2a.fingerprint.v1:sha256:" + "A".repeat(64) }],
     ["accepted timestamp", { acceptedAt: -1 }], ["unsafe timestamp", { acceptedAt: 9_007_199_254_740_992 }],
     ["expiry relation", { expiresAt: 1 }], ["authorization digest", { authorizationDigest: "sha256:" + "A".repeat(64) }],
-    ["evaluator", { evaluator: "" }], ["decision", { decision: "denied" }], ["evidence", { evidence: "external" }],
+    ["evaluator", { evaluator: "" }], ["evaluator alphabet", { evaluator: "policy version" }], ["decision", { decision: "denied" }], ["evidence", { evidence: "external" }],
     ["decision timestamp", { decidedAt: -1 }], ["mapping timestamp", { mappedAt: -1 }], ["outcome", { outcome: "replayed" }],
     ["mapping digest", { mappingDigest: canonicalDigest("c") }], ["mapping acceptance", { mappingAcceptanceId: opaque("missing-acceptance") }],
     ["mapping receipt", { mappingReceiptId: opaque("missing-receipt") }],

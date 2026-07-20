@@ -78,6 +78,7 @@ test("every v4 DDL and marker-last fault rolls back to intact v3 with no A2A obj
 test("reserved table, index, trigger, view, and foreign dependency refuse migration without mutation", () => {
   const cases = [
     ["table", "CREATE TABLE a2a_reserved (value TEXT)"],
+    ["expected-name-table", "CREATE TABLE a2a_acceptance_records (value TEXT)"],
     ["index", "CREATE INDEX a2a_reserved ON meta(value)"],
     ["trigger", "CREATE TRIGGER a2a_reserved AFTER INSERT ON meta BEGIN SELECT 1; END"],
     ["view", "CREATE VIEW a2a_reserved AS SELECT 1 AS value"],
