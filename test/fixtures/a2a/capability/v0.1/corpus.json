@@ -4624,10 +4624,6 @@
           {
             "code": "INVALID_PROOF_CARRIER",
             "field_path": "$.claims[0].proof.challenge"
-          },
-          {
-            "code": "INVALID_PROOF_CARRIER",
-            "field_path": "$.claims[0].proof.challenge"
           }
         ]
       }
@@ -17416,6 +17412,104 @@
       "error": {
         "code": "CONTRADICTORY_CLAIMS",
         "field_path": "$.profile.claims"
+      }
+    }
+  },
+  {
+    "case_id": "result.loss-field-path-max-boundary",
+    "api": "validate-translation-result",
+    "invocation_args": {
+      "result": {
+        "translation_version": "meshfleet.a2a.translation-result/v0.1",
+        "target": "codex",
+        "launch_template": {
+          "template_id": "meshfleet.mcp-stdio/v1",
+          "command": "npx",
+          "argv_template": [
+            "-y",
+            "meshfleet"
+          ]
+        },
+        "cwd_policy": "not-represented",
+        "features": [],
+        "provenance_refs": [],
+        "profile": {
+          "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+          "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+          "revision": 1,
+          "issuer": {
+            "kind": "adapter",
+            "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+          },
+          "subject": {
+            "kind": "transport",
+            "ref": "ref_ssssssssssssssssssss"
+          },
+          "issued_at_ms": 1759999999990,
+          "expires_at_ms": 1760000001000,
+          "claims": [],
+          "extensions": {},
+          "critical_extensions": []
+        },
+        "losses": [
+          {
+            "field_path": "$.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "target": "codex",
+            "reason_code": "cwd_not_represented",
+            "disposition": "omitted_by_contract"
+          }
+        ],
+        "extensions": {},
+        "critical_extensions": []
+      }
+    },
+    "expected": {
+      "ok": true,
+      "value": {
+        "validation_version": "meshfleet.a2a.translation-result-validation/v0.1",
+        "normalized_result": {
+          "translation_version": "meshfleet.a2a.translation-result/v0.1",
+          "target": "codex",
+          "launch_template": {
+            "template_id": "meshfleet.mcp-stdio/v1",
+            "command": "npx",
+            "argv_template": [
+              "-y",
+              "meshfleet"
+            ]
+          },
+          "cwd_policy": "not-represented",
+          "features": [],
+          "provenance_refs": [],
+          "profile": {
+            "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+            "profile_id": "cp_aaaaaaaaaaaaaaaaaaaa",
+            "revision": 1,
+            "issuer": {
+              "kind": "adapter",
+              "ref": "ref_iiiiiiiiiiiiiiiiiiii"
+            },
+            "subject": {
+              "kind": "transport",
+              "ref": "ref_ssssssssssssssssssss"
+            },
+            "issued_at_ms": 1759999999990,
+            "expires_at_ms": 1760000001000,
+            "claims": [],
+            "extensions": {},
+            "critical_extensions": []
+          },
+          "losses": [
+            {
+              "field_path": "$.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "target": "codex",
+              "reason_code": "cwd_not_represented",
+              "disposition": "omitted_by_contract"
+            }
+          ],
+          "extensions": {},
+          "critical_extensions": []
+        }
       }
     }
   },

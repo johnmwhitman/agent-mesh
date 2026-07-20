@@ -22,7 +22,7 @@ LOSS_DISPOSITIONS = {"preserved_unknown","rejected","omitted_by_contract","requi
 
 def asc(v): return v.encode("utf-8")
 def err(code, path): return {"code": code, "field_path": path}
-def is_obj(v): return isinstance(v, dict)
+def is_obj(v): return type(v) is dict
 def valid_time(v): return type(v) is int and 0 <= v <= SAFE
 def opaque(v): return isinstance(v,str) and re.fullmatch(r"ref_[A-Za-z0-9_-]{20,84}",v) is not None
 def profile_id(v): return isinstance(v,str) and re.fullmatch(r"cp_[A-Za-z0-9_-]{20,84}",v) is not None
@@ -36,7 +36,9 @@ def label(v): return isinstance(v,str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.
 def nonce(v): return isinstance(v,str) and re.fullmatch(r"nonce_[A-Za-z0-9_-]{20,84}",v) is not None
 def proof_digest(v): return isinstance(v,str) and re.fullmatch(r"sha256:[0-9a-f]{64}",v) is not None
 def field_path(v): return isinstance(v,str) and len(v.encode("utf-8"))<=256 and (v == "$evaluation_time_ms" or re.fullmatch(r"\$(?:\.[a-z][a-z0-9_]*|\[[0-9]+\])*",v) is not None)
-def sort_errors(items): return sorted(items,key=lambda x:(asc(x["code"]),asc(x["field_path"])))
+def sort_errors(items):
+    ordered=sorted(items,key=lambda x:(asc(x["code"]),asc(x["field_path"])))
+    return [item for index,item in enumerate(ordered) if index == 0 or item != ordered[index-1]]
 def path(base,k): return base+"."+k
 RAW_INVALID = object()
 def _pairs(items):
@@ -60,7 +62,7 @@ def _tree_domain(v,depth=1):
         try: v.encode("utf-8")
         except UnicodeEncodeError: return False
         return True
-    if isinstance(v,list): return all(_tree_domain(x,depth+1) for x in v)
+    if type(v) is list: return all(_tree_domain(x,depth+1) for x in v)
     if is_obj(v): return all(_tree_domain(k,depth+1) and _tree_domain(x,depth+1) for k,x in v.items())
     return False
 def parsed(v):

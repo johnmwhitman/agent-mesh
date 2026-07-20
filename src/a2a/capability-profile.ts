@@ -48,7 +48,10 @@ function exactOwnKeys(input: JsonRecord, keys: readonly string[]): boolean {
 function ascii(value: string): string { return value.replace(/[A-Z]/g, (letter) => letter.toLowerCase()); }
 function pathJoin(base: string, member: string): string { return `${base}.${member}`; }
 function compareAscii(left: string, right: string): number { return Buffer.compare(Buffer.from(left, "utf8"), Buffer.from(right, "utf8")); }
-function sortErrors(errors: ErrorRecord[]): ErrorRecord[] { return errors.sort((a, b) => compareAscii(a.code, b.code) || compareAscii(a.field_path, b.field_path)); }
+function sortErrors(errors: ErrorRecord[]): ErrorRecord[] {
+  const ordered = errors.sort((a, b) => compareAscii(a.code, b.code) || compareAscii(a.field_path, b.field_path));
+  return ordered.filter((item, index) => index === 0 || item.code !== ordered[index - 1]!.code || item.field_path !== ordered[index - 1]!.field_path);
+}
 function minPath<T extends { path: string }>(items: T[]): T | undefined { return items.sort((a, b) => compareAscii(a.path, b.path))[0]; }
 function safeInteger(value: unknown, nonnegative = false): value is number { return typeof value === "number" && Number.isSafeInteger(value) && (!nonnegative || value >= 0); }
 function string(value: unknown): value is string { return typeof value === "string"; }
@@ -175,22 +178,39 @@ class StrictJsonParser {
   }
 }
 
-function validateDirectJson(value: unknown, depth = 1, seen = new Set<object>()): boolean {
-  if (value === null || typeof value === "boolean") return true;
-  if (typeof value === "string") return validUnicodeScalarString(value);
-  if (typeof value === "number") return Number.isFinite(value) && (!Number.isInteger(value) || Number.isSafeInteger(value));
-  if (typeof value !== "object" || depth > 64 || seen.has(value)) return false;
+function snapshotDirectJson(value: unknown, depth = 1, seen = new Set<object>()): ParsedInput {
+  if (value === null || typeof value === "boolean") return value;
+  if (typeof value === "string") return validUnicodeScalarString(value) ? value : INVALID_RAW_JSON;
+  if (typeof value === "number") return Number.isFinite(value) && (!Number.isInteger(value) || Number.isSafeInteger(value)) ? value : INVALID_RAW_JSON;
+  if (typeof value !== "object" || depth > 64 || seen.has(value)) return INVALID_RAW_JSON;
   seen.add(value);
+  const descriptors = Object.getOwnPropertyDescriptors(value);
   if (Array.isArray(value)) {
-    const keys = Object.keys(value);
-    if (keys.length !== value.length || keys.some((key, index) => key !== String(index))) return false;
-    return value.every((item) => validateDirectJson(item, depth + 1, seen));
+    if (Object.getPrototypeOf(value) !== Array.prototype) return INVALID_RAW_JSON;
+    const lengthDescriptor = descriptors.length;
+    if (!lengthDescriptor || !("value" in lengthDescriptor) || lengthDescriptor.get || lengthDescriptor.set || lengthDescriptor.enumerable || !safeInteger(lengthDescriptor.value, true)) return INVALID_RAW_JSON;
+    const length = lengthDescriptor.value;
+    const keys = Reflect.ownKeys(descriptors);
+    if (keys.length !== length + 1 || keys.some((key) => typeof key === "symbol" || (key !== "length" && (!/^(?:0|[1-9][0-9]*)$/.test(key) || Number(key) >= length)))) return INVALID_RAW_JSON;
+    const output: unknown[] = [];
+    for (let index = 0; index < length; index++) {
+      const descriptor = descriptors[String(index)];
+      if (!descriptor || !descriptor.enumerable || !("value" in descriptor) || descriptor.get || descriptor.set) return INVALID_RAW_JSON;
+      const item = snapshotDirectJson(descriptor.value, depth + 1, seen);
+      if (item === INVALID_RAW_JSON) return INVALID_RAW_JSON;
+      output.push(item);
+    }
+    return output;
   }
-  if (!record(value)) return false;
-  for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(value))) {
-    if (!validUnicodeScalarString(key) || descriptor.get || descriptor.set || !("value" in descriptor) || !validateDirectJson(descriptor.value, depth + 1, seen)) return false;
+  if (!record(value) || Reflect.ownKeys(descriptors).some((key) => typeof key === "symbol")) return INVALID_RAW_JSON;
+  const output: JsonRecord = {};
+  for (const [key, descriptor] of Object.entries(descriptors)) {
+    if (!validUnicodeScalarString(key) || !descriptor.enumerable || descriptor.get || descriptor.set || !("value" in descriptor)) return INVALID_RAW_JSON;
+    const item = snapshotDirectJson(descriptor.value, depth + 1, seen);
+    if (item === INVALID_RAW_JSON) return INVALID_RAW_JSON;
+    Object.defineProperty(output, key, { configurable: true, enumerable: true, value: item, writable: true });
   }
-  return true;
+  return output;
 }
 
 function parse(value: unknown): ParsedInput {
@@ -198,8 +218,9 @@ function parse(value: unknown): ParsedInput {
     if (Buffer.byteLength(value, "utf8") > 131072) return INVALID_RAW_JSON;
     try { return new StrictJsonParser(value).parse(); } catch { return INVALID_RAW_JSON; }
   }
-  if (!validateDirectJson(value)) return INVALID_RAW_JSON;
-  try { return Buffer.byteLength(JSON.stringify(value), "utf8") <= 131072 ? value : INVALID_RAW_JSON; } catch { return INVALID_RAW_JSON; }
+  const snapshot = snapshotDirectJson(value);
+  if (snapshot === INVALID_RAW_JSON) return INVALID_RAW_JSON;
+  try { return Buffer.byteLength(JSON.stringify(snapshot), "utf8") <= 131072 ? snapshot : INVALID_RAW_JSON; } catch { return INVALID_RAW_JSON; }
 }
 function unknownFields(input: JsonRecord, allowed: readonly string[], path: string, errors: ErrorRecord[], computed = false): void {
   for (const key of Object.keys(input)) {

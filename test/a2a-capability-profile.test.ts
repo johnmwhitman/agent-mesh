@@ -95,23 +95,23 @@ const REQUIRED_IDS = [
   "result.r15", "result.r16", "result.r17", "result.r18",
   "result.r19", "result.r20", "result.r21", "result.r22",
   "result.r11-bytewise-member-precedence", "result.r18-bytewise-member-precedence", "result.collision-nested-computed-invalid-version", "result.collision-nested-unknown-invalid-version",
-  "result.semantic-contradiction-r07", "result.loss-field-path-overlong", "conformance.invalid-result-target", "conformance.invalid-registry-record",
-  "conformance.invalid-registry-target", "conformance.target-mismatch", "conformance.no-live-registry", "conformance.offline-status-allowlist.documented",
-  "conformance.offline-status-allowlist.static-profiled", "conformance.offline-status-allowlist.static-config-verified", "conformance.offline-status-allowlist.static-translation-verified", "conformance.higher-status-rejected",
-  "comparison.raw-profiles-reordered", "comparison.raw-profiles-duplicate", "comparison.profile-results-reordered", "comparison.identity-contradictions-reordered",
-  "comparison.semantic-contradictions-reordered", "comparison.exact-duplicates-reordered", "comparison.errors-reordered", "comparison.validation-error-codes-reordered",
-  "comparison.grouped-fingerprints-reordered", "comparison.identity-occurrence-indexes-reordered", "comparison.semantic-supported-occurrences-reordered", "comparison.semantic-unsupported-occurrences-reordered",
-  "comparison.exact-duplicate-indexes-reordered", "comparison.identity-contradiction", "comparison.semantic-contradiction", "comparison.exact-duplicates",
-  "comparison.structural-invalid-profile", "comparison.time-invalid-profile", "claim.protocol-multiple-versions", "validation.evaluation-time-non-number",
-  "comparison.evaluation-time-non-number", "translation.evaluation-time-non-number", "extension.translation-root-extensions-missing", "extension.translation-root-extensions-null",
-  "extension.translation-root-extensions-array", "extension.translation-root-extensions-nonobject", "extension.translation-root-critical-missing", "extension.translation-root-critical-null",
-  "extension.translation-root-critical-nonarray", "extension.source-profile-container", "extension.claim-container", "extension.profile-key",
-  "extension.claim-key", "extension.translation-input-key", "extension.translation-result-key", "extension.profile-critical",
-  "extension.claim-critical", "extension.translation-input-critical", "extension.translation-result-critical", "privacy.extension-unusual-keys",
-  "translation.deferred-none-return", "translation.deferred-template-fail", "translation.deferred-supported-feature-fail", "translation.deferred-supported-profile-claim-fail",
-  "translation.deferred-nonsupported-input", "translation.target-missing", "translation.target-malformed", "translation.target-unknown",
-  "translation.error-valid-target", "conformance.offline-status-allowlist", "status.registry-values", "status.runtime-evidence-pointer",
-  "status.slice-name", "import.offline-boundary",
+  "result.semantic-contradiction-r07", "result.loss-field-path-max-boundary", "result.loss-field-path-overlong", "conformance.invalid-result-target",
+  "conformance.invalid-registry-record", "conformance.invalid-registry-target", "conformance.target-mismatch", "conformance.no-live-registry",
+  "conformance.offline-status-allowlist.documented", "conformance.offline-status-allowlist.static-profiled", "conformance.offline-status-allowlist.static-config-verified", "conformance.offline-status-allowlist.static-translation-verified",
+  "conformance.higher-status-rejected", "comparison.raw-profiles-reordered", "comparison.raw-profiles-duplicate", "comparison.profile-results-reordered",
+  "comparison.identity-contradictions-reordered", "comparison.semantic-contradictions-reordered", "comparison.exact-duplicates-reordered", "comparison.errors-reordered",
+  "comparison.validation-error-codes-reordered", "comparison.grouped-fingerprints-reordered", "comparison.identity-occurrence-indexes-reordered", "comparison.semantic-supported-occurrences-reordered",
+  "comparison.semantic-unsupported-occurrences-reordered", "comparison.exact-duplicate-indexes-reordered", "comparison.identity-contradiction", "comparison.semantic-contradiction",
+  "comparison.exact-duplicates", "comparison.structural-invalid-profile", "comparison.time-invalid-profile", "claim.protocol-multiple-versions",
+  "validation.evaluation-time-non-number", "comparison.evaluation-time-non-number", "translation.evaluation-time-non-number", "extension.translation-root-extensions-missing",
+  "extension.translation-root-extensions-null", "extension.translation-root-extensions-array", "extension.translation-root-extensions-nonobject", "extension.translation-root-critical-missing",
+  "extension.translation-root-critical-null", "extension.translation-root-critical-nonarray", "extension.source-profile-container", "extension.claim-container",
+  "extension.profile-key", "extension.claim-key", "extension.translation-input-key", "extension.translation-result-key",
+  "extension.profile-critical", "extension.claim-critical", "extension.translation-input-critical", "extension.translation-result-critical",
+  "privacy.extension-unusual-keys", "translation.deferred-none-return", "translation.deferred-template-fail", "translation.deferred-supported-feature-fail",
+  "translation.deferred-supported-profile-claim-fail", "translation.deferred-nonsupported-input", "translation.target-missing", "translation.target-malformed",
+  "translation.target-unknown", "translation.error-valid-target", "conformance.offline-status-allowlist", "status.registry-values",
+  "status.runtime-evidence-pointer", "status.slice-name", "import.offline-boundary"
 ] as const;
 
 function corpus(): CorpusCase[] { return JSON.parse(readFileSync(corpusPath, "utf8")) as CorpusCase[]; }
@@ -134,7 +134,7 @@ function validReport(id: string): Record<string, unknown> {
 
 test("mandatory corpus inventory is explicit, closed, and complete", () => {
   const items = corpus(); const ids = items.map((item) => item.case_id);
-  assert.equal(REQUIRED_IDS.length, 362);
+  assert.equal(REQUIRED_IDS.length, 363);
   assert.equal(new Set(REQUIRED_IDS).size, REQUIRED_IDS.length);
   assert.deepEqual(ids, [...REQUIRED_IDS]);
   assert.equal(items.filter((item) => /^extension\.(?:profile-root|profile-claim-source-2|translation-root|translation-source-profile|translation-result-root|translation-result-profile|translation-result-profile-claim-source-2)\.(?:extensions|critical-extensions)\.(?:missing|null|wrong-container-type|nonempty)$/.test(item.case_id)).length, 56);
@@ -214,6 +214,9 @@ test("malformed JSON cases remain raw text and hit strict parser boundaries", ()
 
 test("generated validation and comparison reports contain unique canonical producer output", () => {
   const unique = (values: unknown[], label: string) => assert.equal(new Set(values.map((value) => JSON.stringify(value))).size, values.length, label);
+  const overlapping = validReport("proof.attested-missing-field");
+  unique(overlapping.errors as unknown[], "validation errors");
+  unique(overlapping.proof_results as unknown[], "proof results");
   const validation = validReport("proof.results-cardinality");
   const proofResults = validation.proof_results as Array<Record<string, unknown>>;
   unique(proofResults.map((item) => item.claim_fingerprint), "claim fingerprints");
@@ -236,6 +239,45 @@ test("generated validation and comparison reports contain unique canonical produ
   const exact = validReport("contradiction.exact-duplicate");
   unique(exact.exact_duplicates as unknown[], "exact duplicate groups");
   for (const group of exact.exact_duplicates as Array<Record<string, unknown>>) unique(group.profile_indexes as unknown[], "exact duplicate indexes");
+});
+
+test("direct arrays reject accessors without invoking them", () => {
+  const raw = structuredClone(byId("profile.empty-claims").invocation_args.raw_profile) as Record<string, unknown>;
+  let invoked = 0;
+  const claims: unknown[] = [];
+  Object.defineProperty(claims, "0", { configurable: true, enumerable: true, get() { invoked++; return {}; } });
+  raw.claims = claims;
+  const result = validateProfile(raw, 1760000000000) as { ok: boolean; value: Record<string, unknown> };
+  assert.equal(invoked, 0);
+  assert.equal(result.ok, true);
+  assert.equal(result.value.valid, false);
+});
+
+test("Python direct objects reject behavior-bearing container subclasses", () => {
+  const script = `
+import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location("witness", sys.argv[1])
+witness = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(witness)
+calls = {"dict": 0, "list": 0}
+class HostileDict(dict):
+    def get(self, *args): calls["dict"] += 1; return "synthesized"
+    def items(self): calls["dict"] += 1; return super().items()
+    def __getitem__(self, key): calls["dict"] += 1; return super().__getitem__(key)
+class HostileList(list):
+    def __iter__(self): calls["list"] += 1; return super().__iter__()
+    def __getitem__(self, key): calls["list"] += 1; return super().__getitem__(key)
+validation = witness.validate_profile(HostileDict(), 1760000000000)
+comparison = witness.compare_profiles(HostileList(), 1760000000000)
+print(json.dumps({"calls": calls, "validation": validation, "comparison": comparison}, separators=(",", ":")))
+`;
+  const run = spawnSync("python3", ["-c", script, pythonWitness], { encoding: "utf8" });
+  assert.equal(run.status, 0, run.stderr);
+  const output = JSON.parse(run.stdout) as Record<string, Record<string, unknown>>;
+  assert.deepEqual(output.calls, { dict: 0, list: 0 });
+  assert.equal(output.validation.ok, true);
+  assert.equal((output.validation.value as Record<string, unknown>).valid, false);
+  assert.equal(output.comparison.ok, true);
 });
 
 test("direct objects cannot satisfy schemas through polluted prototypes", () => {
