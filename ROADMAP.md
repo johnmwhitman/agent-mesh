@@ -2,6 +2,24 @@
 
 Agent Mesh is on a fast iteration cycle. This document tracks what's shipped, what's next, and what's on the longer horizon. Dates are aspirational; everything is best-effort and not a commitment.
 
+## A2A program status
+
+The ranked A2A strategy is canonical in
+[`docs/A2A-PROGRAM.md`](docs/A2A-PROGRAM.md):
+
+1. **Canonical envelope and conformance** - implementation pending. The
+   normative `meshfleet.a2a` v0.1 contract is documented, but no public
+   `send_a2a` tool or codec is shipped.
+2. **Durable lifecycle kernel** - contract documented, implementation pending.
+   The next lifecycle work is single-authority SQLite durability, not
+   multi-host coordination.
+3. **Provider-neutral runtime adapters** - proposed. Outbound execution remains
+   OpenCode-coupled; a deterministic local-process proof must come first.
+
+Inbound MCP process compatibility does not imply outbound runtime neutrality,
+authenticated principal binding, lifecycle durability, or multi-host support.
+Those claims require the evidence gates in the canonical program.
+
 ## Shipped
 
 | Version | Theme | Highlights |

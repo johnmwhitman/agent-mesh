@@ -3,6 +3,43 @@
 Agent Mesh follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 This document tracks what each version guarantees and what changes break it.
 
+## Conformance status vocabulary
+
+The A2A registry uses explicit evidence levels rather than treating a documented
+configuration as a working integration:
+
+| Status | Meaning |
+|---|---|
+| `documented` | Configuration or behavior is described; no executable proof |
+| `static-config-verified` | Target configuration shape is checked without a live client |
+| `process-handshake-verified` | A process starts and completes the protocol handshake |
+| `semantic-tool-verified` | Representative tool calls and return shapes work through the target |
+| `runtime-launch-verified` | A runtime adapter launches and settles work with normalized evidence |
+| `recovery-verified` | Restart, expiry, fencing, cancellation, and replay are proven |
+| `coupled` | Behavior exists but remains implementation-specific to one runtime |
+| `proposed` | Contract or design exists; implementation evidence is absent |
+| `deferred` | Intentionally outside the current release boundary |
+| `gated` | Requires explicit human, security, credential, spend, or egress approval |
+
+## A2A conformance registry
+
+| Surface | Status | Current truthful claim | Canonical authority |
+|---|---|---|---|
+| Packaged MCP stdio ingress | `process-handshake-verified` | `npx -y meshfleet` completes the process-level MCP handshake | `test/mcp-stdio.test.ts` |
+| Generic MCP configuration | `static-config-verified` | The canonical stdio command and argv are packaged and checked | `mcp.json` |
+| Claude Code, Codex, OpenCode inbound configs | `documented` | Each is documented against the same inbound stdio shape; live client semantics are not claimed | `README.md` |
+| SSE inbox projection | `implemented` | Optional local inbox push, not general A2A HTTP | `src/sse-server.ts` |
+| Outbound worker execution | `coupled` | Current worker launch and parsing remain OpenCode-specific | `src/index.ts`, `src/spawn-result.ts` |
+| `meshfleet.a2a` v0.1 envelope | `proposed` | Normative protocol is documented; codec and fixtures are pending | `docs/A2A-PROTOCOL-v0.1.md` |
+| Durable attempt lifecycle | `proposed` | Single-authority lifecycle contract is documented; implementation is pending | `docs/A2A-NEXT-SLICE.md` |
+| Provider-neutral runtime adapters | `proposed` | Adapter boundary is documented; current core remains OpenCode-coupled | `docs/ADAPTER-CONTRACT.md` |
+| Multi-host coordination | `deferred` | No shared remote ownership authority exists | `docs/A2A-PROGRAM.md` |
+
+The complete ranked sequence and acceptance gates are in
+[docs/A2A-PROGRAM.md](docs/A2A-PROGRAM.md). This registry must not be upgraded
+to `semantic-tool-verified`, `runtime-launch-verified`, or `recovery-verified`
+without executable evidence at that scope.
+
 ## Ledger schema versions
 
 | Version | `schema_version` | Notes |
