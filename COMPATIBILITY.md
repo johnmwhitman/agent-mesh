@@ -193,3 +193,14 @@ binary rejects v4, and there is no auto-downgrade: rollback requires restoring a
 pre-migration WAL-safe SQLite backup. This compatibility note is storage-only;
 it does not claim public A2A ingress, remote transport, provider conformance,
 delivery, execution, or multi-host operation.
+
+## Slice 4C-0 capability-profile compatibility
+
+The current branch contains the **designed-only**
+[A2A Capability Profile v0.1](docs/A2A-CAPABILITY-PROFILE-v0.1.md). It makes no
+runtime, provider, remote, cryptographic, or delivery compatibility claim.
+Codex, Claude Code, and OpenCode configuration mappings remain static evidence;
+OpenCode/local-process runtime observations remain distinct observed evidence.
+Antigravity/Gemini and Grok remain deferred/unverified. A future validator and
+corpus must prove deterministic offline parsing, fingerprints, translations,
+and losses before any profile status can advance.

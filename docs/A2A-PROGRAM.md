@@ -236,3 +236,16 @@ capability/identity/runtime-attestation profile, 4C-1 principal-bound
 authenticated-local semantic path, 4D offline delivery-attempt and transport
 conformance, then 4E deterministic two-host coordinator simulation. Public or
 remote activation remains human-gated.
+
+## Slice 4C-0 capability profile
+
+Slice 4C-0 is now specified in
+[A2A Capability Profile v0.1](./A2A-CAPABILITY-PROFILE-v0.1.md) and
+[ADR 0006](./adr/0006-capability-evidence-is-not-authority.md). Its status is
+**designed, not implemented**. It separates non-authorizing claim provenance,
+proof verification, external principal authentication, external authorization,
+conformance maturity, and external local-persistence facts. The next bounded
+work is a pure offline TypeScript/Python validator and shared corpus; no public
+ingress, provider call, runtime selection, transport, persistence, delivery,
+execution, cryptographic verification, or activation is authorized by this
+contract.

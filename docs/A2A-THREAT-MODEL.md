@@ -177,3 +177,16 @@ on open and first within each acceptance transaction, failing closed on partial,
 tampered, squatted, or foreign-dependent layouts. This does not elevate
 capability claims, model banners, evaluator metadata, or local receipts into
 authentication, authorization, attestation, delivery, or execution evidence.
+
+## Slice 4C-0 capability-profile threats
+
+A discovery profile is a confused-deputy boundary. Capability claims,
+provider/model banners, runtime observations, and durable local receipts MUST
+remain non-authorizing and mutually non-promoting evidence. The profile rejects
+raw identities, credentials, prompts, payloads, endpoint/path/environment data,
+and global runtime fingerprints; protected diagnostics MUST not echo rejected
+content. Reserved proof-carrier fields remain unsupported until a separately
+reviewed verifier defines trust roots, issuer namespace, rotation, revocation,
+audience/session binding, nonce replay, and privacy. See
+[A2A Capability Profile v0.1](./A2A-CAPABILITY-PROFILE-v0.1.md) and
+[ADR 0006](./adr/0006-capability-evidence-is-not-authority.md).

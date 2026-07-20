@@ -64,3 +64,13 @@ once by canonical field name with a reason and optional suggestion.
 | codex-mcp-json | README Codex stanza | supported (static-config-verified) |
 
 Live semantic client execution, auth, network, and remote relay remain unverified per ADAPTER-CONTRACT.md.
+
+## Slice 4C-0 capability-profile boundary
+
+[Capability Profile v0.1](./A2A-CAPABILITY-PROFILE-v0.1.md) is the canonical
+sidecar discovery contract for static renderer evidence. Renderers MUST emit
+only evidenced static facts, preserve unknown or unsupported target fields as
+deterministic loss records, and never turn a provider/model label into runtime
+attestation or authorization. Environment values are structurally forbidden;
+working-directory information is only a bounded `cwd_policy` enum. This is a
+designed offline profile, not a new renderer, provider adapter, or activation.
