@@ -11,7 +11,9 @@ import {
   buildCouncilsJson,
   buildFleetsJson,
   buildVerifyJson,
+  formatReceiptTrail,
   INSPECT_JSON_SCHEMA,
+  PROVISIONAL_NOTE,
   type FleetSummary,
 } from "../src/inspector.js";
 import type { MeshData, Ratification, Receipt } from "../src/core.js";
@@ -21,13 +23,13 @@ import { closeDb, getDbPathOverride, importSnapshot, setDbPath } from "../src/db
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const INSPECT = join(ROOT, "src", "bin", "inspect.ts");
 
-function runInspect(dbFile: string, args: string[]) {
+function runInspect(dbFile: string, args: string[], extraEnv: Record<string, string> = {}) {
   return spawnSync(
     process.execPath,
     ["--import", "tsx", INSPECT, ...args],
     {
       encoding: "utf8",
-      env: { ...process.env, MESHFLEET_DB_FILE: dbFile },
+      env: { ...process.env, MESHFLEET_DB_FILE: dbFile, ...extraEnv },
     },
   );
 }
@@ -278,4 +280,79 @@ test("JSON missing-fleet handling uses exitCode so stdout can flush", () => {
   const printOneFleet = src.slice(src.indexOf("function printOneFleet"));
   assert.match(printOneFleet, /process\.exitCode\s*=\s*1/);
   assert.doesNotMatch(printOneFleet, /process\.exit\(1\)/);
+});
+
+test("inspect text receipts remain byte-compatible for a non-empty trail", () => {
+  const message = {
+    id: "m1",
+    from_agent_id: "a1",
+    to_agent_id: "a2",
+    fleet_id: "f1",
+    type: "result" as const,
+    payload: "result payload",
+    timestamp: 2_000,
+    acknowledged: true,
+  };
+  const receipt = {
+    message_id: "m1",
+    agent_id: "a2",
+    action: "ack",
+    timestamp: 3_000,
+  };
+
+  withCliLedger((dbFile) => {
+    const result = runInspect(dbFile, ["--receipts"]);
+    assert.equal(result.status, 0);
+    assert.equal(result.stderr, "");
+    assert.equal(
+      result.stdout,
+      PROVISIONAL_NOTE + "\n\n" + formatReceiptTrail(message, [receipt]) + "\n\n",
+    );
+    assert.doesNotMatch(result.stdout, /\"schema\"|\"kind\"|\"data\"/);
+  }, {
+    agents: {
+      a1: { id: "a1", fleet_id: "f1", role: "worker", prompt: "p", status: "running" },
+      a2: { id: "a2", fleet_id: "f1", role: "reviewer", prompt: "p", status: "running" },
+    },
+    messages: { m1: message },
+    receipts: { "m1:a2:ack": receipt },
+    inboxes: { a1: [], a2: [] },
+  });
+});
+
+test("inspect text metrics remain byte-compatible", () => {
+  withCliLedger((dbFile) => {
+    const result = runInspect(dbFile, ["--metrics"]);
+    assert.equal(result.status, 0);
+    assert.equal(result.stderr, "");
+    assert.equal(
+      result.stdout,
+      "Agent Mesh — Fleet Metrics\n\n" +
+        "Total fleets:       1\n" +
+        "  completed:        0\n" +
+        "  failed:           0\n" +
+        "  running:          1\n" +
+        "Total agents:       1\n" +
+        "Total messages:     0\n" +
+        "Total capabilities: 0\n" +
+        "Avg fleet duration: 0ms\n" +
+        "Success rate:       0.0%\n",
+    );
+    assert.doesNotMatch(result.stdout, /\"schema\"|\"kind\"|\"data\"/);
+  });
+});
+
+test("inspect text events remain byte-compatible", () => {
+  const home = mkdtempSync(join(tmpdir(), "meshfleet-inspect-events-"));
+  try {
+    withCliLedger((dbFile) => {
+      const result = runInspect(dbFile, ["--events", "2"], { HOME: home });
+      assert.equal(result.status, 0);
+      assert.equal(result.stderr, "");
+      assert.equal(result.stdout, "No events recorded.\n");
+      assert.doesNotMatch(result.stdout, /\"schema\"|\"kind\"|\"data\"/);
+    });
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
 });
