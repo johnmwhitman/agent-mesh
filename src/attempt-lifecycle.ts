@@ -198,9 +198,12 @@ export class LifecycleStore {
     requireLeaseMs(input.leaseMs);
     return withStorageTransaction((db) => {
       const now = this.now();
+      const ownerEpoch = input.ownerEpoch;
       const work = this.loadWork(db, input.workId);
       const attempt = this.loadAttempt(db, input.attemptId);
-      if (!this.ownedMutationAllowed(work, attempt, input, now)) return { accepted: false, reason: "stale or terminal lease" };
+      if (ownerEpoch === undefined || !work || !attempt || !this.ownedMutationAllowed(work, attempt, { ...input, ownerEpoch }, now)) {
+        return { accepted: false, reason: "stale or terminal lease" };
+      }
       attempt.lease_until = now + input.leaseMs;
       attempt.updated_at = now;
       this.updateAttempt(db, attempt);
@@ -246,7 +249,9 @@ export class LifecycleStore {
       const now = this.now();
       const work = this.loadWork(db, input.workId);
       const attempt = this.loadAttempt(db, input.attemptId);
-      if (!this.ownedMutationAllowed(work, attempt, input, now)) return { accepted: false, reason: "stale or terminal lease" };
+      if (!work || !attempt || !this.ownedMutationAllowed(work, attempt, input, now)) {
+        return { accepted: false, reason: "stale or terminal lease" };
+      }
       const succeeded = input.outcome === "success";
       work.status = succeeded ? "succeeded" : "failed";
       work.terminal_at = now;
@@ -311,7 +316,7 @@ export class LifecycleStore {
     });
   }
 
-  private ownedMutationAllowed(work: WorkItem | undefined, attempt: Attempt | undefined, input: { workId: string; attemptId: string; ownerId: string; ownerEpoch: number }, now: number): work is WorkItem & { current_attempt_id: string } {
+  private ownedMutationAllowed(work: WorkItem, attempt: Attempt, input: { workId: string; attemptId: string; ownerId: string; ownerEpoch: number }, now: number): boolean {
     return Boolean(work && attempt && work.current_attempt_id === input.attemptId && attempt.work_id === input.workId && work.status === "running" && attempt.status === "running" && !work.cancelled_at && attempt.owner_id === input.ownerId && attempt.owner_epoch === input.ownerEpoch && work.owner_epoch === input.ownerEpoch && attempt.lease_until !== null && attempt.lease_until > now);
   }
 
