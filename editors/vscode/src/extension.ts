@@ -9,6 +9,7 @@ import * as vscode from "vscode";
 import { execFile } from "node:child_process";
 import {
   parseLedgerExport,
+  parseVerifyEnvelope,
   verdictFromVerifyOutput,
   type CouncilView,
   type FleetView,
@@ -41,6 +42,27 @@ async function loadModel(): Promise<LedgerModel> {
   const { code, stdout, stderr } = await runCli(["--export"]);
   if (code !== 0) throw new Error(stderr.trim() || `agent-mesh --export exited ${code}`);
   return parseLedgerExport(stdout);
+}
+
+type VerifyCommandResult = {
+  ok: boolean;
+  summary: string;
+  findings: Array<{ severity: string; check: string; detail: string }>;
+};
+
+async function verifyLedger(): Promise<VerifyCommandResult> {
+  let { code, stdout } = await runCli(["--verify", "--json"]);
+  try {
+    const envelope = parseVerifyEnvelope(stdout);
+    return { ok: envelope.ok, summary: envelope.summary, findings: envelope.findings };
+  } catch {
+    const fallback = await runCli(["--verify"]);
+    stdout = fallback.stdout;
+    code = fallback.code;
+  }
+
+  const verdict = verdictFromVerifyOutput(code, stdout);
+  return { ok: verdict.ok, summary: verdict.summary, findings: [] };
 }
 
 // --- tree providers ---------------------------------------------------------
@@ -140,8 +162,7 @@ export function activate(context: vscode.ExtensionContext): void {
       const model = await loadModel();
       fleets.setModel(model);
       councils.setModel(model);
-      const { code, stdout } = await runCli(["--verify"]);
-      const verdict = verdictFromVerifyOutput(code, stdout);
+      const verdict = await verifyLedger();
       status.text = verdict.ok ? "$(shield) Meshfleet ✓" : "$(alert) Meshfleet ✗";
       status.tooltip = verdict.summary;
       status.backgroundColor = verdict.ok ? undefined : new vscode.ThemeColor("statusBarItem.errorBackground");
@@ -158,11 +179,24 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.window.registerTreeDataProvider("meshfleet.councils", councils),
     vscode.commands.registerCommand("meshfleet.refresh", refresh),
     vscode.commands.registerCommand("meshfleet.verify", async () => {
-      const { code, stdout, stderr } = await runCli(["--verify"]);
+      const { stdout } = await runCli(["--verify", "--json"]);
       output.clear();
-      output.appendLine(stdout || stderr);
+      let verdict: { ok: boolean; summary: string };
+      try {
+        const envelope = parseVerifyEnvelope(stdout);
+        verdict = { ok: envelope.ok, summary: envelope.summary };
+        output.appendLine(verdict.summary);
+        if (!verdict.ok) {
+          for (const finding of envelope.findings) {
+            output.appendLine(`${finding.severity} ${finding.check} — ${finding.detail}`);
+          }
+        }
+      } catch {
+        const fallback = await runCli(["--verify"]);
+        verdict = verdictFromVerifyOutput(fallback.code, fallback.stdout);
+        output.appendLine(fallback.stdout || fallback.stderr);
+      }
       output.show(true);
-      const verdict = verdictFromVerifyOutput(code, stdout);
       if (verdict.ok) void vscode.window.showInformationMessage(`Meshfleet ledger: ${verdict.summary}`);
       else void vscode.window.showWarningMessage(`Meshfleet ledger: ${verdict.summary}`);
       await refresh();
