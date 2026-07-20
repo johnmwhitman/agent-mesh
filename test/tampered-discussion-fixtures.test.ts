@@ -211,6 +211,27 @@ test("reply-target-mismatch: a completed attempt's claimed reply message disagre
 
 // --- budget-accounting consistency ------------------------------------------
 
+// --- discovery blindspot regression (cdx pass-1, blocking) ------------------
+
+test("corrupted-root: a root whose envelope no longer parses is still DISCOVERED and flags no_valid_root", () => {
+  // Regression for the discovery blindspot cdx pass-1 flagged: msg-1's own
+  // envelope.kind is flipped to an invalid enum value ("corrupted"), so
+  // parseEnvelope() returns null for it entirely. Discovery must NOT depend
+  // on a message parsing as a root-shaped envelope (the old gate) — that
+  // would silently skip this discussion id precisely because its root is
+  // broken, hiding the whole family instead of reporting it. The $meshfleet
+  // tag itself is untouched, so the substring-based discovery still finds
+  // 'disc-001', calls deriveDiscussion, and gets the one finding that exists
+  // for exactly this situation.
+  const data = loadFixture("tampered-discussion-corrupted-root");
+  const report = verifyMeshData(data);
+  assert.equal(report.ok, false);
+  const noRoot = found(report, "discussion.no_valid_root");
+  assert.ok(noRoot.length > 0, "corrupted root must still surface no_valid_root, not vanish");
+  assert.equal(noRoot[0].severity, "error");
+  assert.ok(found(report, "discussion.derive_invalid").length > 0);
+});
+
 test("budget-mismatch: a dangling reservation past a closed discussion understates the raw reservation count (warning)", () => {
   // A trailing 'reserved' receipt attached to the (already closed) final
   // head is never visited by the walk (close=true stops traversal before

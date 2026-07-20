@@ -469,17 +469,33 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
   // things verify computes itself are two cross-checks deriveDiscussion has
   // no reason to compute for its own callers (see below).
   //
-  // Discovery: bucket by ROOT-shaped discussion/v1 envelopes (turn 1,
-  // reply_to null) — deriveDiscussion re-filters by correlation_id itself
-  // (§7 step 1), so verify only needs the SET of ids, not a pre-filtered
-  // per-discussion message list.
+  // Discovery: pre-collect correlation ids from ANY message whose payload
+  // contains the discussion/v1 fragment — a cheap substring check BEFORE
+  // parsing, not a root-shape/validity gate (cdx pass-1 fix: the previous
+  // gate — parse + require turn===1 && reply_to===null — meant a tampered
+  // or corrupted root (e.g. a `kind` value invalid_envelope can't even
+  // parse) never satisfied it, so its correlation id was never enqueued,
+  // `deriveDiscussion` was never called, and `no_valid_root` never fired —
+  // a corrupted root silently hid its ENTIRE discussion family from
+  // verification instead of tripping the one finding that exists to report
+  // exactly that. The substring is intentionally loose: any false positive
+  // (a correlation id that isn't really a discussion) just costs one extra
+  // `deriveDiscussion` call that reports `no_valid_root` for a family with
+  // no candidates — cheap, and never silently wrong the other way).
+  //
+  // Cost profile (deliberate trade, not overlooked): this makes the
+  // discussion pass roughly O(D * (M + R)) — D discovered ids, each re-
+  // scanning messages/receipts via `deriveDiscussion` plus the raw-receipt
+  // pass below — versus the single linear O(M + R) pass every other check
+  // in this file gets away with. Audit tooling, not a hot path: verify runs
+  // out-of-band over a snapshot, so trading some throughput for correctness
+  // (never hiding a discussion family) is the right side of that trade here.
   const allMessages = Object.values(data.messages);
   const allReceipts = Object.values(receipts);
   const discussionIds = new Set<string>();
   for (const m of allMessages) {
     if (!m.correlation_id) continue;
-    const envelope = parseEnvelope(m.payload);
-    if (envelope && envelope.$meshfleet === "discussion/v1" && envelope.turn === 1 && envelope.reply_to === null) {
+    if (m.payload.includes('"discussion/v1"')) {
       discussionIds.add(m.correlation_id);
     }
   }
@@ -598,6 +614,16 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
     // such a bound hash — a field that does not exist in the real schema;
     // resolved here by scoping the check to what local trust can actually
     // support.)
+    //
+    // Reviewer note (cdx pass-1, double-reporting): this can co-occur with
+    // `discussion.unauthorized_reply` on the SAME underlying defect — e.g. a
+    // retargeted reply produces both a lineage warning (this reply was never
+    // authorized to advance the walk) and this hard error (the receipt's own
+    // bookkeeping disagrees with the message it names). That is not
+    // redundant double-counting: they assert different things (walk
+    // admission vs. receipt/message self-consistency) at different severity,
+    // and an operator seeing only one should not assume the other is
+    // implied.
     for (const attempt of derived.attempts) {
       if (!attempt.reply_message_id) continue;
       const headId = reservedHeadByAttempt.get(attempt.attempt_id);
