@@ -33,13 +33,45 @@ def protocol_ref(v):
     if not isinstance(v,str) or len(v.encode()) > 129 or "/" not in v: return False
     a,b=v.rsplit("/",1); return canonical_id(a) and exact_version(b)
 def label(v): return isinstance(v,str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+@-]{0,95}",v) is not None
+def nonce(v): return isinstance(v,str) and re.fullmatch(r"nonce_[A-Za-z0-9_-]{20,84}",v) is not None
+def proof_digest(v): return isinstance(v,str) and re.fullmatch(r"sha256:[0-9a-f]{64}",v) is not None
 def field_path(v): return isinstance(v,str) and (v == "$evaluation_time_ms" or re.fullmatch(r"\$(?:\.[a-z][a-z0-9_]*|\[[0-9]+\])*",v) is not None)
 def sort_errors(items): return sorted(items,key=lambda x:(asc(x["code"]),asc(x["field_path"])))
 def path(base,k): return base+"."+k
+RAW_INVALID = object()
+def _pairs(items):
+    out={}
+    for key,value in items:
+        if key in out: raise ValueError("duplicate decoded key")
+        out[key]=value
+    return out
+def _integer(text):
+    value=int(text)
+    if abs(value)>SAFE: raise ValueError("unsafe integer")
+    return value
+def _constant(_): raise ValueError("nonstandard number")
+def _tree_domain(v,depth=1):
+    if depth>64: return False
+    if v is None or type(v) is bool: return True
+    if type(v) is int: return abs(v)<=SAFE
+    if type(v) is float: return v == v and abs(v) != float("inf")
+    if isinstance(v,str):
+        try: v.encode("utf-8")
+        except UnicodeEncodeError: return False
+        return True
+    if isinstance(v,list): return all(_tree_domain(x,depth+1) for x in v)
+    if is_obj(v): return all(_tree_domain(k,depth+1) and _tree_domain(x,depth+1) for k,x in v.items())
+    return False
 def parsed(v):
-    if not isinstance(v,str): return v
-    try: return json.loads(v)
-    except Exception: return None
+    if isinstance(v,str):
+        try:
+            if len(v.encode("utf-8"))>131072: return RAW_INVALID
+            out=json.loads(v,object_pairs_hook=_pairs,parse_int=_integer,parse_constant=_constant)
+        except Exception: return RAW_INVALID
+        return out if _tree_domain(out) else RAW_INVALID
+    if not _tree_domain(v): return RAW_INVALID
+    try: return v if len(json.dumps(v,separators=(",",":"),ensure_ascii=False).encode("utf-8"))<=131072 else RAW_INVALID
+    except Exception: return RAW_INVALID
 def u64(n): return struct.pack(">Q",n)
 def tree(v):
     if v is None: return b"\x00"
@@ -58,7 +90,7 @@ def tree(v):
 def fp(domain,value,label): return label+":sha256:"+hashlib.sha256(domain.encode()+b"\x00"+tree(value)).hexdigest()
 def unknown(obj, allowed, base, errors, computed=False):
     for key in obj:
-        if key not in allowed: errors.append(err("FORBIDDEN_COMPUTED_FIELD" if computed and key in COMPUTED else "UNKNOWN_CORE_FIELD",base))
+        if key not in allowed: errors.append(err("FORBIDDEN_COMPUTED_FIELD" if computed and key in COMPUTED else "UNKNOWN_CORE_FIELD",path(base,key) if computed and key in COMPUTED else base))
 def required(obj, keys, base, errors, code):
     for key in keys:
         if key not in obj: errors.append(err(code,path(base,key)))
@@ -79,10 +111,43 @@ def norm_app(v,base,errors):
     if not is_obj(v): errors.append(err("INVALID_APPLICABILITY",base)); return {"protocol_versions":[],"transport_families":[],"operations":[]}
     required(v,["protocol_versions","transport_families","operations"],base,errors,"INVALID_APPLICABILITY"); unknown(v,["protocol_versions","transport_families","operations"],base,errors)
     return {"protocol_versions":norm_set(v.get("protocol_versions"),16,protocol_ref,path(base,"protocol_versions"),errors),"transport_families":norm_set(v.get("transport_families"),16,canonical_id,path(base,"transport_families"),errors),"operations":norm_set(v.get("operations"),32,canonical_id,path(base,"operations"),errors)}
+def norm_provenance(v,claim,base,errors):
+    if not is_obj(v) or v.get("level") not in {"advertised","reported","observed","attested"}:
+        errors.append(err("INVALID_PROVENANCE",base)); return {"level":"advertised"}
+    level=v["level"]
+    req={"advertised":["level"],"reported":["level","issuer_ref"],"observed":["level","issuer_ref","observed_at_ms","probe_ref"],"attested":["level","issuer_ref"]}[level]
+    required(v,req,base,errors,"INVALID_PROVENANCE"); unknown(v,req,base,errors)
+    if level!="advertised" and not opaque(v.get("issuer_ref")): errors.append(err("INVALID_PROVENANCE",path(base,"issuer_ref")))
+    if level=="observed":
+        observed=v.get("observed_at_ms")
+        if not valid_time(observed) or not valid_time(claim.get("issued_at_ms")) or not valid_time(claim.get("expires_at_ms")) or observed<claim["issued_at_ms"] or observed>=claim["expires_at_ms"]: errors.append(err("INVALID_PROVENANCE",path(base,"observed_at_ms")))
+        if not opaque(v.get("probe_ref")): errors.append(err("INVALID_PROVENANCE",path(base,"probe_ref")))
+    return {key:v[key] for key in req if key in v}
+PROOF_ABSENT=object()
+def norm_proof(v,claim,provenance,base,errors):
+    if v is PROOF_ABSENT:
+        if provenance.get("level")=="attested": errors.append(err("INVALID_PROOF_CARRIER",base))
+        return None
+    if not is_obj(v): errors.append(err("INVALID_PROOF_CARRIER",base)); return None
+    req=["issuer_ref","audience_ref","issued_at_ms","not_before_ms","expires_at_ms","challenge","proof_format","verification_method_ref"]
+    required(v,req,base,errors,"INVALID_PROOF_CARRIER")
+    has_digest="proof_digest" in v; has_ref="proof_ref" in v
+    if has_digest==has_ref: errors.append(err("INVALID_PROOF_CARRIER",base))
+    unknown(v,req+["proof_digest","proof_ref"],base,errors,True)
+    for key in ["issuer_ref","audience_ref","verification_method_ref"]:
+        if not opaque(v.get(key)): errors.append(err("INVALID_PROOF_CARRIER",path(base,key)))
+    if not nonce(v.get("challenge")): errors.append(err("INVALID_PROOF_CARRIER",path(base,"challenge")))
+    if not label(v.get("proof_format")): errors.append(err("INVALID_PROOF_CARRIER",path(base,"proof_format")))
+    if has_digest and not proof_digest(v.get("proof_digest")): errors.append(err("INVALID_PROOF_CARRIER",path(base,"proof_digest")))
+    if has_ref and not opaque(v.get("proof_ref")): errors.append(err("INVALID_PROOF_CARRIER",path(base,"proof_ref")))
+    if provenance.get("issuer_ref") is not None and v.get("issuer_ref")!=provenance.get("issuer_ref"): errors.append(err("INVALID_PROOF_CARRIER",path(base,"issuer_ref")))
+    window=[v.get("issued_at_ms"),v.get("not_before_ms"),v.get("expires_at_ms")]
+    if not all(valid_time(x) for x in window) or not valid_time(claim.get("issued_at_ms")) or not valid_time(claim.get("expires_at_ms")) or (all(valid_time(x) for x in window) and (window[0]<claim["issued_at_ms"] or window[0]>window[1] or window[1]>=window[2] or window[2]>claim["expires_at_ms"])): errors.append(err("INVALID_PROOF_CARRIER",path(base,"expires_at_ms")))
+    return {key:v[key] for key in req+["proof_digest" if has_digest else "proof_ref"] if key in v}
 def norm_claim(v,base,errors,defer):
     if not is_obj(v): errors.append(err("INVALID_CLAIM_SCHEMA",base)); return None
     common=["claim_id","kind","applicability","provenance","issued_at_ms","expires_at_ms","extensions","critical_extensions"]
-    required(v,common,base,errors,"INVALID_CLAIM_SCHEMA")
+    required(v,[key for key in common if not defer or key not in {"extensions","critical_extensions"}],base,errors,"INVALID_CLAIM_SCHEMA")
     if not claim_id(v.get("claim_id")): errors.append(err("INVALID_CLAIM_SCHEMA",path(base,"claim_id")))
     kind=v.get("kind") if v.get("kind") in {"capability","transport","protocol","runtime","provider","model"} else "capability"
     if v.get("kind") not in {"capability","transport","protocol","runtime","provider","model"}: errors.append(err("INVALID_CLAIM_KIND",path(base,"kind")))
@@ -90,15 +155,12 @@ def norm_claim(v,base,errors,defer):
     unknown(v,common+["proof"]+specific,base,errors,True)
     if not valid_time(v.get("issued_at_ms")) or not valid_time(v.get("expires_at_ms")) or (valid_time(v.get("issued_at_ms")) and valid_time(v.get("expires_at_ms")) and v["issued_at_ms"]>=v["expires_at_ms"]): errors.append(err("INVALID_TIME_WINDOW",path(base,"expires_at_ms")))
     app=norm_app(v.get("applicability"),path(base,"applicability"),errors)
-    prov=v.get("provenance")
-    if not is_obj(prov) or prov.get("level") not in {"advertised","reported","observed","attested"}: errors.append(err("INVALID_PROVENANCE",path(base,"provenance"))); provn={"level":"advertised"}
-    else:
-        level=prov["level"]; req={"advertised":["level"],"reported":["level","issuer_ref"],"observed":["level","issuer_ref","observed_at_ms","probe_ref"],"attested":["level","issuer_ref"]}[level]
-        required(prov,req,path(base,"provenance"),errors,"INVALID_PROVENANCE"); unknown(prov,req,path(base,"provenance"),errors)
-        if level!="advertised" and not opaque(prov.get("issuer_ref")): errors.append(err("INVALID_PROVENANCE",path(base,"provenance.issuer_ref")))
-        provn={k:prov[k] for k in req if k in prov}
+    shell={"issued_at_ms":v.get("issued_at_ms"),"expires_at_ms":v.get("expires_at_ms")}
+    provn=norm_provenance(v.get("provenance"),shell,path(base,"provenance"),errors)
+    proof=norm_proof(v["proof"] if "proof" in v else PROOF_ABSENT,shell,provn,path(base,"proof"),errors)
     if not defer: ext(v,base,errors)
     out={"claim_id":v.get("claim_id"),"kind":kind,"applicability":app,"provenance":provn,"issued_at_ms":v.get("issued_at_ms"),"expires_at_ms":v.get("expires_at_ms"),"extensions":v.get("extensions"),"critical_extensions":v.get("critical_extensions")}
+    if proof is not None: out["proof"]=proof
     if kind=="capability":
         if not canonical_id(v.get("capability_id")): errors.append(err("INVALID_CANONICAL_ID",path(base,"capability_id")))
         out["capability_id"]=v.get("capability_id")
@@ -121,7 +183,7 @@ def profile(raw,base="$",defer=False):
     raw=parsed(raw); errors=[]
     if not is_obj(raw): return {},[],[err("MALFORMED_CAPABILITY_PROFILE",base)]
     keys=["profile_version","profile_id","revision","issuer","subject","issued_at_ms","expires_at_ms","claims","extensions","critical_extensions"]
-    required(raw,keys,base,errors,"MALFORMED_CAPABILITY_PROFILE"); unknown(raw,keys,base,errors,True)
+    required(raw,[key for key in keys if not defer or key not in {"extensions","critical_extensions"}],base,errors,"MALFORMED_CAPABILITY_PROFILE"); unknown(raw,keys,base,errors,True)
     if raw.get("profile_version")!=PV: errors.append(err("UNSUPPORTED_PROFILE_VERSION",path(base,"profile_version")))
     if not profile_id(raw.get("profile_id")): errors.append(err("MALFORMED_CAPABILITY_PROFILE",path(base,"profile_id")))
     if type(raw.get("revision")) is not int or raw.get("revision",0)<=0: errors.append(err("INVALID_PROFILE_REVISION",path(base,"revision")))
@@ -145,22 +207,33 @@ def profile(raw,base="$",defer=False):
     if not defer: ext(raw,base,errors)
     # Do not attempt canonical ordering of a structurally incomplete claim;
     # its source position remains the only valid diagnostic coordinate.
-    if not errors: claims.sort(key=lambda x:tree(x[0]))
+    if not defer and not errors: claims.sort(key=lambda x:tree(x[0]))
     return {"profile_version":raw.get("profile_version"),"profile_id":raw.get("profile_id"),"revision":raw.get("revision"),"issuer":raw.get("issuer"),"subject":raw.get("subject"),"issued_at_ms":raw.get("issued_at_ms"),"expires_at_ms":raw.get("expires_at_ms"),"claims":[x[0] for x in claims],"extensions":raw.get("extensions"),"critical_extensions":raw.get("critical_extensions")},claims,sort_errors(errors)
 def claim_fp(p,c): return fp("meshfleet.a2a.capability-claim.v1",[p["issuer"]["ref"],p["subject"]["ref"],p["profile_id"],c["claim_id"],p["revision"],c],"meshfleet.a2a.capability-claim.v1")
+def contradiction_errors(p,claims,base):
+    groups={}
+    for c,_ in claims:
+        if c.get("kind") in {"capability","transport","protocol"} and c.get("state") in {"supported","unsupported","unknown"}:
+            key=json.dumps([p["subject"]["ref"],c["kind"],c.get("capability_id",c.get("transport_id",c.get("protocol_id"))),c.get("protocol_version",""),c["applicability"]],separators=(",",":"),sort_keys=True)
+            groups.setdefault(key,set()).add(c["state"])
+    return [err("CONTRADICTORY_CLAIMS",path(base,"claims"))] if any("supported" in states and "unsupported" in states for states in groups.values()) else []
 def semantic(p,claims,t,base):
-    es=[]
+    es=contradiction_errors(p,claims,base)
     if t<p["issued_at_ms"]: es.append(err("NOT_YET_VALID_PROFILE",path(base,"issued_at_ms")))
     if t>=p["expires_at_ms"]: es.append(err("EXPIRED_PROFILE",path(base,"expires_at_ms")))
     for c,i in claims:
         if t<c["issued_at_ms"]: es.append(err("NOT_YET_VALID_CLAIM",f"{base}.claims[{i}].issued_at_ms"))
         if t>=c["expires_at_ms"]: es.append(err("EXPIRED_CLAIM",f"{base}.claims[{i}].expires_at_ms"))
+        proof=c.get("proof")
+        if is_obj(proof):
+            if t<proof["issued_at_ms"] or t<proof["not_before_ms"]: es.append(err("NOT_YET_VALID_PROOF",f"{base}.claims[{i}].proof.not_before_ms"))
+            if t>=proof["expires_at_ms"]: es.append(err("EXPIRED_PROOF",f"{base}.claims[{i}].proof.expires_at_ms"))
     return sort_errors(es)
 def validate_profile(raw,t=None):
     if not valid_time(t): return {"ok":False,"error":err("INVALID_EVALUATION_TIME","$evaluation_time_ms")}
     p,cs,es=profile(raw)
     if es: return {"ok":True,"value":{"validation_version":VV,"evaluation_time_ms":t,"valid":False,"proof_results":[],"errors":es}}
-    errors=semantic(p,cs,t,"$"); proof=[{"claim_id":c["claim_id"],"claim_fingerprint":claim_fp(p,c),"verification_status":"absent"} for c,i in cs]
+    errors=semantic(p,cs,t,"$"); proof=[{"claim_id":c["claim_id"],"claim_fingerprint":claim_fp(p,c),"verification_status":"unsupported" if "proof" in c else "absent"} for c,i in cs]
     proof.sort(key=lambda x:(asc(x["claim_id"]),asc(json.dumps(x,separators=(",",":"),sort_keys=True))))
     return {"ok":True,"value":{"validation_version":VV,"evaluation_time_ms":t,"valid":not errors,"profile_fingerprint":fp("meshfleet.a2a.capability-profile.v1",p,"meshfleet.a2a.capability-profile.v1"),"proof_results":proof,"errors":errors}}
 def template(v): return is_obj(v) and len(v)==3 and ((v.get("template_id")=="none" and v.get("command")=="none" and v.get("argv_template")==[]) or (v.get("template_id")=="meshfleet.mcp-stdio/v1" and v.get("command")=="npx" and v.get("argv_template")==["-y","meshfleet"]))
@@ -173,6 +246,50 @@ def scan_privacy(v,base,out):
             n=k.lower(); q=path(base,n)
             if n in PRIVACY: out.append(q)
             scan_privacy(x,q,out)
+SCHEMAS={
+    "translation":{"translation_version","target","source_profile","launch_template","cwd_policy","features","provenance_refs","extensions","critical_extensions"},
+    "result":{"translation_version","target","launch_template","cwd_policy","features","provenance_refs","profile","losses","extensions","critical_extensions"},
+    "profile":{"profile_version","profile_id","revision","issuer","subject","issued_at_ms","expires_at_ms","claims","extensions","critical_extensions"},
+    "identity":{"kind","ref"},
+    "claim":{"claim_id","kind","applicability","provenance","issued_at_ms","expires_at_ms","extensions","critical_extensions","proof","capability_id","transport_id","protocol_id","protocol_version","state","runtime_label","provider_label","model_label"},
+    "applicability":{"protocol_versions","transport_families","operations"},
+    "provenance":{"level","issuer_ref","observed_at_ms","probe_ref"},
+    "proof":{"issuer_ref","audience_ref","issued_at_ms","not_before_ms","expires_at_ms","challenge","proof_format","verification_method_ref","proof_digest","proof_ref"},
+    "template":{"template_id","command","argv_template"},
+    "feature":{"feature_id","state","provenance_ref"},
+    "loss":{"field_path","target","reason_code","disposition"},
+}
+def scan_closed(v,schema,base,out):
+    if not is_obj(v): return
+    allowed=SCHEMAS[schema]
+    if schema=="claim" and v.get("kind") in {"capability","transport","protocol","runtime","provider","model"}:
+        specific={"capability":{"capability_id","state"},"transport":{"transport_id","state"},"protocol":{"protocol_id","protocol_version","state"},"runtime":{"runtime_label"},"provider":{"provider_label"},"model":{"model_label"}}[v["kind"]]
+        allowed={"claim_id","kind","applicability","provenance","issued_at_ms","expires_at_ms","extensions","critical_extensions","proof"}|specific
+    for key in v:
+        if key not in allowed:
+            if key in COMPUTED: out["computed"].append(path(base,key))
+            elif schema!="loss": out["unknown"].append(base)
+    if schema=="translation":
+        scan_closed(v.get("source_profile"),"profile","$.source_profile",out); scan_closed(v.get("launch_template"),"template","$.launch_template",out)
+        if isinstance(v.get("features"),list):
+            for i,x in enumerate(v["features"]): scan_closed(x,"feature",f"$.features[{i}]",out)
+    elif schema=="result":
+        scan_closed(v.get("profile"),"profile","$.profile",out); scan_closed(v.get("launch_template"),"template","$.launch_template",out)
+        if isinstance(v.get("features"),list):
+            for i,x in enumerate(v["features"]): scan_closed(x,"feature",f"$.features[{i}]",out)
+        if isinstance(v.get("losses"),list):
+            for i,x in enumerate(v["losses"]): scan_closed(x,"loss",f"$.losses[{i}]",out)
+    elif schema=="profile":
+        scan_closed(v.get("issuer"),"identity",path(base,"issuer"),out); scan_closed(v.get("subject"),"identity",path(base,"subject"),out)
+        if isinstance(v.get("claims"),list):
+            for i,x in enumerate(v["claims"]): scan_closed(x,"claim",f"{base}.claims[{i}]",out)
+    elif schema=="claim":
+        scan_closed(v.get("applicability"),"applicability",path(base,"applicability"),out); scan_closed(v.get("provenance"),"provenance",path(base,"provenance"),out); scan_closed(v.get("proof"),"proof",path(base,"proof"),out)
+def closed_error(v,schema):
+    out={"computed":[],"unknown":[]}; scan_closed(v,schema,"$",out)
+    if out["computed"]: return err("FORBIDDEN_COMPUTED_FIELD",sorted(out["computed"],key=asc)[0])
+    if out["unknown"]: return err("UNKNOWN_CORE_FIELD",sorted(set(out["unknown"]),key=asc)[0])
+    return None
 def ext_translation(raw):
     es=[]; ext(raw,"$",es)
     p=raw.get("source_profile")
@@ -183,15 +300,23 @@ def ext_translation(raw):
                 if is_obj(c): ext(c,f"$.source_profile.claims[{i}]",es)
     return es
 def features(v,base):
-    if not isinstance(v,list) or len(v)>64: return [],err("INVALID_TRANSLATION_INPUT",base)
-    out=[]; seen=set()
+    if not isinstance(v,list) or len(v)>64: return [],[],err("INVALID_TRANSLATION_INPUT",base)
+    source=[]; invalid=[]
     for i,x in enumerate(v):
         q=f"{base}[{i}]"
-        if not is_obj(x) or len(x)!=3 or not canonical_id(x.get("feature_id")) or x.get("state") not in {"supported","unsupported","unknown","not-represented"} or not opaque(x.get("provenance_ref")):
-            return [],err("INVALID_TRANSLATION_INPUT",q if not is_obj(x) else path(q,"feature_id") if not canonical_id(x.get("feature_id")) else path(q,"state") if x.get("state") not in {"supported","unsupported","unknown","not-represented"} else path(q,"provenance_ref"))
-        if x["feature_id"] in seen: return [],err("INVALID_TRANSLATION_INPUT",path(q,"feature_id"))
-        seen.add(x["feature_id"]); out.append(dict(x))
-    return sorted(out,key=tree),None
+        if not is_obj(x): invalid.append(q); continue
+        members=[]
+        if not canonical_id(x.get("feature_id")): members.append(path(q,"feature_id"))
+        if not opaque(x.get("provenance_ref")): members.append(path(q,"provenance_ref"))
+        if x.get("state") not in {"supported","unsupported","unknown","not-represented"}: members.append(path(q,"state"))
+        if members: invalid.append(sorted(members,key=asc)[0]); continue
+        source.append(({"feature_id":x["feature_id"],"state":x["state"],"provenance_ref":x["provenance_ref"]},i))
+    if invalid: return [],source,err("INVALID_TRANSLATION_INPUT",sorted(invalid,key=asc)[0])
+    seen=set()
+    for x,i in source:
+        if x["feature_id"] in seen: return [],source,err("INVALID_TRANSLATION_INPUT",f"{base}[{i}].feature_id")
+        seen.add(x["feature_id"])
+    return sorted([x for x,_ in source],key=tree),source,None
 def refs(v,base,fs):
     if not isinstance(v,list) or len(v)>64: return [],err("INVALID_TRANSLATION_INPUT",base)
     seen=set(); out=[]
@@ -199,8 +324,8 @@ def refs(v,base,fs):
         if not opaque(x): return [],err("INVALID_TRANSLATION_INPUT",f"{base}[{i}]")
         if x in seen: return [],err("DUPLICATE_SET_MEMBER",f"{base}[{i}]")
         seen.add(x); out.append(x)
-    for f in fs:
-        if f["provenance_ref"] not in seen: return [],err("INVALID_TRANSLATION_INPUT","$.features[0].provenance_ref")
+    missing=sorted([(i,f) for f,i in fs if f["provenance_ref"] not in seen],key=lambda x:x[0])
+    if missing: return [],err("INVALID_TRANSLATION_INPUT",f"$.features[{missing[0][0]}].provenance_ref")
     return sorted(out,key=asc),None
 def terr(code,p,t): return {"code":code,"field_path":p,"target_ref":t}
 def translate_profile(inp,t=None):
@@ -211,8 +336,8 @@ def translate_profile(inp,t=None):
     if target not in TARGETS: return terr("INVALID_TARGET","$.target","invalid")
     ps=[]; scan_privacy(raw,"$",ps)
     if ps: return terr("FORBIDDEN_PRIVACY_FIELD",sorted(ps,key=asc)[0],target)
-    keys={"translation_version","target","source_profile","launch_template","cwd_policy","features","provenance_refs","extensions","critical_extensions"}
-    if any(k not in keys for k in raw): return terr("UNKNOWN_CORE_FIELD","$",target)
+    ce=closed_error(raw,"translation")
+    if ce: return terr(ce["code"],ce["field_path"],target)
     if raw.get("translation_version")!=TV: return terr("INVALID_TRANSLATION_INPUT","$.translation_version",target)
     p,cs,es=profile(raw.get("source_profile"),"$.source_profile",True)
     if es: e=es[0]; return terr(e["code"],e["field_path"],target)
@@ -221,11 +346,12 @@ def translate_profile(inp,t=None):
     ee=ext_translation(raw)
     if ee:
         group=[x for x in ee if x["code"]=="INVALID_EXTENSION_CONTAINER"] or ee; e=sorted(group,key=lambda x:asc(x["field_path"]))[0]; return terr(e["code"],e["field_path"],target)
+    p,cs,_=profile(raw.get("source_profile"),"$.source_profile",False)
     if not template(raw.get("launch_template")): return terr("INVALID_TRANSLATION_INPUT","$.launch_template",target)
     if raw.get("cwd_policy") not in {"target-default-unknown","host-selected","explicit-reviewed","not-represented"}: return terr("INVALID_TRANSLATION_INPUT","$.cwd_policy",target)
-    fs,e=features(raw.get("features"),"$.features")
+    fs,source_fs,e=features(raw.get("features"),"$.features")
     if e: return terr(e["code"],e["field_path"],target)
-    rs,e=refs(raw.get("provenance_refs"),"$.provenance_refs",fs)
+    rs,e=refs(raw.get("provenance_refs"),"$.provenance_refs",source_fs)
     if e: return terr(e["code"],e["field_path"],target)
     if target in DEFERRED and raw["launch_template"]["template_id"]!="none": return terr("UNSUPPORTED_STATIC_TEMPLATE","$.launch_template",target)
     if target in DEFERRED:
@@ -244,10 +370,19 @@ def norm_losses(v):
     out=[]; seen=set()
     for i,x in enumerate(v):
         p=f"$.losses[{i}]"
-        if not is_obj(x) or len(x)!=4 or not field_path(x.get("field_path")) or x.get("target") not in TARGETS or x.get("reason_code") not in LOSS_REASONS or x.get("disposition") not in LOSS_DISPOSITIONS: return [],err("INVALID_LOSS_RECORD",p if not is_obj(x) or len(x)!=4 else path(p,"field_path") if not field_path(x.get("field_path")) else path(p,"target") if x.get("target") not in TARGETS else path(p,"reason_code") if x.get("reason_code") not in LOSS_REASONS else path(p,"disposition"))
-        key=json.dumps(x,separators=(",",":"),sort_keys=True)
+        if not is_obj(x): return [],err("INVALID_LOSS_RECORD",p)
+        allowed={"field_path","target","reason_code","disposition"}
+        if any(key not in allowed for key in x): return [],err("INVALID_LOSS_RECORD",p)
+        candidates=[]
+        if not field_path(x.get("field_path")): candidates.append(path(p,"field_path"))
+        if x.get("target") not in TARGETS: candidates.append(path(p,"target"))
+        if x.get("reason_code") not in LOSS_REASONS: candidates.append(path(p,"reason_code"))
+        if x.get("disposition") not in LOSS_DISPOSITIONS: candidates.append(path(p,"disposition"))
+        if candidates: return [],err("INVALID_LOSS_RECORD",sorted(candidates,key=asc)[0])
+        normalized={"field_path":x["field_path"],"target":x["target"],"reason_code":x["reason_code"],"disposition":x["disposition"]}
+        key=tree(normalized)
         if key in seen: return [],err("INVALID_TRANSLATION_RESULT",p)
-        seen.add(key); out.append(dict(x))
+        seen.add(key); out.append(normalized)
     return sorted(out,key=lambda x:(asc(x["field_path"]),asc(x["target"]),asc(x["reason_code"]),asc(x["disposition"]))),None
 def result_ext(raw):
     es=[]; ext(raw,"$",es); p=raw.get("profile")
@@ -262,27 +397,26 @@ def validate_translation_result(inp):
     if not is_obj(raw): return {"ok":False,"error":err("INVALID_TRANSLATION_RESULT","$")}
     ps=[]; scan_privacy(raw,"$",ps)
     if ps: return {"ok":False,"error":err("FORBIDDEN_PRIVACY_FIELD",sorted(ps,key=asc)[0])}
-    for k in raw:
-        if k in COMPUTED: return {"ok":False,"error":err("FORBIDDEN_COMPUTED_FIELD",path("$",k))}
-    keys={"translation_version","target","launch_template","cwd_policy","features","provenance_refs","profile","losses","extensions","critical_extensions"}
-    if any(k not in keys for k in raw): return {"ok":False,"error":err("UNKNOWN_CORE_FIELD","$")}
+    ce=closed_error(raw,"result")
+    if ce: return {"ok":False,"error":ce}
     if raw.get("translation_version")!=TRV: return {"ok":False,"error":err("INVALID_TRANSLATION_RESULT","$.translation_version")}
     if raw.get("target") not in TARGETS: return {"ok":False,"error":err("INVALID_TRANSLATION_RESULT","$.target")}
     if not is_obj(raw.get("profile")): return {"ok":False,"error":err("INVALID_TRANSLATION_RESULT","$.profile")}
-    p,cs,es=profile(raw["profile"],"$.profile",True)
+    p,cs,es=profile(raw["profile"],"$.profile",True); es=sort_errors(es+contradiction_errors(p,cs,"$.profile"))
     if es: return {"ok":False,"error":es[0]}
     if not template(raw.get("launch_template")): return {"ok":False,"error":err("INVALID_TRANSLATION_RESULT","$.launch_template")}
     if raw.get("cwd_policy") not in {"target-default-unknown","host-selected","explicit-reviewed","not-represented"}: return {"ok":False,"error":err("INVALID_TRANSLATION_RESULT","$.cwd_policy")}
-    fs,e=features(raw.get("features"),"$.features")
+    fs,source_fs,e=features(raw.get("features"),"$.features")
     if e: return {"ok":False,"error":{"code":"INVALID_TRANSLATION_RESULT","field_path":e["field_path"]}}
-    rs,e=refs(raw.get("provenance_refs"),"$.provenance_refs",fs)
+    rs,e=refs(raw.get("provenance_refs"),"$.provenance_refs",source_fs)
     if e: return {"ok":False,"error":{"code":e["code"] if e["code"]=="DUPLICATE_SET_MEMBER" else "INVALID_TRANSLATION_RESULT","field_path":e["field_path"]}}
     ls,e=norm_losses(raw.get("losses"))
     if e: return {"ok":False,"error":e}
     es=result_ext(raw)
     if es:
         group=[x for x in es if x["code"]=="INVALID_EXTENSION_CONTAINER"] or es; e=sorted(group,key=lambda x:asc(x["field_path"]))[0]; return {"ok":False,"error":e}
-    norm={"translation_version":TRV,"target":raw["target"],"launch_template":raw["launch_template"],"cwd_policy":raw["cwd_policy"],"features":fs,"provenance_refs":rs,"profile":p,"losses":ls,"extensions":{},"critical_extensions":[]}
+    normalized_profile,_,_=profile(raw["profile"],"$.profile",False)
+    norm={"translation_version":TRV,"target":raw["target"],"launch_template":raw["launch_template"],"cwd_policy":raw["cwd_policy"],"features":fs,"provenance_refs":rs,"profile":normalized_profile,"losses":ls,"extensions":{},"critical_extensions":[]}
     return {"ok":True,"value":{"validation_version":TRVV,"normalized_result":norm}}
 def render_conformance(result,registry):
     raw=parsed(result); target=raw.get("target") if is_obj(raw) and raw.get("target") in TARGETS else None
@@ -305,7 +439,34 @@ def compare_profiles(raw,t=None):
         else:
             se=semantic(p,cs,t,"$"); results.append({"profile_index":i,"structurally_valid":True,"profile_id":p["profile_id"],"profile_fingerprint":fp("meshfleet.a2a.capability-profile.v1",p,"meshfleet.a2a.capability-profile.v1"),"valid":not se,"validation_error_codes":sorted({q["code"] for q in se},key=asc)})
     if errors: return {"ok":True,"value":{"comparison_version":"meshfleet.a2a.capability-comparison/v0.1","evaluation_time_ms":t,"valid":False,"profile_results":results,"identity_contradictions":[],"semantic_contradictions":[],"exact_duplicates":[],"errors":sorted(errors,key=lambda x:(x["profile_index"],asc(x["code"]),asc(x["field_path"])) )}}
-    return {"ok":True,"value":{"comparison_version":"meshfleet.a2a.capability-comparison/v0.1","evaluation_time_ms":t,"valid":all(x["valid"] for x in results),"profile_results":results,"identity_contradictions":[],"semantic_contradictions":[],"exact_duplicates":[],"errors":[]}}
+    identity={}; semantic_groups={}
+    for profile_index,(p,claims,_) in enumerate(states):
+        for c,source_index in claims:
+            identity_key=(p["issuer"]["ref"],p["subject"]["ref"],p["profile_id"],c["claim_id"],p["revision"])
+            fingerprint=claim_fp(p,c)
+            identity.setdefault(identity_key,{}).setdefault(fingerprint,set()).add(profile_index)
+            if c.get("kind") in {"capability","transport","protocol"} and c.get("state") in {"supported","unsupported"}:
+                semantic_key=tree([p["subject"]["ref"],c["kind"],c.get("capability_id",c.get("transport_id",c.get("protocol_id"))),c.get("protocol_version",""),c["applicability"]])
+                group=semantic_groups.setdefault(semantic_key,{"kind":c["kind"],"supported":[],"unsupported":[]})
+                occurrence={"profile_index":profile_index,"claim_index":source_index,"claim_fingerprint":fingerprint}
+                group[c["state"]].append(occurrence)
+    def identity_object(key):
+        return {"issuer_ref":key[0],"subject_ref":key[1],"profile_id":key[2],"claim_id":key[3],"revision":key[4]}
+    def identity_sort(key): return (asc(key[0]),asc(key[1]),asc(key[2]),asc(key[3]),key[4])
+    identity_contradictions=[]; exact_duplicates=[]
+    for key in sorted(identity,key=identity_sort):
+        buckets=identity[key]
+        if len(buckets)>1:
+            identity_contradictions.append({"identity_key":identity_object(key),"fingerprints":[{"claim_fingerprint":fingerprint,"profile_indexes":sorted(indexes)} for fingerprint,indexes in sorted(buckets.items(),key=lambda item:asc(item[0]))]})
+        for fingerprint,indexes in sorted(buckets.items(),key=lambda item:asc(item[0])):
+            if len(indexes)>1: exact_duplicates.append({"identity_key":identity_object(key),"claim_fingerprint":fingerprint,"profile_indexes":sorted(indexes)})
+    semantic_contradictions=[]
+    for group in semantic_groups.values():
+        if group["supported"] and group["unsupported"]:
+            key=lambda x:(x["profile_index"],x["claim_index"])
+            semantic_contradictions.append({"kind":group["kind"],"supported_occurrences":sorted(group["supported"],key=key),"unsupported_occurrences":sorted(group["unsupported"],key=key)})
+    semantic_contradictions.sort(key=tree)
+    return {"ok":True,"value":{"comparison_version":"meshfleet.a2a.capability-comparison/v0.1","evaluation_time_ms":t,"valid":all(x["valid"] for x in results),"profile_results":results,"identity_contradictions":identity_contradictions,"semantic_contradictions":semantic_contradictions,"exact_duplicates":exact_duplicates,"errors":[]}}
 def invoke(case):
     api=case["api"]; a=case["invocation_args"]
     if api=="validate-profile": return validate_profile(a.get("raw_profile"),a.get("evaluation_time_ms"))
@@ -319,7 +480,7 @@ def main():
     with open(sys.argv[2],encoding="utf8") as handle: corpus=json.load(handle)
     outcomes=[]; failures=[]
     for case in corpus:
-        actual=invoke(case); outcomes.append({"case_id":case["case_id"],"actual":actual})
+        actual=invoke(case); outcomes.append({"case_id":case["case_id"],"actual":actual,"actual_json":json.dumps(actual,separators=(",",":"),ensure_ascii=False)})
         if actual!=case["expected"]: failures.append(case["case_id"])
     print(json.dumps({"ok":not failures,"case_count":len(corpus),"outcomes":outcomes,"failures":failures},separators=(",",":"),sort_keys=True))
     raise SystemExit(0 if not failures else 1)
