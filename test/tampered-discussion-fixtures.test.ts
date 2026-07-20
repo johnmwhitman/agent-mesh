@@ -232,6 +232,31 @@ test("corrupted-root: a root whose envelope no longer parses is still DISCOVERED
   assert.ok(found(report, "discussion.derive_invalid").length > 0);
 });
 
+// --- false-positive probe (cdx pass-2, blocking) ----------------------------
+
+test("coincidental-mention: a plain message merely quoting \"discussion/v1\" in prose is a WARNING, not a false no_valid_root error", () => {
+  // cdx pass-2's probe: the pass-1 discovery fix made the pre-filter a bare
+  // substring match, loose enough that a plain chat message whose payload
+  // happens to contain the quoted fragment "discussion/v1" (discussing the
+  // protocol, not USING it) still enqueues its correlation_id. With no
+  // envelope evidence to back it up, deriveDiscussion finds zero valid
+  // envelopes and would otherwise report a hard no_valid_root error on
+  // ledger data that was never a discussion at all. The hasAnyEnvelope gate
+  // downgrades this to discussion.unparseable_candidate (warning) instead —
+  // and specifically does NOT stay silent (that would just reintroduce a
+  // quieter cousin of the pass-1 discovery-blindspot bug).
+  const data = loadFixture("tampered-discussion-coincidental-mention");
+  const report = verifyMeshData(data);
+  assert.equal(found(report, "discussion.no_valid_root").length, 0);
+  assert.equal(found(report, "discussion.derive_invalid").length, 0);
+  const unparseable = found(report, "discussion.unparseable_candidate");
+  assert.ok(unparseable.length > 0);
+  assert.equal(unparseable[0].severity, "warning");
+  assert.equal(unparseable[0].subject, "disc-999");
+  // The real disc-001 discussion baked into the same fixture is unaffected.
+  assert.equal(report.ok, true);
+});
+
 test("budget-mismatch: a dangling reservation past a closed discussion understates the raw reservation count (warning)", () => {
   // A trailing 'reserved' receipt attached to the (already closed) final
   // head is never visited by the walk (close=true stops traversal before

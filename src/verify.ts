@@ -478,10 +478,11 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
   // `deriveDiscussion` was never called, and `no_valid_root` never fired —
   // a corrupted root silently hid its ENTIRE discussion family from
   // verification instead of tripping the one finding that exists to report
-  // exactly that. The substring is intentionally loose: any false positive
-  // (a correlation id that isn't really a discussion) just costs one extra
-  // `deriveDiscussion` call that reports `no_valid_root` for a family with
-  // no candidates — cheap, and never silently wrong the other way).
+  // exactly that. The substring is intentionally loose on purpose — false
+  // positives (a correlation id that isn't really a discussion, e.g. a plain
+  // message whose payload happens to quote "discussion/v1" in prose) are
+  // handled below by the `hasAnyEnvelope` gate, not by tightening discovery
+  // itself.
   //
   // Cost profile (deliberate trade, not overlooked): this makes the
   // discussion pass roughly O(D * (M + R)) — D discovered ids, each re-
@@ -501,6 +502,46 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
   }
 
   for (const discussionId of discussionIds) {
+    // cdx pass-2's false-positive probe: the substring pre-filter above can
+    // enqueue an id that is not really a discussion at all — e.g. a plain
+    // chat message whose payload happens to contain the quoted fragment
+    // "discussion/v1" in an unrelated field (someone discussing the
+    // protocol). With NO gate here, that id reaches `deriveDiscussion`,
+    // which finds zero valid envelopes, returns status 'invalid' with a
+    // `no_valid_root` finding, and this function would report that as a hard
+    // ERROR — a false positive on ledger data that was never a discussion.
+    //
+    // Gate: only treat a missing root as genuine discussion corruption when
+    // at least ONE message under this id parses as an ACTUAL discussion/v1
+    // envelope — any shape, not necessarily root-shaped. That is real
+    // evidence the id carries discussion traffic (e.g. the corrupted-root
+    // fixture: its root doesn't parse, but msg-2/msg-3 do, so this gate
+    // still holds and `no_valid_root` still reports as an error there). When
+    // NO message parses as any envelope, there is no such evidence — per
+    // cdx's explicit ruling, downgrade to a WARNING-level
+    // `discussion.unparseable_candidate` instead of a hard error, and skip
+    // the rest of this id's per-discussion processing (its only "finding"
+    // would be discovery noise, not a real discussion defect). Warning, not
+    // silence: staying silent here would just reintroduce a quieter cousin
+    // of the pass-1 discovery-blindspot bug.
+    let hasAnyEnvelope = false;
+    for (const m of allMessages) {
+      if (m.correlation_id !== discussionId) continue;
+      const envelope = parseEnvelope(m.payload);
+      if (envelope && envelope.$meshfleet === "discussion/v1") {
+        hasAnyEnvelope = true;
+        break;
+      }
+    }
+    if (!hasAnyEnvelope) {
+      warning(
+        "discussion.unparseable_candidate",
+        discussionId,
+        `id '${discussionId}' matched the discussion discovery filter (a message payload contains "discussion/v1"), but no message under this id parses as an actual discussion/v1 envelope — likely coincidental, not a real discussion`
+      );
+      continue;
+    }
+
     const derived = deriveDiscussion(discussionId, allMessages, allReceipts, now);
 
     // Aggregate overclaim: anything consuming `derived` at face value (its
