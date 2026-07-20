@@ -68,6 +68,37 @@ test("v2 retry histories receive deterministic attempt numbers before unique ind
   }
 });
 
+test("legacy v3 outbox layout upgrades to durable sequence before sequence indexing", () => {
+  const temp = withTempDb();
+  try {
+    assert.equal(getStorageSchemaVersion(), 3);
+    closeDb();
+    const raw = new Database(temp.dbFile);
+    raw.exec(`
+      DROP TABLE lifecycle_event_outbox;
+      CREATE TABLE lifecycle_event_outbox (
+        event_id TEXT PRIMARY KEY, event TEXT NOT NULL, payload TEXT NOT NULL,
+        created_at INTEGER NOT NULL, claimed_by TEXT, claimed_at INTEGER, projected_at INTEGER
+      );
+      INSERT INTO lifecycle_event_outbox VALUES ('z', 'second', '{}', 1, NULL, NULL, NULL);
+      INSERT INTO lifecycle_event_outbox VALUES ('a', 'first', '{}', 1, NULL, NULL, NULL);
+      UPDATE meta SET value = '3' WHERE key = 'storage_schema_version';
+    `);
+    raw.close();
+    setDbPath(temp.dbFile);
+    assert.equal(getStorageSchemaVersion(), 3);
+    closeDb();
+    const migrated = new Database(temp.dbFile, { readonly: true });
+    assert.deepEqual(migrated.prepare("SELECT seq, event_id FROM lifecycle_event_outbox ORDER BY seq").all(), [
+      { seq: 1, event_id: "a" }, { seq: 2, event_id: "z" },
+    ]);
+    migrated.close();
+  } finally {
+    closeDb();
+    temp.cleanup();
+  }
+});
+
 test("expiry of final attempt is replay-terminal and emits the terminal failure event", () => {
   const temp = withTempDb();
   try {

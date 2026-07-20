@@ -152,7 +152,6 @@ CREATE TABLE IF NOT EXISTS lifecycle_event_outbox (
   claimed_at INTEGER,
   projected_at INTEGER
 );
-CREATE INDEX IF NOT EXISTS idx_lifecycle_outbox_due ON lifecycle_event_outbox(projected_at, claimed_at, seq);
 CREATE TRIGGER IF NOT EXISTS lifecycle_work_retry_policy_insert
 BEFORE INSERT ON work_items WHEN NEW.max_attempts < 1 OR NEW.retry_base_ms < 0
 BEGIN SELECT RAISE(ABORT, 'invalid lifecycle retry policy'); END;
