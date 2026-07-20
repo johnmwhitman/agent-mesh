@@ -20,7 +20,7 @@ import {
 export interface GenericMcpJsonConfig {
   readonly mcpServers: {
     readonly [serverId: string]: {
-      readonly command: readonly string[];
+      readonly command: string;
       readonly args?: readonly string[];
       readonly env?: Record<string, string>;
     };
