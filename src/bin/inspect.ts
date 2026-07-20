@@ -19,10 +19,13 @@
 import { existsSync, writeFileSync } from 'node:fs'
 import {
   formatAgentRow,
+  buildTimeline,
+  buildTimelineJson,
   formatEventLog,
   formatFleetSummary,
   getFleetMetrics,
   formatReceiptTrail,
+  formatTimeline,
   formatCouncil,
   formatVerifyReport,
   buildCouncilsJson,
@@ -37,13 +40,14 @@ import { runDemo } from '../demo.js'
 
 const USAGE = `agent-mesh inspect — CLI inspector for running fleets
 
-Usage:
+  Usage:
   npx agent-mesh inspect                    Show all fleets
   npx agent-mesh inspect <fleet_id>         Show one fleet and its agents
   npx agent-mesh inspect --metrics          Show summary metrics
   npx agent-mesh inspect --events [n]      Show recent events (default 20)
   npx agent-mesh inspect --receipts [fleet] Show message receipts (who saw / acked)
   npx agent-mesh inspect --councils [fleet] Show councils (tally vs quorum, who voted)
+  npx agent-mesh inspect timeline [fleet]    Reconstruct incident timeline
   npx agent-mesh inspect --export [file]    Dump the full ledger as JSON (stdout if no file)
   npx agent-mesh inspect --verify [file]    Audit ledger integrity (exit 1 on errors); [file] audits that ledger file read-only
   npx agent-mesh inspect --explain          Explain each --verify finding: meaning, benign cause, how to investigate (implies --verify)
@@ -134,6 +138,11 @@ function main(): void {
     return
   }
 
+  if (args[0] === 'timeline') {
+    printTimeline(positional[1], jsonMode)
+    return
+  }
+
   if (args.includes('--receipts')) {
     printReceipts(positional[0])
     return
@@ -193,6 +202,12 @@ function printCouncils(fleetId?: string, json = false): void {
   for (const r of councils) {
     process.stdout.write(formatCouncil(r, getReceipts(r.message_id)) + '\n\n')
   }
+}
+
+function printTimeline(fleetId?: string, json = false): void {
+  const data = loadData()
+  const rows = buildTimeline(data, fleetId ? { fleetId } : {})
+  process.stdout.write(json ? JSON.stringify(buildTimelineJson(rows), null, 2) + '\n' : formatTimeline(rows) + '\n')
 }
 
 function printAllFleets(): void {
