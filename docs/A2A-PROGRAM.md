@@ -27,7 +27,7 @@ verified boundaries:
   NDJSON-repair outbox without changing MCP
   inputs or outputs.
 - Public canonical-envelope ingress, authenticated principals, durable duplicate
-  persistence, public lifecycle integration, and public runtime selection remain
+  persistence, public lifecycle controls, and public runtime selection remain
   unimplemented. The provider-neutral RuntimeAdapter SPI plus isolated
   OpenCode and deterministic local-process adapters are implemented and
   runtime-launch-verified; they are not yet public multi-runtime orchestration.
@@ -124,8 +124,9 @@ vendor smoke test is opt-in and cannot be required for the offline suite.
 **Status:** Slice 3A implemented with a provider-neutral runtime contract,
 internal registry, OpenCode compatibility adapter, and deterministic local
 process proof. `spawn_fleet` remains OpenCode-backed by default with unchanged
-MCP input/output. Real vendor adapters, target configuration renderers, public
-runtime selection, lifecycle integration, and remote execution remain separate.
+MCP input/output. Bounded durable single-host lifecycle integration is
+implemented; real vendor adapters, target configuration renderers, public
+runtime selection, and remote execution remain separate.
 
 ## Sequencing and dependencies
 
