@@ -89,7 +89,7 @@ or, if you built from source:
 }
 ```
 
-Restart OpenCode. Spawn a fleet. [Full install guide →](docs/install)
+Restart OpenCode. Spawn a fleet. [Wiring it into your client →](#wiring-it-into-your-client)
 
 ---
 
