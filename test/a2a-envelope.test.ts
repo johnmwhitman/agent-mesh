@@ -7,12 +7,18 @@ import { decodeEnvelope, encodeEnvelope, EnvelopeIdentityRegistry, validateEnvel
 import { mapLegacyMessage, projectLegacyMessage } from "../src/a2a/legacy-map.js";
 import { A2A_MESSAGE_TYPES } from "../src/a2a/types.js";
 
-type Expected = "valid" | "invalid" | "duplicate" | "conflict";
+type Expected = "valid" | "invalid" | "duplicate" | "conflict" | "mapping";
 type CorpusCase = {
   name: string;
   input: unknown;
   expected: Expected;
+  kind?: "envelope" | "legacy_mapping";
   options?: { forAcceptance?: boolean; nowMs?: number };
+  expected_mapping?: {
+    envelope: unknown;
+    recipients: string[];
+    projection: unknown;
+  };
 };
 
 const corpus = (): CorpusCase[] => JSON.parse(
@@ -40,6 +46,27 @@ const caseByName = (name: string): CorpusCase => {
 const inputFor = (name: string): unknown => expandFixture(caseByName(name).input);
 const direct = () => structuredClone(inputFor("valid-direct"));
 
+function legacyMappingInput(testCase: CorpusCase) {
+  const input = expandFixture(testCase.input) as Record<string, unknown>;
+  const options = testCase.options as { namespace?: string; broadcast_recipients?: string[] } | undefined;
+  return {
+    input: {
+      messageId: input.id as string,
+      fromAgentId: input.from_agent_id as string,
+      toAgentId: input.to_agent_id as string,
+      fleetId: input.fleet_id as string,
+      type: input.type as typeof A2A_MESSAGE_TYPES[number],
+      payload: input.payload as string,
+      timestamp: input.timestamp as number,
+      ...(input.correlation_id === undefined ? {} : { correlationId: input.correlation_id as string }),
+    },
+    context: {
+      ...(options?.namespace === undefined ? {} : { namespace: options.namespace }),
+      ...(options?.broadcast_recipients === undefined ? {} : { broadcastRecipients: options.broadcast_recipients }),
+    },
+  };
+}
+
 test("A2A v0.1 round-trips a valid envelope and preserves extensions", () => {
   const input = direct();
   const decoded = decodeEnvelope(encodeEnvelope(input));
@@ -57,6 +84,20 @@ test("A2A v0.1 accepts all approved current message types", () => {
 test("A2A v0.1 conformance corpus validates canonical envelopes and identity outcomes", () => {
   const registry = new EnvelopeIdentityRegistry();
   for (const testCase of corpus()) {
+    if (testCase.kind === "legacy_mapping") {
+      const mapping = legacyMappingInput(testCase);
+      const actual = mapLegacyMessage(mapping.input, mapping.context);
+      assert.deepEqual(actual.envelope, testCase.expected_mapping?.envelope, testCase.name);
+      assert.deepEqual(actual.recipients, testCase.expected_mapping?.recipients, testCase.name);
+      const legacyInput = expandFixture(testCase.input) as Record<string, unknown>;
+      const projectionRecipient = legacyInput.to_agent_id === "*" ? "*" : legacyInput.to_agent_id as string;
+      assert.deepEqual(
+        projectLegacyMessage(actual, projectionRecipient),
+        testCase.expected_mapping?.projection,
+        testCase.name,
+      );
+      continue;
+    }
     const input = expandFixture(testCase.input);
     if (testCase.expected === "valid") {
       assert.doesNotThrow(() => validateEnvelope(input, testCase.options), testCase.name);

@@ -135,8 +135,10 @@ MUST include JSON inputs and an expected outcome for at least:
   being treated as protocol authority.
 
 The fixture root is `test/fixtures/a2a/v0.1/`. Each fixture is a JSON object with
-`name`, `input`, and `expected`, where `expected` is one of `valid`, `invalid`,
-or `conflict`. A fixture runner must report that expected outcome without
+`name`, `input`, and `expected`, where envelope `expected` is one of `valid`,
+`invalid`, `duplicate`, or `conflict`; legacy mapping records additionally use
+`kind: "legacy_mapping"` and `expected: "mapping"`. A fixture runner must
+report that expected outcome without
 importing the MCP SDK, a provider SDK, or a runtime executable. The corpus is
 the language-neutral conformance boundary: implementations in other languages
 consume the same JSON inputs and expected outcomes, while duplicate and conflict
