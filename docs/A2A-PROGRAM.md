@@ -205,7 +205,7 @@ They are additive, reversible, and do not widen the current MCP surface.
    SQLite v4, a three-table private journal, exact schema validation,
    request-first durable classification, and accepted-only local receipts. It
    remains unmerged, unpublished, inactive, and below public ingress.
-3. **Slice 4C-0: capability, identity, and runtime-attestation profile.** Next
+3. **Slice 4C-0: capability profile and evidence taxonomy.** Next
    specification-first slice; capability claims and model banners do not grant
    authorization.
 4. **Slice 4C-1: principal-bound authenticated-local semantic path.** Then
@@ -231,8 +231,8 @@ and one honest local-decision receipt per accepted semantic identity.
 It does not establish public ingress, authenticated remote identity, delivery,
 execution, transport activation, multi-host coordination, or interoperability
 with any named provider. Capability claims and model/runtime banners remain
-non-authorizing data. The subsequent program sequence is 4C-0
-capability/identity/runtime-attestation profile, 4C-1 principal-bound
+non-authorizing data. The subsequent program sequence is 4C-0 capability
+profile and evidence taxonomy, 4C-1 principal-bound
 authenticated-local semantic path, 4D offline delivery-attempt and transport
 conformance, then 4E deterministic two-host coordinator simulation. Public or
 remote activation remains human-gated.

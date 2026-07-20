@@ -15,7 +15,9 @@
     "dormant-internal-durable-verified",
     "implemented-public-ingress",
     "documented",
+    "static-profiled",
     "static-config-verified",
+    "static-translation-verified",
     "process-handshake-verified",
     "semantic-tool-verified",
     "runtime-launch-verified",
@@ -92,7 +94,7 @@
       "status": "runtime-launch-verified",
       "evidence": [
         "src/runtime",
-        "test/runtime"
+        "test/runtime-adapter.test.ts"
       ],
       "notes": "Internal adapter only; public runtime selection remains deferred."
     },
@@ -101,7 +103,7 @@
       "status": "runtime-launch-verified",
       "evidence": [
         "src/runtime",
-        "test/runtime"
+        "test/runtime-adapter.test.ts"
       ],
       "notes": "Deterministic local proof adapter; no provider, network, or credentials."
     },
@@ -198,7 +200,7 @@
         "docs/A2A-PROGRAM.md",
         "docs/A2A-INGRESS-CONTRACT-v0.1.md"
       ],
-      "notes": "Absent from the MCP registry pending Slice 4C-0 capability/identity/runtime-attestation profile, Slice 4C-1 principal-bound authenticated-local evidence, and a separate human-gated public-ingress review."
+      "notes": "Absent from the MCP registry pending Slice 4C-0 capability profile and evidence taxonomy, Slice 4C-1 principal-bound authenticated-local evidence, and a separate human-gated public-ingress review."
     }
   ],
   "gates": [

@@ -39,10 +39,13 @@ once by canonical field name with a reason and optional suggestion.
 
 The static command/argv shapes in this document are bounded target-profile
 templates for offline translation fixtures, not observed process data. The
-current allowlisted template is exactly `command: "npx"` with
-`argv: ["-y", "meshfleet"]`. It is nonsecret configuration shape only and
-MUST NOT prove that a process ran, a client accepted the configuration, or a
-capability, runtime identity, authorization, delivery, or execution exists.
+source-neutral Slice 4C-0 representation is the closed `launch_template`
+object with `template_id: "meshfleet.mcp-stdio/v1"`, `command: "npx"`, and the
+order-sensitive `argv_template: ["-y", "meshfleet"]`. The existing renderer
+input projects that same literal shape as `command: ["npx", "-y",
+"meshfleet"]`. It is nonsecret configuration shape only and MUST NOT prove
+that a process ran, a client accepted the configuration, or a capability,
+runtime identity, authorization, delivery, or execution exists.
 
 No caller- or runtime-supplied command data is eligible for this exception.
 Observed argv, prompts, dynamic arguments, paths, CWD, environment names or
@@ -90,3 +93,6 @@ deterministic loss records, and never turn a provider/model label into runtime
 attestation or authorization. Environment values are structurally forbidden;
 working-directory information is only a bounded `cwd_policy` enum. This is a
 designed offline profile, not a new renderer, provider adapter, or activation.
+Its source-neutral translation input, result, feature, provenance, and loss
+schemas are closed in that profile. They do not change the existing Slice 3B
+renderer API or elevate its evidence status.

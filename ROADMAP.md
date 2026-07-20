@@ -34,7 +34,7 @@ The ranked A2A strategy is canonical in
    pre-migration WAL-safe backup. No hidden lazy schema, raw identity/content
    storage, legacy/lifecycle/outbox projection, auth, delivery, public tool, or
    activation.
-6. **Slice 4C-0 capability/identity/runtime-attestation profile** - next:
+6. **Slice 4C-0 capability profile and evidence taxonomy** - next:
    contract accepted in [A2A Capability Profile v0.1](docs/A2A-CAPABILITY-PROFILE-v0.1.md) and
    [ADR 0006](docs/adr/0006-capability-evidence-is-not-authority.md); implementation remains
    pure offline TS/Python validation, canonicalization, fingerprints, contradictions, and

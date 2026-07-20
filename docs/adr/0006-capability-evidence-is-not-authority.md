@@ -24,9 +24,13 @@ Slice 4C-0 is cryptographic-neutral. It reserves bounded carrier metadata for
 issuer, audience, challenge/nonce, validity, proof format, and verification
 method reference, but it defines no algorithm, key format, trust store,
 signature verification, key discovery, key rotation, revocation, or replay
-database. A purported `attested` claim without a future verifier is
-`unverified` or `unsupported`, not `verified`, and cannot influence routing or
-policy.
+database. A purported `attested` claim in Slice 4C-0 deterministically reports
+`unsupported`, never `verified`, and cannot influence routing or policy.
+
+Raw profiles contain provenance and an optional closed proof carrier only.
+`verification_status` and every verification report field are computed output;
+their presence in raw input is rejected. The Slice 4C-0 witness can report only
+`absent` for no carrier or `unsupported` for a structurally valid carrier.
 
 The profile remains dormant: it does not add public `send_a2a`, a principal
 provider, an authorization decision, runtime selection, provider API call,

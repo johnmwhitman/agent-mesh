@@ -1,412 +1,783 @@
 # A2A Capability Profile v0.1
 
 **Status:** Designed, not implemented. This is a pure offline and dormant
-profile contract for Slice 4C-0. It creates no public ingress, principal
-provider, authorization decision, runtime selection, provider call, network
-operation, persistence, delivery, execution, cryptographic verification, or
-activation.
+contract for Slice 4C-0 capability profile and evidence taxonomy. It creates no
+public ingress, principal provider, authentication or authorization decision,
+runtime selection, provider call, network operation, persistence, delivery,
+execution, cryptographic verification, or activation.
 
-## Purpose and boundary
+## 1. Purpose and authority boundary
 
-This profile describes bounded discovery evidence about an adapter, agent,
-runtime, transport, protocol, provider label, model label, or capability. It is
-a sidecar document. It MUST NOT mutate a `meshfleet.a2a` envelope, alter an
-envelope digest, or be serialized as an envelope extension with protocol
-authority.
+The profile is a sidecar discovery document. It describes bounded evidence about
+capabilities, protocols, transports, runtimes, providers, and models. It MUST NOT
+mutate a meshfleet.a2a envelope, alter an envelope digest, expand recipients,
+select a runtime, invoke a provider, write a database, or grant authority.
 
 The terms MUST, MUST NOT, SHOULD, SHOULD NOT, and MAY are normative.
 
-A capability profile is evidence only. It MUST NOT authenticate a principal,
-authorize an action, choose a runtime, expand recipients, create a delivery
-attempt, invoke a provider, or cause a durable write. A profile fingerprint is
-an equivalence digest only; it is not a signature, identity assertion,
-authorization decision, receipt, delivery acknowledgement, execution result, or
-attestation.
+A profile fingerprint proves only equivalence of accepted normalized profile
+content. It is not a signature, identity assertion, authorization decision,
+receipt, delivery acknowledgement, execution result, or runtime attestation.
 
-## Independent evidence axes
+## 2. Independent evidence axes
 
-The following axes are independent. An implementation MUST NOT collapse them
-into a ranked authority ladder, derive a value on one axis from another, or
-treat `authorized` as an evidence level.
+These axes are independent and MUST NOT be collapsed into an authority ladder:
 
-| Axis | Values | Meaning and boundary |
+| Axis | Closed values or source | Boundary |
 |---|---|---|
-| Claim provenance | `advertised`, `reported`, `observed`, `attested` | Who supplied or bounded the assertion. This is not principal authentication or authorization. |
-| Proof verification | `absent`, `unverified`, `verified`, `stale`, `rejected`, `unsupported` | Result of a proof verifier. Slice 4C-0 implements none; `verified` is reserved for a future approved verifier. |
-| Principal authentication | External | A current caller/session property, never represented or inferred by this profile. |
-| Authorization | External and action-specific | A current local decision over a principal, bound sender, action, target, and time. It is never profile output. |
-| Conformance maturity | `documented`, `static-profiled`, `static-config-verified`, `static-translation-verified`, `process-handshake-verified`, `semantic-tool-verified`, `runtime-launch-verified`, `recovery-verified` | Evidence scope for a test or observed behavior, not a trust level. |
-| Local persistence | External | A local ledger or journal fact. A durable receipt is not identity, delivery, execution, or attestation evidence. |
+| Claim provenance | advertised, reported, observed, attested | Describes how a claim was supplied. It does not authenticate or authorize. |
+| Proof verification | absent, unverified, verified, stale, rejected, unsupported | Computed report output only. It is forbidden in raw input. |
+| Principal authentication | External to this profile | A current caller/session property. |
+| Authorization | External and action-specific | A current local decision over principal, sender, action, target, and time. |
+| Conformance maturity | documented, static-profiled, static-config-verified, static-translation-verified, process-handshake-verified, semantic-tool-verified, runtime-launch-verified, recovery-verified | Test scope, never trust or authority. |
+| Local persistence | External to this profile | A local record fact only. |
 
-`advertised` means a subject or configuration self-described a claim.
-`reported` means an adapter or runtime relayed the claim. `observed` means a
-named local observer recorded bounded behavior. `attested` means an issuer
-purports to have issued a proof-bound claim; without an approved future
-verifier it MUST have proof verification `unverified` or `unsupported` and
-MUST NOT influence routing or policy.
+The word authorized is never an evidence value. Provider and model banners are
+not attestation. A durable receipt is not identity, authorization, delivery,
+execution, or proof-verification evidence.
 
-A provider or model banner is at most `advertised`, `reported`, or `observed`
-unless a future verifier produces separate valid proof-verification evidence.
-It is never runtime attestation merely because it names Codex, Claude Code,
-Gemini, Grok, OpenCode, or a model version.
+An attested provenance label means only that raw proof-carrier fields are
+present. Slice 4C-0 has no verifier. Every accepted attested claim therefore
+reports proof verification unsupported and is unusable for routing or policy.
 
-## Profile JSON model
+## 3. Shared lexical and numeric grammar
 
-The raw profile is one strict JSON object with exactly these required fields
-and the optional fields described below. The `fingerprint` is an output of
-canonicalization and MUST NOT appear in the raw profile.
+All regex-like grammars below are anchored to the complete ASCII string.
 
-```json
-{
-  "profile_version": "meshfleet.a2a.capability-profile/v0.1",
-  "profile_id": "cp_AbCdEf0123456789_-AbCd",
-  "revision": 1,
-  "issuer": {
-    "kind": "adapter",
-    "ref": "ref_AbCdEf0123456789_-AbCd"
-  },
-  "subject": {
-    "kind": "runtime",
-    "ref": "ref_ZyXwVu9876543210_-ZyXw"
-  },
-  "issued_at_ms": 1760000000000,
-  "expires_at_ms": 1760086400000,
-  "claims": [],
-  "extensions": {},
-  "critical_extensions": []
-}
-```
+| Name | Grammar and bound |
+|---|---|
+| opaque-ref | ref_ followed by 20 through 84 base64url characters from A-Z, a-z, 0-9, underscore, hyphen |
+| profile-id | cp_ followed by 20 through 84 base64url characters |
+| claim-id | clm_ followed by 20 through 84 base64url characters |
+| nonce | nonce_ followed by 20 through 84 base64url characters |
+| canonical-id | [a-z][a-z0-9]*(?:[.-][a-z0-9]+)*, 1 through 96 bytes |
+| exact-version | 0 or a nonzero decimal integer, a dot, 0 or a nonzero decimal integer, and an optional third dot component; at most 32 bytes |
+| protocol-ref | canonical-id, slash, exact-version; at most 129 bytes |
+| ascii-label | [A-Za-z0-9][A-Za-z0-9._+@-]{0,95} |
+| environment-name | [A-Za-z_][A-Za-z0-9_]{0,63} |
+| proof-digest | sha256: followed by exactly 64 lowercase hexadecimal characters |
+| extension-key | x-[a-z][a-z0-9-]*(?:[.][a-z][a-z0-9-]*)+, 3 through 96 bytes |
+| extension-token | [A-Za-z0-9][A-Za-z0-9._+@-]{0,95} |
+| field-path | dollar sign followed by one or more dot-name or decimal array-index segments; names use [a-z][a-z0-9_]*; at most 256 bytes |
 
-`profile_version` MUST exactly equal
-`meshfleet.a2a.capability-profile/v0.1`. Unknown versions, including unknown
-minor versions, MUST fail closed until an explicit version-negotiation profile
-exists. `profile_id` is an issuer-stable opaque identifier, not a principal.
-`revision` MUST be a positive safe integer. For one `(issuer.ref, profile_id)`
-pair, a later profile MAY use a greater revision; it MUST NOT reuse the same
-revision with different canonical content.
+Integers MUST be safe JSON integers in
+[-9007199254740991, 9007199254740991]. Epoch-millisecond fields MUST be
+nonnegative safe integers. No grammar above permits whitespace, a URL scheme,
+a filesystem separator, a colon except proof-digest, an equals sign, a shell
+substitution, or free-form prose.
 
-`issuer.kind` MUST be one of `agent`, `adapter`, `runtime`, or `authority`.
-`subject.kind` MUST be one of `agent`, `adapter`, `runtime`, or `transport`.
-All `ref` values MUST use the opaque-reference grammar below. Subject refs MUST
-be pairwise and audience-scoped in their producing system. They MUST NOT be a
-global provider-account, host, machine, process, principal, request, message,
-or persistent cross-audience runtime identifier.
+Opaque references constrain representation only. They do not authenticate,
+encrypt, or prove that their producer avoided embedding identifying data.
+Producers MUST create pairwise audience-scoped subject references and MUST NOT
+reuse global provider-account, host, machine, process, principal, request,
+message, or cross-audience runtime identifiers.
 
-An opaque reference is ASCII `ref_` followed by 20 through 84 base64url
-characters (`A-Z`, `a-z`, `0-9`, `_`, `-`). A profile ID is ASCII `cp_` and a
-claim ID is ASCII `clm_`, each followed by 20 through 84 base64url characters.
-These grammars constrain representation only; they neither authenticate nor
-hide a value. Producers MUST generate opaque values rather than embedding a
-raw identity.
+## 4. Strict JSON domain and global bounds
 
-`issued_at_ms` and `expires_at_ms` MUST be non-negative safe integer epoch
-milliseconds, and `expires_at_ms` MUST be greater than `issued_at_ms`. A
-profile is stale at or after `expires_at_ms`. Expiry makes discovery evidence
-unusable; it does not revoke a principal, alter an envelope, or invalidate a
-prior durable-acceptance record.
+The raw profile uses the strict JSON and canonical byte-tree domain from
+A2A-PROTOCOL-v0.1.md:
 
-### Claim model
+- Raw UTF-8 input is at most 131072 bytes.
+- The JSON tree is at most 64 containers deep, with the root at depth 1.
+- Duplicate object members, including escape-equivalent names, are invalid.
+- Nonstandard numeric constants, unsafe integers, unsupported values, cycles,
+  accessors, non-plain objects, sparse arrays, and invalid Unicode scalars are
+  invalid.
+- Object schemas are closed. Any unlisted core member is UNKNOWN_CORE_FIELD.
+- Computed report fields in raw input are FORBIDDEN_COMPUTED_FIELD.
+- Diagnostics return fixed codes and JSON paths only. They MUST NOT echo values.
 
-Each `claims` member MUST have this form:
+## 5. Raw profile schema
 
-```json
-{
-  "claim_id": "clm_AbCdEf0123456789_-AbCd",
-  "kind": "capability",
-  "value": { "id": "a2a.discovery@v1", "state": "supported" },
-  "applicability": {
-    "protocol_versions": ["meshfleet.a2a.envelope/v0.1"],
-    "transport_families": ["stdio"],
-    "operations": ["discover"]
-  },
-  "provenance": {
-    "level": "observed",
-    "issuer_ref": "ref_AbCdEf0123456789_-AbCd",
-    "observed_at_ms": 1760000001000,
-    "probe_ref": "ref_ZyXwVu9876543210_-ZyXw"
-  },
-  "proof": {
-    "verification_status": "absent"
-  },
-  "issued_at_ms": 1760000000000,
-  "expires_at_ms": 1760086400000,
-  "extensions": {},
-  "critical_extensions": []
-}
-```
+A raw profile is one closed object. Every listed member is required and no other
+core member is allowed:
 
-`claim_id` MUST be unique within a profile. `kind` MUST be exactly one of
-`capability`, `protocol`, `transport`, `runtime`, `identity`, `provider`, or
-`model`. `value` MUST be a strict JSON object with at most 16 members and no
-member whose name can express authority, including `allow`, `authorize`,
-`authorized`, `admin`, `trusted`, `principal`, `policy`, `recipient`, or
-`runtime_selection`.
+    {
+      "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+      "profile_id": "cp_AbCdEf0123456789_-AbCd",
+      "revision": 1,
+      "issuer": {
+        "kind": "adapter",
+        "ref": "ref_AbCdEf0123456789_-AbCd"
+      },
+      "subject": {
+        "kind": "runtime",
+        "ref": "ref_ZyXwVu9876543210_-ZyXw"
+      },
+      "issued_at_ms": 1760000000000,
+      "expires_at_ms": 1760086400000,
+      "claims": [],
+      "extensions": {},
+      "critical_extensions": []
+    }
 
-`applicability` is required and contains only `protocol_versions`,
-`transport_families`, and `operations`, each an ordered unique array. It
-describes where a claim can be evaluated; it is not an authorization scope,
-permission grant, recipient selector, or runtime-selection directive.
-`protocol_versions` has at most 16 entries, `transport_families` at most 16,
-and `operations` at most 32. Every member is an ASCII identifier of at most 96
-characters. Wildcards, aliases, empty members, and provider names used as
-capability IDs are invalid.
+profile_version MUST equal
+meshfleet.a2a.capability-profile/v0.1. Unknown versions, including unknown minor
+versions, fail closed. profile_id uses profile-id. revision is a positive safe
+integer.
 
-Core capability IDs MUST use the ASCII, case-canonical grammar
-`[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*@v[1-9][0-9]*`, and MUST be registry-defined
-before they can be treated as supported. A translator MUST preserve an
-unrecognized or target-unsupported capability as explicit `unsupported`,
-`unknown`, or `not-represented`; it MUST NOT infer support or silently widen a
-claim. Provider-specific values belong in a namespaced extension and cannot
-modify core semantics.
+issuer is a closed object with exactly kind and ref. issuer.kind is agent,
+adapter, runtime, or authority. subject is a closed object with exactly kind and
+ref. subject.kind is agent, adapter, runtime, or transport. Both refs use
+opaque-ref.
 
-`provenance.level` is required. `reported`, `observed`, and `attested` MUST
-include an opaque `issuer_ref`. `observed` MUST include `observed_at_ms` and a
-bounded `probe_ref` using the opaque-reference grammar. `attested` MUST include
-a `proof` object with an issuer, audience, freshness window, and proof carrier
-metadata as defined below. `issued_at_ms` and `expires_at_ms` use the same time
-rules as the profile and MUST fall within the profile time window.
+issued_at_ms MUST be less than expires_at_ms. A profile is expired at or after
+expires_at_ms. Expiry makes discovery evidence stale; it does not revoke a
+principal, modify an envelope, or invalidate an earlier durable acceptance.
 
-### Reserved proof carrier
+claims contains zero through 128 claims. An empty claims array is an explicit
+no-claims/unknown discovery profile. It proves no capability, is not wildcard
+support, is not proof of unsupported capability, and cannot select a route,
+runtime, or policy. Unsupported capability is expressed only by an explicit
+applicable claim with state unsupported.
 
-`proof` is required. In v0.1 it contains `verification_status` and MAY reserve
-the following fields:
+extensions is the closed extension map in Section 9. critical_extensions is the
+extension-name set in Sections 9 and 10.
 
-```json
-{
-  "verification_status": "unsupported",
-  "proof_format": "future.example/proof-v1",
-  "verification_method_ref": "ref_AbCdEf0123456789_-AbCd",
-  "issuer_ref": "ref_AbCdEf0123456789_-AbCd",
-  "audience_ref": "ref_ZyXwVu9876543210_-ZyXw",
-  "challenge": "nonce_AbCdEf0123456789_-AbCd",
-  "not_before_ms": 1760000000000,
-  "expires_at_ms": 1760000300000
-}
-```
+## 6. Closed common claim schema
 
-`proof_format` is ASCII, case-sensitive, and at most 96 characters.
-`verification_method_ref`, `issuer_ref`, and `audience_ref` use the opaque
-reference grammar. `challenge` uses ASCII `nonce_` followed by 20 through 84
-base64url characters. Proof validity values are non-negative safe integers with
-`not_before_ms <= expires_at_ms`; they MUST be enclosed by the claim window.
+Every claim is a closed object. These members are required for every kind:
 
-Slice 4C-0 defines no cryptographic suite, signature encoding, key format,
-trust store, issuer namespace, key discovery, key rotation, revocation,
-audience/session binding, nonce replay store, or verification operation. A
-v0.1 validator MUST NOT return `verified`. It MUST return `absent` if no proof
-material is supplied and `unsupported` for a well-formed reserved carrier; it
-MAY return `unverified`, `stale`, or `rejected` only as a non-authorizing
-structural/freshness result. `Ed25519`, JWS, COSE, VC Data Integrity, and
-SD-JWT are not standardized by this profile.
+- claim_id
+- kind
+- applicability
+- provenance
+- issued_at_ms
+- expires_at_ms
+- extensions
+- critical_extensions
+- the exact kind-specific members in Section 8
 
-## Strict JSON, bounds, extensions, and privacy
+proof is the only optional common member. No value member exists. No custom
+claim kind or unknown core member is allowed.
 
-The profile uses the strict JSON and canonical byte-tree rules from
-[A2A Protocol v0.1](./A2A-PROTOCOL-v0.1.md). Raw input MUST reject duplicate
-members recursively, nonstandard numeric constants, unsupported JSON values,
-unpaired Unicode surrogates, unsafe integral numbers, and cyclic or
-non-plain object-level input. The raw UTF-8 input MUST be at most 128 KiB
-(`131072` bytes), the tree MUST be at most 64 containers deep, and canonical
-encoding MUST fit within the same bound.
+claim_id uses claim-id and MUST be unique within one source profile. kind is
+exactly capability, transport, protocol, runtime, provider, or model.
+issued_at_ms and expires_at_ms obey the profile time grammar and the entire
+claim window MUST be within the profile window.
 
-A profile contains zero through 128 claims. An empty `claims` array is an
-explicit no-claims/unknown discovery profile: it proves only that this profile
-asserts no capabilities. It MUST NOT be treated as wildcard support, proof
-that a capability is unsupported, or a basis to select a runtime, route work,
-or make policy. Capability absence is represented only by an explicit,
-applicable `unsupported` claim from an otherwise valid profile.
+### 6.1 Applicability
 
-The profile contains at most 32 profile-level extension members and each claim
-contains at most 16 extension members.
-`critical_extensions` contains at most 16 unique ASCII extension names. An
-extension name MUST be case-sensitive, 3 through 96 ASCII characters, begin
-with `x-`, and include a namespace separator `.`. An unknown critical extension
-MUST reject the profile. An unknown non-critical extension MAY be retained as
-opaque strict JSON, but MUST NOT affect canonical core interpretation,
-routing, authorization, recipient expansion, runtime selection, or policy.
+applicability is a closed object with exactly these required members:
 
-Profiles MUST NOT contain raw principals, credentials, bearer material, API
-keys, PEM material, prompts, payloads, outputs, recipient lists, request or
-message identifiers, account IDs, hostnames, endpoints, paths, CWD,
-runtime-observed argv, dynamic arguments, environment names or values, process
-IDs, hardware identifiers, or global runtime fingerprints. Parsers MUST reject
-rather than redact-and-accept a field or value that encodes those categories.
-Diagnostics MUST use stable error codes and MUST NOT echo rejected values.
-Environment values are structurally forbidden in both source descriptors and
-translation outputs; a working directory can be represented only by the policy
-enums defined below.
+    {
+      "protocol_versions": ["meshfleet.a2a.envelope/0.1"],
+      "transport_families": ["stdio"],
+      "operations": ["discover"]
+    }
 
-### Static launch-template exception
+protocol_versions is a duplicate-free set of zero through 16 protocol-ref
+values. transport_families is a duplicate-free set of zero through 16
+canonical-id values. operations is a duplicate-free set of zero through 32
+canonical-id values.
 
-An offline translation fixture MAY carry a static `launch_template` only to
-represent a target-profile-defined, allowlisted command literal and argv
-literal sequence. It is configuration shape, not runtime-observed argv, and it
-MUST NOT be accepted from a caller, process, environment, prompt, or provider
-response. v0.1 permits the single target-profile-defined template:
+An empty applicability set means no assertion for that dimension. It is not a
+wildcard or authorization scope. Applicability describes where evidence can be
+compared; it never grants permission, selects a recipient, or selects a runtime.
 
-```json
-{
-  "template_id": "meshfleet.mcp-stdio/v1",
-  "command": "npx",
-  "argv": ["-y", "meshfleet"]
-}
-```
+### 6.2 Provenance
 
-Any future template requires an explicit target-profile addition. A template
-ID is ASCII, case-sensitive, and at most 96 characters. `command` and each
-argv member MUST be an allowlisted ASCII literal of at most 96 characters;
-the argv array contains at most 16 members. Literals MUST NOT contain
-whitespace, `/`, `\\`, `$`, `~`, `=`, `:`, a `..` sequence, a path, an
-environment reference, a credential, an endpoint, or a dynamic substitution.
-The template MUST NOT carry a cwd, environment name or value, prompt, runtime
-argument, process output, diagnostic, or observed command line. A static
-template MUST NOT be cited as proof that a process ran, that a target accepts
-the configuration, or that any capability, identity, authorization, delivery,
-or execution exists.
+provenance is a closed object selected by level:
 
-## Contradiction and freshness semantics
+| level | Required members | Optional members |
+|---|---|---|
+| advertised | level | none |
+| reported | level, issuer_ref | none |
+| observed | level, issuer_ref, observed_at_ms, probe_ref | none |
+| attested | level, issuer_ref | none; proof is required on the enclosing claim |
 
-The tuple `(issuer.ref, subject.ref, claim_id, profile.revision)` MUST map to
-one canonical claim. Different canonical content for that tuple is
-`CONTRADICTORY_CLAIMS`. Incompatible active claims with the same subject, kind,
-and normalized applicability also form a contradiction set. A validator MUST
-not select a preferred claim merely because one provenance label appears more
-promising. A contradicted capability is unavailable until an external policy
-explicitly resolves it. Expired claims are unavailable for compatibility
-selection. Contradictions and expiry never make an authorization decision.
+issuer_ref and probe_ref use opaque-ref. observed_at_ms MUST be within the claim
+window. A reported or observed assertion remains non-authorizing. A provider or
+model label is never promoted to attested by observation.
 
-## Canonicalization and fingerprint
+### 6.3 Raw proof carrier
 
-Normalization validates this document, preserves array order where order is
-meaningful, and sorts object keys by unsigned UTF-8 bytes through the existing
-canonical tree. The profile fingerprint is exactly:
+proof is a closed raw-input object. It MAY occur with any provenance and MUST
+occur when provenance.level is attested. It has exactly these required members:
 
-```text
-meshfleet.a2a.capability-profile.v1:sha256:<64-lowercase-hex>
-```
+- issuer_ref
+- audience_ref
+- issued_at_ms
+- not_before_ms
+- expires_at_ms
+- challenge
+- proof_format
+- verification_method_ref
+- exactly one of proof_digest or proof_ref
+
+issuer_ref, audience_ref, verification_method_ref, and proof_ref use opaque-ref.
+challenge uses nonce. proof_format uses ascii-label. proof_digest uses
+proof-digest. proof.issuer_ref MUST equal provenance.issuer_ref when provenance
+is reported, observed, or attested.
+
+The proof window obeys:
+
+    claim.issued_at_ms <= proof.issued_at_ms
+    proof.issued_at_ms <= proof.not_before_ms
+    proof.not_before_ms < proof.expires_at_ms
+    proof.expires_at_ms <= claim.expires_at_ms
+
+proof contains no signature bytes, certificate, key, URL, payload, or computed
+status. verification_status, verification_report, verified_at_ms,
+verifier_ref, and failure_reason are forbidden raw fields and produce
+FORBIDDEN_COMPUTED_FIELD.
+
+Slice 4C-0 defines no proof algorithm, trust store, issuer namespace, key
+discovery, key rotation, revocation, audience/session verifier, nonce replay
+store, or cryptographic operation.
+
+## 7. Computed proof-verification report
+
+Proof verification is report output, never profile input. A validator MAY emit
+this closed result for each claim:
+
+    {
+      "claim_id": "clm_AbCdEf0123456789_-AbCd",
+      "verification_status": "unsupported"
+    }
+
+The report object contains exactly claim_id and verification_status.
+verification_status is one of absent, unverified, verified, stale, rejected, or
+unsupported.
+
+For accepted v0.1 profiles, the deterministic result is:
+
+- absent when the claim has no proof;
+- unsupported when the claim has a structurally valid proof.
+
+unverified, verified, stale, and rejected are reserved for a future verifier
+profile and MUST NOT be produced by the Slice 4C-0 witness. Invalid or expired
+raw profiles fail profile validation instead of producing a proof verdict.
+An attested claim always reports unsupported in v0.1 and is unusable for routing
+or policy.
+
+The proof-results array in a computed report is semantically unordered and
+normalizes by claim_id using unsigned ASCII byte order.
+
+## 8. Closed claim-kind schemas
+
+All states are exactly supported, unsupported, or unknown.
+
+| kind | Required kind-specific members | Grammar | Semantic contradiction |
+|---|---|---|---|
+| capability | capability_id, state | capability_id uses canonical-id | supported versus unsupported for one semantic key |
+| transport | transport_id, state | transport_id uses canonical-id | supported versus unsupported for one semantic key |
+| protocol | protocol_id, protocol_version, state | protocol_id uses canonical-id; protocol_version uses exact-version | supported versus unsupported for one semantic key including version |
+| runtime | runtime_label | runtime_label uses ascii-label | none in v0.1 |
+| provider | provider_label | provider_label uses ascii-label | none in v0.1 |
+| model | model_label | model_label uses ascii-label | none in v0.1 |
+
+Examples of complete kind-specific fragments are:
+
+    {"kind":"capability","capability_id":"a2a.discovery","state":"supported"}
+    {"kind":"transport","transport_id":"stdio","state":"unknown"}
+    {"kind":"protocol","protocol_id":"meshfleet.a2a.envelope","protocol_version":"0.1","state":"supported"}
+    {"kind":"runtime","runtime_label":"local-process"}
+    {"kind":"provider","provider_label":"opencode"}
+    {"kind":"model","model_label":"gpt-5.5"}
+
+These fragments are not standalone claims; every common required member still
+applies. Distinct protocol versions may coexist. Distinct runtime, provider, and
+model labels are descriptive and do not semantically contradict each other.
+
+## 9. Extensions and deterministic privacy
+
+extensions is a closed object whose member names use extension-key. The profile
+has at most 32 extension members; each claim and translation object has at most
+16.
+
+An extension value is exactly one of:
+
+- a boolean;
+- a safe integer;
+- an extension-token;
+- an array of zero through 16 booleans, safe integers, or extension-token
+  strings.
+
+Objects, null, floating-point numbers, nested arrays, mixed structured records,
+Unicode text, free-form prose, paths, URLs, endpoints, credentials, secret
+material, PEM text, bearer text, prompts, payloads, output, diagnostics, and raw
+runtime argv are not extension-safe values.
+
+Unknown noncritical extensions MUST be preserved exactly after strict
+normalization and MUST be included in claim and profile fingerprints. Object
+member order is canonicalized by the byte tree. An array inside an extension
+safe value retains input order; reordering it changes canonical bytes.
+
+critical_extensions is a duplicate-free set of extension-key values. Each
+member MUST name a member present in the same extensions object. Slice 4C-0
+defines no known critical extension, so every nonempty critical_extensions set
+is UNSUPPORTED_CRITICAL_EXTENSION. Unknown noncritical extension members remain
+accepted and preserved.
+
+## 10. Complete array normalization taxonomy
+
+No array rule is implicit. These are every arrays in the raw profile,
+translation schemas, extension-safe values, and computed report:
+
+| Array field | Meaning | Normalization |
+|---|---|---|
+| profile.claims | Semantically unordered claims | Fully normalize each claim, encode its canonical bytes, then sort claims by unsigned lexicographic comparison of those bytes. |
+| profile.critical_extensions | Set | Reject duplicates; sort by unsigned ASCII bytes. |
+| claim.applicability.protocol_versions | Set | Reject duplicates; sort by unsigned ASCII bytes. |
+| claim.applicability.transport_families | Set | Reject duplicates; sort by unsigned ASCII bytes. |
+| claim.applicability.operations | Set | Reject duplicates; sort by unsigned ASCII bytes. |
+| claim.critical_extensions | Set | Reject duplicates; sort by unsigned ASCII bytes. |
+| extension safe-value array | Ordered sequence | Retain input order exactly. |
+| translation input.source_profile arrays | Profile data | Apply the profile and claim rules above. |
+| translation input.launch_template.argv_template | Ordered sequence | Retain input order exactly; v0.1 permits only the exact template sequence in Section 13. |
+| translation input.env_names | Set | Reject duplicates; sort by unsigned ASCII bytes. |
+| translation input.features | Semantically unordered records | Reject duplicate feature_id; fully normalize each record and sort by its canonical bytes. |
+| translation input.provenance_refs | Set | Reject duplicates; sort by unsigned ASCII bytes. |
+| translation input.critical_extensions | Set | Reject duplicates; sort by unsigned ASCII bytes. |
+| translation result.env_names | Set | Reject duplicates; sort by unsigned ASCII bytes. |
+| translation result.features | Semantically unordered records | Reject duplicate feature_id; fully normalize each record and sort by canonical bytes. |
+| translation result.provenance_refs | Set | Reject duplicates; sort by unsigned ASCII bytes. |
+| translation result.losses | Semantically unordered records | Reject exact duplicate records; sort by field_path, target, reason_code, disposition using unsigned ASCII tuple comparison. |
+| translation result.critical_extensions | Set | Reject duplicates; sort by unsigned ASCII bytes. |
+| translation result.profile.claims and nested arrays | Profile data | Apply the profile and claim rules above. |
+| computed proof_results | Semantically unordered report records | Reject duplicate claim_id; sort by claim_id using unsigned ASCII bytes. |
+
+Static argv_template and any future field explicitly named as a sequence retain
+order. Every future array field MUST be added to this table before acceptance.
+Arrays inside preserved extension safe values retain input order.
+
+## 11. Exact contradiction semantics
+
+Comparison first validates and normalizes every source profile. It does not
+rewrite source data.
+
+### 11.1 Claim-identity contradiction
+
+The identity key is:
+
+    (issuer.ref, subject.ref, claim_id, profile.revision)
+
+Two claims with the same identity key and different fully normalized claim
+digests are contradictory. Same key and same digest is an exact duplicate.
+
+Exact duplicates coalesce for comparison output only. The comparator MUST NOT
+remove, reorder, or rewrite claims in any supplied source document.
+
+### 11.2 Semantic contradictions
+
+normalized-applicability is the tuple of the three sorted applicability sets.
+
+For capability claims the semantic key is:
+
+    (subject.ref, "capability", capability_id, normalized-applicability)
+
+For transport claims the semantic key is:
+
+    (subject.ref, "transport", transport_id, normalized-applicability)
+
+For protocol claims the semantic key is:
+
+    (subject.ref, "protocol", protocol_id, protocol_version, normalized-applicability)
+
+For one semantic key, supported conflicts with unsupported. unknown is neutral
+and never conflicts. Two supported, two unsupported, or any pair containing
+unknown are not semantic contradictions.
+
+Protocol versions are part of the key, so distinct versions coexist. Runtime,
+provider, and model claims have claim-identity contradiction only in v0.1.
+Distinct descriptive labels never form a semantic contradiction.
+
+A contradiction makes only that semantic capability unavailable to offline
+compatibility comparison. It never authenticates, denies, authorizes, routes,
+or selects a runtime.
+
+## 12. Canonicalization and fingerprint
+
+Normalization performs closed-schema validation, strict value validation,
+extension normalization, and every array rule in Section 10 before encoding.
+
+The profile fingerprint is exactly:
+
+    meshfleet.a2a.capability-profile.v1:sha256:<64-lowercase-hex>
 
 It is SHA-256 over:
 
-```text
-UTF8("meshfleet.a2a.capability-profile.v1") || 0x00 || canonical-tree(normalized-profile)
-```
+    UTF8("meshfleet.a2a.capability-profile.v1")
+    || 0x00
+    || canonical-tree(normalized-profile)
 
-`canonical-tree` is the versioned byte tree specified by
-[A2A Protocol v0.1](./A2A-PROTOCOL-v0.1.md#canonical-envelope-fingerprint-v1).
-The profile fingerprint excludes no semantic profile field, has no signature
-field to remove, and is distinct from the envelope fingerprint domain. Equal
-fingerprints prove only equality of accepted normalized profile bytes.
+canonical-tree is the versioned byte tree in A2A-PROTOCOL-v0.1.md. Computed
+verification reports are never included. Unknown noncritical extensions are
+included. Claims reordered in input normalize to the same fingerprint;
+extension safe-value arrays and argv_template sequences remain order-sensitive.
 
-## Static platform profiles and translation
+## 13. Source-neutral offline translation
 
-Translation is pure, deterministic, and offline. Its input and output MUST
-exclude environment values and absolute paths. `cwd_policy` is exactly one of
-`target-default-unknown`, `host-selected`, `explicit-reviewed`, or
-`not-represented`; it is not a path. Source and target fields not represented
-by a target MUST produce a loss record. Losses sort by unsigned UTF-8 `field`,
-then `target`, then `code`; arrays use that order in the fingerprinted result.
+Translation is a pure offline function. It MUST NOT read a process, filesystem,
+environment, credential store, database, network, provider API, runtime output,
+or diagnostic stream.
 
-| Target family | Profiled facts | Required restraint |
+### 13.1 Target and enum registries
+
+target is exactly one of:
+
+- codex
+- claude-code
+- opencode
+- generic-mcp
+- generic-cli-stdio
+- antigravity-gemini
+- grok
+- unknown-future-harness
+
+cwd_policy is exactly target-default-unknown, host-selected,
+explicit-reviewed, or not-represented. It is a policy token, never a path.
+
+feature state is exactly supported, unsupported, unknown, or not-represented.
+
+conformance_status in translation results is exactly documented,
+static-profiled, static-config-verified, or static-translation-verified.
+A producer MUST NOT emit static-translation-verified until both language
+witnesses and the shared corpus pass. The current Slice 4C-0 program status
+remains designed.
+
+### 13.2 Translation input schema
+
+A translation input is a closed object with exactly these required members:
+
+    {
+      "translation_version": "meshfleet.a2a.translation/v0.1",
+      "target": "codex",
+      "source_profile": {
+        "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+        "profile_id": "cp_AbCdEf0123456789_-AbCd",
+        "revision": 1,
+        "issuer": {"kind":"adapter","ref":"ref_AbCdEf0123456789_-AbCd"},
+        "subject": {"kind":"transport","ref":"ref_ZyXwVu9876543210_-ZyXw"},
+        "issued_at_ms": 1760000000000,
+        "expires_at_ms": 1760086400000,
+        "claims": [],
+        "extensions": {},
+        "critical_extensions": []
+      },
+      "launch_template": {
+        "template_id": "meshfleet.mcp-stdio/v1",
+        "command": "npx",
+        "argv_template": ["-y", "meshfleet"]
+      },
+      "cwd_policy": "target-default-unknown",
+      "env_names": [],
+      "features": [],
+      "provenance_refs": [],
+      "extensions": {},
+      "critical_extensions": []
+    }
+
+translation_version MUST equal meshfleet.a2a.translation/v0.1.
+source_profile MUST be a complete valid capability profile. Translation
+normalizes it but MUST NOT create, remove, promote, or rewrite any claim.
+
+launch_template is a closed object. It is exactly one of:
+
+    {"template_id":"none","command":"none","argv_template":[]}
+
+or:
+
+    {
+      "template_id":"meshfleet.mcp-stdio/v1",
+      "command":"npx",
+      "argv_template":["-y","meshfleet"]
+    }
+
+No other command or argument literal is accepted in v0.1. argv_template is
+order-sensitive. It is nonsecret configuration shape and is not evidence that
+a process ran or a target accepted the configuration.
+
+env_names contains zero through 32 environment-name values. It contains names
+only. Environment values are structurally impossible. An environment name does
+not disclose or authorize access to its value.
+
+features contains zero through 64 closed objects with exactly feature_id,
+state, and provenance_ref. feature_id uses canonical-id, state uses the feature
+state enum, and provenance_ref uses opaque-ref. provenance_refs contains zero
+through 64 opaque-ref values, and each feature.provenance_ref MUST be a member.
+
+extensions and critical_extensions obey Sections 9 and 10.
+
+The translator source schema accepts no path, URL, PEM, bearer value, prompt,
+runtime argv, dynamic argument, environment value, process output, or
+diagnostic. The exact forbidden field names, compared after ASCII case-folding,
+are:
+
+    principal_id request_id message_id recipient recipients credential
+    credentials token api_key secret password private_key pem prompt payload
+    output diagnostic diagnostics path cwd argv args argument arguments url uri
+    endpoint environment env env_values hostname pid process_id account_id
+    hardware_id receipt receipt_id
+
+If one of these fields appears anywhere outside a permitted extension namespace,
+the result is FORBIDDEN_PRIVACY_FIELD. All other unknown core fields are
+UNKNOWN_CORE_FIELD. Extension keys and values are safe by grammar and cannot
+encode path, URL, PEM, bearer, or runtime-argv syntax. Diagnostics never echo
+field values.
+
+### 13.3 Translation result schema
+
+A translation result is a closed object with exactly these required members:
+
+    {
+      "translation_version": "meshfleet.a2a.translation-result/v0.1",
+      "target": "codex",
+      "conformance_status": "documented",
+      "launch_template": {
+        "template_id": "meshfleet.mcp-stdio/v1",
+        "command": "npx",
+        "argv_template": ["-y", "meshfleet"]
+      },
+      "cwd_policy": "not-represented",
+      "env_names": [],
+      "features": [],
+      "provenance_refs": [],
+      "profile": {
+        "profile_version": "meshfleet.a2a.capability-profile/v0.1",
+        "profile_id": "cp_AbCdEf0123456789_-AbCd",
+        "revision": 1,
+        "issuer": {"kind":"adapter","ref":"ref_AbCdEf0123456789_-AbCd"},
+        "subject": {"kind":"transport","ref":"ref_ZyXwVu9876543210_-ZyXw"},
+        "issued_at_ms": 1760000000000,
+        "expires_at_ms": 1760086400000,
+        "claims": [],
+        "extensions": {},
+        "critical_extensions": []
+      },
+      "losses": [],
+      "extensions": {},
+      "critical_extensions": []
+    }
+
+profile MUST be the complete normalized source_profile. It is not an arbitrary
+object and MUST remain semantically byte-equivalent to source_profile after the
+profile normalization rules. launch_template, cwd_policy, env_names, features,
+provenance_refs, extensions, and critical_extensions use the input schemas and
+array rules.
+
+A loss record is closed with exactly field_path, target, reason_code, and
+disposition. field_path uses field-path. target uses the target enum.
+reason_code is exactly one of:
+
+- field_not_represented
+- target_schema_unknown
+- cwd_not_represented
+- environment_value_forbidden
+- capability_not_proven
+- runtime_identity_not_attested
+- semantic_gap
+- unsupported_transport
+- contradictory_provenance
+- static_template_unavailable
+- unsupported_feature
+- requires_human_gate
+
+disposition is exactly preserved_unknown, rejected, omitted_by_contract, or
+requires_human_gate. No reason, note, suggestion, message, or other free-form
+field is permitted.
+
+Loss sorting uses the unsigned ASCII tuple:
+
+    (field_path, target, reason_code, disposition)
+
+### 13.4 Target mapping
+
+No target mapping creates implicit capability claims. The output profile is the
+normalized source_profile for every target. Translation features and losses
+remain result metadata outside the profile and outside claim authority. Static
+configuration evidence remains conformance metadata outside claim authority.
+
+| target | Launch-template rule | Output-profile rule |
 |---|---|---|
-| Codex | Static MCP configuration shape for `npx -y meshfleet` and tools discovery | `static-config-verified` only; no live identity, model, streaming, cancellation, or semantic-tool claim. |
-| Claude Code | Static MCP configuration shape for `npx -y meshfleet` and tools discovery | `static-config-verified` only; no live client or runtime claim. |
-| OpenCode | Static MCP configuration shape; separately observed local runtime behavior where existing evidence records it | Configuration and runtime observations remain separate; no banner is attestation. |
-| Generic MCP | MCP stdio connection and tool discovery profile | Process-handshake evidence is not peer A2A delivery or principal authentication. |
-| Generic CLI/stdio | Explicit command/argv shape with a policy-only cwd representation | A deterministic local-process observation is not provider evidence. |
-| Antigravity/Gemini | Deferred profile only | No command, configuration schema, adapter, capability, or runtime fact may be invented. |
-| Grok | Deferred profile only | No command, configuration schema, adapter, capability, or runtime fact may be invented. |
-| Unknown future harness | Opaque target requirements and explicit unknown state | No guessed renderer; preserve unsupported requirements and losses. |
+| codex | meshfleet.mcp-stdio/v1 allowed | Preserve normalized source_profile. Static configuration shape only. Do not emit tools-discovery, runtime, model, identity, or semantic-tool claims. |
+| claude-code | meshfleet.mcp-stdio/v1 allowed | Preserve normalized source_profile. Static configuration shape only. Do not emit tools-discovery, runtime, model, identity, or semantic-tool claims. |
+| opencode | meshfleet.mcp-stdio/v1 allowed | Preserve normalized source_profile. Static configuration shape only. Existing OpenCode runtime observations remain separate observed evidence. |
+| generic-mcp | meshfleet.mcp-stdio/v1 allowed | Preserve normalized source_profile. Static MCP/stdio shape only; process-handshake or tool evidence is separate. |
+| generic-cli-stdio | meshfleet.mcp-stdio/v1 allowed | Preserve normalized source_profile. Static command template only; no process-run claim. |
+| antigravity-gemini | none required | Preserve normalized source_profile. Deferred/unverified; no command, schema, provider capability, or runtime claim may be invented. |
+| grok | none required | Preserve normalized source_profile. Deferred/unverified; no command, schema, provider capability, or runtime claim may be invented. |
+| unknown-future-harness | none required | Preserve normalized source_profile plus explicit unknown/not-represented result state; emit target_schema_unknown loss. |
 
-Feature state is exactly `supported`, `unsupported`, `unknown`, or
-`not-represented`. A translation loss is a strict JSON object with `field`,
-`target`, `code`, and `disposition`; it MAY include a fixed public reason code
-but MUST NOT carry secret, path, environment, or diagnostic content. Core loss
-codes are `field_not_represented`, `target_schema_unknown`,
-`cwd_not_represented`, `environment_values_forbidden`,
-`capability_not_proven`, `runtime_identity_not_attested`, `semantic_gap`,
-`unsupported_transport`, `contradictory_provenance`, and `requires_human_gate`.
+For antigravity-gemini, grok, and unknown-future-harness, supported input
+features are rejected as capability_not_proven unless a future canonical target
+profile supplies evidence. Unsupported, unknown, and not-represented states may
+be preserved as non-authorizing information.
 
-## Errors
+### 13.5 Mechanical result mapping
 
-Validators MUST use stable local codes and protected diagnostics. Required
-codes are:
+The translator applies these rules in order:
 
-```text
-MALFORMED_CAPABILITY_PROFILE
-UNSUPPORTED_PROFILE_VERSION
-UNSUPPORTED_CRITICAL_EXTENSION
-INVALID_OPAQUE_REFERENCE
-INVALID_PROFILE_REVISION
-INVALID_TIME_WINDOW
-INVALID_CAPABILITY_ID
-INVALID_APPLICABILITY
-INVALID_PROVENANCE
-INVALID_PROOF_CARRIER
-UNSUPPORTED_PROOF_FORMAT
-EXPIRED_CLAIM
-CONTRADICTORY_CLAIMS
-PRIVACY_VIOLATION
-UNSUPPORTED_CAPABILITY
-```
+1. Validate and normalize source_profile, then copy it byte-equivalently to
+   result.profile. No target-specific claim mutation is permitted.
+2. For codex, claude-code, opencode, generic-mcp, and generic-cli-stdio, copy a
+   valid input launch_template to the result. For antigravity-gemini, grok, and
+   unknown-future-harness, launch_template MUST be the none template; any other
+   template is rejected as static_template_unavailable.
+3. generic-cli-stdio preserves the normalized cwd_policy token. Every other
+   target emits cwd_policy not-represented; if the input was different, emit one
+   loss for $.cwd_policy with reason_code cwd_not_represented and disposition
+   omitted_by_contract.
+4. generic-cli-stdio preserves normalized env_names. Every other target emits
+   an empty env_names set; if input was nonempty, emit one loss for $.env_names
+   with reason_code field_not_represented and disposition omitted_by_contract.
+5. codex, claude-code, opencode, generic-mcp, and generic-cli-stdio preserve
+   normalized features and provenance_refs as result metadata. Deferred targets
+   preserve unsupported, unknown, and not-represented features; supported is
+   rejected as capability_not_proven.
+6. Preserve normalized safe extensions and critical_extensions. Because v0.1
+   knows no critical extension, a nonempty critical set already failed input
+   validation.
+7. Normalize and sort all emitted losses by the tuple in Section 13.3.
 
-Any future public surface MUST collapse these into a non-enumerating failure;
-detailed rejection facts remain protected local evidence.
+No mapping rule reads live state, invents evidence, or changes conformance
+status. conformance_status is supplied from the canonical status registry and
+must accurately describe evidence that already exists.
 
-## Required implementation witness and acceptance corpus
+## 14. Stable errors
 
-The next slice MUST add a pure offline TypeScript and Python witness. Each
-implementation MUST expose parsing, canonicalization, fingerprinting,
-validation, contradiction comparison, static translation, and conformance
-rendering. It MUST NOT import authorization, database, persistence, runtime,
-transport, network, provider SDK, credential, process-launch, or environment
-discovery modules.
+Validators use these stable local codes:
 
-The shared corpus MUST contain deterministic expected outcomes for:
+    MALFORMED_CAPABILITY_PROFILE
+    UNSUPPORTED_PROFILE_VERSION
+    UNKNOWN_CORE_FIELD
+    FORBIDDEN_COMPUTED_FIELD
+    FORBIDDEN_PRIVACY_FIELD
+    UNSUPPORTED_CRITICAL_EXTENSION
+    INVALID_EXTENSION_KEY
+    INVALID_EXTENSION_VALUE
+    INVALID_OPAQUE_REFERENCE
+    INVALID_PROFILE_REVISION
+    INVALID_TIME_WINDOW
+    INVALID_CLAIM_KIND
+    INVALID_CLAIM_SCHEMA
+    INVALID_CANONICAL_ID
+    INVALID_PROTOCOL_VERSION
+    INVALID_ASCII_LABEL
+    INVALID_APPLICABILITY
+    INVALID_PROVENANCE
+    INVALID_PROOF_CARRIER
+    DUPLICATE_SET_MEMBER
+    EXPIRED_PROFILE
+    EXPIRED_CLAIM
+    CONTRADICTORY_CLAIMS
+    UNSUPPORTED_CAPABILITY
+    INVALID_TRANSLATION_INPUT
+    INVALID_TRANSLATION_RESULT
+    INVALID_LOSS_RECORD
 
-1. Cross-language valid canonicalization and fingerprint vectors.
-2. Duplicate members, malformed JSON, invalid Unicode, unsafe numbers, size,
-   depth, cardinality, version, extension, identifier, and time rejection.
-3. Every independent axis, including proof status that cannot produce
-   authorization or a runtime-selection decision.
-4. Advertised/reported/observed provider and model labels, and an `attested`
-   claim whose proof remains unsupported.
-5. Expired, future, incompatible, and same-tuple/different-content claims.
-6. Capability wildcards, aliases, case variants, unknown capabilities, and
-   contradictory applicable claims.
-7. Privacy sentinels covering secrets, PEM-like material, paths, hostnames,
-   endpoints, environment values, PIDs, raw principals, and durable receipts.
-8. Deterministic Codex, Claude Code, OpenCode, generic MCP, generic CLI/stdio,
-   Antigravity/Gemini, Grok, and unknown-target translation/loss fixtures.
-9. Unsupported target features preserved as `unsupported`, `unknown`, or
-   `not-represented`, never silently widened or dropped.
-10. Structural proof-carrier validation with every proof format unsupported and
-    no trust-store, signature, network, or key-discovery operation.
-11. Import-boundary proof that neither witness imports authorization, database,
-    runtime, transport, process, network, or provider modules.
+A future public surface MUST collapse detailed codes into a non-enumerating
+failure. Protected local diagnostics may report a code and field path but MUST
+NOT echo rejected values.
 
-The corpus and witnesses are evidence of profile semantics only. They do not
-authorize a principal, prove a live provider, create an adapter certification,
-or activate any delivery path.
+## 15. Exact acceptance corpus
 
-## Standards mapping and deferred cryptography
+The shared TypeScript/Python corpus MUST include these named vectors with the
+stated result:
 
-- [A2A Protocol Specification](https://a2a-protocol.org/latest/specification/)
-  and [Agent Discovery](https://a2a-protocol.org/latest/topics/agent-discovery/)
-  inform a future peer-interaction mapping. They are not the local canonical
-  wire format. Agent Cards and capability declarations are not authorization or
-  runtime attestation.
-- [MCP Architecture](https://modelcontextprotocol.io/specification/2025-06-18/architecture)
-  and [MCP Lifecycle](https://modelcontextprotocol.io/specification/2025-06-18/basic/lifecycle)
-  inform adapter/session capability negotiation. MCP is not a peer A2A
-  protocol, and MCP initialization is not remote identity proof.
-- [W3C Verifiable Credentials Data Model v2.0](https://www.w3.org/TR/vc-data-model-2.0/),
-  [W3C Data Integrity 1.0](https://www.w3.org/TR/vc-data-integrity/),
-  [JWS](https://www.rfc-editor.org/rfc/rfc7515.html),
-  [COSE](https://www.rfc-editor.org/rfc/rfc9052.html), and
-  [SD-JWT](https://www.rfc-editor.org/rfc/rfc9901.html) are optional future
-  proof-carrier references, not required v0.1 implementations.
+| Vector | Expected result |
+|---|---|
+| profile.empty-claims | valid; no capabilities; no wildcard or unsupported inference |
+| array.claims-reordered | same normalized bytes and profile fingerprint |
+| array.claim-content-changed | different normalized bytes and fingerprint |
+| array.profile-critical-reordered | same normalized bytes |
+| array.claim-critical-reordered | same normalized bytes |
+| array.applicability-protocol-reordered | same normalized bytes |
+| array.applicability-transport-reordered | same normalized bytes |
+| array.applicability-operation-reordered | same normalized bytes |
+| array.duplicate-set-member | DUPLICATE_SET_MEMBER |
+| array.argv-template-reordered | INVALID_TRANSLATION_INPUT |
+| array.extension-sequence-reordered | valid but different normalized bytes and fingerprint |
+| claim.capability-valid | valid closed capability claim |
+| claim.transport-valid | valid closed transport claim |
+| claim.protocol-multiple-versions | valid; versions coexist |
+| claim.runtime-valid | valid descriptive runtime claim |
+| claim.provider-valid | valid descriptive provider claim |
+| claim.model-valid | valid descriptive model claim |
+| claim.unknown-kind | INVALID_CLAIM_KIND |
+| claim.unknown-core-field | UNKNOWN_CORE_FIELD |
+| claim.arbitrary-value-object | UNKNOWN_CORE_FIELD |
+| claim.invalid-state | INVALID_CLAIM_SCHEMA |
+| contradiction.identity-pair | CONTRADICTORY_CLAIMS |
+| contradiction.exact-duplicate | coalesced for comparison only; source unchanged |
+| contradiction.capability-supported-unsupported | CONTRADICTORY_CLAIMS |
+| contradiction.capability-unknown-supported | no contradiction |
+| contradiction.transport-supported-unsupported | CONTRADICTORY_CLAIMS |
+| contradiction.protocol-same-version | CONTRADICTORY_CLAIMS |
+| contradiction.protocol-different-version | no contradiction |
+| contradiction.runtime-distinct-labels | no semantic contradiction |
+| contradiction.provider-distinct-labels | no semantic contradiction |
+| contradiction.model-distinct-labels | no semantic contradiction |
+| proof.raw-verification-status | FORBIDDEN_COMPUTED_FIELD |
+| proof.raw-verification-report | FORBIDDEN_COMPUTED_FIELD |
+| proof.attested-complete | valid; computed verification_status unsupported; unusable for routing/policy |
+| proof.attested-missing-field | INVALID_PROOF_CARRIER |
+| proof.nonattested-absent | valid; computed verification_status absent |
+| extension.unknown-noncritical-preserved | valid; exact safe value retained and fingerprinted |
+| extension.object-member-reordered | same normalized bytes and fingerprint |
+| extension.safe-array-reordered | valid but different normalized bytes and fingerprint |
+| extension.unknown-critical | UNSUPPORTED_CRITICAL_EXTENSION |
+| extension.nested-or-free-form | INVALID_EXTENSION_VALUE |
+| privacy.forbidden-field-names | FORBIDDEN_PRIVACY_FIELD for every listed field name |
+| privacy.path-url-pem-bearer-token | rejected by the closed translator or extension grammar; diagnostics contain no value |
+| privacy.runtime-argv-dynamic | FORBIDDEN_PRIVACY_FIELD |
+| translation.each-target-minimal | exact normalized input/result for all eight target values |
+| translation.codex-no-tools-discovery | no tools-discovery claim |
+| translation.claude-no-tools-discovery | no tools-discovery claim |
+| translation.opencode-runtime-separate | no inferred observed or attested runtime claim |
+| translation.deferred-target-no-command | none template and explicit loss |
+| translation.env-names-only | valid names; any value field rejected |
+| translation.feature-state-four-values | exact supported/unsupported/unknown/not-represented behavior |
+| translation.loss-order | exact unsigned tuple order |
+| translation.loss-free-form-reason | INVALID_LOSS_RECORD |
+| status.registry-values | matrix contains static-profiled and static-translation-verified exactly once |
+| status.runtime-evidence-pointer | matrix and compatibility point to test/runtime-adapter.test.ts |
+| status.slice-name | canonical surfaces use capability profile and evidence taxonomy |
+| import.offline-boundary | no auth, DB, runtime, transport, process, network, provider, credential, or environment-discovery imports |
 
-Protocol-envelope, transport-binding, evidence-profile, and cryptosuite
-versions MUST remain independent. No proof carrier can be adopted until an ADR
-defines trust roots, issuer namespaces, rotation, revocation, audience/session
-binding, replay handling, privacy, and verifier behavior.
+The corpus MUST also retain the strict malformed JSON, duplicate-key, invalid
+Unicode, unsafe-number, size, depth, time, version, and canonical byte-tree
+vectors inherited from A2A-PROTOCOL-v0.1.md.
+
+## 16. Pure offline witness
+
+The next implementation MUST add independent TypeScript and Python witnesses for
+parsing, normalization, fingerprinting, validation, contradiction comparison,
+translation, loss rendering, and computed proof-status reporting.
+
+Neither witness may import authorization, database, persistence, runtime,
+transport, process launch, network, provider SDK, credential, environment
+inspection, or live configuration modules. The witness and corpus establish
+profile semantics only. They do not establish authentication, authorization,
+runtime selection, live provider compatibility, delivery, execution,
+cryptographic verification, or activation.
+
+## 17. Standards mapping
+
+- A2A Protocol Specification and Agent Discovery are peer-interaction and
+  discovery mappings, not the canonical local wire. Agent Cards and capability
+  declarations are not authorization or runtime attestation:
+  https://a2a-protocol.org/latest/specification/
+  https://a2a-protocol.org/latest/topics/agent-discovery/
+- MCP Architecture and Lifecycle define host-mediated adapter/session roles,
+  version negotiation, and capability negotiation. MCP is not the peer A2A
+  protocol, and MCP initialization is not remote identity proof:
+  https://modelcontextprotocol.io/specification/2025-06-18/architecture
+  https://modelcontextprotocol.io/specification/2025-06-18/basic/lifecycle
+- W3C Verifiable Credentials Data Model v2.0 is a data and credential model:
+  https://www.w3.org/TR/vc-data-model-2.0/
+- W3C Data Integrity 1.0 is a proof framework:
+  https://www.w3.org/TR/vc-data-integrity/
+- JWS and COSE define signed structures:
+  https://www.rfc-editor.org/rfc/rfc7515.html
+  https://www.rfc-editor.org/rfc/rfc9052.html
+- SD-JWT is a selective-disclosure token format:
+  https://www.rfc-editor.org/rfc/rfc9901.html
+
+Verifiable Credentials, Data Integrity, JWS, COSE, and SD-JWT are optional
+future proof-carrier references, not v0.1 implementations. Protocol-envelope,
+transport-binding, evidence-profile, and cryptosuite versions remain
+independent. A future proof carrier requires a separate ADR for trust roots,
+issuer namespaces, rotation, revocation, audience/session binding, replay,
+privacy, and verifier behavior.
