@@ -64,6 +64,24 @@ names, empty unquoted values, malformed parameters, and extra slashes are
 rejected. These rules do not promote the reference witness to public or durable
 ingress.
 
+The strict raw envelope decoder is capped at 128 KiB UTF-8 and 64 nesting
+levels. It rejects malformed/non-finite JSON and recursive duplicate decoded
+keys, including escape-equivalent spellings, before object-level
+`validateEnvelope`. Object validation alone makes no raw-source guarantee.
+
+Canonical identity comparison uses exactly
+`meshfleet.a2a.fingerprint.v1:sha256:<hex>`. SHA-256 covers a domain prefix,
+zero separator, and custom tagged canonical tree of the normalized envelope
+only. The tree uses explicit JSON type tags, unsigned 64-bit big-endian string
+lengths and collection counts, Unicode-scalar UTF-8, unsigned UTF-8 key sorting,
+ordered arrays, and finite big-endian binary64 numbers with `-0` normalized to
+`+0`. Invalid/unsupported trees fail recursively. Ingress recipient sorting
+precedes digesting; principal, runtime, transport, and policy context are never
+included.
+
+This is not RFC JCS. The digest is not a signature, actor authentication,
+attestation, receipt, durable decision, or public-ingress implementation.
+
 ## Consequences and tradeoffs
 
 This deliberately delays an easy public API and requires future policy
@@ -83,9 +101,10 @@ separate decision after adapter and client-path evidence.
 
 Current evidence establishes a provider-neutral codec and an independent
 offline Python witness that agrees with the language-neutral corpora, including
-a mutated-corpus negative self-test. This remains reference-conformance only,
-not public, durable, or authenticated ingress. Single-host lifecycle storage is
-not ingress-journal evidence. Validation before public exposure still requires
+a mutated-corpus negative self-test and exact TypeScript/Python digest agreement
+for the shared vectors. This remains reference-conformance only, not public,
+durable, signed, or authenticated ingress. Single-host lifecycle storage is not
+ingress-journal evidence. Validation before public exposure still requires
 durable replay/conflict tests across restart and process boundaries, atomic
 authorization/storage failure tests, migration evidence, legacy compatibility
 snapshots, and independent review.

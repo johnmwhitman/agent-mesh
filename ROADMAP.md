@@ -20,9 +20,10 @@ The ranked A2A strategy is canonical in
    vendor adapters remain deferred.
 4. **Slice 4A portability proof** - canonical-ingress semantics are frozen in
    design, and a standalone offline Python witness agrees with the
-   language-neutral corpora, including a mutated-corpus negative self-test.
-   This is reference-conformance only: no production ingress/store/tool,
-   durable acceptance, delivery, or authenticated-principal claim.
+   language-neutral corpora, strict raw-decoder limits, and exact custom
+   canonical digest output, including negative self-tests. This is
+   reference-conformance only: no production ingress/store/tool, RFC JCS,
+   signature, durable acceptance, delivery, or authenticated-principal claim.
 5. **Slice 4B durable acceptance foundation** - after 4A: explicit physical
    SQLite migration and dormant internal acceptance journal/decision receipts;
    no hidden lazy schema, legacy projection, delivery, or public tool.

@@ -41,6 +41,10 @@ meaningful outside the local process.
   nesting level before object-level codec validation. The current object-level
   codec cannot recover keys already collapsed by a parser, and current MCP
   messaging is not raw canonical ingress.
+- The strict serialized codec boundary is limited to 128 KiB of UTF-8 and 64
+  nesting levels. It rejects malformed/non-finite input and recursively detects
+  duplicate decoded names, including literal and escape-equivalent keys, before
+  calling object-level `validateEnvelope`.
 
 These parsing and codec rules have fixture and independent reference evidence.
 They do not implement a public transport, principal boundary, durable ingress,
@@ -67,15 +71,33 @@ the public semantic identity nor the request retry identity. The existing
 process-local codec registry remains a codec-only classification mechanism and
 is not durable ingress semantics.
 
+The canonical envelope digest identifier is exactly
+`meshfleet.a2a.fingerprint.v1:sha256:<hex>`. SHA-256 covers the domain bytes
+`meshfleet.a2a.fingerprint.v1`, a zero byte, and the custom canonical byte tree
+of the normalized envelope only. It excludes principal, policy, runtime,
+transport, process, and connection context. Ingress recipient normalization and
+sorting occurs before this digest is computed.
+
+The canonical tree uses explicit tags for null, false, true, finite binary64
+numbers, strings, arrays, and objects; unsigned 64-bit big-endian lengths or
+counts; Unicode-scalar UTF-8 strings; unsigned UTF-8 object-key ordering;
+order-preserving arrays; big-endian IEEE 754 binary64 numbers with `-0`
+normalized to `+0`; and recursive rejection of unsupported or invalid values.
+This is a custom format, not RFC JCS. The digest is not signed, authenticated,
+attested, durable, or bound to an actor.
+
 ## Required acceptance order
 
-1. At a raw JSON boundary, reject duplicate member names recursively and reject
-   nonstandard JSON numeric constants. Then validate request fields and the
-   envelope structure, including `request_id`, principal presence, version,
-   recursive scalar strings, recipients, payload JSON, and media type.
+1. At the raw decode boundary, enforce 128 KiB and 64-level limits; reject
+   malformed/non-finite JSON and duplicate decoded member names recursively,
+   including escape-equivalent keys. Then call object-level validation for
+   request fields and the envelope structure, including `request_id`, principal
+   presence, version, recursive scalar strings, recipients, payload JSON, and
+   media type.
 2. Normalize the recipient set by sorting exact `(namespace, agent_id)`
    references. Reject wildcard or duplicate recipients and never expand
    audience, scope, extensions, fleet membership, or another selector.
+   Compute the canonical envelope digest only after this sorting.
 3. Evaluate the current principal binding and current policy. Match the
    adapter-derived principal to the exact claimed sender, then authorize every
    recipient, message type, and audience atomically.

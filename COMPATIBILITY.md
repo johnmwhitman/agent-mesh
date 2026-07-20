@@ -135,6 +135,15 @@ Open an issue at https://github.com/johnmwhitman/agent-mesh/issues with:
 - Recursive duplicate-member rejection is proven at the raw parsing boundary.
   The object-level codec cannot recover collapsed keys, and existing MCP tools
   are not raw canonical ingress.
+- The strict raw decoder enforces 128 KiB UTF-8 and 64-level limits, rejects
+  malformed/non-finite JSON, and treats escape-equivalent duplicate keys as the
+  same decoded member before object-level `validateEnvelope`.
+- TypeScript and the standalone Python witness agree exactly on the custom
+  canonical digest identifier and bytes:
+  `meshfleet.a2a.fingerprint.v1:sha256:<hex>`. The digest covers only the
+  normalized envelope using the documented tagged binary tree and SHA-256. It
+  is not RFC JCS, a signature, authentication, attestation, durable storage, or
+  public-ingress evidence.
 - The only fixture-verified external ingress codes are `accepted`, `duplicate`,
   `replayed_request`, `message_id_conflict`, `request_id_reuse`,
   `request_id_invalid`, `principal_context_required`, `malformed_envelope`,

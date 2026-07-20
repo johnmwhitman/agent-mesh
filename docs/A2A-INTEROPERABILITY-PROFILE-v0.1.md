@@ -37,6 +37,12 @@ names at every nesting level before object validation. This remains a raw
 transport/parsing responsibility because an object-level codec cannot recover
 member names already collapsed by a parser.
 
+The strict raw decoder accepts at most 128 KiB (`131072` UTF-8 bytes) and 64
+levels of nesting. It rejects malformed and non-finite JSON before object-level
+validation, and recursive duplicate detection compares decoded names so
+escape-equivalent keys collide. `validateEnvelope` itself remains object-level
+and makes no raw-source claim.
+
 ## Minimum conforming implementation
 
 A profile implementation must:
@@ -52,6 +58,8 @@ A profile implementation must:
    `conflict` using the fixture-defined codec semantics only.
 6. Produce and consume an offline envelope exchange over a file or stdin/stdout
    boundary using only the language-neutral fixtures.
+7. Produce the exact digest identifier
+   `meshfleet.a2a.fingerprint.v1:sha256:<hex>` from the normalized envelope.
 
 A profile implementation may be codec-only. It need not provide an MCP tool,
 agent registry, coordinator, runtime, durable store, principal binding, or
@@ -81,6 +89,25 @@ with the shared corpus is `reference-conformance`, not public-ingress proof.
 This procedure proves format portability only. It does not authorize or
 deliver a message.
 
+## Canonical digest profile
+
+The digest input is
+`UTF8("meshfleet.a2a.fingerprint.v1") || 0x00 || canonical-tree(envelope)`.
+The tree uses tags `0x00` null, `0x01` false, `0x02` true, `0x03` number,
+`0x04` string, `0x05` array, and `0x06` object. String byte lengths and
+array/object counts are unsigned 64-bit big-endian integers. Strings are
+Unicode-scalar UTF-8. Arrays preserve order. Object keys are sorted by unsigned
+UTF-8 bytes and encoded with the string tag/length before each value. Numbers
+are finite IEEE 754 binary64 big-endian, with `-0` normalized to `+0`.
+Unsupported or invalid values are rejected recursively. SHA-256 produces the
+lowercase `<hex>` suffix.
+
+Only the validated, normalized envelope is digested. Principal, runtime,
+transport, policy, and connection context are excluded. A future ingress must
+sort recipients before digesting; no other array is reordered. This custom
+encoding is not RFC JCS, and its digest is not a signature, authentication,
+attestation, receipt, or persistence proof.
+
 ## Evidence status vocabulary
 
 - `designed`: normative contract exists; no executable evidence.
@@ -108,7 +135,8 @@ The standalone Python witness agrees with both language-neutral corpora for
 valid/invalid envelopes, extension preservation, recursive Unicode scalar
 handling, strict JSON constants, the shared media-type grammar, recursive raw
 duplicate-member rejection, key-order independence, codec identity
-classification, and the designed ingress decision model. Its negative
+classification, exact canonical digest bytes/output across TypeScript and
+Python, and the designed ingress decision model. Its negative
 self-tests mutate a corpus expectation and feed a nonstandard numeric constant
 to the corpus parser, confirming the witness exits nonzero.
 

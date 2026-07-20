@@ -198,6 +198,58 @@ current object-level codec cannot recover that ambiguity. Existing MCP tools
 accept structured compatibility inputs and are not claimed as raw canonical
 JSON ingress.
 
+### Strict raw decode boundary
+
+`decodeEnvelope` is the strict serialized boundary. It accepts at most 128 KiB
+(`131072` UTF-8 bytes) and at most 64 levels of JSON nesting. Before handing an
+object to the codec, it rejects malformed JSON, non-finite/nonstandard numeric
+constants, and duplicate member names recursively. Duplicate detection compares
+decoded key values, so literal and escape-equivalent spellings of the same key
+also conflict.
+
+`validateEnvelope` remains object-level validation. It cannot recover duplicate
+members, malformed token spellings, or other source-text distinctions already
+lost by an upstream parser. These limits and rejection rules are codec and
+reference-conformance evidence, not evidence of a public transport or ingress.
+
+### Canonical envelope fingerprint v1
+
+The canonical digest string is exactly:
+
+```text
+meshfleet.a2a.fingerprint.v1:sha256:<hex>
+```
+
+where `<hex>` is the lowercase SHA-256 digest of these bytes:
+
+```text
+UTF8("meshfleet.a2a.fingerprint.v1") || 0x00 || canonical-tree(normalized-envelope)
+```
+
+`canonical-tree` is a custom versioned binary encoding:
+
+| JSON value | Encoding |
+|---|---|
+| `null` | tag `0x00` |
+| `false` | tag `0x01` |
+| `true` | tag `0x02` |
+| number | tag `0x03`, then finite IEEE 754 binary64 big-endian; `-0` is encoded as `+0` |
+| string | tag `0x04`, unsigned 64-bit big-endian UTF-8 byte length, then Unicode-scalar UTF-8 bytes |
+| array | tag `0x05`, unsigned 64-bit big-endian element count, then child encodings in original order |
+| object | tag `0x06`, unsigned 64-bit big-endian entry count, then key/value encodings with keys sorted by unsigned UTF-8 bytes |
+
+Each object key is encoded using the string tag and length form before its
+value. Canonicalization recursively rejects unsupported values, cycles or
+non-JSON trees, non-scalar strings, and non-finite or non-binary64 numbers.
+
+The digest covers only the validated, normalized envelope. It never covers a
+principal, policy decision, runtime, process, transport, connection, or other
+ingress context. A future ingress sorts normalized recipients before computing
+the digest; arrays otherwise remain order-sensitive.
+
+This encoding is not RFC JCS and the digest is not a signature,
+authentication, attestation, receipt, or durable-ingress record.
+
 For a future canonical ingress, structural and request validity precede current
 principal binding and atomic recipient/type/audience authorization. Request
 replay lookup follows authorization; semantic identity lookup follows request
