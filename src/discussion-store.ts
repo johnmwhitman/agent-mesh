@@ -396,6 +396,18 @@ export interface DiscussionStore {
 const HOURLY_WINDOW_MS = 3_600_000;
 
 /**
+ * `ask_peer`'s conversation-level `timeout_ms` bounds (lane-1 §11: "required,
+ * 1s..15m"; d3-wiring-blueprint.md §4 inputSchema `minimum: 1000, maximum:
+ * 900000`). Unlike `max_turns`/`turn_timeout_ms`, this bound lives here (not
+ * in discussion.ts) because `timeout_ms` is a relative input duration used
+ * only to COMPUTE the absolute `conversation_deadline` written into the
+ * policy — the policy itself carries no relative timeout field for
+ * discussion.ts's envelope validation to bound.
+ */
+const MIN_CONVERSATION_TIMEOUT_MS = 1_000;
+const MAX_CONVERSATION_TIMEOUT_MS = 900_000;
+
+/**
  * D2 implementation. Every mutating operation runs its authoritative checks
  * and writes inside exactly one synchronous `deps.ledger` transaction (spec
  * §13 invariant 20); spawn/kill/notify happen only after that transaction has
@@ -423,6 +435,24 @@ export function createDiscussionStore(deps: DiscussionStoreDeps): DiscussionStor
   // about). A missing handle at sweep time (crash before spawn, or a restart)
   // simply means there is nothing local left to kill — the terminal receipt
   // is written from the ledger regardless (test #33).
+  //
+  // D3 OBLIGATION (cdx pass-1 review, finding #2 — flagged so it doesn't get
+  // lost): `knownDiscussionIds` is instance-local and starts EMPTY on every
+  // process start. `sweepStranded` only scans ids this instance has already
+  // been asked about (tests K2/K3 rely on exactly this — a fresh instance's
+  // sweep is primed by a preceding `getDiscussion` call), so a brand-new
+  // instance that has touched nothing yet will not discover and terminalize
+  // stranded reservations from discussions it never saw. This is acceptable
+  // ONLY because D3's server owns one long-lived store instance for its
+  // whole process lifetime, not one per request — but that also means D3
+  // MUST prime the sweep index at startup by scanning the ledger for
+  // correlated discussion roots (e.g. every message whose payload parses as a
+  // `discussion/v1` root envelope) and calling `getDiscussion`/touching each
+  // resulting id before the periodic sweeper's first run, or attempts
+  // stranded across a restart will silently never be swept. `LedgerTx` has no
+  // "list all discussions" primitive to do this from inside this module (see
+  // `sweepStranded`'s own contract comment) — this is deliberately a D3-layer
+  // responsibility, not something D2 can discharge on its own.
   //
   // Vocabulary alignment with docs/A2A-NEXT-SLICE.md: that contract bounds a
   // DIFFERENT object — work-item execution attempts with leases, owner
@@ -522,13 +552,28 @@ export function createDiscussionStore(deps: DiscussionStoreDeps): DiscussionStor
    * straight to `failed` (test #29) instead of ever registering a handle.
    */
   async function launchAttempt(discussionId: string, attemptId: string): Promise<void> {
-    const prepared = deps.ledger((tx) => {
+    const prepared = deps.ledger((tx):
+      | { kind: "skip" }
+      | { kind: "expired" }
+      | { kind: "start"; view: DerivedDiscussion; attempt: DerivedDiscussion["attempts"][number]; headMessageId: string } => {
       const now = tx.now();
       const messages = tx.messagesByCorrelation(discussionId);
       const receipts = tx.allReceiptsForDiscussion(discussionId);
       const view = deriveDiscussion(discussionId, messages, receipts, now);
       const attempt = view.attempts.find((a) => a.attempt_id === attemptId);
-      if (!attempt || attempt.state !== "reserved") return null; // already claimed, or stale — never double-launch
+      if (!attempt || attempt.state !== "reserved") return { kind: "skip" }; // already claimed, or stale — never double-launch
+      // cdx pass-1 finding #1 (TOCTOU between reservation and start): wall
+      // clock may have advanced past this attempt's OWN deadline between the
+      // reservation transaction that stamped it and this started-CAS
+      // transaction (a slow scheduler tick, queued launcher work, GC pause,
+      // ...). A dead-on-arrival reservation must never be CASed to `started`
+      // or handed to `deps.spawn` — it settles `deadman` here instead (below,
+      // via the same idempotent `settleTerminal` the sweeper uses), so the
+      // turn is still consumed exactly once and no child is ever launched
+      // only to immediately be past its own kill deadline.
+      if (now >= attempt.deadline) {
+        return { kind: "expired" };
+      }
       const headMessageId = headMessageIdForAttempt(receipts, attemptId, view.head_message_id);
       const note = JSON.stringify({
         discussion_id: discussionId,
@@ -536,9 +581,16 @@ export function createDiscussionStore(deps: DiscussionStoreDeps): DiscussionStor
         deadline: attempt.deadline,
       });
       tx.writeReceipt(headMessageId, attempt.agent_id, `discussion.wake.started.v1:${attempt.turn}:${attemptId}`, note);
-      return { view, attempt, headMessageId };
+      return { kind: "start", view, attempt, headMessageId };
     });
-    if (!prepared) return;
+    if (prepared.kind === "skip") return;
+    if (prepared.kind === "expired") {
+      const settled = settleTerminal(discussionId, attemptId, "deadman");
+      if (settled) {
+        deps.notify({ kind: "terminal", discussion_id: discussionId, attempt_id: attemptId, state: "deadman" });
+      }
+      return;
+    }
     const { view, attempt, headMessageId } = prepared;
     const job: SpawnJob = {
       discussion_id: discussionId,
@@ -566,14 +618,22 @@ export function createDiscussionStore(deps: DiscussionStoreDeps): DiscussionStor
   const TERMINAL_STATUSES = new Set<DerivedDiscussion["status"]>(["invalid", "closed", "expired", "exhausted", "deadman"]);
 
   async function openDiscussion(params: AskPeerParams): Promise<OpenDiscussionResult> {
-    if (params.turn_timeout_ms > params.timeout_ms) {
-      throw new DiscussionError("turn_timeout_exceeds_conversation_timeout", {});
-    }
-    if (params.from_agent_id === BROADCAST || params.to_agent_id === BROADCAST || params.from_agent_id === params.to_agent_id) {
-      throw new DiscussionError("broadcast_rejected", {});
-    }
-    if (!Number.isInteger(params.max_turns) || params.max_turns < MIN_MAX_TURNS || params.max_turns > MAX_MAX_TURNS) {
-      throw new DiscussionError("invalid_envelope", { entity: "max_turns" });
+    // Per-field bounds are checked BEFORE the cross-field relational check
+    // below: a JSON-schema-validated caller (the eventual D3 MCP layer, per
+    // blueprint §4's `inputSchema` `minimum`/`maximum`) would already reject
+    // an individually out-of-bounds field at the schema layer, before ever
+    // reaching a semantic "turn_timeout_ms > timeout_ms" comparison between
+    // two fields that might themselves be invalid. This also disentangles
+    // the two checks at their shared boundary: `MIN_TURN_TIMEOUT_MS` (1000)
+    // exceeds `MIN_CONVERSATION_TIMEOUT_MS - 1` (999), so any timeout_ms below
+    // 1000 would ALSO trip the relational check first if it ran first,
+    // masking the more fundamental bounds violation.
+    if (
+      !Number.isInteger(params.timeout_ms) ||
+      params.timeout_ms < MIN_CONVERSATION_TIMEOUT_MS ||
+      params.timeout_ms > MAX_CONVERSATION_TIMEOUT_MS
+    ) {
+      throw new DiscussionError("invalid_envelope", { entity: "timeout_ms" });
     }
     if (
       !Number.isInteger(params.turn_timeout_ms) ||
@@ -581,6 +641,15 @@ export function createDiscussionStore(deps: DiscussionStoreDeps): DiscussionStor
       params.turn_timeout_ms > MAX_TURN_TIMEOUT_MS
     ) {
       throw new DiscussionError("invalid_envelope", { entity: "turn_timeout_ms" });
+    }
+    if (!Number.isInteger(params.max_turns) || params.max_turns < MIN_MAX_TURNS || params.max_turns > MAX_MAX_TURNS) {
+      throw new DiscussionError("invalid_envelope", { entity: "max_turns" });
+    }
+    if (params.turn_timeout_ms > params.timeout_ms) {
+      throw new DiscussionError("turn_timeout_exceeds_conversation_timeout", {});
+    }
+    if (params.from_agent_id === BROADCAST || params.to_agent_id === BROADCAST || params.from_agent_id === params.to_agent_id) {
+      throw new DiscussionError("broadcast_rejected", {});
     }
 
     const discussionId = randomUUID();

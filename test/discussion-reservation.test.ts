@@ -1202,3 +1202,118 @@ test("D2-red G3 — unresolved exhaustion writes exactly one escalation receipt"
   const after = Array.from(h.state.receipts.values()).filter((r) => r.action === "escalate_human");
   assert.equal(after.length, 1);
 });
+
+// ============================================================
+// cdx pass-1 review fixes (~/AI/SUCCESSION/a2a-discussions/drafts/
+// cdx-d2-review-pass1.md) — a TOCTOU gap between reservation and launch
+// (finding #1), and missing `timeout_ms` range validation (finding #7).
+// ============================================================
+
+test("D2-red cdx-1 — a reservation whose deadline elapses between commit and launch settles deadman instead of spawning", async () => {
+  // A bespoke harness (not `makeHarness()`): the repro needs a clock that
+  // simulates wall-clock time advancing PAST the reservation's own deadline
+  // strictly BETWEEN `wakeAgent`'s reservation transaction and the launcher's
+  // own started-CAS transaction that follows it — a gap this store's
+  // synchronous, no-intervening-`await` call chain never gives test code a
+  // chance to reach into directly. `deps.clock`/`tx.now()` call order for
+  // this exact flow (each `writeReceipt` ALSO reads the clock once more, for
+  // the receipt's own timestamp — see the fake `FakeLedgerTxImpl` above):
+  // openDiscussion's pre-transaction `deps.clock()` read (call 1), its root
+  // transaction's `tx.now()` (call 2) and root-receipt `writeReceipt` (call
+  // 3); wakeAgent's reservation transaction's `tx.now()` (call 4, which
+  // stamps the attempt's deadline) and its reservation-receipt `writeReceipt`
+  // (call 5); then the launcher's started-CAS transaction's `tx.now()` (call
+  // 6) — so a call-counting clock can deterministically simulate "wall clock
+  // jumped past the deadline" landing exactly on call 6, mimicking a slow
+  // scheduler tick or queued launcher work in a real process, without
+  // disturbing the deadline computation itself (calls 1-5 all still read the
+  // original time).
+  const state = makeFakeState();
+  registerAgents(state, FLEET, [AGENT_A, AGENT_B]);
+  const baseTime = 1_700_000_000_000;
+  const jumpMs = 2_000;
+  const jumpOnCall = 6;
+  let callCount = 0;
+  let jumped = false;
+  const clock: ClockFn = () => {
+    callCount++;
+    if (callCount >= jumpOnCall) jumped = true;
+    return jumped ? baseTime + jumpMs : baseTime;
+  };
+  const ledgerFaults: LedgerFaults = {};
+  const ledger = makeRawLedger(state, clock, ledgerFaults);
+  const spawnCalls: RecordedSpawnCall[] = [];
+  const killCalls: SpawnHandle[] = [];
+  const notifyEvents: unknown[] = [];
+  const spawn: SpawnFn = (job, onExit) => {
+    const handle: SpawnHandle = { attempt_id: job.attempt_id, handle: { killed: false } };
+    spawnCalls.push({ job, handle, triggerExit: (info = { code: 0 }) => onExit(info) });
+    return handle;
+  };
+  const kill: KillFn = (handle) => {
+    killCalls.push(handle);
+    (handle.handle as { killed: boolean }).killed = true;
+  };
+  const notify: NotifyFn = (event) => notifyEvents.push(event);
+  const deps: DiscussionStoreDeps = { ledger, spawn, kill, clock, notify, guardConfig: DEFAULT_GUARD_CONFIG };
+  const store = createDiscussionStore(deps);
+
+  // turn_timeout_ms:1_000 (the minimum valid bound) — short enough that a
+  // 2_000ms simulated jump lands well past the attempt's deadline, and
+  // timeout_ms:60_000 keeps the conversation deadline from being the binding
+  // cap (proving the ATTEMPT deadline, not the conversation one, is what
+  // triggers this).
+  const opened = await store.openDiscussion(defaultAskPeerParams({ turn_timeout_ms: 1_000, timeout_ms: 60_000 }));
+
+  const wake = await store.wakeAgent({
+    agent_id: AGENT_B,
+    discussion_id: opened.discussion_id,
+    expected_head_message_id: opened.root_message_id,
+  });
+
+  assert.equal(spawnCalls.length, 0, "a dead-on-arrival reservation must never reach deps.spawn");
+  assert.equal(killCalls.length, 0, "nothing was ever launched, so nothing needs killing");
+
+  const view = store.getDiscussion({ discussion_id: opened.discussion_id });
+  const attempt = view.attempts.find((a) => a.attempt_id === wake.attempt_id);
+  assert.equal(attempt?.state, "deadman", "the reservation must settle deadman instead of starting/launching");
+  assert.equal(view.turns_used, 2, "the turn is still consumed exactly once, not refunded");
+
+  const startedReceipts = Array.from(state.receipts.values()).filter((r) =>
+    r.action.startsWith(`discussion.wake.started.v1:2:${wake.attempt_id}`)
+  );
+  assert.equal(startedReceipts.length, 0, "the attempt must never be CASed to started once its deadline has already elapsed");
+
+  const deadmanNotifications = notifyEvents.filter(
+    (e) => typeof e === "object" && e !== null && (e as { kind?: string }).kind === "terminal" && (e as { state?: string }).state === "deadman"
+  );
+  assert.equal(deadmanNotifications.length, 1, "settlement must still notify exactly once, post-commit");
+});
+
+test("D2-red cdx-2a — timeout_ms of 999ms is rejected", async () => {
+  const h = makeHarness();
+  await assert.rejects(() => openRoot(h.store, { timeout_ms: 999 }), isDiscussionError("invalid_envelope"));
+  assert.equal(h.state.messages.size, 0, "a rejected timeout_ms must append no message");
+});
+
+test("D2-red cdx-2b — timeout_ms of exactly 1000ms (the minimum) is accepted", async () => {
+  const h = makeHarness();
+  const opened = await openRoot(h.store, { timeout_ms: 1_000, turn_timeout_ms: 1_000 });
+  assert.ok(opened.discussion_id);
+  const view = h.store.getDiscussion({ discussion_id: opened.discussion_id });
+  assert.equal(view.policy.conversation_deadline, h.clockRef.value + 1_000);
+});
+
+test("D2-red cdx-2c — timeout_ms of exactly 900000ms (the maximum, 15m) is accepted", async () => {
+  const h = makeHarness();
+  const opened = await openRoot(h.store, { timeout_ms: 900_000 });
+  assert.ok(opened.discussion_id);
+  const view = h.store.getDiscussion({ discussion_id: opened.discussion_id });
+  assert.equal(view.policy.conversation_deadline, h.clockRef.value + 900_000);
+});
+
+test("D2-red cdx-2d — timeout_ms of 900001ms is rejected", async () => {
+  const h = makeHarness();
+  await assert.rejects(() => openRoot(h.store, { timeout_ms: 900_001 }), isDiscussionError("invalid_envelope"));
+  assert.equal(h.state.messages.size, 0, "a rejected timeout_ms must append no message");
+});
