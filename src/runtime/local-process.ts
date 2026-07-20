@@ -20,6 +20,7 @@ export interface LocalProcessRuntimeAdapterOptions {
   command: string;
   buildArgs: (spec: ExecutionSpec) => string[];
   spawnProcess?: SpawnProcess;
+  terminationGraceMs?: number;
 }
 
 function normalized(
@@ -45,11 +46,13 @@ export class LocalProcessRuntimeAdapter implements RuntimeAdapter {
   private readonly command: string;
   private readonly buildArgs: (spec: ExecutionSpec) => string[];
   private readonly spawnProcess?: SpawnProcess;
+  private readonly terminationGraceMs?: number;
 
   constructor(options: LocalProcessRuntimeAdapterOptions) {
     this.command = options.command;
     this.buildArgs = options.buildArgs;
     this.spawnProcess = options.spawnProcess;
+    this.terminationGraceMs = options.terminationGraceMs;
   }
 
   describe(): RuntimeDescriptor {
@@ -72,6 +75,7 @@ export class LocalProcessRuntimeAdapter implements RuntimeAdapter {
         // The local adapter never inherits ambient process credentials implicitly.
         environment: spec.environment ?? {},
         timeoutMs: spec.timeoutMs,
+        terminationGraceMs: this.terminationGraceMs,
         normalizeClose: (raw) => {
           if (raw.signal) return normalized(raw, "failure", `Process terminated by signal ${raw.signal}`);
           if (raw.exitCode !== 0) return normalized(raw, "failure", `Process failed with exit code ${raw.exitCode}`);

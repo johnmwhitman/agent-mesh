@@ -2,6 +2,19 @@ const [mode = "success", prompt = ""] = process.argv.slice(2);
 
 if (mode === "timeout") {
   setInterval(() => {}, 1_000);
+} else if (mode === "term-exit") {
+  process.stdout.write("before-term");
+  process.on("SIGTERM", () => {
+    process.stdout.write("term-exit");
+    process.exit(0);
+  });
+  setInterval(() => {}, 1_000);
+} else if (mode === "term-ignore") {
+  process.stdout.write("before-term");
+  process.on("SIGTERM", () => {
+    process.stdout.write("ignored-term");
+  });
+  setInterval(() => {}, 1_000);
 } else if (mode === "signal") {
   process.kill(process.pid, "SIGTERM");
 } else if (mode === "failure") {

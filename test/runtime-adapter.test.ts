@@ -5,9 +5,14 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { LocalProcessRuntimeAdapter } from "../src/runtime/local-process.js";
 import { OpenCodeRuntimeAdapter } from "../src/runtime/opencode.js";
-import { RUNTIME_CHILD_STDIO } from "../src/runtime/process.js";
+import {
+  RUNTIME_CHILD_STDIO,
+  startProcessExecution,
+  waitForProcessExecution,
+  type RawProcessResult,
+} from "../src/runtime/process.js";
 import { createDefaultRuntimeRegistry } from "../src/runtime/registry.js";
-import type { ExecutionSpec, RuntimeAdapter } from "../src/runtime/types.js";
+import type { ExecutionSpec, RuntimeAdapter, RuntimeResult } from "../src/runtime/types.js";
 
 const FIXTURE = join(process.cwd(), "test/fixtures/runtime-process.mjs");
 
@@ -26,6 +31,7 @@ function local(mode: string): LocalProcessRuntimeAdapter {
   return new LocalProcessRuntimeAdapter({
     command: process.execPath,
     buildArgs: (request) => [FIXTURE, mode, request.prompt],
+    terminationGraceMs: 25,
   });
 }
 
@@ -66,6 +72,68 @@ test("local process adapter owns timeout and AbortSignal cancellation", async ()
   controller.abort();
   const cancelled = await pending;
   assert.equal(cancelled.status, "cancelled");
+});
+
+test("timeout waits for cooperative SIGTERM exit and captures trailing output", async () => {
+  const result = await execute(local("term-exit"), spec({ timeoutMs: 25 }));
+  assert.equal(result.status, "timeout");
+  assert.equal(result.stdout, "before-termterm-exit");
+  assert.equal(result.signal, null);
+});
+
+test("timeout escalates SIGTERM-resistant children and leaves no live child", async () => {
+  const adapter = local("term-ignore");
+  const handle = await adapter.start(spec({ timeoutMs: 25 }));
+  const result = await adapter.wait(handle);
+  assert.equal(result.status, "timeout");
+  assert.equal(result.stdout, "before-termignored-term");
+  assert.equal(result.signal, "SIGKILL");
+  assert.equal(handle.isAlive(), false);
+  assert.notEqual(handle.pid, undefined);
+  assert.throws(() => process.kill(handle.pid!, 0));
+});
+
+test("cancellation wins the timeout race and settles exactly once after forced kill", async () => {
+  let closeNormalizations = 0;
+  let cancellationNormalizations = 0;
+  const normalized = (raw: RawProcessResult, status: RuntimeResult["status"], error?: string): RuntimeResult => ({
+    status,
+    stdout: raw.stdout,
+    stderr: raw.stderr,
+    exitCode: raw.exitCode,
+    signal: raw.signal,
+    error,
+    diagnostics: [],
+    identity: { adapterId: "test", evidence: "none" },
+  });
+  const handle = startProcessExecution(spec({ timeoutMs: 100 }), {
+    command: process.execPath,
+    args: [FIXTURE, "term-ignore"],
+    cwd: process.cwd(),
+    environment: {},
+    timeoutMs: 100,
+    terminationGraceMs: 25,
+    normalizeClose: (raw) => {
+      closeNormalizations += 1;
+      return normalized(raw, "failure", "unexpected close normalization");
+    },
+    normalizeSpawnError: (raw, error) => normalized(raw, "failure", error.message),
+    normalizeTimeout: (raw) => normalized(raw, "timeout", "timeout"),
+    normalizeCancellation: (raw, reason) => {
+      cancellationNormalizations += 1;
+      return normalized(raw, "cancelled", reason);
+    },
+  });
+  const controller = new AbortController();
+  const pending = waitForProcessExecution(handle, controller.signal);
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  controller.abort();
+  const result = await pending;
+  assert.equal(result.status, "cancelled");
+  assert.equal(result.signal, "SIGKILL");
+  assert.equal(handle.isAlive(), false);
+  assert.equal(closeNormalizations, 0);
+  assert.equal(cancellationNormalizations, 1);
 });
 
 test("local process adapter keeps argv data, cwd, explicit env, and child output isolated", async () => {

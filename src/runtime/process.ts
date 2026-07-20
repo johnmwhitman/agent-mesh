@@ -11,6 +11,7 @@ export interface RawProcessResult {
 
 /** Fixed child stdio policy: no inherited stdin or parent MCP stdout writes. */
 export const RUNTIME_CHILD_STDIO: ["ignore", "pipe", "pipe"] = ["ignore", "pipe", "pipe"];
+export const DEFAULT_TERMINATION_GRACE_MS = 100;
 
 export type SpawnProcess = (
   command: string,
@@ -24,6 +25,7 @@ export interface ProcessLaunch {
   cwd: string;
   environment: NodeJS.ProcessEnv;
   timeoutMs: number;
+  terminationGraceMs?: number;
   normalizeClose(raw: RawProcessResult): RuntimeResult;
   normalizeSpawnError(raw: RawProcessResult, error: Error): RuntimeResult;
   normalizeTimeout(raw: RawProcessResult): RuntimeResult;
@@ -43,14 +45,19 @@ function asProcessHandle(handle: RuntimeHandle): ProcessRuntimeHandle {
   return candidate as ProcessRuntimeHandle;
 }
 
-function terminate(child: ChildProcess | undefined): void {
-  if (child && !child.killed && child.exitCode === null && child.signalCode === null) {
+function isRunning(child: ChildProcess | undefined): child is ChildProcess {
+  return child !== undefined && child.exitCode === null && child.signalCode === null;
+}
+
+function terminate(child: ChildProcess | undefined, signal: NodeJS.Signals): boolean {
+  if (isRunning(child)) {
     try {
-      child.kill("SIGTERM");
+      return child.kill(signal);
     } catch {
       // The process may have exited between the liveness check and kill().
     }
   }
+  return false;
 }
 
 /**
@@ -67,12 +74,26 @@ export function startProcessExecution(
   let stderr = "";
   let settled = false;
   let timeout: ReturnType<typeof setTimeout> | undefined;
+  let terminationGrace: ReturnType<typeof setTimeout> | undefined;
+  let terminalRequest: { status: "timeout" | "cancelled"; reason?: string } | undefined;
+  let processError: Error | undefined;
+  let sigtermSent = false;
+  let sigkillSent = false;
   let finish!: (result: RuntimeResult) => void;
+  const cleanupChildListeners = () => {
+    if (!child) return;
+    child.stdout?.removeListener("data", onStdout);
+    child.stderr?.removeListener("data", onStderr);
+    child.removeListener("error", onError);
+    child.removeListener("close", onClose);
+  };
   const completion = new Promise<RuntimeResult>((resolve) => {
     finish = (result) => {
       if (settled) return;
       settled = true;
       if (timeout !== undefined) clearTimeout(timeout);
+      if (terminationGrace !== undefined) clearTimeout(terminationGrace);
+      cleanupChildListeners();
       resolve(result);
     };
   });
@@ -82,6 +103,47 @@ export function startProcessExecution(
     stdout,
     stderr,
   });
+  const settleAfterClose = (exitCode: number | null, signal: NodeJS.Signals | null) => {
+    const closed = { exitCode, signal, stdout, stderr };
+    if (terminalRequest?.status === "timeout") {
+      finish(launch.normalizeTimeout(closed));
+    } else if (terminalRequest?.status === "cancelled") {
+      finish(launch.normalizeCancellation(closed, terminalRequest.reason ?? "Cancelled"));
+    } else if (processError) {
+      finish(launch.normalizeSpawnError(closed, processError));
+    } else {
+      finish(launch.normalizeClose(closed));
+    }
+  };
+  const requestProcessTermination = () => {
+    if (settled || !isRunning(child)) return;
+    if (!sigtermSent) {
+      sigtermSent = true;
+      terminate(child, "SIGTERM");
+    }
+    if (settled || !isRunning(child) || terminationGrace !== undefined) return;
+    terminationGrace = setTimeout(() => {
+      terminationGrace = undefined;
+      if (settled || !isRunning(child) || sigkillSent) return;
+      sigkillSent = true;
+      terminate(child, "SIGKILL");
+    }, launch.terminationGraceMs ?? DEFAULT_TERMINATION_GRACE_MS);
+    terminationGrace.unref?.();
+  };
+  function onStdout(data: Buffer | string): void {
+    stdout += data.toString();
+  }
+  function onStderr(data: Buffer | string): void {
+    stderr += data.toString();
+  }
+  function onError(error: Error): void {
+    if (settled) return;
+    processError = error;
+    requestProcessTermination();
+  }
+  function onClose(exitCode: number | null, signal: NodeJS.Signals | null): void {
+    settleAfterClose(exitCode, signal);
+  }
 
   try {
     child = spawnProcess(launch.command, launch.args, {
@@ -97,23 +159,24 @@ export function startProcessExecution(
   }
 
   if (child) {
-    child.stdout?.on("data", (data: Buffer | string) => {
-      stdout += data.toString();
-    });
-    child.stderr?.on("data", (data: Buffer | string) => {
-      stderr += data.toString();
-    });
-    child.on("error", (error: Error) => {
-      finish(launch.normalizeSpawnError(raw(), error));
-    });
-    child.on("close", (exitCode: number | null, signal: NodeJS.Signals | null) => {
-      finish(launch.normalizeClose({ exitCode, signal, stdout, stderr }));
-    });
+    child.stdout?.on("data", onStdout);
+    child.stderr?.on("data", onStderr);
+    child.on("error", onError);
+    child.on("close", onClose);
     timeout = setTimeout(() => {
-      terminate(child);
-      finish(launch.normalizeTimeout(raw()));
+      if (settled || terminalRequest) return;
+      terminalRequest = { status: "timeout" };
+      requestProcessTermination();
     }, launch.timeoutMs);
     timeout.unref?.();
+  } else {
+    queueMicrotask(() => {
+      if (terminalRequest?.status === "cancelled") {
+        finish(launch.normalizeCancellation(raw(), terminalRequest.reason ?? "Cancelled"));
+      } else {
+        finish(launch.normalizeSpawnError(raw(), processError ?? new Error("Process failed to spawn")));
+      }
+    });
   }
 
   const handle: ProcessRuntimeHandle = {
@@ -124,8 +187,13 @@ export function startProcessExecution(
     completion,
     cancel: (reason: string): CancelResult => {
       if (settled) return { accepted: false, reason: "already settled" };
-      terminate(child);
-      finish(launch.normalizeCancellation(raw(), reason));
+      if (terminalRequest) return { accepted: false, reason: "termination already requested" };
+      terminalRequest = { status: "cancelled", reason };
+      if (!child) {
+        finish(launch.normalizeCancellation(raw(), reason));
+      } else {
+        requestProcessTermination();
+      }
       return { accepted: true, reason };
     },
   };

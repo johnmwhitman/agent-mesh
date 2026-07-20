@@ -23,6 +23,7 @@ export interface OpenCodeRuntimeAdapterOptions {
   command?: string;
   buildArgs?: (spec: ExecutionSpec) => string[];
   spawnProcess?: SpawnProcess;
+  terminationGraceMs?: number;
 }
 
 function diagnosticsFor(result: { warning?: string; error?: string }): RuntimeDiagnostic[] {
@@ -55,11 +56,13 @@ export class OpenCodeRuntimeAdapter implements RuntimeAdapter {
   private readonly command: string;
   private readonly buildArgs: (spec: ExecutionSpec) => string[];
   private readonly spawnProcess?: SpawnProcess;
+  private readonly terminationGraceMs?: number;
 
   constructor(options: OpenCodeRuntimeAdapterOptions = {}) {
     this.command = options.command ?? "opencode";
     this.buildArgs = options.buildArgs ?? ((spec) => buildRunArgs({ prompt: spec.prompt, agentFile: spec.requestedAgent }));
     this.spawnProcess = options.spawnProcess;
+    this.terminationGraceMs = options.terminationGraceMs;
   }
 
   describe(): RuntimeDescriptor {
@@ -82,6 +85,7 @@ export class OpenCodeRuntimeAdapter implements RuntimeAdapter {
         // Preserve current OpenCode behavior while allowing explicit overrides.
         environment: { ...process.env, ...spec.environment, AGENT_MESH_CHILD: "1" },
         timeoutMs: spec.timeoutMs,
+        terminationGraceMs: this.terminationGraceMs,
         normalizeClose: (raw) => {
           const classified = classifySpawnResult({
             exitCode: raw.exitCode,
