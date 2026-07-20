@@ -1,0 +1,48 @@
+# Slice 3B Conformance Matrix — MCP Configuration Renderers
+
+This matrix records the evidence level for each renderer and direction. It is the
+authoritative source for what has been proven vs. documented vs. deferred.
+
+Statuses (from COMPATIBILITY.md):
+- documented
+- static-config-verified
+- process-handshake-verified
+- semantic-tool-verified
+- runtime-launch-verified
+- recovery-verified
+- unsupported/unverified
+
+## Inbound (client → meshfleet stdio server)
+
+| Target | Direction | Status | Evidence | Notes |
+|--------|-----------|--------|----------|-------|
+| generic-mcp-json | inbound | static-config-verified | mcp.json, renderer-conformance.test.ts | Minimal stdio entry only |
+| opencode-jsonc | inbound | static-config-verified | README opencode.jsonc, renderer tests | Matches documented stanza |
+| claude-code-mcp-json | inbound | static-config-verified | README .mcp.json + CLI, renderer tests | Schema proven; live execution unverified |
+| codex-mcp-json | inbound | static-config-verified | README Codex stanza, renderer tests | Schema proven; live execution unverified |
+| timeout semantics | inbound | unsupported | All renderers report "timeout" unsupported | No target schema standardizes it |
+| env allowlist | inbound | unsupported | Renderers report env unsupported where unproven | Only envAllowlist in canonical spec |
+| secret injection | inbound | secret-rejected | secret-rejection.test.ts | All patterns rejected deterministically |
+
+## Outbound (meshfleet → external workers / remote)
+
+| Target | Direction | Status | Evidence | Notes |
+|--------|-----------|--------|----------|-------|
+| Claude Code worker launch | outbound | unverified | ADAPTER-CONTRACT.md | No outbound adapter implemented |
+| Codex worker launch | outbound | unverified | ADAPTER-CONTRACT.md | No outbound adapter implemented |
+| Antigravity / Gemini / Grok schemas | outbound | unverified | ADAPTER-CONTRACT.md | No schema evidence in repo |
+| Real vendor outbound adapters | outbound | deferred | A2A-PROGRAM.md | Explicitly outside Slice 3B |
+| Auth / network / remote relay | outbound | deferred | ADAPTER-CONTRACT.md, A2A-PROGRAM.md | Gated; requires human approval |
+
+## Process handshake (existing)
+
+| Surface | Status | Evidence |
+|---------|--------|----------|
+| Packaged `npx -y meshfleet` stdio | process-handshake-verified | test/mcp-stdio.test.ts |
+
+## Summary for Slice 3B
+
+- Four inbound static-config renderers implemented and tested.
+- All secret-rejection and unsupported-field behaviors verified.
+- Outbound, live client execution, auth, network, and remote relay remain
+  `unverified` / `deferred` per the governing documents.

@@ -142,7 +142,7 @@ separate human and architecture gate:
   authorization.
 - Signed messages, signed receipts, or runtime attestations.
 - Public `send_a2a`, public cancellation, and remote control APIs.
-- Direct Claude, Codex, Antigravity/Gemini, Grok, or other vendor adapters.
+- Direct Claude, Codex, Antigravity/Gemini, Grok, or other vendor adapters (Slice 3B adds only inbound static config renderers; outbound remains deferred).
 - Production deployment, external relay activation, credentials, spend, and
   private-data or production-data egress.
 - Exactly-once external side effects. Idempotency and fencing do not provide

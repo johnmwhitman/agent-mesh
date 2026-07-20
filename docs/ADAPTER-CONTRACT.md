@@ -94,13 +94,14 @@ before a renderer is called supported.
 | Boundary | Current status | Truthful claim |
 |---|---|---|
 | Generic MCP stdio | `process-handshake-verified` | Packaged `npx -y meshfleet` starts and completes MCP initialization at the process boundary |
-| Claude Code, Codex, OpenCode config | `documented` | Each is documented against the same inbound stdio shape; live semantic client conformance is not claimed |
+| Claude Code, Codex, OpenCode config | `static-config-verified` | Slice 3B renderers produce proven shapes from README/mcp.json evidence; live semantic client execution remains unverified |
 | SSE inbox projection | `implemented` | Optional local inbox push, not a general A2A HTTP transport |
 | Outbound worker launch | `runtime-launch-verified` | `spawn_fleet` selects the internal OpenCode compatibility adapter; no public runtime selection exists |
 | OpenCode result normalization | `runtime-launch-verified` | OpenCode command, banner parsing, fallback, and provider diagnostics are isolated behind `OpenCodeRuntimeAdapter` |
 | Provider-neutral runtime SPI | `implemented` | Core orchestration uses normalized execution contracts and an internal registry |
 | Local-process proof adapter | `runtime-launch-verified` | Deterministic local argv-only adapter covers process lifecycle without a provider, network, or credentials |
 | Multi-host coordinator | `deferred` | No shared remote ownership authority exists |
+| Slice 3B config renderers (generic/OpenCode/Claude/Codex) | `static-config-verified` | Canonical spec + 4 conservative renderers with deterministic tests; live client execution, Antigravity/Gemini/Grok schemas, real vendor outbound adapters, auth, network, remote relay remain unverified/deferred |
 
 ## Evidence levels
 

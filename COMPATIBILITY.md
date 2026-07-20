@@ -28,7 +28,7 @@ configuration as a working integration:
 |---|---|---|---|
 | Packaged MCP stdio ingress | `process-handshake-verified` | `npx -y meshfleet` completes the process-level MCP handshake | `test/mcp-stdio.test.ts` |
 | Generic MCP configuration | `static-config-verified` | The canonical stdio command and argv are packaged and checked | `mcp.json` |
-| Claude Code, Codex, OpenCode inbound configs | `documented` | Each is documented against the same inbound stdio shape; live client semantics are not claimed | `README.md` |
+| Claude Code, Codex, OpenCode inbound configs | `static-config-verified` | Slice 3B renderers emit proven shapes from local evidence; live client semantics unverified | `docs/CONFIG-TRANSLATION.md`, `test/config/*.test.ts` |
 | SSE inbox projection | `implemented` | Optional local inbox push, not general A2A HTTP | `src/sse-server.ts` |
 | Outbound worker execution | `coupled` | Current worker launch and parsing remain OpenCode-specific | `src/index.ts`, `src/spawn-result.ts` |
 | `meshfleet.a2a` v0.1 codec and fixtures | `codec-conformance-verified` | Pure provider-neutral validation, codec, language-neutral fixtures, and legacy internal mapping are covered by conformance tests; public canonical ingress is not implemented | `docs/A2A-PROTOCOL-v0.1.md`, `test/a2a-envelope.test.ts` |
