@@ -134,3 +134,34 @@ before parsing into the object-level codec. Protocol strings containing
 unpaired UTF-16 surrogates are invalid; valid non-BMP Unicode scalars remain
 allowed and are byte-limited as UTF-8. The existing MCP surface is not evidence
 of either raw canonical parsing behavior or public ingress.
+
+## Slice 4B dormant journal threats
+
+- **Migration shadowing or partial schema:** v3-to-v4 preflights the reserved
+  `a2a_` namespace, runs in the global `BEGIN IMMEDIATE` chain, sets version
+  last, and rejects unknown/malformed/partial/tampered layouts. Reopen validates;
+  it never repairs lazily.
+- **Raw identity/content retention:** only domain-separated keyed tokens, key
+  IDs, canonical digest, minimal acceptance provenance, request outcome, and one
+  local-decision receipt may persist. Raw IDs, envelope bytes, payloads,
+  extensions, recipients, `dedupe_key`, policy/denial, paths, and runtime data
+  are forbidden.
+- **Token/digest confidentiality overclaim:** tokens are pseudonymous equality
+  handles, not encryption. Digests can permit guessing; timing, counts, and
+  equality remain observable. A direct DB reader is trusted local.
+- **Confused storage deputy:** the API accepts only pre-authorized/pre-tokenized
+  inputs after current all-recipient authorization, but does not verify auth.
+  No message content can call or authorize it.
+- **Negative identity reservation:** conflict, expiry, denial, malformed input,
+  and storage failure write nothing. Only accepted identities and accepted/
+  duplicate request mappings persist.
+- **Receipt inflation:** exactly one immutable `accepted` receipt at
+  `internal_local_decision` exists per acceptance. Duplicate/replay paths never
+  mint another receipt.
+- **Rollback illusion:** old v3 binaries cannot reopen v4. A WAL-safe
+  pre-migration backup is mandatory evidence; there is no automatic downgrade.
+- **Retention erosion:** v1 has no deletion, tombstone, or retention job.
+  Accepted rows remain permanent until a reviewed forward migration.
+
+These controls remain design requirements. They do not prove public ingress,
+authentication, authorization, delivery, confidentiality, or multi-host safety.

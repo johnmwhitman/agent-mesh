@@ -12,6 +12,7 @@
     "designed",
     "fixture-verified",
     "reference-conformance",
+    "dormant-internal-durable-verified",
     "implemented-public-ingress",
     "documented",
     "static-config-verified",
@@ -47,6 +48,7 @@
   "a2a_protocol": [
     {"target": "canonical-ingress-contract-v0.1", "status": "fixture-verified", "evidence": ["docs/A2A-INGRESS-CONTRACT-v0.1.md", "docs/adr/0004-principal-bound-canonical-ingress.md", "test/fixtures/a2a/ingress/v0.1/corpus.json"], "notes": "Fixtures exercise the designed authorization-before-replay ordering and non-enumerating external codes; no public ingress, authenticated principal, durable journal, or delivery is implemented."},
     {"target": "minimal-interoperability-profile-v0.1", "status": "reference-conformance", "evidence": ["docs/A2A-INTEROPERABILITY-PROFILE-v0.1.md", "src/a2a/codec.ts", "reference/python/a2a_reference.py", "test/a2a-reference-python.test.ts"], "notes": "TypeScript and standalone Python agree on exact-decimal pre-parse numeric rejection, finite acyclic plain JSON object trees, 128 KiB/64-level limits, preserved valid extensions, and digest refusal for rejected values, in addition to the shared strict parsing and fingerprint vectors. This is not RFC JCS or public, durable, signed, or authenticated ingress evidence."},
+    {"target": "dormant-durable-acceptance-v0.1", "status": "designed", "evidence": ["docs/A2A-DURABLE-ACCEPTANCE-v0.1.md", "docs/adr/0005-dormant-durable-acceptance-journal.md"], "notes": "Designed global physical v3-to-v4 migration and three-table private keyed-token acceptance journal only. No implementation, public tool, auth, delivery, storage migration, or durable evidence exists."},
     {"target": "public-canonical-send_a2a", "status": "deferred", "evidence": ["docs/A2A-PROGRAM.md", "docs/A2A-INGRESS-CONTRACT-v0.1.md"], "notes": "Absent from the MCP registry pending Slice 4B durable journal and Slice 4C adapter/authenticated-local principal evidence."}
   ],
   "gates": [

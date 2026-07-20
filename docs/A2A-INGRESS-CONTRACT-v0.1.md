@@ -204,6 +204,13 @@ not a signature, authentication, attestation, or multi-host claim.
   semantic client path, then separately review any public ingress surface. No
   remote or multi-host claim follows.
 
+Slice 4B is now specified by `docs/A2A-DURABLE-ACCEPTANCE-v0.1.md` and ADR 0005.
+It stores opaque precomputed keyed identity tokens and the canonical digest, not
+raw identities or envelope content. Its API is downstream of current binding
+and all-recipient authorization and cannot authenticate, authorize, or deliver.
+Until executable migration, transaction, privacy, compatibility, and review
+evidence exists, its status remains `designed`.
+
 ## Tradeoffs and reversibility
 
 The design adds configuration and durable state before convenience. That is

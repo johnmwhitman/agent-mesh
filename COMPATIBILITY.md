@@ -13,6 +13,7 @@ configuration as a working integration:
 | `designed` | A normative contract exists; executable evidence is absent or separately classified |
 | `fixture-verified` | A language-neutral corpus has executable expected outcomes; no production surface is implied |
 | `reference-conformance` | An independent implementation agrees with the corpus; no public, durable, or authenticated ingress is implied |
+| `dormant-internal-durable-verified` | A private disabled-by-surface acceptance journal has migration, replay, atomicity, privacy, compatibility, and review evidence; still no public ingress, auth, or delivery claim |
 | `implemented-public-ingress` | Reserved for a separately reviewed public ingress with durable acceptance, current authorization, and compatibility evidence |
 | `documented` | Configuration or behavior is described; no executable proof |
 | `static-config-verified` | Target configuration shape is checked without a live client |
@@ -39,6 +40,7 @@ configuration as a working integration:
 | Canonical ingress contract v0.1 | `fixture-verified` | Deterministic fixtures exercise the designed ordering and stable external result vocabulary; this is not a production store, policy engine, delivery path, or public tool | `docs/A2A-INGRESS-CONTRACT-v0.1.md`, `test/fixtures/a2a/ingress/v0.1/corpus.json` |
 | Durable attempt lifecycle | `recovery-verified` | Durable-mode `spawn_fleet` and `attach_agent` preserve MCP shapes while using one SQLite authority for leases, deterministic retry, launch-intent quarantine, scheduled recovery, recorded-PID containment only, fenced projections, and sequence-ordered repairable event outbox | `docs/A2A-NEXT-SLICE.md`, `src/lifecycle-execution.ts`, `test/lifecycle-integration-adversarial.test.ts` |
 | Provider-neutral runtime adapters | `runtime-launch-verified` | Isolated RuntimeAdapter SPI, OpenCode adapter, and deterministic local-process adapter are verified; public runtime selection and vendor adapters are deferred | `docs/ADAPTER-CONTRACT.md`, `src/runtime`, `test/runtime` |
+| Dormant durable acceptance journal | `designed` | Ordered physical v3-to-v4 migration, three private append-only tables, pre-authorized keyed-token API, accepted-only local receipts, and no delivery/public surface are specified but not implemented | `docs/A2A-DURABLE-ACCEPTANCE-v0.1.md`, `docs/adr/0005-dormant-durable-acceptance-journal.md` |
 | Multi-host coordination | `deferred` | No shared remote ownership authority exists | `docs/A2A-PROGRAM.md` |
 
 The complete ranked sequence and acceptance gates are in
@@ -174,3 +176,10 @@ Open an issue at https://github.com/johnmwhitman/agent-mesh/issues with:
 - Any Slice 4B store must use an ordered, explicit physical migration. It may
   not hide a lazy/unversioned schema, alter legacy projections, or deliver a
   message before separately authorized work.
+- Slice 4B design narrows physical compatibility: a future normal current-binary
+  open may migrate v3 to v4, and old v3 binaries cannot reopen v4. Logical-v2
+  exports and current/new-binary v4 open remain the compatibility promise.
+  Rollback requires a pre-migration WAL-safe backup; no automatic downgrade.
+- Current package/storage remains `0.14.0` and physical v3. The designed v4
+  migration and `dormant-internal-durable-verified` status are unshipped and
+  must not be claimed until executable evidence exists.

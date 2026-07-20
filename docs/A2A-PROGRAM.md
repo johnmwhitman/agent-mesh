@@ -31,6 +31,9 @@ verified boundaries:
   unimplemented. The provider-neutral RuntimeAdapter SPI plus isolated
   OpenCode and deterministic local-process adapters are implemented and
   runtime-launch-verified; they are not yet public multi-runtime orchestration.
+- Slice 4A is reference-conformance verified. Slice 4B now has a designed
+  dormant durable-acceptance contract; no physical v4 migration, journal, or
+  internal acceptance API is implemented yet.
 
 ## Ranked program
 
@@ -166,6 +169,7 @@ separate human and architecture gate:
 | `docs/ADAPTER-CONTRACT.md` | Transport, delivery, runtime, coordinator, and renderer boundaries |
 | `docs/A2A-THREAT-MODEL.md` | Trust zones, threats, controls, and security invariants |
 | `docs/A2A-NEXT-SLICE.md` | Durable lifecycle contract and acceptance bar |
+| `docs/A2A-DURABLE-ACCEPTANCE-v0.1.md` | Slice 4B physical migration, private journal, transaction, privacy, and evidence contract |
 | `docs/adr/` | Durable decisions and their tradeoffs |
 | `COMPATIBILITY.md` | Public API, ledger, and conformance registry |
 | `ROADMAP.md` | Product sequencing and shipped-versus-planned view |
@@ -193,10 +197,13 @@ They are additive, reversible, and do not widen the current MCP surface.
    no production ingress/store/tool, delivery, legacy projection, transport,
    authentication, or multi-host claim.
 2. **Slice 4B: explicit dormant durable acceptance foundation.** Introduce an
-   ordered physical SQLite migration plus an internal acceptance journal and
-   local decision receipts. It must be versioned, inactive by default, and
-   incapable of legacy projection or delivery. Do not use a hidden/lazy
-   unversioned schema or expose `send_a2a`.
+   ordered global physical SQLite v3-to-v4 migration plus a private append-only
+   acceptance journal, request mappings, and one local decision receipt per
+   acceptance. The API accepts pre-authorized keyed tokens only and performs no
+   auth or delivery. It must be versioned, dormant, incapable of legacy/
+   lifecycle/outbox/NDJSON projection, and validated on every reopen. Do not use
+   hidden/lazy schema repair or expose `send_a2a`. Contract:
+   `docs/A2A-DURABLE-ACCEPTANCE-v0.1.md`.
 3. **Slice 4C: authenticated-local adapter and semantic client proof.** Prove
    an adapter-derived authenticated local principal and one semantic client
    path, then conduct a separate review for any public ingress surface. This

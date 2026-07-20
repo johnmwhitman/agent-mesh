@@ -26,9 +26,13 @@ The ranked A2A strategy is canonical in
    negative self-tests. This is reference-conformance only: no production
    ingress/store/tool, RFC JCS, signature, durable acceptance, delivery, or
    authenticated-principal claim.
-5. **Slice 4B durable acceptance foundation** - after 4A: explicit physical
-   SQLite migration and dormant internal acceptance journal/decision receipts;
-   no hidden lazy schema, legacy projection, delivery, or public tool.
+5. **Slice 4B durable acceptance foundation** - contract designed, not
+   implemented: ordered global physical SQLite v3-to-v4 migration, three private
+   append-only keyed-token tables, and exactly one accepted local-decision
+   receipt per acceptance. Older v3 binaries cannot reopen v4; implementation
+   requires a WAL-safe backup gate and full migration/privacy/atomicity review.
+   No hidden lazy schema, raw identity/content storage, legacy/lifecycle/outbox
+   projection, auth, delivery, or public tool.
 6. **Slice 4C authenticated-local adapter proof** - later: prove one
    adapter-derived authenticated local principal and semantic client path, then
    separately review any public ingress. No remote or multi-host claim.
