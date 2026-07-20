@@ -1,12 +1,12 @@
 # A2A Next Slice: Crash-Safe Attempt Lifecycle
 
-Status: **contract only; not implemented**
+Status: **isolated SQLite lifecycle kernel implemented; not spawn-integrated**
 
-This document bounds the next distributed-safety slice after the single-host
-retry, recovery, event-log, and SQLite work. It is an implementation contract,
-not evidence that the package is ready for multi-host execution. Until this
-slice and its follow-on coordination work are implemented and verified, Agent
-Mesh remains single-host.
+This document bounds the durable lifecycle slice after the single-host retry,
+recovery, event-log, and SQLite work. The isolated kernel now implements the
+storage contract, but it is not wired into spawning, retries, PID recovery, MCP,
+or the NDJSON projection. It is not evidence that the package is ready for
+multi-host execution; Agent Mesh remains single-host.
 
 ## Current limits
 

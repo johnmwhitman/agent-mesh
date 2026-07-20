@@ -71,6 +71,94 @@ CREATE INDEX IF NOT EXISTS idx_receipts_message    ON receipts(message_id);
 CREATE INDEX IF NOT EXISTS idx_ratifications_fleet ON ratifications(fleet_id);
 `;
 
+/**
+ * Physical SQLite layout version. This is deliberately independent from the
+ * JSON/ledger compatibility marker in core.ts (`schema_version = 2`). A ledger
+ * imported from any supported JSON version retains that logical marker; these
+ * migrations only add internal relational storage.
+ */
+export const CURRENT_STORAGE_SCHEMA_VERSION = 2;
+
+const LIFECYCLE_SCHEMA_V2 = `
+CREATE TABLE IF NOT EXISTS work_items (
+  work_id TEXT PRIMARY KEY,
+  fleet_id TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'succeeded', 'failed', 'cancelled')),
+  current_attempt_id TEXT,
+  owner_epoch INTEGER NOT NULL DEFAULT 0,
+  cancelled_at INTEGER,
+  terminal_at INTEGER,
+  result_json TEXT,
+  error_json TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS attempts (
+  attempt_id TEXT PRIMARY KEY,
+  work_id TEXT NOT NULL,
+  owner_id TEXT,
+  owner_epoch INTEGER NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'expired', 'succeeded', 'failed', 'cancelled')),
+  lease_until INTEGER,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  terminal_at INTEGER,
+  result_json TEXT,
+  error_json TEXT,
+  UNIQUE(work_id, owner_epoch)
+);
+CREATE TABLE IF NOT EXISTS attempt_events (
+  seq INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_id TEXT NOT NULL UNIQUE,
+  work_id TEXT NOT NULL,
+  attempt_id TEXT,
+  owner_epoch INTEGER,
+  kind TEXT NOT NULL,
+  occurred_at INTEGER NOT NULL,
+  payload TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_attempts_work ON attempts(work_id);
+CREATE INDEX IF NOT EXISTS idx_attempt_events_work_seq ON attempt_events(work_id, seq);
+`;
+
+let storageMigrationFaultForTest = false;
+
+/** Test-only fault injection proving a failing migration rolls back completely. */
+export function setStorageMigrationFaultForTest(enabled: boolean): void {
+  storageMigrationFaultForTest = enabled;
+}
+
+function physicalStorageVersion(db: Database.Database): number {
+  const row = db.prepare("SELECT value FROM meta WHERE key = 'storage_schema_version'").get() as { value: string } | undefined;
+  if (!row) return 1;
+  if (!/^\d+$/.test(row.value)) throw new Error(`unsupported storage schema version: ${row.value}`);
+  return Number(row.value);
+}
+
+function migrateStorage(db: Database.Database): void {
+  const migrate = db.transaction(() => {
+    let version = physicalStorageVersion(db);
+    if (version > CURRENT_STORAGE_SCHEMA_VERSION) {
+      throw new Error(
+        `unsupported newer storage schema version ${version}; this meshfleet build supports up to ${CURRENT_STORAGE_SCHEMA_VERSION}`
+      );
+    }
+    while (version < CURRENT_STORAGE_SCHEMA_VERSION) {
+      if (version !== 1) throw new Error(`unsupported storage schema migration from version ${version}`);
+      db.exec(LIFECYCLE_SCHEMA_V2);
+      if (storageMigrationFaultForTest) throw new Error("forced storage migration failure");
+      db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('storage_schema_version', '2')").run();
+      version = 2;
+    }
+  }).immediate;
+  migrate();
+}
+
+/** Read-only physical layout diagnostic for isolated storage tests and tooling. */
+export function getStorageSchemaVersion(): number {
+  return physicalStorageVersion(getDb());
+}
+
 function getDb(): Database.Database {
   if (handle) return handle;
   const file = resolveDbFile();
@@ -87,6 +175,7 @@ function getDb(): Database.Database {
     db.prepare("INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', ?)").run(
       String(CURRENT_SCHEMA_VERSION)
     );
+    migrateStorage(db);
   } catch (err) {
     // Never leak a half-initialized connection (its locks/sidecars linger,
     // especially on Windows) — close before rethrowing.
@@ -404,6 +493,17 @@ export function withLedger<T>(mutator: (data: MeshData) => T): T {
     return result;
   }).immediate;
   return run(mutator);
+}
+
+/**
+ * Private relational-storage transaction seam. Lifecycle storage uses this
+ * instead of `withLedger` so a lifecycle state transition and its event can be
+ * one immediate SQLite transaction without materializing or rewriting MeshData.
+ */
+export function withStorageTransaction<T>(mutator: (db: Database.Database) => T): T {
+  const db = getDb();
+  const run = db.transaction((database: Database.Database) => mutator(database)).immediate;
+  return run(db);
 }
 
 /**

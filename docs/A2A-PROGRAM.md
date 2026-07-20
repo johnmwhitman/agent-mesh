@@ -81,8 +81,10 @@ cancellation-versus-completion behavior, duplicate terminal settlement,
 transaction/event atomicity, close/reopen replay, and preservation of existing
 ledger fixtures must all pass independent review.
 
-**Status:** Contract documented in [A2A-NEXT-SLICE.md](./A2A-NEXT-SLICE.md).
-The lifecycle kernel is not implemented.
+**Status:** The isolated SQLite lifecycle kernel is implemented with storage
+migration, fencing, cancellation, event replay, and focused adversarial tests.
+It is not wired into spawning, retry timers, PID recovery, MCP tools, or NDJSON
+projection; no multi-host coordination claim is made.
 
 **Boundary:** This slice proves a durable state machine for one SQLite
 authority. It must not be called multi-host coordination.
