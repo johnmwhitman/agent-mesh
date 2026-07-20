@@ -62,7 +62,7 @@ and the bounds in
 - The canonical spec contains **zero** inline credentials, tokens, or secret-like environment keys.
 - Renderers MUST run shared recursive preflight over caller-supplied strings and
   field names, including command/argv, IDs, environment allowlists,
-  capabilities, trust, descriptions, and extension-like nested data. They must
+  capabilities, trust, descriptions, and nested data. They must
   reject secret-like keys and values (patterns: `api_key`, `secret`, `token`,
   `password`, `private_key`, `auth`, Bearer material, credential URLs, PEM
   private keys, and long base64-like values) with status `secret-rejected` and

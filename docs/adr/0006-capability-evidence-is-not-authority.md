@@ -101,6 +101,7 @@ dependency is permitted.
   and verifier error disclosure.
 - Whether a future carrier needs JWS, COSE, VC/Data Integrity, SD-JWT, or a
   different proof format.
-- Core capability registry governance and provider-extension namespaces.
+- A future profile version's capability-registry governance and
+  provider-extension namespaces; the v0.1 extension registry is empty.
 - Capability contradiction resolution, retention, and a possible future
   privacy-preserving evidence store.
