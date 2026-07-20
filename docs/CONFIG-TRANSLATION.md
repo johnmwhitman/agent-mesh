@@ -9,7 +9,9 @@ All renderers consume a single `CanonicalMcpStdioConnection` defined in `src/con
 - `serverId`: `meshfleet`
 - `transport`: `stdio`
 - `command`: `["npx", "-y", "meshfleet"]`
-- `envAllowlist`: documented environment variables only (no inline secrets)
+- `envAllowlist`: reviewed static names only from `AGENT_MESH_CHILD`,
+  `MESHFLEET_DB_FILE`, `MESHFLEET_RATIFY_SWEEP_MS`, and
+  `npm_config_offline` (no values or inline secrets)
 - `timeout`: default 300000 ms (5 minutes)
 
 ## Renderer Contract
@@ -48,9 +50,14 @@ that a process ran, a client accepted the configuration, or a capability,
 runtime identity, authorization, delivery, or execution exists.
 
 No caller- or runtime-supplied command data is eligible for this exception.
-Observed argv, prompts, dynamic arguments, paths, CWD, environment names or
-values, endpoints, output, and diagnostics remain prohibited from capability
-profile and translation-fixture data. A new static template requires an
+Observed argv, prompts, dynamic arguments, paths, CWD, runtime-observed
+environment names, environment values, endpoints, output, and diagnostics
+remain prohibited from capability profile and translation-fixture data.
+Reviewed static environment-name references are permitted only when they match
+`[A-Za-z_][A-Za-z0-9_]{0,63}` and the exact v0.1 enum
+`AGENT_MESH_CHILD`, `MESHFLEET_DB_FILE`, `MESHFLEET_RATIFY_SWEEP_MS`, or
+`npm_config_offline`. A name is nonsecret configuration shape, not evidence a
+process ran or that a value existed. A new static template or name requires an
 explicit target-profile-defined allowlist entry and the bounds in
 [A2A Capability Profile v0.1](./A2A-CAPABILITY-PROFILE-v0.1.md).
 
@@ -64,7 +71,10 @@ explicit target-profile-defined allowlist entry and the bounds in
   `password`, `private_key`, `auth`, Bearer material, credential URLs, PEM
   private keys, and long base64-like values) with status `secret-rejected` and
   no emitted config.
-- Environment variable references are allowed only where the target schema has proven support in local evidence. Otherwise they are reported as unsupported.
+- Only the exact reviewed static environment-name enum above is allowed where
+  the target schema has proven support in local evidence. Runtime-observed
+  names and all environment values remain forbidden; other static names are
+  reported as unsupported without echoing a value.
 - Every canonical field must be either represented by emitted target data or
   listed once in `unsupported`; no renderer may silently drop a field.
 
@@ -93,6 +103,8 @@ deterministic loss records, and never turn a provider/model label into runtime
 attestation or authorization. Environment values are structurally forbidden;
 working-directory information is only a bounded `cwd_policy` enum. This is a
 designed offline profile, not a new renderer, provider adapter, or activation.
-Its source-neutral translation input, result, feature, provenance, and loss
-schemas are closed in that profile. They do not change the existing Slice 3B
+Its source-neutral translation input, structure-and-loss result, feature,
+provenance, and loss schemas are closed in that profile. Conformance maturity
+is rendered separately from an explicit validated registry record and is never
+a translation-result field. These rules do not change the existing Slice 3B
 renderer API or elevate its evidence status.

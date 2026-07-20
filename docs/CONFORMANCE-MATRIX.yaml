@@ -26,6 +26,10 @@
     "deferred",
     "secret-rejected"
   ],
+  "evidence_status_definitions": {
+    "static-profiled": "A bounded target capability/configuration profile is normatively defined from static evidence; no translator execution, process launch, runtime observation, authentication, or semantic-tool proof.",
+    "static-translation-verified": "Independent offline translators agree with the shared deterministic translation corpus; no client launch, registry lookup, runtime observation, authentication, or semantic-tool proof."
+  },
   "inbound": [
     {
       "target": "generic-mcp-json",

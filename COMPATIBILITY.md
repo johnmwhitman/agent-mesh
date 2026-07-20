@@ -16,7 +16,9 @@ configuration as a working integration:
 | `dormant-internal-durable-verified` | A private disabled-by-surface acceptance journal has migration, replay, atomicity, privacy, compatibility, and review evidence; still no public ingress, auth, or delivery claim |
 | `implemented-public-ingress` | Reserved for a separately reviewed public ingress with durable acceptance, current authorization, and compatibility evidence |
 | `documented` | Configuration or behavior is described; no executable proof |
+| `static-profiled` | A bounded target capability/configuration profile is normatively defined from static evidence; no translator execution, process launch, runtime observation, authentication, or semantic-tool proof |
 | `static-config-verified` | Target configuration shape is checked without a live client |
+| `static-translation-verified` | Independent offline translators agree with the shared deterministic translation corpus; no client launch, registry lookup, runtime observation, authentication, or semantic-tool proof |
 | `process-handshake-verified` | A process starts and completes the protocol handshake |
 | `semantic-tool-verified` | Representative tool calls and return shapes work through the target |
 | `codec-conformance-verified` | A provider-neutral codec and language-neutral fixture corpus pass conformance checks; no public canonical tool ingress is implied |
@@ -33,7 +35,7 @@ configuration as a working integration:
 |---|---|---|---|
 | Packaged MCP stdio ingress | `process-handshake-verified` | `npx -y meshfleet` completes the process-level MCP handshake | `test/mcp-stdio.test.ts` |
 | Generic MCP configuration | `static-config-verified` | The canonical stdio command and argv are packaged and checked | `mcp.json` |
-| Claude Code, Codex, OpenCode inbound configs | `static-config-verified` | Slice 3B renderers emit proven shapes from local evidence; live client semantics unverified | `docs/CONFIG-TRANSLATION.md`, `test/config/*.test.ts` |
+| Claude Code, Codex, OpenCode inbound configs | `static-config-verified` | Slice 3B renderers emit proven command/argv shapes from local evidence; timeout and environment-name representation remain explicitly unverified where recorded in the conformance matrix, and live client semantics are unverified | `docs/CONFIG-TRANSLATION.md`, `test/config/*.test.ts` |
 | SSE inbox projection | `implemented` | Optional local inbox push, not general A2A HTTP | `src/sse-server.ts` |
 | Outbound worker execution | `coupled` | Current worker launch and parsing remain OpenCode-specific | `src/index.ts`, `src/spawn-result.ts` |
 | `meshfleet.a2a` v0.1 codec and interoperability profile | `reference-conformance` | Pure provider-neutral validation and an independent offline Python witness agree with the language-neutral corpora; the mutated-corpus negative test detects a false expected outcome; public, durable, and authenticated ingress are not implemented | `docs/A2A-PROTOCOL-v0.1.md`, `reference/python/a2a_reference.py`, `test/a2a-reference-python.test.ts` |
