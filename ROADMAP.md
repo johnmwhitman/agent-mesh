@@ -26,16 +26,22 @@ The ranked A2A strategy is canonical in
    negative self-tests. This is reference-conformance only: no production
    ingress/store/tool, RFC JCS, signature, durable acceptance, delivery, or
    authenticated-principal claim.
-5. **Slice 4B durable acceptance foundation** - contract designed, not
-   implemented: ordered global physical SQLite v3-to-v4 migration, three private
-   append-only keyed-token tables, and exactly one accepted local-decision
-   receipt per acceptance. Older v3 binaries cannot reopen v4; implementation
-   requires a WAL-safe backup gate and full migration/privacy/atomicity review.
-   No hidden lazy schema, raw identity/content storage, legacy/lifecycle/outbox
-   projection, auth, delivery, or public tool.
-6. **Slice 4C authenticated-local adapter proof** - later: prove one
+5. **Slice 4B durable acceptance foundation** - implemented and locally
+   verified on the unmerged branch at `f1f98fb`: ordered global physical SQLite
+   v3-to-v4 migration, three private append-only keyed-token tables, exact
+   validation, and one accepted local-decision receipt per acceptance. Logical
+   ledger schema remains v2; v3 code refuses v4, so rollback needs a
+   pre-migration WAL-safe backup. No hidden lazy schema, raw identity/content
+   storage, legacy/lifecycle/outbox projection, auth, delivery, public tool, or
+   activation.
+6. **Slice 4C-0 capability/identity/runtime-attestation profile** - next:
+   define provider-neutral discovery and evidence levels; capability claims and
+   model banners never grant authorization.
+7. **Slice 4C-1 authenticated-local adapter proof** - then prove one
    adapter-derived authenticated local principal and semantic client path, then
    separately review any public ingress. No remote or multi-host claim.
+8. **Slice 4D then 4E** - offline delivery-attempt/transport conformance, then
+   deterministic two-host coordinator simulation; neither is implemented.
 
 Inbound MCP process compatibility does not imply outbound runtime neutrality,
 authenticated principal binding, lifecycle durability, or multi-host support.

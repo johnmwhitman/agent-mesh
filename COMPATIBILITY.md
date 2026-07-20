@@ -40,7 +40,7 @@ configuration as a working integration:
 | Canonical ingress contract v0.1 | `fixture-verified` | Deterministic fixtures exercise the designed ordering and stable external result vocabulary; this is not a production store, policy engine, delivery path, or public tool | `docs/A2A-INGRESS-CONTRACT-v0.1.md`, `test/fixtures/a2a/ingress/v0.1/corpus.json` |
 | Durable attempt lifecycle | `recovery-verified` | Durable-mode `spawn_fleet` and `attach_agent` preserve MCP shapes while using one SQLite authority for leases, deterministic retry, launch-intent quarantine, scheduled recovery, recorded-PID containment only, fenced projections, and sequence-ordered repairable event outbox | `docs/A2A-NEXT-SLICE.md`, `src/lifecycle-execution.ts`, `test/lifecycle-integration-adversarial.test.ts` |
 | Provider-neutral runtime adapters | `runtime-launch-verified` | Isolated RuntimeAdapter SPI, OpenCode adapter, and deterministic local-process adapter are verified; public runtime selection and vendor adapters are deferred | `docs/ADAPTER-CONTRACT.md`, `src/runtime`, `test/runtime` |
-| Dormant durable acceptance journal | `designed` | Ordered physical v3-to-v4 migration, three private append-only tables, pre-authorized keyed-token API, accepted-only local receipts, and no delivery/public surface are specified but not implemented | `docs/A2A-DURABLE-ACCEPTANCE-v0.1.md`, `docs/adr/0005-dormant-durable-acceptance-journal.md` |
+| Dormant durable acceptance journal | `dormant-internal-durable-verified` | Branch `codex/a2a-seamless-foundation` implements and locally verifies physical SQLite v4, three private append-only tables, exact schema validation, pre-tokenized keyed identities, request-first replay/conflict ordering, and accepted-only local receipts. It remains unmerged, unpublished, inactive, and has no public ingress, auth provider, delivery, or execution claim. | `docs/A2A-DURABLE-ACCEPTANCE-v0.1.md`, `docs/adr/0005-dormant-durable-acceptance-journal.md`, `acc4090..f1f98fb` |
 | Multi-host coordination | `deferred` | No shared remote ownership authority exists | `docs/A2A-PROGRAM.md` |
 
 The complete ranked sequence and acceptance gates are in
@@ -173,16 +173,16 @@ Open an issue at https://github.com/johnmwhitman/agent-mesh/issues with:
   `unsupported_version`, `expired_at_acceptance`, `AUTHORIZATION_DENIED`, and
   `ingress_storage_unavailable`. More detailed authorization causes are
   protected local audit data and are not public/conformance outcomes.
-- Any Slice 4B store must use an ordered, explicit physical migration. It may
-  not hide a lazy/unversioned schema, alter legacy projections, or deliver a
-  message before separately authorized work.
-- Slice 4B design narrows physical compatibility: a future normal current-binary
-  open may migrate v3 to v4, and old v3 binaries cannot reopen v4. Logical-v2
-  exports and current/new-binary v4 open remain the compatibility promise.
-  Rollback requires a pre-migration WAL-safe backup; no automatic downgrade.
-- Current package/storage remains `0.14.0` and physical v3. The designed v4
-  migration and `dormant-internal-durable-verified` status are unshipped and
-  must not be claimed until executable evidence exists.
+- Slice 4B uses an ordered, explicit physical migration; it does not hide a
+  lazy/unversioned schema, alter legacy projections, or deliver a message.
+- Released npm package `0.14.0` remains the released physical-v3 state. The
+  unmerged branch `codex/a2a-seamless-foundation` at `f1f98fb` implements the
+  physical-v4 journal while retaining logical ledger schema v2; v4 is not
+  released, published, or activated.
+- Checking out and running the branch code against a v3 database performs the
+  ordered v3-to-v4 migration. Older v3 code then refuses to reopen that v4
+  database. Logical-v2 exports remain compatible; rollback requires restoring a
+  pre-migration WAL-safe SQLite backup, with no automatic downgrade.
 
 ## A2A physical-storage compatibility: Slice 4B (2026-07-20)
 
