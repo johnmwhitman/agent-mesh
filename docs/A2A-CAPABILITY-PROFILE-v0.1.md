@@ -328,11 +328,14 @@ produce the required absent or unsupported result for every normalized claim;
 time validity never promotes proof status. An attested claim always reports
 unsupported in v0.1 and is unusable for routing or policy.
 
-The proof-results array is semantically unordered. It rejects duplicate
-claim_fingerprint values and sorts by `(claim_id, canonical-bytes(result))`
-using unsigned lexicographic comparison. In a structurally valid profile there
-is exactly one result per normalized claim, whether overall time validation
-succeeds or fails.
+The proof-results array is semantically unordered. The validation-report
+producer MUST emit exactly one result per normalized claim, MUST therefore emit
+no duplicate claim_fingerprint, and MUST sort by
+`(claim_id, canonical-bytes(result))` using unsigned lexicographic comparison.
+In a structurally valid profile there is exactly one result per normalized
+claim, whether overall time validation succeeds or fails. Duplicate rejection
+while ingesting a serialized ValidationReport is a deferred consumer rule under
+the report-ingestion gate below, not behavior of `validateProfile`.
 
 ## 8. Closed claim-kind schemas
 
@@ -406,20 +409,31 @@ translation schemas, and computed report:
 | translation result.losses | Semantically unordered records | Reject exact duplicate records; sort by field_path, target, reason_code, disposition using unsigned ASCII tuple comparison. |
 | translation result.critical_extensions | Fixed empty array | Require an array container; missing, null, or non-array is INVALID_EXTENSION_CONTAINER; accept [] only; any member is UNSUPPORTED_EXTENSION. |
 | translation result.profile.claims and nested arrays | Profile data | Apply the profile and claim rules above. |
-| validation result.proof_results | Semantically unordered report records | Exactly one per normalized claim; reject duplicate claim_fingerprint; sort by claim_id, then canonical result bytes, using unsigned lexicographic comparison. |
-| validation result.errors | Semantically unordered error records | Reject exact duplicates; sort by code, then field_path, using unsigned ASCII tuple comparison. |
-| comparison report.profile_results | Sequence by source input | Retain one result per input profile and sort by profile_index ascending. |
+| validation result.proof_results | Semantically unordered report records | Producer emits exactly one per normalized claim, emits no duplicate claim_fingerprint, and sorts by claim_id then canonical result bytes using unsigned lexicographic comparison. |
+| validation result.errors | Semantically unordered error records | Producer coalesces exact duplicates and sorts by code then field_path using unsigned ASCII tuple comparison. |
+| comparison report.profile_results | Sequence by source input | Producer emits exactly one result per input profile and sorts by profile_index ascending. |
 | compareProfiles raw_profiles argument | Ordered source sequence | Retain caller order exactly; profile_index is assigned from this order and the comparator MUST NOT reorder the argument. |
-| comparison profile_result.validation_error_codes | Generated code set | Generation coalesces repeated codes; a serialized duplicate rejects INVALID_COMPARISON_REPORT; sort by unsigned ASCII bytes. |
-| comparison report.identity_contradictions | One generated record per contradictory identity key | Reject duplicate identity_key records; sort by the full identity tuple in Section 11.3. |
-| comparison report.semantic_contradictions | Semantically unordered records | Sort by each fully normalized record's canonical bytes using unsigned lexicographic comparison. |
-| comparison report.exact_duplicates | One generated record per identity key and fingerprint | Reject duplicate identity-key/fingerprint records; sort by full identity tuple, then fingerprint. |
-| comparison report.errors | Semantically unordered error records | Reject exact duplicates; sort by profile_index numerically, then code and field_path using unsigned ASCII comparison. |
-| identity contradiction.fingerprints | Generated fingerprint buckets | Generation coalesces observations with the same fingerprint into one bucket; a serialized duplicate fingerprint is invalid; sort by fingerprint ASCII bytes; minimum two buckets. |
-| identity fingerprint bucket.profile_indexes | Generated profile-index set | A repeated generated index is impossible because claim_id is unique within a profile; a serialized duplicate rejects INVALID_COMPARISON_REPORT; sort numerically ascending; minimum one member. |
-| exact duplicate.profile_indexes | Generated profile-index set | A repeated generated index is impossible because claim_id is unique within a profile; a serialized duplicate rejects INVALID_COMPARISON_REPORT; sort numerically ascending; minimum two members. |
-| semantic contradiction.supported_occurrences | Set of source positions | Reject duplicates with INVALID_COMPARISON_REPORT; sort by profile_index, then claim_index, numerically ascending; minimum one member. |
-| semantic contradiction.unsupported_occurrences | Set of source positions | Reject duplicates with INVALID_COMPARISON_REPORT; sort by profile_index, then claim_index, numerically ascending; minimum one member. |
+| comparison profile_result.validation_error_codes | Generated code set | Producer coalesces repeated codes and sorts by unsigned ASCII bytes. |
+| comparison report.identity_contradictions | One generated record per contradictory identity key | Producer emits at most one record per identity_key and sorts by the full identity tuple in Section 11.3. |
+| comparison report.semantic_contradictions | Semantically unordered records | Producer emits each semantic finding once and sorts by each fully normalized record's canonical bytes using unsigned lexicographic comparison. |
+| comparison report.exact_duplicates | One generated record per identity key and fingerprint | Producer emits at most one identity-key/fingerprint record and sorts by full identity tuple then fingerprint. |
+| comparison report.errors | Semantically unordered error records | Producer coalesces exact duplicates and sorts by profile_index numerically, then code and field_path using unsigned ASCII comparison. |
+| identity contradiction.fingerprints | Generated fingerprint buckets | Producer coalesces observations with the same fingerprint into one bucket, sorts by fingerprint ASCII bytes, and emits at least two buckets. |
+| identity fingerprint bucket.profile_indexes | Generated profile-index set | Producer emits each index once, sorts numerically ascending, and emits at least one member. |
+| exact duplicate.profile_indexes | Generated profile-index set | Producer emits each index once, sorts numerically ascending, and emits at least two members. |
+| semantic contradiction.supported_occurrences | Set of source positions | Producer emits each occurrence once, sorts by profile_index then claim_index numerically ascending, and emits at least one member. |
+| semantic contradiction.unsupported_occurrences | Set of source positions | Producer emits each occurrence once, sorts by profile_index then claim_index numerically ascending, and emits at least one member. |
+
+Slice 4C-0 defines no operation that accepts a serialized `ValidationReport` or
+`ComparisonReport`. The report-array rows above are active producer
+requirements: generated reports MUST be canonical, sorted, and duplicate-free.
+They are not parser behavior. Any future API or adapter that actually ingests a
+serialized validation or comparison report MUST add a closed ingestion
+signature and MUST reject duplicate array members according to these same
+uniqueness domains. Until that consumer exists, `INVALID_PROOF_RESULTS`,
+`INVALID_VALIDATION_REPORT`, and `INVALID_COMPARISON_REPORT` are reserved for
+that ingestion boundary and MUST NOT be manufactured by unrelated
+validate/compare generation calls.
 
 Static argv_template and any future field explicitly named as a sequence retain
 order. Every future array field MUST be added to this table before acceptance.
@@ -1144,11 +1158,9 @@ prescribed source index.
 | array.result-losses-reordered | validate-translation-result returns the exact ok:true envelope with the same normalized_result bytes |
 | array.result-losses-duplicate | fixture places the first repeated loss at source index 1; exact `{"ok":false,"error":{"code":"INVALID_TRANSLATION_RESULT","field_path":"$.losses[1]"}}` under R19 |
 | array.proof-results-reordered | same normalized validation report bytes |
-| array.proof-results-duplicate | INVALID_PROOF_RESULTS |
 | array.translation-input-critical-nonempty | T07; UNSUPPORTED_EXTENSION at $.critical_extensions; reorder is impossible for accepted input because only [] is valid |
 | array.translation-result-critical-nonempty | exact `{"ok":false,"error":{"code":"UNSUPPORTED_EXTENSION","field_path":"$.critical_extensions"}}`; reorder is impossible for accepted result because only [] is valid |
 | array.validation-errors-reordered | same normalized validation report bytes |
-| array.validation-errors-duplicate | INVALID_VALIDATION_REPORT |
 | diagnostic.profile-claim-source-index | validate-profile malformed claim physically at source index 2 reports `$.claims[2]`; a canonically earlier valid sibling does not change the path |
 | diagnostic.translation-privacy-source-index | T03 forbidden field in source claim index 2 reports the canonical privacy path under `$.source_profile.claims[2]` |
 | diagnostic.translation-unknown-source-index | T04 unknown field in source claim index 2 reports `$.source_profile.claims[2]` even when valid siblings would normalize around it |
@@ -1308,27 +1320,16 @@ prescribed source index.
 | comparison.raw-profiles-reordered | input is order-sensitive; profile indexes and occurrence indexes change with caller order |
 | comparison.raw-profiles-duplicate | duplicate input profiles remain separate source occurrences and may generate exact-duplicate groups; inputs are not coalesced or mutated |
 | comparison.profile-results-reordered | same normalized bytes after profile_index sorting |
-| comparison.profile-results-duplicate | generated duplicate profile_index is impossible; serialized duplicate rejects INVALID_COMPARISON_REPORT |
 | comparison.identity-contradictions-reordered | same normalized bytes after full-identity-tuple sorting |
-| comparison.identity-contradictions-duplicate | generation emits one record per identity key; serialized duplicate identity_key rejects INVALID_COMPARISON_REPORT |
 | comparison.semantic-contradictions-reordered | same normalized bytes after canonical-record sorting |
-| comparison.semantic-contradictions-duplicate | generation emits one record per semantic finding; serialized duplicate record rejects INVALID_COMPARISON_REPORT |
 | comparison.exact-duplicates-reordered | same normalized bytes after identity-tuple/fingerprint sorting |
-| comparison.exact-duplicates-duplicate | generation emits one record per identity-key/fingerprint; serialized duplicate rejects INVALID_COMPARISON_REPORT |
 | comparison.errors-reordered | same normalized bytes after profile-index/code/path sorting |
-| comparison.errors-duplicate | exact duplicate error rejects INVALID_COMPARISON_REPORT |
 | comparison.validation-error-codes-reordered | same normalized bytes after ASCII sorting |
-| comparison.validation-error-codes-duplicate | generation coalesces repeated codes into the set; serialized duplicate code rejects INVALID_COMPARISON_REPORT |
 | comparison.grouped-fingerprints-reordered | same normalized bytes after fingerprint sorting |
-| comparison.grouped-fingerprints-duplicate | generation coalesces observations into one bucket; serialized duplicate fingerprint rejects INVALID_COMPARISON_REPORT |
 | comparison.identity-occurrence-indexes-reordered | same normalized bytes after numeric sorting |
-| comparison.identity-occurrence-indexes-duplicate | generated duplicate index is impossible; serialized duplicate index rejects INVALID_COMPARISON_REPORT |
 | comparison.semantic-supported-occurrences-reordered | same normalized bytes after source-position sorting |
-| comparison.semantic-supported-occurrences-duplicate | duplicate occurrence rejects INVALID_COMPARISON_REPORT |
 | comparison.semantic-unsupported-occurrences-reordered | same normalized bytes after source-position sorting |
-| comparison.semantic-unsupported-occurrences-duplicate | duplicate occurrence rejects INVALID_COMPARISON_REPORT |
 | comparison.exact-duplicate-indexes-reordered | same normalized bytes after numeric sorting |
-| comparison.exact-duplicate-indexes-duplicate | generated duplicate index is impossible; serialized duplicate index rejects INVALID_COMPARISON_REPORT |
 | comparison.identity-contradiction | exact grouped identity record shape and canonical ordering; minimum two fingerprint buckets |
 | comparison.semantic-contradiction | exact semantic record shape and canonical ordering |
 | comparison.exact-duplicates | identity_key/fingerprint profile-index occurrences coalesce in report only; inputs remain byte-identical |
@@ -1338,6 +1339,38 @@ prescribed source index.
 | status.runtime-evidence-pointer | matrix and compatibility point to test/runtime-adapter.test.ts |
 | status.slice-name | canonical surfaces use capability profile and evidence taxonomy |
 | import.offline-boundary | no auth, DB, runtime, transport, process, network, provider, credential, or environment-discovery imports |
+
+### 15.1 Deferred serialized-report ingestion conformance gate
+
+The following 13 IDs are not records in the Slice 4C-0 shared five-operation
+corpus. They have no `api`, `invocation_args`, or executable `expected` envelope
+in v0.1 because no declared operation ingests a serialized ValidationReport or
+ComparisonReport:
+
+    array.proof-results-duplicate
+    array.validation-errors-duplicate
+    comparison.profile-results-duplicate
+    comparison.identity-contradictions-duplicate
+    comparison.semantic-contradictions-duplicate
+    comparison.exact-duplicates-duplicate
+    comparison.errors-duplicate
+    comparison.validation-error-codes-duplicate
+    comparison.grouped-fingerprints-duplicate
+    comparison.identity-occurrence-indexes-duplicate
+    comparison.semantic-supported-occurrences-duplicate
+    comparison.semantic-unsupported-occurrences-duplicate
+    comparison.exact-duplicate-indexes-duplicate
+
+These IDs form a deferred report-ingestion conformance list only. A future
+version MUST activate them when it defines an exact public or adapter-local API
+that accepts serialized validation/comparison reports. That future ingester
+MUST reject the duplicate represented by each ID using a closed error envelope
+and MUST preserve the producer uniqueness domains in Section 10. A 4C-0
+implementation MUST NOT claim these cases by invoking `validateProfile` or
+`compareProfiles`, by mutating their generated outputs after return, or by using
+an unrelated parser. Generation tests MAY assert directly that producer outputs
+are canonical and duplicate-free, but those assertions are not serialized
+report-ingestion conformance.
 
 The corpus MUST also retain the strict malformed JSON, duplicate-key, invalid
 Unicode, unsafe-number, size, depth, time, version, and canonical byte-tree
