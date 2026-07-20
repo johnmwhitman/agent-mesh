@@ -138,12 +138,21 @@ Open an issue at https://github.com/johnmwhitman/agent-mesh/issues with:
 - The strict raw decoder enforces 128 KiB UTF-8 and 64-level limits, rejects
   malformed/non-finite JSON, and treats escape-equivalent duplicate keys as the
   same decoded member before object-level `validateEnvelope`.
+- `application/json` and `*+json` payload bodies use the same strict recursive
+  duplicate/nonstandard-constant/depth parser, counting a root container as
+  depth 1 and permitting at most 64 levels; their body limit remains 64 KiB.
+- Cross-language numeric conformance recursively restricts integral values to
+  `[-9007199254740991, 9007199254740991]`, requires nonnegative safe-integer
+  timestamps, permits finite non-integral binary64, normalizes `-0` to `+0`,
+  and rejects unsafe integer/exponent/overflow values rather than rounding.
+  Equivalent permitted fractional spellings may share semantic identity.
 - TypeScript and the standalone Python witness agree exactly on the custom
   canonical digest identifier and bytes:
   `meshfleet.a2a.fingerprint.v1:sha256:<hex>`. The digest covers only the
   normalized envelope using the documented tagged binary tree and SHA-256. It
   is not RFC JCS, a signature, authentication, attestation, durable storage, or
   public-ingress evidence.
+- Canonical digest construction revalidates the recursive numeric domain.
 - The only fixture-verified external ingress codes are `accepted`, `duplicate`,
   `replayed_request`, `message_id_conflict`, `request_id_reuse`,
   `request_id_invalid`, `principal_context_required`, `malformed_envelope`,

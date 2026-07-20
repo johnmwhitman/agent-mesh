@@ -30,6 +30,16 @@ meaningful outside the local process.
   and body limits are measured in UTF-8 bytes.
 - Raw envelope JSON and `application/json` or `+json` payload bodies reject the
   nonstandard numeric constants `NaN`, `Infinity`, and `-Infinity`.
+- `application/json` and `*+json` payload bodies use the same strict recursive
+  duplicate-aware and depth-limited parser as raw envelope JSON. A root
+  container is depth 1 and depth 64 is valid; depth 65 is invalid. Payload
+  bodies retain their 64 KiB UTF-8 limit.
+- Every integral value in the envelope tree, including extensions and parsed
+  JSON payloads, MUST be within
+  `[-9007199254740991, 9007199254740991]`. Timestamps are additionally
+  nonnegative integers. Non-integral values are finite binary64; integral-valued
+  floats outside the safe range, unsafe integer/exponent forms, and overflow are
+  invalid. `-0` is valid and normalizes to `+0`.
 - `payload.media_type` follows the shared ASCII grammar `token "/" token
   *( OWS ";" OWS token OWS "=" OWS ( token / quoted-string ) ) OWS`, where
   tokens are non-empty RFC token strings, OWS is SP/HTAB only, parameter values
@@ -86,14 +96,20 @@ normalized to `+0`; and recursive rejection of unsupported or invalid values.
 This is a custom format, not RFC JCS. The digest is not signed, authenticated,
 attested, durable, or bound to an actor.
 
+Canonical digest calculation revalidates the complete envelope numeric domain
+and validates numbers again during tree encoding. Equivalent permitted lexical
+forms that parse to the same fractional binary64 value may share the same
+semantic digest. Unsafe values are rejected rather than rounded into an
+accepted identity.
+
 ## Required acceptance order
 
 1. At the raw decode boundary, enforce 128 KiB and 64-level limits; reject
    malformed/non-finite JSON and duplicate decoded member names recursively,
    including escape-equivalent keys. Then call object-level validation for
    request fields and the envelope structure, including `request_id`, principal
-   presence, version, recursive scalar strings, recipients, payload JSON, and
-   media type.
+   presence, version, recursive scalar strings and numbers, recipients, strict
+   payload JSON, and media type.
 2. Normalize the recipient set by sorting exact `(namespace, agent_id)`
    references. Reject wildcard or duplicate recipients and never expand
    audience, scope, extensions, fleet membership, or another selector.

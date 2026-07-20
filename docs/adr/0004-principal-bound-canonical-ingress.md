@@ -65,9 +65,18 @@ rejected. These rules do not promote the reference witness to public or durable
 ingress.
 
 The strict raw envelope decoder is capped at 128 KiB UTF-8 and 64 nesting
-levels. It rejects malformed/non-finite JSON and recursive duplicate decoded
-keys, including escape-equivalent spellings, before object-level
-`validateEnvelope`. Object validation alone makes no raw-source guarantee.
+levels, with a root container at depth 1. It rejects malformed/non-finite JSON
+and recursive duplicate decoded keys, including escape-equivalent spellings,
+before object-level `validateEnvelope`. `application/json` and `*+json` bodies
+use the same strict parser and max-64 depth rule, within their existing 64 KiB
+body cap. Object validation alone makes no raw-source guarantee.
+
+The recursive envelope numeric domain admits integral values only within
+`[-9007199254740991, 9007199254740991]`, with timestamps also nonnegative.
+Non-integral values are finite binary64. Integral-valued floats outside the safe
+range, unsafe integer/exponent forms, and overflow fail rather than round. `-0`
+is valid and normalizes to `+0`; equivalent permitted fractional lexical forms
+may share semantic binary64 identity.
 
 Canonical identity comparison uses exactly
 `meshfleet.a2a.fingerprint.v1:sha256:<hex>`. SHA-256 covers a domain prefix,
@@ -78,6 +87,9 @@ ordered arrays, and finite big-endian binary64 numbers with `-0` normalized to
 `+0`. Invalid/unsupported trees fail recursively. Ingress recipient sorting
 precedes digesting; principal, runtime, transport, and policy context are never
 included.
+
+Digest calculation revalidates the numeric domain for the normalized envelope
+and again during canonical tree encoding.
 
 This is not RFC JCS. The digest is not a signature, actor authentication,
 attestation, receipt, durable decision, or public-ingress implementation.

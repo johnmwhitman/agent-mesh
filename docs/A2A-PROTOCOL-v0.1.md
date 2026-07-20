@@ -68,8 +68,10 @@ The terms MUST, MUST NOT, SHOULD, and MAY are normative.
   the body opaquely; `text/plain` is the compatibility default.
 - `payload.body` MUST be a string no larger than 64 KiB when measured as UTF-8
   bytes; an empty body is valid. `application/json` and `*+json` bodies MUST
-  contain valid JSON; all other v0.1 media types are transported as opaque
-  strings.
+  pass the same strict duplicate-aware, nonstandard-constant-rejecting,
+  depth-limited parser as raw envelopes. Their existing 64 KiB body limit is
+  stricter than the raw decoder's 128 KiB ceiling. All other v0.1 media types
+  are transported as opaque strings.
 - `extensions`, when present, MUST be a JSON object. Extension names and values
   MUST NOT change the meaning of required protocol fields. Implementations MAY
   preserve unknown extensions and MUST NOT promote them to trust claims.
@@ -201,16 +203,39 @@ JSON ingress.
 ### Strict raw decode boundary
 
 `decodeEnvelope` is the strict serialized boundary. It accepts at most 128 KiB
-(`131072` UTF-8 bytes) and at most 64 levels of JSON nesting. Before handing an
-object to the codec, it rejects malformed JSON, non-finite/nonstandard numeric
-constants, and duplicate member names recursively. Duplicate detection compares
-decoded key values, so literal and escape-equivalent spellings of the same key
-also conflict.
+(`131072` UTF-8 bytes) and at most 64 container levels of JSON nesting, with the
+root object or array at depth 1. Before handing an object to the codec, it
+rejects malformed JSON, non-finite/nonstandard numeric constants, and duplicate
+member names recursively. Duplicate detection compares decoded key values, so
+literal and escape-equivalent spellings of the same key also conflict.
+
+`application/json` and `*+json` payload bodies use that same strict parser,
+including recursive duplicate detection, nonstandard-constant rejection, and
+the root-at-1/max-64 depth rule. Payload bodies remain capped at 64 KiB UTF-8.
 
 `validateEnvelope` remains object-level validation. It cannot recover duplicate
 members, malformed token spellings, or other source-text distinctions already
 lost by an upstream parser. These limits and rejection rules are codec and
 reference-conformance evidence, not evidence of a public transport or ingress.
+
+### Numeric domain
+
+The numeric domain applies recursively to every number in the normalized
+envelope, including extensions and parsed JSON payload values:
+
+- Integral values MUST be in
+  `[-9007199254740991, 9007199254740991]`.
+- Timestamps MUST additionally be nonnegative integers in that safe range.
+- Non-integral values MUST be finite IEEE 754 binary64 values.
+- An integral-valued binary64 outside the safe-integer range is invalid even if
+  its source used fractional or exponent notation.
+- `-0` is valid and canonicalizes to `+0`.
+- Unsafe integer literals, unsafe exponent forms, and overflow are rejected,
+  not rounded into an accepted identity.
+
+Permitted lexical forms that parse to the same fractional binary64 value may
+share semantic numeric identity, such as `0.5` and `5e-1`. This equivalence
+never rescues an unsafe value.
 
 ### Canonical envelope fingerprint v1
 
@@ -233,14 +258,16 @@ UTF8("meshfleet.a2a.fingerprint.v1") || 0x00 || canonical-tree(normalized-envelo
 | `null` | tag `0x00` |
 | `false` | tag `0x01` |
 | `true` | tag `0x02` |
-| number | tag `0x03`, then finite IEEE 754 binary64 big-endian; `-0` is encoded as `+0` |
+| number | tag `0x03`, then an in-domain IEEE 754 binary64 big-endian; integral values must be safe integers and `-0` is encoded as `+0` |
 | string | tag `0x04`, unsigned 64-bit big-endian UTF-8 byte length, then Unicode-scalar UTF-8 bytes |
 | array | tag `0x05`, unsigned 64-bit big-endian element count, then child encodings in original order |
 | object | tag `0x06`, unsigned 64-bit big-endian entry count, then key/value encodings with keys sorted by unsigned UTF-8 bytes |
 
 Each object key is encoded using the string tag and length form before its
 value. Canonicalization recursively rejects unsupported values, cycles or
-non-JSON trees, non-scalar strings, and non-finite or non-binary64 numbers.
+non-JSON trees, non-scalar strings, and out-of-domain numbers. The canonical
+digest path revalidates the envelope numeric domain and validates each number
+again while encoding the tree.
 
 The digest covers only the validated, normalized envelope. It never covers a
 principal, policy decision, runtime, process, transport, connection, or other

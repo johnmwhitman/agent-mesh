@@ -21,7 +21,8 @@ The ranked A2A strategy is canonical in
 4. **Slice 4A portability proof** - canonical-ingress semantics are frozen in
    design, and a standalone offline Python witness agrees with the
    language-neutral corpora, strict raw-decoder limits, and exact custom
-   canonical digest output, including negative self-tests. This is
+   canonical digest output, including strict JSON payload depth/duplicates,
+   cross-language safe numeric identity, and negative self-tests. This is
    reference-conformance only: no production ingress/store/tool, RFC JCS,
    signature, durable acceptance, delivery, or authenticated-principal claim.
 5. **Slice 4B durable acceptance foundation** - after 4A: explicit physical

@@ -38,10 +38,20 @@ transport/parsing responsibility because an object-level codec cannot recover
 member names already collapsed by a parser.
 
 The strict raw decoder accepts at most 128 KiB (`131072` UTF-8 bytes) and 64
-levels of nesting. It rejects malformed and non-finite JSON before object-level
-validation, and recursive duplicate detection compares decoded names so
-escape-equivalent keys collide. `validateEnvelope` itself remains object-level
-and makes no raw-source claim.
+container levels of nesting, counting a root object or array as depth 1. It
+rejects malformed and non-finite JSON before object-level validation, and
+recursive duplicate detection compares decoded names so escape-equivalent keys
+collide. `application/json` and `*+json` bodies use the same strict parser and
+depth rule, while retaining the smaller 64 KiB body cap. `validateEnvelope`
+itself remains object-level and makes no raw-source claim.
+
+The recursive numeric domain permits integers only from
+`-9007199254740991` through `9007199254740991`; timestamps are additionally
+nonnegative. Non-integral values must be finite binary64. Integral-valued floats
+outside the safe range, unsafe integer or exponent forms, and overflow are
+invalid. `-0` is permitted and canonicalized as `+0`. Equivalent allowed
+fractional spellings may share semantic binary64 identity; unsafe values are
+rejected instead of rounded.
 
 ## Minimum conforming implementation
 
@@ -102,6 +112,9 @@ are finite IEEE 754 binary64 big-endian, with `-0` normalized to `+0`.
 Unsupported or invalid values are rejected recursively. SHA-256 produces the
 lowercase `<hex>` suffix.
 
+Digest construction revalidates the normalized envelope numeric domain and
+checks each numeric value again during canonical tree encoding.
+
 Only the validated, normalized envelope is digested. Principal, runtime,
 transport, policy, and connection context are excluded. A future ingress must
 sort recipients before digesting; no other array is reordered. This custom
@@ -136,7 +149,8 @@ valid/invalid envelopes, extension preservation, recursive Unicode scalar
 handling, strict JSON constants, the shared media-type grammar, recursive raw
 duplicate-member rejection, key-order independence, codec identity
 classification, exact canonical digest bytes/output across TypeScript and
-Python, and the designed ingress decision model. Its negative
+Python, shared payload depth/duplicate behavior, safe numeric boundaries, and
+equivalent permitted fractional identities. Its negative
 self-tests mutate a corpus expectation and feed a nonstandard numeric constant
 to the corpus parser, confirming the witness exits nonzero.
 
