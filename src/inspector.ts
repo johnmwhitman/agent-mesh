@@ -344,11 +344,6 @@ const CHECK_EXPLANATIONS: Record<string, CheckExplanation> = {
     benign: "a hand-edited export with an incorrect timestamp",
     investigate: "agent-mesh inspect --export | jq '.agents'",
   },
-  "agent.mismatched_identity": {
-    what: "an agent ran with a runtime_model that contradicts its registered capability",
-    benign: "a hand-edited export with mismatched identity",
-    investigate: "agent-mesh inspect --export | jq '.agents'",
-  },
   "message.tampered_timestamp": {
     what: "a message is timestamped before the fleet was created",
     benign: "a hand-edited export with a tampered timestamp",
@@ -367,6 +362,11 @@ const CHECK_EXPLANATIONS: Record<string, CheckExplanation> = {
   "receipt.orphan_message": {
     what: "the receipt references a message this ledger doesn't hold",
     benign: "a partially-restored backup that kept receipts but trimmed messages",
+    investigate: "agent-mesh inspect --export | jq '.receipts'",
+  },
+  "receipt.invalid_timestamp": {
+    what: "the receipt has a missing, non-numeric, or non-finite timestamp and cannot support derived state",
+    benign: "a hand-edited or partially-corrupted export",
     investigate: "agent-mesh inspect --export | jq '.receipts'",
   },
   "receipt.unknown_agent": {

@@ -25,7 +25,6 @@ import { existsSync } from "fs";
 import { BROADCAST, messageRecipients, type MeshData, type Message, type Receipt } from "./core.js";
 import { MAX_TOTAL_WEIGHT, MAX_VOTE_WEIGHT, computeTally, parseVoteAction } from "./ratify.js";
 import { readLedger, readLedgerFile } from "./db.js";
-import { runtimeModelsMatch } from "./spawn-result.js";
 
 export interface VerifyFinding {
   severity: "error" | "warning";
@@ -88,11 +87,6 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
   for (const c of Object.values(data.capabilities)) {
     if (!data.agents[c.agent_id]) {
       warning("capability.unknown_agent", c.agent_id, `capability registered for ${c.agent_id}, which this ledger has not registered as an agent`);
-    } else {
-      const a = data.agents[c.agent_id];
-      if (c.model && a && a.runtime_model && !runtimeModelsMatch(c.model, a.runtime_model)) {
-        error("agent.mismatched_identity", a.id, `agent ran with model ${a.runtime_model} but capability required ${c.model}`);
-      }
     }
   }
 
@@ -113,6 +107,10 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
     // captured (schema v1 predates the recipients field). Not an unknown agent.
     if (!data.agents[r.agent_id] && r.agent_id !== BROADCAST) {
       warning("receipt.unknown_agent", key, `receipt ${key} was written by ${r.agent_id}, which this ledger has not registered as an agent`);
+    }
+    if (!Number.isFinite(r.timestamp)) {
+      error("receipt.invalid_timestamp", key, `receipt ${key} has a missing or non-finite timestamp`);
+      continue;
     }
     if (r.timestamp < msg.timestamp) {
       error("receipt.before_message", key, `receipt ${key} is timestamped ${r.timestamp}, before its message (${msg.timestamp})`);

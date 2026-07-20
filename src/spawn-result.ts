@@ -27,8 +27,12 @@ interface DiagnosticAttribution {
 
 export function runtimeModelsMatch(expected?: string, observed?: string): boolean {
   if (!expected || !observed) return false;
-  const leaf = (value: string) => value.toLowerCase().split("/").at(-1);
-  return leaf(expected) === leaf(observed);
+  const expectedValue = expected.toLowerCase();
+  const observedValue = observed.toLowerCase();
+  if (expectedValue.includes("/") && observedValue.includes("/")) {
+    return expectedValue === observedValue;
+  }
+  return expectedValue.split("/").at(-1) === observedValue.split("/").at(-1);
 }
 
 function runtimeBanner(stderr: string): { agent: string; model: string } | undefined {

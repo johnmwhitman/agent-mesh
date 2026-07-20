@@ -83,7 +83,7 @@ Direction, not commitment — items ship when real usage pulls them.
 - `verify --explain` — failure triage for the ledger auditor
 
 **Next**
-- P1 spawn receipts: resolved runtime model identity capture is implemented; requested runtime model identity remains unrepresented and must be added before this requested/resolved item is complete.
+- P1 spawn receipts: resolved runtime agent/model banner capture is implemented. Capability `model` remains routing self-description, not proof of runtime identity; requested-vs-resolved model binding remains future work.
 - Zero-install ledger verification (`npx` against any ledger file someone sends you)
 - A quickstart demo that ends with a verification, not a wall of text
 - `agent-mesh doctor` — 30-second diagnosis of broken installs

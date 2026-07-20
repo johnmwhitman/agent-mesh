@@ -21,24 +21,6 @@ test("verifier catches tampered timestamps", () => {
   assert.ok(errors.length > 0, "Expected agent.tampered_timestamp error");
 });
 
-test("verifier catches mismatched runtime identities", () => {
-  const file = join(__dirname, "fixtures", "tampered-identities.json");
-  const data = loadDataFromFile(file);
-  const report = verifyMeshData(data);
-  assert.equal(report.ok, false);
-  const errors = found(report, "agent.mismatched_identity");
-  assert.ok(errors.length > 0, "Expected agent.mismatched_identity error");
-});
-
-test("provider-qualified and unqualified runtime identities match", () => {
-  const file = join(__dirname, "fixtures", "tampered-identities.json");
-  const data = loadDataFromFile(file);
-  data.agents.a1.runtime_model = "anthropic/claude-3-5-sonnet";
-  data.capabilities.a1.model = "claude-3-5-sonnet";
-  const report = verifyMeshData(data);
-  assert.equal(found(report, "agent.mismatched_identity").length, 0);
-});
-
 test("an invalid early ack cannot prove acknowledgement", () => {
   const file = join(__dirname, "fixtures", "tampered-identities.json");
   const data = loadDataFromFile(file);

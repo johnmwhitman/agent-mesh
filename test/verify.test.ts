@@ -156,6 +156,45 @@ test("receipt timestamped before its message is an error", () => {
   assert.equal(found(report, "receipt.before_message")[0].severity, "error");
 });
 
+test("missing, string, and NaN receipt timestamps are errors and cannot prove an ack", () => {
+  for (const timestamp of [undefined, "2000", Number.NaN]) {
+    const data = consistent();
+    data.messages.m1 = msg("m1", "a1", "a2", "f1", { acknowledged: true });
+    data.inboxes.a2 = [];
+    data.receipts = {
+      "m1:a2:ack": {
+        message_id: "m1",
+        agent_id: "a2",
+        action: "ack",
+        ...(timestamp === undefined ? {} : { timestamp }),
+      } as unknown as Receipt,
+    };
+    const report = verifyMeshData(data);
+    assert.equal(found(report, "receipt.invalid_timestamp").length, 1);
+    assert.equal(found(report, "message.ack_flag_mismatch").length, 1);
+  }
+});
+
+test("a valid non-ack receipt cannot prove acknowledgement", () => {
+  const data = consistent();
+  data.messages.m1 = msg("m1", "a1", "a2", "f1", { acknowledged: true });
+  data.inboxes.a2 = [];
+  data.receipts = { "m1:a2:seen": receiptRow("m1", "a2", "seen") };
+  const report = verifyMeshData(data);
+  assert.equal(found(report, "message.ack_flag_mismatch").length, 1);
+  assert.equal(found(report, "receipt.invalid_timestamp").length, 0);
+});
+
+test("an ack from an unknown recipient cannot prove acknowledgement", () => {
+  const data = consistent();
+  data.messages.m1 = msg("m1", "a1", "a2", "f1", { acknowledged: true });
+  data.inboxes.a2 = [];
+  data.receipts = { "m1:stranger:ack": receiptRow("m1", "stranger", "ack") };
+  const report = verifyMeshData(data);
+  assert.equal(found(report, "receipt.unknown_agent").length, 1);
+  assert.equal(found(report, "message.ack_flag_mismatch").length, 1);
+});
+
 // ---------------------------------------------------------------------------
 // The derived acknowledged flag + inbox consumption
 // ---------------------------------------------------------------------------

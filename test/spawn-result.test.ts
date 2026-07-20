@@ -2,8 +2,14 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { classifySpawnResult, runtimeModelsMatch } from '../src/spawn-result.js'
 
-test('provider prefixes do not create a runtime identity mismatch', () => {
+test('unqualified and provider-qualified runtime model identities match by leaf', () => {
   assert.equal(runtimeModelsMatch('claude-sonnet-4', 'anthropic/claude-sonnet-4'), true)
+  assert.equal(runtimeModelsMatch('anthropic/claude-sonnet-4', 'claude-sonnet-4'), true)
+})
+
+test('two provider-qualified runtime model identities require the same provider and leaf', () => {
+  assert.equal(runtimeModelsMatch('anthropic/claude-sonnet-4', 'anthropic/claude-sonnet-4'), true)
+  assert.equal(runtimeModelsMatch('anthropic/claude-sonnet-4', 'openai/claude-sonnet-4'), false)
 })
 
 test('spawn result: exit zero with empty stdout fails closed', () => {

@@ -155,18 +155,9 @@ interface Capability {
 
 ## 5. Tools
 
-| Tool | Version | Purpose |
-|---|---|---|
-| `spawn_fleet` | v0.1 | Spawn N parallel agents with optional premade agent definitions |
-| `fleet_status` | v0.1 | Check fleet and agent status |
-| `collect_results` | v0.1 | Get all agent outputs from a fleet |
-| `send_message` | v0.2 | P2P message between agents (5 message types) |
-| `get_inbox` | v0.2 | Poll an agent's inbox for messages |
-| `ack_message` | v0.2 | Acknowledge and remove a message from inbox |
-| `register_capability` | v0.2 | Register agent capabilities for routing |
-| `route_work` | v0.2 | Find best-matching agents for a task description |
-| `list_agents` | v0.3 | List all available premade agents from .opencode/agents/ |
-| `attach_agent` | v0.3 | Dynamically attach a premade agent to a running fleet |
+The authoritative MCP tool registry, version history, and compatibility promise
+live in [COMPATIBILITY.md](COMPATIBILITY.md). This spec intentionally points to
+that registry instead of duplicating a tool table that can drift.
 
 ---
 
