@@ -1,0 +1,200 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import Database from "better-sqlite3";
+import { mkdtempSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { closeDb, getStorageSchemaVersion, setDbPath } from "../src/db.js";
+import { LifecycleStore } from "../src/attempt-lifecycle.js";
+import { defaultLifecycleMode, LifecycleExecutionCoordinator, projectLifecycleOutbox, setOutboxAfterAppendForTest } from "../src/lifecycle-execution.js";
+import { loadData, readEventLog } from "../src/core.js";
+import type { RuntimeAdapter, RuntimeHandle, RuntimeResult } from "../src/runtime/types.js";
+import { withTempDb } from "./helpers/with-temp-db.js";
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail; });
+  return { promise, resolve, reject };
+}
+
+class ControlledRuntime implements RuntimeAdapter {
+  readonly id = "controlled";
+  starts = 0;
+  readonly waits: Array<ReturnType<typeof deferred<RuntimeResult>>> = [];
+  describe() { return { id: this.id, displayName: "Controlled", defaultTimeoutMs: 1_000 }; }
+  validate() { return { ok: true, errors: [] }; }
+  async start(): Promise<RuntimeHandle> {
+    this.starts++;
+    const wait = deferred<RuntimeResult>();
+    this.waits.push(wait);
+    return { id: `h-${this.starts}`, pid: 4242, startedAt: Date.now(), isAlive: () => true };
+  }
+  wait(): Promise<RuntimeResult> { return this.waits.at(-1)!.promise; }
+  async cancel() { return { accepted: true }; }
+}
+
+const success = (stdout = "ok"): RuntimeResult => ({ status: "success", stdout, stderr: "", exitCode: 0, diagnostics: [], identity: { adapterId: "controlled", evidence: "none" } });
+const tick = () => new Promise<void>((done) => setImmediate(done));
+
+test("v2 retry histories receive deterministic attempt numbers before unique index creation", () => {
+  const dir = mkdtempSync(join(tmpdir(), "meshfleet-v2-retry-"));
+  const file = join(dir, "ledger.db");
+  try {
+    const raw = new Database(file);
+    raw.exec(`
+      CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+      INSERT INTO meta VALUES ('storage_schema_version', '2');
+      CREATE TABLE work_items (work_id TEXT PRIMARY KEY, fleet_id TEXT, status TEXT, current_attempt_id TEXT, owner_epoch INTEGER, cancelled_at INTEGER, terminal_at INTEGER, result_json TEXT, error_json TEXT, created_at INTEGER, updated_at INTEGER);
+      CREATE TABLE attempts (attempt_id TEXT PRIMARY KEY, work_id TEXT, owner_id TEXT, owner_epoch INTEGER, status TEXT, lease_until INTEGER, created_at INTEGER, updated_at INTEGER, terminal_at INTEGER, result_json TEXT, error_json TEXT);
+      INSERT INTO work_items VALUES ('w', 'f', 'pending', 'a2', 1, NULL, NULL, NULL, NULL, 1, 2);
+      INSERT INTO attempts VALUES ('a1', 'w', NULL, 0, 'expired', NULL, 10, 10, NULL, NULL, NULL);
+      INSERT INTO attempts VALUES ('a2', 'w', NULL, 1, 'pending', NULL, 20, 20, NULL, NULL, NULL);
+    `);
+    raw.close();
+    setDbPath(file);
+    assert.equal(getStorageSchemaVersion(), 3);
+    closeDb();
+    const migrated = new Database(file, { readonly: true });
+    assert.deepEqual(migrated.prepare("SELECT attempt_id, attempt_number, eligible_at FROM attempts ORDER BY attempt_id").all(), [
+      { attempt_id: "a1", attempt_number: 1, eligible_at: 0 },
+      { attempt_id: "a2", attempt_number: 2, eligible_at: 0 },
+    ]);
+    migrated.close();
+  } finally {
+    closeDb();
+    setDbPath(null);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("expiry of final attempt is replay-terminal and emits the terminal failure event", () => {
+  const temp = withTempDb();
+  try {
+    let now = 1;
+    const store = new LifecycleStore({ now: () => now, nextId: (() => { let n = 0; return () => `e-${++n}`; })() });
+    const initial = store.createWork({ workId: "w", fleetId: "f", maxAttempts: 1 });
+    store.acquireLease({ workId: "w", attemptId: initial.attempts[0].attempt_id, ownerId: "o", leaseMs: 1 });
+    now = 2;
+    const result = store.expireAndRetry("w", initial.attempts[0].attempt_id);
+    assert.equal(result.accepted, true);
+    if (result.accepted) {
+      assert.equal(result.state.work.status, "failed");
+      assert.equal(result.state.attempts[0].status, "failed");
+      assert.equal(result.state.attempts[0].terminal_at, 2);
+      assert.deepEqual(result.state.events.map((event) => event.kind), ["attempt_created", "lease_acquired", "lease_expired", "attempt_failed"]);
+    }
+  } finally { temp.cleanup(); }
+});
+
+test("durable recovery wakes at a future lease boundary, contains the diagnostic pid, and emits retry outbox", async () => {
+  const temp = withTempDb({ fleets: { f: { id: "f", status: "running", created_at: 1 } }, agents: { a: { id: "a", fleet_id: "f", role: "r", prompt: "p", status: "running" } }, messages: {}, inboxes: { a: [] }, capabilities: {} });
+  try {
+    const store = new LifecycleStore();
+    const initial = store.createWork({ workId: "a", fleetId: "f", agentId: "a", retryBaseMs: 0 });
+    const lease = store.acquireLease({ workId: "a", attemptId: initial.attempts[0].attempt_id, ownerId: "dead-owner", leaseMs: 25 });
+    assert.equal(lease.accepted, true);
+    if (lease.accepted) store.recordRuntimeMetadata({ workId: "a", attemptId: initial.attempts[0].attempt_id, ownerId: "dead-owner", ownerEpoch: lease.state.work.owner_epoch, pid: 999_999, metadata: { source: "test" } });
+    const runtime = new ControlledRuntime();
+    const contained: number[] = [];
+    const coordinator = new LifecycleExecutionCoordinator(runtime, { ownerId: "recovery-owner", leaseMs: 100, retryBaseMs: 0, terminatePid: (pid) => contained.push(pid) });
+    coordinator.recover();
+    assert.equal(runtime.starts, 0, "non-expired lease is not reclaimed at startup");
+    await new Promise((done) => setTimeout(done, 45));
+    assert.equal(runtime.starts, 1, "scheduled recovery reclaims after expiry without restart");
+    assert.deepEqual(contained, [999_999]);
+    assert.ok(readEventLog().some((event) => event.event === "agent_retry_scheduled"));
+    coordinator.stop();
+  } finally { temp.cleanup(); }
+});
+
+test("outbox projects by durable sequence and repairs a crash after append without duplication", () => {
+  const temp = withTempDb();
+  try {
+    const runtime = new ControlledRuntime();
+    const coordinator = new LifecycleExecutionCoordinator(runtime, { ownerId: "outbox-owner" });
+    setOutboxAfterAppendForTest(() => { throw new Error("crash after append"); });
+    assert.throws(() => coordinator.createFleet("f", [{ fleetId: "f", agentId: "a", role: "r", prompt: "p" }]), /crash after append/);
+    setOutboxAfterAppendForTest(undefined);
+    projectLifecycleOutbox("replay-owner", Date.now() + 31_000);
+    const events = readEventLog();
+    assert.deepEqual(events.map((event) => event.event), ["fleet_created", "spawn_fleet_called"]);
+    assert.equal(new Set(events.map((event) => event.event_id)).size, events.length);
+  } finally {
+    setOutboxAfterAppendForTest(undefined);
+    temp.cleanup();
+  }
+});
+
+test("rejected wait settles once through redacted durable failure and public stdout is redacted", async () => {
+  const temp = withTempDb();
+  try {
+    const runtime = new ControlledRuntime();
+    const coordinator = new LifecycleExecutionCoordinator(runtime, { ownerId: "owner", maxAttempts: 1 });
+    coordinator.createFleet("f", [{ fleetId: "f", agentId: "a", role: "r", prompt: "p" }]);
+    await tick();
+    runtime.waits[0].reject(new Error("Bearer wait-secret"));
+    await tick();
+    assert.equal(loadData().agents.a.status, "failed");
+    assert.doesNotMatch(loadData().agents.a.error ?? "", /wait-secret/);
+    const second = new ControlledRuntime();
+    const outputCoordinator = new LifecycleExecutionCoordinator(second, { ownerId: "output", maxAttempts: 1 });
+    outputCoordinator.createFleet("f2", [{ fleetId: "f2", agentId: "a2", role: "r", prompt: "p" }]);
+    await tick();
+    second.waits[0].resolve(success("api_key=stdout-secret"));
+    await tick();
+    assert.doesNotMatch(loadData().agents.a2.output ?? "", /stdout-secret/);
+    assert.doesNotMatch(String(new LifecycleStore().getState("a2")?.work.result), /stdout-secret/);
+  } finally { temp.cleanup(); }
+});
+
+test("two coordinators launch due work once; durable attach keeps legacy projections; shadow remains legacy-authoritative", async () => {
+  const temp = withTempDb({ fleets: { f: { id: "f", status: "running", created_at: 1 } }, agents: { a: { id: "a", fleet_id: "f", role: "r", prompt: "p", status: "pending" } }, messages: {}, inboxes: { a: [] }, capabilities: {} });
+  const old = process.env.MESHFLEET_LIFECYCLE_MODE;
+  try {
+    const store = new LifecycleStore();
+    store.createWork({ workId: "a", fleetId: "f", agentId: "a" });
+    const first = new ControlledRuntime();
+    const second = new ControlledRuntime();
+    const a = new LifecycleExecutionCoordinator(first, { ownerId: "one" });
+    const b = new LifecycleExecutionCoordinator(second, { ownerId: "two" });
+    a.recover(); b.recover();
+    await tick();
+    assert.equal(first.starts + second.starts, 1);
+    const durable = new LifecycleExecutionCoordinator(new ControlledRuntime(), { ownerId: "attach" });
+    durable.createFleet("durable", [{ fleetId: "durable", agentId: "d1", role: "first", prompt: "p" }]);
+    const attached = durable.attachAgent({ fleetId: "durable", agentId: "d2", role: "second", prompt: "p" });
+    assert.deepEqual(attached, {});
+    assert.deepEqual(loadData().inboxes.d2, []);
+    assert.equal(loadData().agents.d2.fleet_id, "durable");
+    const shadow = new LifecycleExecutionCoordinator(new ControlledRuntime());
+    shadow.recordMode("shadow", "shadow");
+    assert.equal(shadow.modeForFleet("shadow"), "shadow");
+    assert.equal(new LifecycleStore().getState("shadow"), null);
+    process.env.MESHFLEET_LIFECYCLE_MODE = "shadow";
+    assert.equal(defaultLifecycleMode(), "shadow");
+    a.stop();
+    b.stop();
+    durable.stop();
+    shadow.stop();
+  } finally {
+    if (old === undefined) delete process.env.MESHFLEET_LIFECYCLE_MODE; else process.env.MESHFLEET_LIFECYCLE_MODE = old;
+    temp.cleanup();
+  }
+});
+
+test("captured no-jitter policy persists the exact deterministic eligible time", () => {
+  const temp = withTempDb();
+  try {
+    let now = 100;
+    const store = new LifecycleStore({ now: () => now, nextId: (() => { let n = 0; return () => `j-${++n}`; })() });
+    const initial = store.createWork({ workId: "j", fleetId: "f", maxAttempts: 2, retryBaseMs: 50, retryJitter: false });
+    const lease = store.acquireLease({ workId: "j", attemptId: initial.attempts[0].attempt_id, ownerId: "o", leaseMs: 10 });
+    assert.equal(lease.accepted, true);
+    if (lease.accepted) {
+      const retried = store.settleWithRetry({ workId: "j", attemptId: initial.attempts[0].attempt_id, ownerId: "o", ownerEpoch: lease.state.work.owner_epoch, outcome: "failure" });
+      assert.equal(retried.accepted, true);
+      if (retried.accepted) assert.equal(retried.state.attempts.at(-1)?.eligible_at, 150);
+    }
+  } finally { temp.cleanup(); }
+});

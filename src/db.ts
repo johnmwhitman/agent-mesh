@@ -143,7 +143,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_attempts_work_number ON attempts(work_id, 
 CREATE INDEX IF NOT EXISTS idx_attempts_due ON attempts(status, eligible_at, work_id);
 CREATE INDEX IF NOT EXISTS idx_work_items_fleet_status ON work_items(fleet_id, status);
 CREATE TABLE IF NOT EXISTS lifecycle_event_outbox (
-  event_id TEXT PRIMARY KEY,
+  seq INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_id TEXT NOT NULL UNIQUE,
   event TEXT NOT NULL,
   payload TEXT NOT NULL CHECK (json_valid(payload)),
   created_at INTEGER NOT NULL,
@@ -151,7 +152,7 @@ CREATE TABLE IF NOT EXISTS lifecycle_event_outbox (
   claimed_at INTEGER,
   projected_at INTEGER
 );
-CREATE INDEX IF NOT EXISTS idx_lifecycle_outbox_due ON lifecycle_event_outbox(projected_at, claimed_at, created_at);
+CREATE INDEX IF NOT EXISTS idx_lifecycle_outbox_due ON lifecycle_event_outbox(projected_at, claimed_at, seq);
 CREATE TRIGGER IF NOT EXISTS lifecycle_work_retry_policy_insert
 BEFORE INSERT ON work_items WHEN NEW.max_attempts < 1 OR NEW.retry_base_ms < 0
 BEGIN SELECT RAISE(ABORT, 'invalid lifecycle retry policy'); END;
@@ -169,6 +170,39 @@ BEGIN SELECT RAISE(ABORT, 'invalid lifecycle attempt schedule'); END;
 function ensureColumn(db: Database.Database, table: "fleets" | "work_items" | "attempts", column: string, definition: string): void {
   const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
   if (!columns.some((item) => item.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${definition}`);
+}
+
+function backfillAttemptNumbers(db: Database.Database): void {
+  const rows = db.prepare("SELECT attempt_id, work_id FROM attempts ORDER BY work_id, created_at, attempt_id").all() as Array<{ attempt_id: string; work_id: string }>;
+  const update = db.prepare("UPDATE attempts SET attempt_number = ?, eligible_at = 0 WHERE attempt_id = ?");
+  let workId = "";
+  let number = 0;
+  for (const row of rows) {
+    if (row.work_id !== workId) { workId = row.work_id; number = 0; }
+    update.run(++number, row.attempt_id);
+  }
+}
+
+function ensureOutboxSequence(db: Database.Database): void {
+  const columns = db.prepare("PRAGMA table_info(lifecycle_event_outbox)").all() as Array<{ name: string }>;
+  if (columns.some((column) => column.name === "seq")) return;
+  db.exec(`
+    CREATE TABLE lifecycle_event_outbox_v3 (
+      seq INTEGER PRIMARY KEY AUTOINCREMENT,
+      event_id TEXT NOT NULL UNIQUE,
+      event TEXT NOT NULL,
+      payload TEXT NOT NULL CHECK (json_valid(payload)),
+      created_at INTEGER NOT NULL,
+      claimed_by TEXT,
+      claimed_at INTEGER,
+      projected_at INTEGER
+    );
+    INSERT INTO lifecycle_event_outbox_v3 (event_id, event, payload, created_at, claimed_by, claimed_at, projected_at)
+      SELECT event_id, event, payload, created_at, claimed_by, claimed_at, projected_at
+      FROM lifecycle_event_outbox ORDER BY created_at, event_id;
+    DROP TABLE lifecycle_event_outbox;
+    ALTER TABLE lifecycle_event_outbox_v3 RENAME TO lifecycle_event_outbox;
+  `);
 }
 
 let storageMigrationFaultForTest = false;
@@ -210,10 +244,28 @@ function migrateStorage(db: Database.Database): void {
       ensureColumn(db, "work_items", "retry_jitter", "retry_jitter INTEGER NOT NULL DEFAULT 1 CHECK (retry_jitter IN (0, 1))");
       ensureColumn(db, "attempts", "attempt_number", "attempt_number INTEGER NOT NULL DEFAULT 1");
       ensureColumn(db, "attempts", "eligible_at", "eligible_at INTEGER NOT NULL DEFAULT 0");
+      ensureColumn(db, "attempts", "runtime_pid", "runtime_pid INTEGER");
+      ensureColumn(db, "attempts", "runtime_meta_json", "runtime_meta_json TEXT");
+      // v2 did not persist scheduling. Every pre-v3 pending attempt was
+      // eligible immediately; assign deterministic ordinal attempts before
+      // installing the per-work uniqueness constraint.
+      backfillAttemptNumbers(db);
       db.exec(LIFECYCLE_SCHEMA_V3);
+      ensureOutboxSequence(db);
+      db.exec("CREATE INDEX IF NOT EXISTS idx_lifecycle_outbox_due ON lifecycle_event_outbox(projected_at, claimed_at, seq)");
       if (storageMigrationFaultForTest) throw new Error("forced storage migration failure");
       db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('storage_schema_version', '3')").run();
       version = 3;
+    }
+    if (version === 3) {
+      // Repair partial/early v3 layouts on open without advancing the logical
+      // ledger schema or making an already-valid migration non-idempotent.
+      ensureColumn(db, "attempts", "runtime_pid", "runtime_pid INTEGER");
+      ensureColumn(db, "attempts", "runtime_meta_json", "runtime_meta_json TEXT");
+      db.exec(LIFECYCLE_SCHEMA_V3);
+      ensureOutboxSequence(db);
+      db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_attempts_work_number ON attempts(work_id, attempt_number)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_lifecycle_outbox_due ON lifecycle_event_outbox(projected_at, claimed_at, seq)");
     }
   }).immediate;
   migrate();

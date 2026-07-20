@@ -186,6 +186,13 @@ function requireNonEmpty(value: string, label: string): void {
 function requireLeaseMs(value: number): void {
   if (!Number.isFinite(value) || value <= 0) throw new Error("leaseMs must be a positive finite number");
 }
+function retryDelay(work: WorkItem, failedAttempt: Attempt): number {
+  const base = work.retry_base_ms * Math.pow(2, failedAttempt.attempt_number - 1);
+  if (!work.retry_jitter) return Math.floor(base);
+  let hash = 0;
+  for (const char of `${work.work_id}:${failedAttempt.attempt_number + 1}`) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  return Math.floor(base * (0.8 + (hash % 4001) / 10_000));
+}
 
 export class LifecycleStore {
   private readonly now: () => number;
@@ -300,11 +307,18 @@ export class LifecycleStore {
       // advances ownership. This makes the ordered event stream replayable.
       this.appendEvent(db, "lease_expired", work, attempt, now);
       if (attempt.attempt_number >= work.max_attempts) {
+        const failure = "lease expired after final allowed attempt";
+        attempt.status = "failed";
+        attempt.terminal_at = now;
+        attempt.error = failure;
+        attempt.updated_at = now;
         work.status = "failed";
         work.terminal_at = now;
-        work.error = "lease expired after final allowed attempt";
+        work.error = failure;
         work.updated_at = now;
+        this.updateAttempt(db, attempt);
         this.updateWork(db, work);
+        this.appendEvent(db, "attempt_failed", work, attempt, now);
         this.beforeCommit?.();
         return { accepted: true, state: this.snapshot(db, workId) };
       }
@@ -387,7 +401,7 @@ export class LifecycleStore {
         return { accepted: true, state: this.snapshot(db, work.work_id) };
       }
       const epoch = Math.max(work.owner_epoch, attempt.owner_epoch) + 1;
-      const eligibleAt = now + Math.floor(work.retry_base_ms * Math.pow(2, attempt.attempt_number - 1));
+      const eligibleAt = now + retryDelay(work, attempt);
       const retry: Attempt = {
         attempt_id: this.nextId(), work_id: work.work_id, owner_id: null, owner_epoch: epoch,
         status: "pending", lease_until: null, attempt_number: attempt.attempt_number + 1, eligible_at: eligibleAt,
@@ -429,6 +443,32 @@ export class LifecycleStore {
       const now = this.now();
       const rows = db.prepare("SELECT work_id FROM work_items WHERE status = 'pending' AND current_attempt_id IN (SELECT attempt_id FROM attempts WHERE status = 'pending' AND eligible_at <= ?)").all(now) as Array<{ work_id: string }>;
       return rows.map((row) => this.snapshot(db, row.work_id));
+    });
+  }
+
+  nextWakeAt(): number | null {
+    return this.transaction((db) => {
+      const row = db.prepare("SELECT MIN(CASE WHEN a.status = 'running' THEN a.lease_until ELSE a.eligible_at END) AS wake_at FROM work_items w JOIN attempts a ON a.attempt_id = w.current_attempt_id WHERE (w.status = 'running' AND a.status = 'running' AND a.lease_until IS NOT NULL) OR (w.status = 'pending' AND a.status = 'pending')").get() as { wake_at: number | null };
+      return row.wake_at;
+    });
+  }
+
+  expiredRuntimePids(): Array<{ workId: string; attemptId: string; pid: number }> {
+    return this.transaction((db) => {
+      const now = this.now();
+      return db.prepare("SELECT w.work_id, a.attempt_id, a.runtime_pid FROM work_items w JOIN attempts a ON a.attempt_id = w.current_attempt_id WHERE w.status = 'running' AND a.status = 'running' AND a.lease_until <= ? AND a.runtime_pid IS NOT NULL").all(now)
+        .map((row) => ({ workId: (row as { work_id: string }).work_id, attemptId: (row as { attempt_id: string }).attempt_id, pid: (row as { runtime_pid: number }).runtime_pid }));
+    });
+  }
+
+  recordRuntimeMetadata(input: { workId: string; attemptId: string; ownerId: string; ownerEpoch: number; pid?: number; metadata: Record<string, unknown> }): MutationResult {
+    return this.transaction((db) => {
+      const now = this.now();
+      const work = this.loadWork(db, input.workId);
+      const attempt = this.loadAttempt(db, input.attemptId);
+      if (!work || !attempt || !this.ownedMutationAllowed(work, attempt, input, now)) return { accepted: false, reason: "stale or terminal lease" };
+      db.prepare("UPDATE attempts SET runtime_pid = ?, runtime_meta_json = ? WHERE attempt_id = ? AND owner_id = ? AND owner_epoch = ?").run(input.pid ?? null, JSON.stringify(input.metadata), input.attemptId, input.ownerId, input.ownerEpoch);
+      return { accepted: true, state: this.snapshot(db, input.workId) };
     });
   }
 
