@@ -1,6 +1,6 @@
 # Agent Mesh A2A Current Handoff
 
-Status: **Foundation slices plus bounded durable execution integration implemented; single-host only**
+Status: **Foundation slices, bounded durable execution, and Slice 4A portable ingress-contract reference conformance implemented; single-host only**
 
 This is the current successor handoff for the provider-neutral A2A program. It
 records evidence and next actions; normative behavior remains in the canonical
@@ -10,8 +10,9 @@ documents linked below.
 
 - Branch: `codex/a2a-seamless-foundation`
 - Branch base: `c278e33`
-- Reviewed integration head: `2ce185e`; this handoff records its final
-  verification and approval receipts.
+- Final approved Slice 4A range: `c3abd78..e895a83`; this handoff records the
+  implementation, verification, and independent-review receipts while
+  preserving the earlier integration receipts below.
 - Public package version remains `0.14.0`; nothing was merged, pushed, published,
   deployed, or remotely activated.
 - Inbound coordination is MCP stdio and host-neutral at the packaged server
@@ -76,6 +77,32 @@ documents linked below.
   accounting.
 - Machine-readable inbound/outbound conformance matrix.
 
+### Slice 4A: portable canonical-ingress contract and reference conformance
+
+- Ranked Slice 4A/4B/4C strategy separates portable contract proof, dormant
+  durable acceptance, and any later authenticated-local/public surface review.
+- Principal-bound canonical-ingress contract defines semantic message identity,
+  request retry identity, authorization-before-replay ordering, stable
+  non-enumerating dispositions, recipient normalization, and the durable-local
+  acceptance boundary without exposing an ingress.
+- Coordinator-free interoperability profile requires no Meshfleet install,
+  MCP, coordinator, provider, credentials, network, or runtime.
+- Standalone offline Python reference witness is independent of the TypeScript
+  production codec and agrees with the language-neutral corpora.
+- TypeScript and Python agree on strict raw-envelope and JSON-media parsing,
+  recursive duplicate detection, Unicode-scalar and exact numeric domains,
+  bounded depth/size, finite acyclic plain JSON value trees, and preservation of
+  valid unknown extensions.
+- Versioned custom canonical digest
+  `meshfleet.a2a.fingerprint.v1:sha256:<hex>` has exact cross-language vectors
+  and remains envelope-only, unsigned, unauthenticated, and non-attesting.
+- Language-neutral ingress corpus exercises the designed principal binding,
+  authorization, replay, conflict, expiry, atomicity, and external-code rules.
+
+Slice 4A is **reference-conformance only**. It does not implement a public
+ingress, durable acceptance store, authenticated principal, delivery path,
+remote transport, or multi-host authority.
+
 ## Verification receipts
 
 - TypeScript: `npm run typecheck` passed after the final code changes.
@@ -94,11 +121,22 @@ documents linked below.
 - Earlier host-neutral foundation review was approved at `00885e4`.
 - Live ledger verification: `ok=true`, zero errors, zero warnings; 34 fleets,
   82 agents, 4 messages, and 1 receipt.
+- Final Slice 4A independent GPT-5.5 `xhigh` review approved range
+  `c3abd78..e895a83` with no Critical or Important findings.
+- Final Slice 4A verification: full `npm test` passed `500/500`;
+  `npm run typecheck` passed.
+- Final live ledger verification: `ok=true`, `0` errors, `0` warnings; fleets
+  `34`, agents `82`, messages `4`, receipts `1`, ratifications `0`.
+- Portfolio Conductor structural validator exited `0`.
+- Final Slice 4A review package:
+  `.superpowers/sdd/review-c3abd78..e895a83-a2a-portable-ingress-contract.diff`.
 
 ## Canonical authorities
 
 - [Program and sequencing](./A2A-PROGRAM.md)
 - [Protocol v0.1](./A2A-PROTOCOL-v0.1.md)
+- [Canonical ingress contract v0.1](./A2A-INGRESS-CONTRACT-v0.1.md)
+- [Interoperability profile v0.1](./A2A-INTEROPERABILITY-PROFILE-v0.1.md)
 - [Adapter contract](./ADAPTER-CONTRACT.md)
 - [Configuration translation](./CONFIG-TRANSLATION.md)
 - [Conformance matrix](./CONFORMANCE-MATRIX.yaml)
@@ -107,6 +145,7 @@ documents linked below.
 - [Layer-boundary decision](./adr/0001-a2a-layer-boundaries.md)
 - [Lifecycle-authority decision](./adr/0002-durable-lifecycle-authority.md)
 - [Runtime-adapter decision](./adr/0003-runtime-adapter-boundary.md)
+- [Principal-bound ingress decision](./adr/0004-principal-bound-canonical-ingress.md)
 - [Compatibility registry](../COMPATIBILITY.md)
 
 ## Explicitly not implemented
@@ -123,15 +162,16 @@ documents linked below.
 
 ## Next integration stages
 
-1. Completed: namespaced lifecycle integrity checks compose into
-   `verify_ledger` and `inspect --verify <file>`; the opt-in lifecycle inspector
-   exposes outbox-lag/repair visibility without changing default text, JSON, or
-   MCP output shapes.
-2. Design and conformance-test public canonical ingress, durable idempotency,
-   principal binding, and authorization before exposing a `send_a2a` surface.
-3. Prototype authenticated cross-process transport and discovery behind the
-   existing protocol/runtime boundaries; do not claim multi-host authority
-   until a shared coordinator, trust model, and adversarial evidence exist.
+1. Completed Slice 4A: portable protocol/ingress semantics, coordinator-free
+   profile, independent Python witness, strict cross-language value domain,
+   canonical digest, and language-neutral ingress corpus.
+2. Next Slice 4B gate: review the design, then implement only through an ordered
+   physical SQLite migration and a dormant internal durable acceptance journal
+   with local decision receipts. No hidden/lazy schema, public tool, legacy
+   projection, delivery, or authentication claim.
+3. Later Slice 4C gate: prove an adapter-derived authenticated local principal
+   and semantic client path, then separately review any public ingress surface.
+   No remote or multi-host claim follows from local evidence.
 
 ## Lifecycle visibility update
 
@@ -158,6 +198,13 @@ documents linked below.
 
 ## Next active strategy lane
 
-Design only: canonical public ingress, durable idempotency, and principal
-binding/authorization. This is not implementation, public activation, merge,
-push, deployment, or service activation. Existing gates remain in force.
+Slice 4B design/implementation gate: ordered physical SQLite migration plus a
+dormant internal durable acceptance journal and local decision receipts. The
+package remains `0.14.0`; `send_a2a` remains absent; no storage migration has yet
+been added for this lane; existing MCP tools, defaults, logical schema v2, and
+physical schema v3 remain unchanged.
+
+Slice 4B does not authorize a public tool, message delivery, authenticated
+principal claim, transport/auth activation, merge, push, publish, deploy,
+spend, secret use, private-data egress, or remote activation. All existing
+human gates remain in force.
