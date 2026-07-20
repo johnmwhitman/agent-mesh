@@ -271,7 +271,7 @@ validation = witness.validate_profile(HostileDict(), 1760000000000)
 comparison = witness.compare_profiles(HostileList(), 1760000000000)
 print(json.dumps({"calls": calls, "validation": validation, "comparison": comparison}, separators=(",", ":")))
 `;
-  const run = spawnSync("python3", ["-c", script, pythonWitness], { encoding: "utf8" });
+  const run = spawnSync("python3", ["-B", "-c", script, pythonWitness], { encoding: "utf8" });
   assert.equal(run.status, 0, run.stderr);
   const output = JSON.parse(run.stdout) as Record<string, Record<string, unknown>>;
   assert.deepEqual(output.calls, { dict: 0, list: 0 });
