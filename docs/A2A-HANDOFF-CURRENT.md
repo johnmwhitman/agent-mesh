@@ -1,8 +1,8 @@
 # Agent Mesh A2A Current Handoff
 
 **Status:** Slice 4B dormant durable acceptance is implemented and locally
-verified; it is not activated, public, remote, multi-host, or provider
-interoperability evidence.
+verified; Slice 4C-0 capability evidence is designed, not implemented. Neither
+is activated, public, remote, multi-host, or provider-interoperability evidence.
 
 This is the rolling successor handoff for the provider-neutral Agent Mesh A2A
 program. Canonical behavior remains in the linked specifications and ADRs.
@@ -75,6 +75,8 @@ attestation, or exactly-once behavior.
 
 - [Program and sequencing](./A2A-PROGRAM.md)
 - [Protocol v0.1](./A2A-PROTOCOL-v0.1.md)
+- [Capability profile v0.1](./A2A-CAPABILITY-PROFILE-v0.1.md)
+- [Capability evidence ADR](./adr/0006-capability-evidence-is-not-authority.md)
 - [Canonical ingress contract v0.1](./A2A-INGRESS-CONTRACT-v0.1.md)
 - [Interoperability profile v0.1](./A2A-INTEROPERABILITY-PROFILE-v0.1.md)
 - [Adapter contract](./ADAPTER-CONTRACT.md)
@@ -87,9 +89,12 @@ attestation, or exactly-once behavior.
 
 ## Next sequence: strategy only, no implementation claim
 
-1. **Slice 4C-0:** capability, identity, and runtime-attestation profile.
-   Define provider-neutral discovery, translation, and evidence levels. Claims,
-   provider strings, and model banners never grant authorization.
+1. **Slice 4C-0:** capability profile and evidence taxonomy is designed in
+   `A2A-CAPABILITY-PROFILE-v0.1.md` and ADR 0006, but no validator or corpus
+   exists yet. The next implementation is pure offline TS/Python parsing,
+   canonicalization, fingerprint, contradiction, and translation/loss evidence.
+   Claims, provider strings, model banners, proof carriers, and durable receipts
+   never grant authorization, identity, delivery, execution, or runtime choice.
 2. **Slice 4C-1:** principal-bound authenticated-local semantic path. Prove an
    adapter-derived local principal and storage invocation without public ingress,
    remote transport, credentials, or delivery.
@@ -100,11 +105,13 @@ attestation, or exactly-once behavior.
    monotonic fencing, cancellation, partition, retry, and recovery semantics
    before any operational multi-host work.
 
-## Immediate successor action and lock release
+## Next implementation boundary
 
-The Slice 4B documentation closeout is the final branch-local record. After the
-orchestrator performs its final structural check, remove **only** the operator
-lock row named `codex-a2a-durable-acceptance-journal-20260720` from
-`/Users/johnwhitman/AI/OPERATOR-LOCK.md`. Do not merge, push, publish, deploy,
-restart a live process, activate the journal, use credentials, spend, or transmit
-private data. Then open the bounded, specification-first Slice 4C-0 lane.
+The Slice 4C-0 contract is the current branch-local design record. Its next
+scope is a pure offline TypeScript/Python witness and shared deterministic
+corpus only. It must prove strict parsing, cross-language fingerprints,
+independent-axis separation, privacy rejection, contradictions, and static
+translation/loss ordering without importing auth, database, runtime, transport,
+network, provider, credential, process-launch, or environment-discovery code.
+Do not merge, push, publish, deploy, restart a live process, activate any path,
+use credentials, spend, or transmit private data.

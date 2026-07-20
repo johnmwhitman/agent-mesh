@@ -25,36 +25,209 @@
     "secret-rejected"
   ],
   "inbound": [
-    {"target": "generic-mcp-json", "status": "static-config-verified", "evidence": ["mcp.json", "test/config/renderer-conformance.test.ts"], "notes": "Minimal canonical meshfleet stdio entry."},
-    {"target": "opencode-jsonc", "status": "static-config-verified", "evidence": ["README.md", "test/config/renderer-conformance.test.ts"], "notes": "Canonical meshfleet server key; live client execution is unverified."},
-    {"target": "claude-code-mcp-json", "status": "static-config-verified", "evidence": ["README.md", "test/config/renderer-conformance.test.ts"], "notes": "Documented schema shape; live client execution is unverified."},
-    {"target": "codex-mcp-json", "status": "static-config-verified", "evidence": ["README.md", "test/config/renderer-conformance.test.ts"], "notes": "Documented schema shape; live client execution is unverified."},
-    {"target": "renderer-secret-preflight", "status": "secret-rejected", "evidence": ["test/config/renderer-conformance.test.ts"], "notes": "Every renderer rejects malicious nested spec data with no config."},
-    {"target": "timeout", "status": "unverified", "evidence": ["docs/CONFIG-TRANSLATION.md"], "notes": "Not represented by the four target schemas; reported once as unsupported."},
-    {"target": "envAllowlist", "status": "unverified", "evidence": ["docs/CONFIG-TRANSLATION.md"], "notes": "Not emitted by the four target schemas; reported once as unsupported."}
+    {
+      "target": "generic-mcp-json",
+      "status": "static-config-verified",
+      "evidence": [
+        "mcp.json",
+        "test/config/renderer-conformance.test.ts"
+      ],
+      "notes": "Minimal canonical meshfleet stdio entry."
+    },
+    {
+      "target": "opencode-jsonc",
+      "status": "static-config-verified",
+      "evidence": [
+        "README.md",
+        "test/config/renderer-conformance.test.ts"
+      ],
+      "notes": "Canonical meshfleet server key; live client execution is unverified."
+    },
+    {
+      "target": "claude-code-mcp-json",
+      "status": "static-config-verified",
+      "evidence": [
+        "README.md",
+        "test/config/renderer-conformance.test.ts"
+      ],
+      "notes": "Documented schema shape; live client execution is unverified."
+    },
+    {
+      "target": "codex-mcp-json",
+      "status": "static-config-verified",
+      "evidence": [
+        "README.md",
+        "test/config/renderer-conformance.test.ts"
+      ],
+      "notes": "Documented schema shape; live client execution is unverified."
+    },
+    {
+      "target": "renderer-secret-preflight",
+      "status": "secret-rejected",
+      "evidence": [
+        "test/config/renderer-conformance.test.ts"
+      ],
+      "notes": "Every renderer rejects malicious nested spec data with no config."
+    },
+    {
+      "target": "timeout",
+      "status": "unverified",
+      "evidence": [
+        "docs/CONFIG-TRANSLATION.md"
+      ],
+      "notes": "Not represented by the four target schemas; reported once as unsupported."
+    },
+    {
+      "target": "envAllowlist",
+      "status": "unverified",
+      "evidence": [
+        "docs/CONFIG-TRANSLATION.md"
+      ],
+      "notes": "Not emitted by the four target schemas; reported once as unsupported."
+    }
   ],
   "outbound": [
-    {"target": "OpenCode runtime adapter", "status": "runtime-launch-verified", "evidence": ["src/runtime", "test/runtime"], "notes": "Internal adapter only; public runtime selection remains deferred."},
-    {"target": "local-process runtime adapter", "status": "runtime-launch-verified", "evidence": ["src/runtime", "test/runtime"], "notes": "Deterministic local proof adapter; no provider, network, or credentials."},
-    {"target": "Claude Code worker launch", "status": "deferred", "evidence": ["docs/ADAPTER-CONTRACT.md"], "notes": "Real vendor adapter requires an explicit authentication/network/spend gate."},
-    {"target": "Codex worker launch", "status": "deferred", "evidence": ["docs/ADAPTER-CONTRACT.md"], "notes": "Real vendor adapter requires an explicit authentication/network/spend gate."},
-    {"target": "Antigravity/Gemini/Grok schemas and adapters", "status": "deferred", "evidence": ["docs/A2A-PROGRAM.md"], "notes": "No verified target schema or outbound adapter exists."},
-    {"target": "auth/network/remote relay", "status": "deferred", "evidence": ["docs/A2A-THREAT-MODEL.md", "docs/ADAPTER-CONTRACT.md"], "notes": "Requires human-gated trust, egress, and deployment decisions."},
-    {"target": "multi-host coordinator", "status": "deferred", "evidence": ["docs/A2A-NEXT-SLICE.md"], "notes": "The current SQLite authority is local-only."}
+    {
+      "target": "OpenCode runtime adapter",
+      "status": "runtime-launch-verified",
+      "evidence": [
+        "src/runtime",
+        "test/runtime"
+      ],
+      "notes": "Internal adapter only; public runtime selection remains deferred."
+    },
+    {
+      "target": "local-process runtime adapter",
+      "status": "runtime-launch-verified",
+      "evidence": [
+        "src/runtime",
+        "test/runtime"
+      ],
+      "notes": "Deterministic local proof adapter; no provider, network, or credentials."
+    },
+    {
+      "target": "Claude Code worker launch",
+      "status": "deferred",
+      "evidence": [
+        "docs/ADAPTER-CONTRACT.md"
+      ],
+      "notes": "Real vendor adapter requires an explicit authentication/network/spend gate."
+    },
+    {
+      "target": "Codex worker launch",
+      "status": "deferred",
+      "evidence": [
+        "docs/ADAPTER-CONTRACT.md"
+      ],
+      "notes": "Real vendor adapter requires an explicit authentication/network/spend gate."
+    },
+    {
+      "target": "Antigravity/Gemini/Grok schemas and adapters",
+      "status": "deferred",
+      "evidence": [
+        "docs/A2A-PROGRAM.md"
+      ],
+      "notes": "No verified target schema or outbound adapter exists."
+    },
+    {
+      "target": "auth/network/remote relay",
+      "status": "deferred",
+      "evidence": [
+        "docs/A2A-THREAT-MODEL.md",
+        "docs/ADAPTER-CONTRACT.md"
+      ],
+      "notes": "Requires human-gated trust, egress, and deployment decisions."
+    },
+    {
+      "target": "multi-host coordinator",
+      "status": "deferred",
+      "evidence": [
+        "docs/A2A-NEXT-SLICE.md"
+      ],
+      "notes": "The current SQLite authority is local-only."
+    }
   ],
   "process_handshake": [
-    {"target": "packaged npx -y meshfleet stdio", "status": "process-handshake-verified", "evidence": ["test/mcp-stdio.test.ts"]}
+    {
+      "target": "packaged npx -y meshfleet stdio",
+      "status": "process-handshake-verified",
+      "evidence": [
+        "test/mcp-stdio.test.ts"
+      ]
+    }
   ],
   "a2a_protocol": [
-    {"target": "canonical-ingress-contract-v0.1", "status": "fixture-verified", "evidence": ["docs/A2A-INGRESS-CONTRACT-v0.1.md", "docs/adr/0004-principal-bound-canonical-ingress.md", "test/fixtures/a2a/ingress/v0.1/corpus.json"], "notes": "Fixtures exercise the designed authorization-before-replay ordering and non-enumerating external codes. The separate private dormant journal is implemented and locally verified at dormant-internal-durable-verified; public ingress, authenticated principals, delivery, and activation remain unimplemented."},
-    {"target": "minimal-interoperability-profile-v0.1", "status": "reference-conformance", "evidence": ["docs/A2A-INTEROPERABILITY-PROFILE-v0.1.md", "src/a2a/codec.ts", "reference/python/a2a_reference.py", "test/a2a-reference-python.test.ts"], "notes": "TypeScript and standalone Python agree on exact-decimal pre-parse numeric rejection, finite acyclic plain JSON object trees, 128 KiB/64-level limits, preserved valid extensions, and digest refusal for rejected values, in addition to the shared strict parsing and fingerprint vectors. This is not RFC JCS or public, durable, signed, or authenticated ingress evidence."},
-    {"target": "dormant-durable-acceptance-v0.1", "status": "dormant-internal-durable-verified", "evidence": ["docs/A2A-DURABLE-ACCEPTANCE-v0.1.md", "docs/adr/0005-dormant-durable-acceptance-journal.md", "acc4090..f1f98fb", "npm test: 518/518", "npm run typecheck", "final independent review"], "notes": "Unmerged branch evidence: physical SQLite v4 and three private append-only keyed-token tables are implemented and locally verified. Exact open/transaction schema validation, rollback, v3/WAL-safe backup, tamper, race, constraint, privacy, append-only, noncoupling, and package-boundary evidence passed. Logical ledger schema remains v2. No public tool, ingress, auth provider, delivery, execution, transport activation, or provider interoperability claim."},
-    {"target": "public-canonical-send_a2a", "status": "deferred", "evidence": ["docs/A2A-PROGRAM.md", "docs/A2A-INGRESS-CONTRACT-v0.1.md"], "notes": "Absent from the MCP registry pending Slice 4C-0 capability/identity/runtime-attestation profile, Slice 4C-1 principal-bound authenticated-local evidence, and a separate human-gated public-ingress review."}
+    {
+      "target": "canonical-ingress-contract-v0.1",
+      "status": "fixture-verified",
+      "evidence": [
+        "docs/A2A-INGRESS-CONTRACT-v0.1.md",
+        "docs/adr/0004-principal-bound-canonical-ingress.md",
+        "test/fixtures/a2a/ingress/v0.1/corpus.json"
+      ],
+      "notes": "Fixtures exercise the designed authorization-before-replay ordering and non-enumerating external codes. The separate private dormant journal is implemented and locally verified at dormant-internal-durable-verified; public ingress, authenticated principals, delivery, and activation remain unimplemented."
+    },
+    {
+      "target": "minimal-interoperability-profile-v0.1",
+      "status": "reference-conformance",
+      "evidence": [
+        "docs/A2A-INTEROPERABILITY-PROFILE-v0.1.md",
+        "src/a2a/codec.ts",
+        "reference/python/a2a_reference.py",
+        "test/a2a-reference-python.test.ts"
+      ],
+      "notes": "TypeScript and standalone Python agree on exact-decimal pre-parse numeric rejection, finite acyclic plain JSON object trees, 128 KiB/64-level limits, preserved valid extensions, and digest refusal for rejected values, in addition to the shared strict parsing and fingerprint vectors. This is not RFC JCS or public, durable, signed, or authenticated ingress evidence."
+    },
+    {
+      "target": "dormant-durable-acceptance-v0.1",
+      "status": "dormant-internal-durable-verified",
+      "evidence": [
+        "docs/A2A-DURABLE-ACCEPTANCE-v0.1.md",
+        "docs/adr/0005-dormant-durable-acceptance-journal.md",
+        "acc4090..f1f98fb",
+        "npm test: 518/518",
+        "npm run typecheck",
+        "final independent review"
+      ],
+      "notes": "Unmerged branch evidence: physical SQLite v4 and three private append-only keyed-token tables are implemented and locally verified. Exact open/transaction schema validation, rollback, v3/WAL-safe backup, tamper, race, constraint, privacy, append-only, noncoupling, and package-boundary evidence passed. Logical ledger schema remains v2. No public tool, ingress, auth provider, delivery, execution, transport activation, or provider interoperability claim."
+    },
+    {
+      "target": "public-canonical-send_a2a",
+      "status": "deferred",
+      "evidence": [
+        "docs/A2A-PROGRAM.md",
+        "docs/A2A-INGRESS-CONTRACT-v0.1.md"
+      ],
+      "notes": "Absent from the MCP registry pending Slice 4C-0 capability/identity/runtime-attestation profile, Slice 4C-1 principal-bound authenticated-local evidence, and a separate human-gated public-ingress review."
+    }
   ],
   "gates": [
     "No public canonical-envelope ingress in this slice.",
     "No public runtime selection in this slice.",
     "No real vendor client execution, credentials, network, spend, or remote activation.",
     "No multi-host ownership claim from local SQLite behavior."
-  ]
+  ],
+  "slice_4c_0_capability_profile": {
+    "status": "designed",
+    "scope": "pure offline dormant capability and evidence sidecar profile",
+    "canonical_contract": "docs/A2A-CAPABILITY-PROFILE-v0.1.md",
+    "decision_record": "docs/adr/0006-capability-evidence-is-not-authority.md",
+    "evidence": "normative contract only; TypeScript/Python validator and corpus are not implemented",
+    "guarantees": [
+      "capability statements never mutate the canonical envelope or digest",
+      "provenance, proof verification, authentication, authorization, conformance, and persistence remain independent axes",
+      "provider/model labels and durable receipts are not attestation, identity, delivery, or execution evidence",
+      "proof carriers are crypto-neutral and unsupported in Slice 4C-0",
+      "translation is offline and records unsupported or unknown losses explicitly"
+    ],
+    "non_claims": [
+      "public send_a2a",
+      "principal provider or authorization decision",
+      "runtime selection or provider call",
+      "network, database, persistence, delivery, or execution",
+      "cryptographic verification, trust store, or activation",
+      "live provider interoperability"
+    ],
+    "next_evidence": "pure offline TypeScript/Python parser, canonicalizer, fingerprint witness, static translator, and shared corpus"
+  }
 }

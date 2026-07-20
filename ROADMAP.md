@@ -35,8 +35,11 @@ The ranked A2A strategy is canonical in
    storage, legacy/lifecycle/outbox projection, auth, delivery, public tool, or
    activation.
 6. **Slice 4C-0 capability/identity/runtime-attestation profile** - next:
-   define provider-neutral discovery and evidence levels; capability claims and
-   model banners never grant authorization.
+   contract accepted in [A2A Capability Profile v0.1](docs/A2A-CAPABILITY-PROFILE-v0.1.md) and
+   [ADR 0006](docs/adr/0006-capability-evidence-is-not-authority.md); implementation remains
+   pure offline TS/Python validation, canonicalization, fingerprints, contradictions, and
+   deterministic translation/loss corpus only. Capability claims, proof carriers, provider
+   strings, model banners, and durable receipts never grant authority.
 7. **Slice 4C-1 authenticated-local adapter proof** - then prove one
    adapter-derived authenticated local principal and semantic client path, then
    separately review any public ingress. No remote or multi-host claim.
@@ -172,9 +175,7 @@ observable, not a daemon, dashboard, or service claim.
   and fail-closed; logical ledger schema remains v2. The private journal has no
   public ingress, delivery, execution, auth provider, transport activation,
   outbox, lifecycle execution, NDJSON, or legacy projection.
-- [ ] **Slice 4C-0: capability, identity, and runtime-attestation profile** —
-  define provider-neutral discovery and evidence levels. Capability claims and
-  model banners must never grant authorization.
+- [ ] **Slice 4C-0: capability profile and evidence taxonomy** - contract accepted in [A2A Capability Profile v0.1](docs/A2A-CAPABILITY-PROFILE-v0.1.md) and [ADR 0006](docs/adr/0006-capability-evidence-is-not-authority.md); implementation remains pending. Define only pure offline, non-authorizing discovery, independent evidence axes, deterministic translation/loss semantics, and a TS/Python corpus. No proof verification, principal provider, public ingress, runtime selection, network, persistence, delivery, execution, or activation.
 - [ ] **Slice 4C-1: principal-bound authenticated-local semantic path** — prove
   a secretless local adapter path before any public ingress review.
 - [ ] **Slice 4D: offline delivery-attempt and transport conformance** — compare
