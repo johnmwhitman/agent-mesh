@@ -12,6 +12,7 @@ import copy
 import hashlib
 import json
 import math
+import struct
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
@@ -23,6 +24,10 @@ KIND = "message"
 TYPES = {"handoff", "question", "result", "alert", "request_help"}
 MAX_BODY_BYTES = 64 * 1024
 MAX_MEDIA_TYPE_BYTES = 1024
+MAX_RAW_JSON_BYTES = 128 * 1024
+MAX_RAW_JSON_DEPTH = 64
+FINGERPRINT_DOMAIN = "meshfleet.a2a.fingerprint.v1"
+FINGERPRINT_LABEL = FINGERPRINT_DOMAIN + ":sha256"
 TOKEN_CHARACTERS = frozenset("!#$%&'*+-.^_`|~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz")
 
 
@@ -32,6 +37,39 @@ class InvalidEnvelope(ValueError):
 
 class DuplicateMember(ValueError):
     pass
+
+
+class RawResourceLimit(ValueError):
+    pass
+
+
+def scan_raw_bounds(value: str) -> None:
+    try:
+        encoded_size = len(value.encode("utf-8"))
+    except UnicodeEncodeError as error:
+        raise InvalidEnvelope("raw JSON must contain Unicode scalar values") from error
+    if encoded_size > MAX_RAW_JSON_BYTES:
+        raise RawResourceLimit("raw JSON input exceeds size limit")
+    depth = 0
+    in_string = False
+    escaped = False
+    for character in value:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == '"':
+                in_string = False
+            continue
+        if character == '"':
+            in_string = True
+        elif character in "[{":
+            depth += 1
+            if depth > MAX_RAW_JSON_DEPTH:
+                raise RawResourceLimit("raw JSON nesting depth exceeds limit")
+        elif character in "]}":
+            depth -= 1
 
 
 def strict_object(pairs: List[Tuple[str, Any]]) -> Dict[str, Any]:
@@ -48,10 +86,12 @@ def reject_constant(_value: str) -> Any:
 
 
 def strict_json_loads(value: str) -> Any:
+    scan_raw_bounds(value)
     return json.loads(value, object_pairs_hook=strict_object, parse_constant=reject_constant)
 
 
 def json_value_loads(value: str) -> Any:
+    scan_raw_bounds(value)
     return json.loads(value, parse_constant=reject_constant)
 
 
@@ -64,6 +104,60 @@ def parse_raw_json(value: str) -> Any:
 
 def stable_json(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False)
+
+
+def length_prefix(value: int) -> bytes:
+    return struct.pack(">Q", value)
+
+
+def canonical_string(value: str) -> bytes:
+    validate_scalar_tree(value, "canonical string")
+    encoded = value.encode("utf-8")
+    return b"\x04" + length_prefix(len(encoded)) + encoded
+
+
+def canonical_tree(value: Any) -> bytes:
+    if value is None:
+        return b"\x00"
+    if value is False:
+        return b"\x01"
+    if value is True:
+        return b"\x02"
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        try:
+            number = float(value)
+        except (OverflowError, ValueError) as error:
+            raise InvalidEnvelope("canonical number must fit finite binary64") from error
+        if not math.isfinite(number):
+            raise InvalidEnvelope("canonical number must fit finite binary64")
+        if number == 0.0:
+            number = 0.0
+        return b"\x03" + struct.pack(">d", number)
+    if isinstance(value, str):
+        return canonical_string(value)
+    if isinstance(value, list):
+        return b"\x05" + length_prefix(len(value)) + b"".join(canonical_tree(nested) for nested in value)
+    if isinstance(value, dict):
+        entries = []
+        for key, nested in value.items():
+            if not isinstance(key, str):
+                raise InvalidEnvelope("canonical object keys must be strings")
+            validate_scalar_tree(key, "canonical object key")
+            encoded_key = key.encode("utf-8")
+            entries.append((encoded_key, nested))
+        entries.sort(key=lambda entry: entry[0])
+        encoded_entries = b"".join(
+            b"\x04" + length_prefix(len(encoded_key)) + encoded_key + canonical_tree(nested)
+            for encoded_key, nested in entries
+        )
+        return b"\x06" + length_prefix(len(entries)) + encoded_entries
+    raise InvalidEnvelope("canonical fingerprint requires a JSON value tree")
+
+
+def canonical_envelope_digest(input_value: Any) -> str:
+    envelope = validate_envelope(input_value)
+    fingerprint_bytes = FINGERPRINT_DOMAIN.encode("utf-8") + b"\x00" + canonical_tree(envelope)
+    return FINGERPRINT_LABEL + ":" + hashlib.sha256(fingerprint_bytes).hexdigest()
 
 
 def expand_fixture(value: Any) -> Any:
@@ -332,7 +426,7 @@ def run_v01(cases: List[Dict[str, Any]]) -> Dict[str, Any]:
                 options = case.get("options", {})
                 normalized = validate_envelope(source, options.get("nowMs"), bool(options.get("forAcceptance")))
                 key = normalized.get("dedupe_key", normalized["message_id"])
-                fingerprint = stable_json(normalized)
+                fingerprint = canonical_envelope_digest(normalized)
                 previous = identity.get(key)
                 actual_outcome = "accepted" if previous is None else ("duplicate" if previous == fingerprint else "conflict")
                 if previous is None:
@@ -357,7 +451,7 @@ def sorted_envelope(envelope: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def fingerprint(envelope: Dict[str, Any]) -> str:
-    return hashlib.sha256(stable_json(envelope).encode("ascii")).hexdigest()
+    return canonical_envelope_digest(envelope)
 
 
 def policy_ref(policy: Dict[str, Any], principal_id: str) -> Dict[str, str] | None:
@@ -465,13 +559,27 @@ def run_ingress(cases: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--v01-corpus", required=True)
-    parser.add_argument("--ingress-corpus", required=True)
+    parser.add_argument("--v01-corpus")
+    parser.add_argument("--ingress-corpus")
+    parser.add_argument("--digest-envelope")
     args = parser.parse_args()
+    if args.digest_envelope is not None:
+        try:
+            envelope = strict_json_loads(Path(args.digest_envelope).read_text(encoding="utf-8"))
+            print(stable_json({"label": FINGERPRINT_DOMAIN, "digest": canonical_envelope_digest(envelope)}))
+            return 0
+        except RawResourceLimit:
+            print(stable_json({"label": FINGERPRINT_DOMAIN, "ok": False, "error": "raw_json_resource_limit"}))
+            return 2
+        except (InvalidEnvelope, DuplicateMember, json.JSONDecodeError, OSError):
+            print(stable_json({"label": FINGERPRINT_DOMAIN, "ok": False, "error": "invalid_digest_json"}))
+            return 2
+    if args.v01_corpus is None or args.ingress_corpus is None:
+        parser.error("--v01-corpus and --ingress-corpus are required unless --digest-envelope is used")
     try:
         v01_cases = strict_json_loads(Path(args.v01_corpus).read_text(encoding="utf-8"))
         ingress_document = strict_json_loads(Path(args.ingress_corpus).read_text(encoding="utf-8"))
-    except (InvalidEnvelope, DuplicateMember, json.JSONDecodeError):
+    except (InvalidEnvelope, DuplicateMember, RawResourceLimit, json.JSONDecodeError):
         print(stable_json({
             "label": "reference-conformance-only-not-production-public-durable-authenticated",
             "ok": False,

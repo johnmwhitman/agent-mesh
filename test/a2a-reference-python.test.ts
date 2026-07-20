@@ -5,6 +5,8 @@ import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
+import * as a2aCodec from "../src/a2a/codec.js";
+
 const root = process.cwd();
 const witness = join(root, "reference", "python", "a2a_reference.py");
 const v01Corpus = join(root, "test", "fixtures", "a2a", "v0.1", "corpus.json");
@@ -91,6 +93,74 @@ test("Python witness rejects nonstandard constants in a raw corpus document", (t
     });
     assert.notEqual(run.status, 0);
     assert.match(run.stdout, /invalid_corpus_json/);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("TypeScript and Python produce the same versioned canonical envelope digest", (t) => {
+  const availability = spawnSync("python3", ["--version"], { encoding: "utf8" });
+  if (availability.error || availability.status !== 0) {
+    t.skip("python3 is unavailable; canonical digest comparison skipped");
+    return;
+  }
+  const digest = (a2aCodec as unknown as { canonicalEnvelopeDigest?: (input: unknown) => string }).canonicalEnvelopeDigest;
+  assert.equal(typeof digest, "function", "canonicalEnvelopeDigest must be exported");
+  const raw = "{\"protocol\":\"meshfleet.a2a\",\"version\":\"0.1\",\"kind\":\"message\",\"message_id\":\"digest-vector\",\"sender\":{\"namespace\":\"n\",\"agent_id\":\"a\"},\"recipients\":[{\"namespace\":\"n\",\"agent_id\":\"b\"}],\"type\":\"handoff\",\"issued_at_ms\":1,\"payload\":{\"media_type\":\"text/plain\",\"body\":\"caf\\u00e9 \\ud83d\\ude80\"},\"extensions\":{\"\\ud83d\\ude80\":{\"value\":\"rocket \\ud83d\\ude80\"},\"\\u00e9\":\"caf\\u00e9\",\"numbers\":{\"integer\":42,\"fraction\":42.5,\"negative_zero\":-0,\"one_float\":1.0},\"nested\":{\"z\":true,\"a\":null}}}";
+  const envelope = JSON.parse(raw) as Record<string, unknown>;
+  const tsDigest = digest!(envelope);
+  assert.match(tsDigest, /^meshfleet\.a2a\.fingerprint\.v1:sha256:[0-9a-f]{64}$/);
+
+  const extensions = envelope.extensions as Record<string, unknown>;
+  const numbers = extensions.numbers as Record<string, unknown>;
+  const reordered = {
+    ...envelope,
+    extensions: {
+      nested: { a: null, z: true },
+      numbers: { one_float: 1, negative_zero: -0, fraction: 42.5, integer: 42 },
+      "\u00e9": extensions["\u00e9"],
+      "\ud83d\ude80": extensions["\ud83d\ude80"],
+    },
+  };
+  assert.deepEqual(Object.keys(numbers), ["integer", "fraction", "negative_zero", "one_float"]);
+  assert.equal(digest!(reordered), tsDigest, "object order and 1 versus 1.0 must not alter binary64 identity");
+
+  const changed = structuredClone(envelope) as Record<string, unknown>;
+  (changed.payload as Record<string, unknown>).body = "semantic change";
+  assert.notEqual(digest!(changed), tsDigest);
+
+  const directory = mkdtempSync(join(tmpdir(), "meshfleet-a2a-digest-"));
+  try {
+    const envelopePath = join(directory, "envelope.json");
+    writeFileSync(envelopePath, raw, "utf8");
+    const run = spawnSync("python3", [witness, "--digest-envelope", envelopePath], { encoding: "utf8", timeout: 10_000 });
+    assert.equal(run.status, 0, run.stderr || run.stdout);
+    const report = JSON.parse(run.stdout) as { digest: string; label: string };
+    assert.equal(report.label, "meshfleet.a2a.fingerprint.v1");
+    assert.equal(report.digest, tsDigest);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("Python digest input rejects excessive raw size and depth without recursion failure", (t) => {
+  const availability = spawnSync("python3", ["--version"], { encoding: "utf8" });
+  if (availability.error || availability.status !== 0) {
+    t.skip("python3 is unavailable; raw resource-bound checks skipped");
+    return;
+  }
+  const directory = mkdtempSync(join(tmpdir(), "meshfleet-a2a-bounds-"));
+  try {
+    const deepPath = join(directory, "deep.json");
+    const largePath = join(directory, "large.json");
+    writeFileSync(deepPath, "[".repeat(70) + "null" + "]".repeat(70), "utf8");
+    writeFileSync(largePath, JSON.stringify("x".repeat(140_000)), "utf8");
+    for (const path of [deepPath, largePath]) {
+      const run = spawnSync("python3", [witness, "--digest-envelope", path], { encoding: "utf8", timeout: 10_000 });
+      assert.notEqual(run.status, 0);
+      assert.match(run.stdout, /raw_json_resource_limit/);
+      assert.doesNotMatch(run.stderr, /RecursionError/);
+    }
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

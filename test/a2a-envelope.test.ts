@@ -86,7 +86,8 @@ test("A2A v0.1 conformance corpus validates canonical envelopes and identity out
   const registry = new EnvelopeIdentityRegistry();
   for (const testCase of corpus()) {
     if (testCase.raw_json !== undefined) {
-      assert.equal(testCase.expected, "invalid", `${testCase.name} is a future strict transport parsing case`);
+      assert.equal(testCase.expected, "invalid", `${testCase.name} is a strict serialized decoding case`);
+      assert.throws(() => decodeEnvelope(testCase.raw_json!), undefined, testCase.name);
       continue;
     }
     if (testCase.kind === "legacy_mapping") {
@@ -141,7 +142,7 @@ test("A2A v0.1 corpus pins scalar Unicode and the current media-type grammar", (
   }
 });
 
-test("duplicate raw JSON members remain a future transport parsing responsibility", () => {
+test("decodeEnvelope rejects duplicate raw members while object validation stays object-level", () => {
   const rawCases = corpus().filter((candidate) => candidate.raw_json !== undefined);
   assert.deepEqual(rawCases.map((candidate) => candidate.name), [
     "raw-nonstandard-nan",
@@ -149,8 +150,24 @@ test("duplicate raw JSON members remain a future transport parsing responsibilit
     "raw-nonstandard-negative-infinity",
     "raw-duplicate-top-level-message-id",
     "raw-duplicate-nested-sender-agent-id",
+    "raw-malformed-truncated-object",
   ]);
   assert.ok(rawCases.every((candidate) => candidate.expected === "invalid"));
+  const duplicateTopLevel = caseByName("raw-duplicate-top-level-message-id").raw_json!;
+  assert.doesNotThrow(() => validateEnvelope(JSON.parse(duplicateTopLevel)), "already-collapsed objects have no duplicate-member evidence");
+  assert.throws(() => decodeEnvelope(duplicateTopLevel), /duplicate object member/);
+});
+
+test("decodeEnvelope bounds raw input size and nesting depth before parsing", () => {
+  const oversized = direct() as Record<string, unknown>;
+  oversized.extensions = { padding: "x".repeat(140_000) };
+  assert.throws(() => decodeEnvelope(JSON.stringify(oversized)), /serialized input/);
+
+  const deeplyNested = direct() as Record<string, unknown>;
+  let nested: unknown = null;
+  for (let index = 0; index < 70; index += 1) nested = [nested];
+  deeplyNested.extensions = { nested };
+  assert.throws(() => decodeEnvelope(JSON.stringify(deeplyNested)), /nesting depth/);
 });
 
 test("canonical serialization cannot emit non-scalar envelope or JSON payload strings", () => {

@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import {
   A2A_KIND,
   A2A_MESSAGE_TYPES,
@@ -10,6 +12,10 @@ import {
 
 export const MAX_A2A_BODY_BYTES = 64 * 1024;
 const MAX_MEDIA_TYPE_BYTES = 1024;
+const MAX_RAW_ENVELOPE_BYTES = 128 * 1024;
+const MAX_RAW_JSON_DEPTH = 64;
+const FINGERPRINT_DOMAIN = "meshfleet.a2a.fingerprint.v1";
+const FINGERPRINT_LABEL = `${FINGERPRINT_DOMAIN}:sha256`;
 
 export interface ValidationOptions {
   /** Validate expiration against this clock. Omit to validate envelope shape only. */
@@ -139,6 +145,205 @@ function validMediaType(value: string): boolean {
   }
 }
 
+class StrictJsonScanner {
+  private index = 0;
+
+  constructor(private readonly source: string) {}
+
+  parse(): void {
+    this.skipWhitespace();
+    this.parseValue(0);
+    this.skipWhitespace();
+    if (this.index !== this.source.length) this.invalid("unexpected trailing input");
+  }
+
+  private invalid(detail: string): never {
+    fail(`serialized input must be unambiguous JSON: ${detail}`);
+  }
+
+  private skipWhitespace(): void {
+    while (this.index < this.source.length) {
+      const code = this.source.charCodeAt(this.index);
+      if (code !== 0x20 && code !== 0x09 && code !== 0x0a && code !== 0x0d) break;
+      this.index += 1;
+    }
+  }
+
+  private parseValue(depth: number): void {
+    if (depth > MAX_RAW_JSON_DEPTH) this.invalid(`nesting depth exceeds ${MAX_RAW_JSON_DEPTH}`);
+    const character = this.source[this.index];
+    if (character === "{") return this.parseObject(depth);
+    if (character === "[") return this.parseArray(depth);
+    if (character === "\"") {
+      this.parseString();
+      return;
+    }
+    if (character === "t") return this.literal("true");
+    if (character === "f") return this.literal("false");
+    if (character === "n") return this.literal("null");
+    if (character === "-" || (character !== undefined && character >= "0" && character <= "9")) {
+      this.parseNumber();
+      return;
+    }
+    this.invalid("invalid value");
+  }
+
+  private parseObject(depth: number): void {
+    this.index += 1;
+    this.skipWhitespace();
+    const keys = new Set<string>();
+    if (this.source[this.index] === "}") {
+      this.index += 1;
+      return;
+    }
+    while (true) {
+      if (this.source[this.index] !== "\"") this.invalid("object key must be a string");
+      const key = this.parseString();
+      if (keys.has(key)) this.invalid("duplicate object member");
+      keys.add(key);
+      this.skipWhitespace();
+      if (this.source[this.index] !== ":") this.invalid("missing object colon");
+      this.index += 1;
+      this.skipWhitespace();
+      this.parseValue(depth + 1);
+      this.skipWhitespace();
+      if (this.source[this.index] === "}") {
+        this.index += 1;
+        return;
+      }
+      if (this.source[this.index] !== ",") this.invalid("missing object comma");
+      this.index += 1;
+      this.skipWhitespace();
+    }
+  }
+
+  private parseArray(depth: number): void {
+    this.index += 1;
+    this.skipWhitespace();
+    if (this.source[this.index] === "]") {
+      this.index += 1;
+      return;
+    }
+    while (true) {
+      this.parseValue(depth + 1);
+      this.skipWhitespace();
+      if (this.source[this.index] === "]") {
+        this.index += 1;
+        return;
+      }
+      if (this.source[this.index] !== ",") this.invalid("missing array comma");
+      this.index += 1;
+      this.skipWhitespace();
+    }
+  }
+
+  private parseString(): string {
+    const start = this.index;
+    this.index += 1;
+    while (this.index < this.source.length) {
+      const code = this.source.charCodeAt(this.index);
+      if (code === 0x22) {
+        this.index += 1;
+        return JSON.parse(this.source.slice(start, this.index)) as string;
+      }
+      if (code < 0x20) this.invalid("unescaped control in string");
+      if (code === 0x5c) {
+        this.index += 1;
+        const escape = this.source[this.index];
+        if (escape === "u") {
+          for (let offset = 1; offset <= 4; offset += 1) {
+            const hex = this.source.charCodeAt(this.index + offset);
+            const valid = (hex >= 0x30 && hex <= 0x39) || (hex >= 0x41 && hex <= 0x46) || (hex >= 0x61 && hex <= 0x66);
+            if (!valid) this.invalid("invalid Unicode escape");
+          }
+          this.index += 5;
+          continue;
+        }
+        if (escape === undefined || !"\"\\/bfnrt".includes(escape)) this.invalid("invalid string escape");
+      }
+      this.index += 1;
+    }
+    this.invalid("unterminated string");
+  }
+
+  private literal(expected: string): void {
+    if (this.source.slice(this.index, this.index + expected.length) !== expected) this.invalid("invalid literal");
+    this.index += expected.length;
+  }
+
+  private parseNumber(): void {
+    const start = this.index;
+    if (this.source[this.index] === "-") this.index += 1;
+    if (this.source[this.index] === "0") {
+      this.index += 1;
+    } else {
+      const integerStart = this.index;
+      while (this.source[this.index] >= "0" && this.source[this.index] <= "9") this.index += 1;
+      if (this.index === integerStart) this.invalid("invalid number");
+    }
+    if (this.source[this.index] === ".") {
+      this.index += 1;
+      const fractionStart = this.index;
+      while (this.source[this.index] >= "0" && this.source[this.index] <= "9") this.index += 1;
+      if (this.index === fractionStart) this.invalid("invalid number fraction");
+    }
+    if (this.source[this.index] === "e" || this.source[this.index] === "E") {
+      this.index += 1;
+      if (this.source[this.index] === "+" || this.source[this.index] === "-") this.index += 1;
+      const exponentStart = this.index;
+      while (this.source[this.index] >= "0" && this.source[this.index] <= "9") this.index += 1;
+      if (this.index === exponentStart) this.invalid("invalid number exponent");
+    }
+    const number = Number(this.source.slice(start, this.index));
+    if (!Number.isFinite(number)) this.invalid("number must be finite binary64");
+  }
+}
+
+function strictParseJson(serialized: string): unknown {
+  if (Buffer.byteLength(serialized, "utf8") > MAX_RAW_ENVELOPE_BYTES) {
+    fail(`serialized input exceeds ${MAX_RAW_ENVELOPE_BYTES} UTF-8 bytes`);
+  }
+  new StrictJsonScanner(serialized).parse();
+  return JSON.parse(serialized) as unknown;
+}
+
+function uint64(value: number): Buffer {
+  const output = Buffer.allocUnsafe(8);
+  output.writeBigUInt64BE(BigInt(value));
+  return output;
+}
+
+function canonicalString(value: string): Buffer {
+  scalarString(value, "canonical string");
+  const encoded = Buffer.from(value, "utf8");
+  return Buffer.concat([Buffer.from([0x04]), uint64(encoded.length), encoded]);
+}
+
+function canonicalTree(value: unknown): Buffer {
+  if (value === null) return Buffer.from([0x00]);
+  if (value === false) return Buffer.from([0x01]);
+  if (value === true) return Buffer.from([0x02]);
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) fail("canonical number must be finite binary64");
+    const encoded = Buffer.allocUnsafe(8);
+    encoded.writeDoubleBE(Object.is(value, -0) ? 0 : value);
+    return Buffer.concat([Buffer.from([0x03]), encoded]);
+  }
+  if (typeof value === "string") return canonicalString(value);
+  if (Array.isArray(value)) {
+    return Buffer.concat([Buffer.from([0x05]), uint64(value.length), ...value.map(canonicalTree)]);
+  }
+  if (isRecord(value)) {
+    const entries = Object.keys(value).map((key) => ({ key, encodedKey: Buffer.from(scalarString(key, "canonical object key"), "utf8") }));
+    entries.sort((left, right) => Buffer.compare(left.encodedKey, right.encodedKey));
+    const encodedEntries = entries.flatMap(({ key, encodedKey }) => [
+      Buffer.from([0x04]), uint64(encodedKey.length), encodedKey, canonicalTree(value[key]),
+    ]);
+    return Buffer.concat([Buffer.from([0x06]), uint64(entries.length), ...encodedEntries]);
+  }
+  fail("canonical fingerprint requires a JSON value tree");
+}
+
 function nonEmptyString(value: unknown, field: string): string {
   if (typeof value !== "string" || value.length === 0) fail(`${field} must be a non-empty string`);
   return scalarString(value, field);
@@ -254,7 +459,7 @@ export function validateEnvelope(input: unknown, options: ValidationOptions = {}
 
 export function decodeEnvelope(serialized: string, options?: ValidationOptions): A2AEnvelopeV01 {
   try {
-    return validateEnvelope(JSON.parse(serialized), options);
+    return validateEnvelope(strictParseJson(serialized), options);
   } catch (error) {
     if (error instanceof SyntaxError) fail("serialized input must be valid JSON");
     throw error;
@@ -269,13 +474,14 @@ export function encodeEnvelope(input: unknown): string {
  * JSON.stringify preserves insertion order for object keys. Identity must instead
  * compare the canonical JSON value, so extension-object key ordering is inert.
  */
-function stableJson(value: unknown): string {
-  const serialized = JSON.stringify(value, (_key, nested: unknown) => {
-    if (!isRecord(nested)) return nested;
-    return Object.fromEntries(Object.keys(nested).sort().map((key) => [key, nested[key]]));
-  });
-  if (serialized === undefined) throw new Error("Envelope fingerprint must be JSON serializable");
-  return serialized;
+export function canonicalEnvelopeDigest(input: unknown): string {
+  const envelope = validateEnvelope(input);
+  const bytes = Buffer.concat([
+    Buffer.from(FINGERPRINT_DOMAIN, "utf8"),
+    Buffer.from([0x00]),
+    canonicalTree(envelope),
+  ]);
+  return `${FINGERPRINT_LABEL}:${createHash("sha256").update(bytes).digest("hex")}`;
 }
 
 /** In-memory identity semantics for transports; persistence is deliberately out of this slice. */
@@ -285,7 +491,7 @@ export class EnvelopeIdentityRegistry {
   accept(input: unknown): EnvelopeIdentityResult {
     const envelope = validateEnvelope(input);
     const key = envelope.dedupe_key ?? envelope.message_id;
-    const fingerprint = stableJson(envelope);
+    const fingerprint = canonicalEnvelopeDigest(envelope);
     const previous = this.fingerprints.get(key);
     if (previous === undefined) {
       this.fingerprints.set(key, fingerprint);
