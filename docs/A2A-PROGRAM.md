@@ -19,8 +19,11 @@ verified boundaries:
   multi-host lease or ownership protocol.
 - Messages, receipts, and capabilities are local ledger records. They are not
   authenticated identity claims or runtime attestations.
-- No canonical versioned wire envelope, durable attempt kernel, or
-  provider-neutral runtime adapter boundary is implemented yet.
+- The `meshfleet.a2a` v0.1 codec, language-neutral fixture corpus, and internal
+  legacy mapping are implemented and under review. Public canonical-envelope
+  ingress, authenticated principals, durable duplicate persistence, the durable
+  attempt lifecycle kernel, and provider-neutral runtime adapters remain
+  unimplemented.
 
 ## Ranked program
 

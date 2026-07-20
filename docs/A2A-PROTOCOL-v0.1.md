@@ -43,9 +43,8 @@ The canonical JSON object has this shape:
 The terms MUST, MUST NOT, SHOULD, and MAY are normative.
 
 - `protocol` MUST equal `meshfleet.a2a`.
-- `version` MUST be a `major.minor` string. The decoder MUST reject an unknown
-  major version. A `0.1` decoder MAY accept a later minor version only when it
-  understands all required fields and preserves unknown extensions.
+- `version` MUST equal `"0.1"`. The decoder MUST reject every other version
+  until an explicit negotiation mechanism exists.
 - `kind` MUST equal `message` for this envelope.
 - `message_id` MUST be a non-empty opaque string and MUST remain stable across
   retries and duplicate delivery. It is an idempotency identity, not proof of
@@ -67,9 +66,10 @@ The terms MUST, MUST NOT, SHOULD, and MAY are normative.
   detection.
 - `payload.media_type` MUST be a non-empty media-type string. v0.1 transports
   the body opaquely; `text/plain` is the compatibility default.
-- `payload.body` MUST be a non-empty string no larger than 64 KiB when measured
-  as UTF-8 bytes. `application/json` and `*+json` bodies MUST contain valid JSON;
-  all other v0.1 media types are transported as opaque strings.
+- `payload.body` MUST be a string no larger than 64 KiB when measured as UTF-8
+  bytes; an empty body is valid. `application/json` and `*+json` bodies MUST
+  contain valid JSON; all other v0.1 media types are transported as opaque
+  strings.
 - `extensions`, when present, MUST be a JSON object. Extension names and values
   MUST NOT change the meaning of required protocol fields. Implementations MAY
   preserve unknown extensions and MUST NOT promote them to trust claims.
@@ -108,6 +108,11 @@ mapping function MUST:
 7. Generate a stable `message_id` once at the mapping boundary and preserve it
    through retries and projections.
 
+The legacy API permits a sender to address itself. This is a local compatibility
+operation only: the mapping layer may preserve it through the legacy ledger path,
+but the canonical envelope MUST reject a sender that also appears as a recipient.
+It cannot be encoded canonically in v0.1.
+
 The reverse projection maps one concrete recipient back to the existing
 `Message` shape. `acknowledged` remains derived from receipt state. Receipts
 remain separate records and are never serialized as message-envelope fields.
@@ -129,11 +134,13 @@ MUST include JSON inputs and an expected outcome for at least:
 - Provider/model/PID/lease/acknowledged fields appearing as extensions without
   being treated as protocol authority.
 
-The fixture root is `test/fixtures/a2a/v0.1/`. A fixture runner must
-report `valid`, `invalid`, or `conflict` without importing the MCP SDK, a
-provider SDK, or a runtime executable. The fixture corpus and pure codec are
-Slice 1 implementation work; they are not yet present merely because this
-specification exists.
+The fixture root is `test/fixtures/a2a/v0.1/`. Each fixture is a JSON object with
+`name`, `input`, and `expected`, where `expected` is one of `valid`, `invalid`,
+or `conflict`. A fixture runner must report that expected outcome without
+importing the MCP SDK, a provider SDK, or a runtime executable. The corpus is
+the language-neutral conformance boundary: implementations in other languages
+consume the same JSON inputs and expected outcomes, while duplicate and conflict
+fixtures define identity behavior independently of JSON key order.
 
 ## Public API boundary
 
