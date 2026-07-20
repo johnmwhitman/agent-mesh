@@ -1,6 +1,6 @@
 # A2A Next Slice: Crash-Safe Attempt Lifecycle
 
-Status: **isolated SQLite lifecycle kernel implemented; not spawn-integrated**
+Status: **implemented as a bounded single-host lifecycle/runtime integration**
 
 This document bounds the durable lifecycle slice after the single-host retry,
 recovery, event-log, and SQLite work. The isolated kernel now implements the
@@ -22,9 +22,9 @@ The current package has:
 The current package does **not** have:
 
 - A safe multi-host coordinator or cross-host ownership protocol.
-- Lease-aware spawning, retry scheduling, recovery, or public MCP operations.
-- A public execution path that consumes the isolated durable `attempt_id`, owner
-  epoch, transactional event stream, or persisted cancellation state.
+- Multi-host-safe spawning, retry scheduling, recovery, or public cancellation.
+- A public runtime-selection schema or any provider adapter beyond the existing
+  internal OpenCode compatibility adapter.
 
 SQLite WAL and `BEGIN IMMEDIATE` solve same-host database write exclusion; they do
 not establish ownership across hosts. A live PID is evidence about one local
@@ -162,10 +162,21 @@ following against a temporary SQLite database:
   does not make external side effects exactly once.
 - Publishing, deploying, changing credentials, or activating remote workers.
 
+## Implemented boundary
+
+`MESHFLEET_LIFECYCLE_MODE` defaults new fleets to `legacy`; `shadow` records a
+physical per-fleet mode while preserving legacy authority, and `durable` uses
+the lease-driven coordinator. Missing modes on existing fleets are legacy.
+Durable creation atomically records Fleet/Agent/inbox projections, work policy,
+the first pending attempt, lease acquisition, lifecycle events, and an SQLite
+outbox before adapter launch. Launch observation, settlement, retry scheduling,
+and projection updates are fenced by work, attempt, owner, and epoch. Timers
+only wake persisted due work; startup recovers expired leases and discovers due
+attempts. NDJSON remains a repairable projection of SQLite outbox rows.
+
 ## Completion bar for this slice
 
 This document is complete when the implementation, focused acceptance tests,
 backward-compatibility tests, and a review of the SQLite migration path all agree
-with the state fields and invariants above. Until then, roadmap language must
-describe this as a planned contract only, never as distributed or multi-host
-capability.
+with the state fields and invariants above. It remains a single-host SQLite
+authority and never a distributed or multi-host capability.

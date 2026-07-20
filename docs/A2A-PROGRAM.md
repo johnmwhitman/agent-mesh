@@ -21,8 +21,10 @@ verified boundaries:
   authenticated identity claims or runtime attestations.
 - The `meshfleet.a2a` v0.1 codec, language-neutral fixture corpus, and internal
   legacy mapping are implemented, verified, and independently reviewed.
-- The durable attempt lifecycle kernel is implemented for one local SQLite
-  authority, but it is not integrated with spawning, retry, recovery, or MCP.
+- The durable attempt lifecycle is integrated with `spawn_fleet` and
+  `attach_agent` only for explicitly durable, single-host fleets. It persists
+  retries, lease recovery, and an NDJSON-repair outbox without changing MCP
+  inputs or outputs.
 - Public canonical-envelope ingress, authenticated principals, durable duplicate
   persistence, public lifecycle integration, and public runtime selection remain
   unimplemented. The provider-neutral RuntimeAdapter SPI plus isolated
@@ -85,10 +87,11 @@ cancellation-versus-completion behavior, duplicate terminal settlement,
 transaction/event atomicity, close/reopen replay, and preservation of existing
 ledger fixtures must all pass independent review.
 
-**Status:** The isolated SQLite lifecycle kernel is implemented with storage
-migration, fencing, cancellation, event replay, and focused adversarial tests.
-It is not wired into spawning, retry timers, PID recovery, MCP tools, or NDJSON
-projection; no multi-host coordination claim is made.
+**Status:** The SQLite lifecycle authority is integrated with durable-mode
+`spawn_fleet` and `attach_agent`, persisted retry eligibility, lease recovery,
+fenced settlement, compatibility projections, and a transactional event outbox.
+Legacy behavior remains the default and shadow remains legacy-authoritative. No
+multi-host coordination claim is made.
 
 **Boundary:** This slice proves a durable state machine for one SQLite
 authority. It must not be called multi-host coordination.
@@ -132,8 +135,9 @@ runtime selection, lifecycle integration, and remote execution remain separate.
    exists.
 3. Slice 3 consumes the stable semantic and lifecycle boundaries. The local
    adapter is the first runtime proof; real vendor adapters are separate gates.
-4. Only after these slices are accepted should the program consider wiring
-   durable attempts into spawning, retry, recovery, or public cancellation.
+4. The bounded single-host wiring is accepted only with the lifecycle and MCP
+   compatibility evidence; public cancellation and multi-host coordination
+   remain separate architecture gates.
 
 ## Deferred and gated work
 

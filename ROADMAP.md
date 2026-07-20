@@ -10,11 +10,12 @@ The ranked A2A strategy is canonical in
 1. **Canonical envelope and conformance** - pure v0.1 codec, fixtures, and
    internal legacy mapping are implemented. No public `send_a2a` tool, remote
    transport, or authenticated canonical ingress is shipped.
-2. **Durable lifecycle kernel** - contract documented, implementation pending.
-   The next lifecycle work is single-authority SQLite durability, not
-   multi-host coordination.
-3. **Provider-neutral runtime adapters** - proposed. Outbound execution remains
-   OpenCode-coupled; a deterministic local-process proof must come first.
+2. **Durable lifecycle kernel** - implemented for single-host durable fleets:
+   lease-driven spawn/attach, persisted retry, recovery, fencing, and a
+   repairable event outbox. Logical ledger schema remains v2.
+3. **Provider-neutral runtime adapters** - internal OpenCode compatibility and
+   deterministic local-process proof are implemented; public selection and real
+   vendor adapters remain deferred.
 
 Inbound MCP process compatibility does not imply outbound runtime neutrality,
 authenticated principal binding, lifecycle durability, or multi-host support.
@@ -118,12 +119,10 @@ Direction, not commitment — items ship when real usage pulls them.
 
 ### Next distributed-safety slice (contract only)
 
-`docs/A2A-NEXT-SLICE.md` records the next implementation boundary for crash-safe
-attempt lifecycle state. It is not implemented by this roadmap entry and does not
-claim multi-host readiness. The current package remains single-host: there is no
-safe multi-host coordinator, lease owner epoch, durable attempt identity,
-transactional lifecycle event stream, or cancellation state. Any implementation
-must preserve the existing MCP API names and return shapes.
+`docs/A2A-NEXT-SLICE.md` records the implemented single-host boundary for
+crash-safe attempt lifecycle state. It does not claim multi-host readiness:
+there is no shared coordinator, authenticated remote owner, or cross-host
+SQLite authority. Public MCP names and return shapes remain unchanged.
 
 ## Contributing to the roadmap
 

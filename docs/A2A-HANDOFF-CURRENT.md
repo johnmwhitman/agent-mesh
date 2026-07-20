@@ -1,6 +1,6 @@
 # Agent Mesh A2A Current Handoff
 
-Status: **Three foundation slices implemented, verified, and independently approved**
+Status: **Foundation slices plus bounded durable execution integration implemented; single-host only**
 
 This is the current successor handoff for the provider-neutral A2A program. It
 records evidence and next actions; normative behavior remains in the canonical
@@ -9,14 +9,15 @@ documents linked below.
 ## Current state
 
 - Branch: `codex/a2a-seamless-foundation`
-- Branch base: `main` at `9d99952`
-- Current head: `bb0ee43`
+- Branch base: `c278e33`
+- Current head: this handoff is updated with the bounded integration commit.
 - Public package version remains `0.14.0`; nothing was merged, pushed, published,
   deployed, or remotely activated.
 - Inbound coordination is MCP stdio and host-neutral at the packaged server
   boundary.
-- Existing `spawn_fleet` behavior remains OpenCode-backed by default, now through
-  a provider-neutral runtime adapter.
+- Legacy `spawn_fleet` remains OpenCode-backed by default. Durable mode uses the
+  same internal adapter through a lease-fenced coordinator without exposing a
+  runtime-selection field.
 - Agent Mesh remains a local trusted control plane and single-host SQLite
   authority. It is not authenticated cross-host coordination.
 
@@ -34,7 +35,7 @@ documents linked below.
 - Legacy self-messages remain a local compatibility-only projection and cannot
   be encoded as canonical wire messages.
 
-### Slice 2: isolated durable lifecycle authority
+### Slice 2: durable lifecycle authority and bounded execution integration
 
 - Ordered physical SQLite storage migrations separate from logical schema v2.
 - Transactional `work_items`, immutable attempts, and monotonic lifecycle events.
@@ -43,7 +44,18 @@ documents linked below.
 - Database-level foreign keys and lifecycle constraints.
 - Cross-process acquisition/settlement races, migration rollback, and
   close/reopen replay are covered.
-- The kernel is not integrated with current spawning, retry, recovery, or MCP.
+- Physical SQLite v3 persists fleet mode, captured retry policy, attempt number,
+  eligibility, due indexes, and an event outbox while logical ledger schema
+  remains v2.
+- `MESHFLEET_LIFECYCLE_MODE` defaults new fleets to legacy; existing/missing
+  modes remain legacy. Shadow preserves legacy authority. Durable mode wires
+  `spawn_fleet` and `attach_agent` to lease-driven execution with unchanged MCP
+  inputs and outputs.
+- Durable retry and restart recovery are lease-based; non-expired work is never
+  reclaimed from PID absence, and managed durable agents are excluded from the
+  legacy PID recovery path.
+- Lifecycle and legacy Fleet/Agent projections settle atomically with a
+  transactional SQLite outbox. NDJSON is an idempotent, repairable projection.
 
 ### Slice 3: runtime and configuration adapters
 
@@ -92,8 +104,8 @@ documents linked below.
 - Public canonical `send_a2a` ingress.
 - Authenticated transport principals, sender binding, or authorization policy.
 - Durable duplicate persistence across public ingress requests.
-- Lifecycle-driven `spawn_fleet`, retry scheduling, recovery, or public
-  cancellation.
+- Public cancellation, public runtime selection, or any multi-host lifecycle
+  authority.
 - Public runtime selection or real Claude/Codex/Gemini/Grok outbound adapters.
 - Live Claude/Codex/Antigravity/Gemini/Grok client conformance; current renderer
   evidence is static configuration only.
@@ -101,15 +113,7 @@ documents linked below.
 
 ## Next integration stage
 
-Integrate the verified lifecycle authority and runtime adapter in one bounded
-single-host execution slice:
-
-1. Persist a logical work item and first pending attempt before adapter launch.
-2. Acquire a lease before starting a worker and require attempt/owner/epoch for
-   terminal settlement.
-3. Make retry eligibility durable; timers become scheduling optimizations only.
-4. Recover expired leases rather than trusting PID liveness as authority.
-5. Keep cancellation internal until its authorization and MCP contract are
-   separately reviewed.
-6. Preserve every existing MCP input/output contract and continue to describe
-   the system as single-host until a shared authenticated coordinator exists.
+The next stage is evidence hardening, not scope expansion: keep cancellation
+internal, exercise crash-window and compatibility tests, and do not describe
+the single SQLite authority as multi-host until a shared authenticated
+coordinator exists.

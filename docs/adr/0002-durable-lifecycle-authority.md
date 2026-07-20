@@ -1,6 +1,6 @@
 # ADR 0002: Durable Lifecycle Authority
 
-- **Status:** Accepted and implemented as an isolated storage kernel
+- **Status:** Accepted and implemented as a bounded single-host execution authority
 - **Date:** 2026-07-19
 - **Scope:** SQLite lifecycle state for one local Agent Mesh authority
 
@@ -19,6 +19,12 @@ one `BEGIN IMMEDIATE` transaction. A worker mutation must match the current
 work, attempt, owner, epoch, and an unexpired lease. Cancellation and terminal
 states reject later renewal, retry, and settlement.
 
+The execution coordinator consumes that authority for durable-mode fleet spawn
+and attachment. It records legacy projections and lifecycle rows on one handle,
+acquires a lease before launch, fences observed launch and settlement, persists
+retry eligibility, recovers only expired leases, and projects SQLite outbox rows
+to NDJSON idempotently. Managed durable agents are excluded from PID recovery.
+
 ## Consequences
 
 - Existing JSON v0-v2 and SQLite ledger data remain readable without changing
@@ -26,9 +32,9 @@ states reject later renewal, retry, and settlement.
 - A physical migration is transactional, idempotent, and rejects an unknown
   newer layout instead of guessing.
 - Replay is sourced from SQLite lifecycle events, not PIDs, timers, or NDJSON.
-- This kernel is intentionally not wired into `spawn_fleet`, retry timers, PID
-  recovery, MCP tools, or the NDJSON projection. Existing public behavior is
-  unchanged.
+- Durable-mode `spawn_fleet` and `attach_agent` retain their existing MCP input
+  and output shapes. Legacy behavior remains default; shadow remains
+  legacy-authoritative. Public cancellation is still absent.
 - It is one SQLite authority, not multi-host coordination. Shared ownership,
   remote clocks, authenticated worker identity, and a networked coordinator
   remain separate work.
