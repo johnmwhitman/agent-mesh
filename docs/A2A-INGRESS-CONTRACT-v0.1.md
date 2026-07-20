@@ -24,13 +24,27 @@ meaningful outside the local process.
   labels, runtime fields, PIDs, receipt-like extensions, audience, or scope.
 - A future adapter supplies an opaque principal outside the envelope. No
   current path authenticates that principal.
-- Every protocol string MUST contain only Unicode scalar values. Unpaired
-  UTF-16 surrogates are invalid; valid non-BMP characters are allowed and body
-  limits are measured in UTF-8 bytes.
+- Every envelope string key and value MUST contain only Unicode scalar values,
+  recursively through extensions and parsed JSON payload keys and values.
+  Unpaired UTF-16 surrogates are invalid; valid non-BMP characters are allowed
+  and body limits are measured in UTF-8 bytes.
+- Raw envelope JSON and `application/json` or `+json` payload bodies reject the
+  nonstandard numeric constants `NaN`, `Infinity`, and `-Infinity`.
+- `payload.media_type` follows the shared ASCII grammar `token "/" token
+  *( OWS ";" OWS token OWS "=" OWS ( token / quoted-string ) ) OWS`, where
+  tokens are non-empty RFC token strings, OWS is SP/HTAB only, parameter values
+  are a non-empty token or an ASCII quoted-string, and the whole value is at
+  most 1024 UTF-8 bytes. Unicode whitespace, non-ASCII, disallowed controls,
+  missing parameter names, empty unquoted values, malformed parameters, and
+  extra slashes are rejected.
 - A future raw JSON boundary MUST reject duplicate object member names at every
   nesting level before object-level codec validation. The current object-level
   codec cannot recover keys already collapsed by a parser, and current MCP
   messaging is not raw canonical ingress.
+
+These parsing and codec rules have fixture and independent reference evidence.
+They do not implement a public transport, principal boundary, durable ingress,
+authorization service, or delivery path.
 
 ## Normative semantic identities
 
@@ -55,9 +69,10 @@ is not durable ingress semantics.
 
 ## Required acceptance order
 
-1. At a raw JSON boundary, reject duplicate member names recursively. Then
-   validate request fields and the envelope structure, including `request_id`,
-   principal presence, version, protocol strings, recipients, and payload.
+1. At a raw JSON boundary, reject duplicate member names recursively and reject
+   nonstandard JSON numeric constants. Then validate request fields and the
+   envelope structure, including `request_id`, principal presence, version,
+   recursive scalar strings, recipients, payload JSON, and media type.
 2. Normalize the recipient set by sorting exact `(namespace, agent_id)`
    references. Reject wildcard or duplicate recipients and never expand
    audience, scope, extensions, fleet membership, or another selector.

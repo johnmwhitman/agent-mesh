@@ -164,10 +164,32 @@ recipient ordering, and prohibit recipient expansion from metadata. They are
 not implemented by this protocol document or by the current process-local
 identity registry.
 
-Every protocol string MUST contain Unicode scalar values only. Unpaired UTF-16
-surrogates are invalid. Valid Unicode scalar values, including non-BMP
-characters, are allowed, and payload-body limits are counted after UTF-8
+Every string key and string value in the envelope JSON tree MUST contain Unicode
+scalar values only. This recursively includes extensions and their nested keys
+and values. For an `application/json` or `+json` payload, the same rule applies
+recursively to every key and string value in the parsed payload JSON tree.
+Unpaired UTF-16 surrogates are invalid; valid Unicode scalar values, including
+non-BMP characters, are allowed. Payload-body limits are counted after UTF-8
 encoding.
+
+Raw envelope JSON and an `application/json` or `+json` payload body MUST use
+RFC-8259-style JSON numbers. The nonstandard constants `NaN`, `Infinity`, and
+`-Infinity` are invalid. This is executable codec/reference conformance, not a
+public-ingress claim.
+
+`payload.media_type` uses the shared executable ASCII grammar:
+
+```text
+token "/" token *( OWS ";" OWS token OWS "=" OWS ( token / quoted-string ) ) OWS
+```
+
+`token` is the RFC token character set and MUST be non-empty. `OWS` is SP or
+HTAB only. A parameter value is either a non-empty token or an ASCII
+quoted-string; quoted content permits HTAB, SP, and visible ASCII, with a
+backslash escaping one permitted ASCII byte. The complete media type is limited
+to 1024 UTF-8 bytes. Because the grammar is ASCII-only, Unicode whitespace,
+non-ASCII characters, disallowed controls, missing parameter names, empty
+unquoted values, malformed parameters, and an extra slash are invalid.
 
 A future transport or public ingress accepting raw canonical JSON MUST reject
 duplicate object member names at every nesting level before object-level codec

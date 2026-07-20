@@ -127,6 +127,14 @@ Open an issue at https://github.com/johnmwhitman/agent-mesh/issues with:
   must not be represented as durable public-ingress idempotency.
 - Status names are evidence levels: `designed`, `fixture-verified`, and
   `reference-conformance` do not mean `implemented-public-ingress`.
+- Codec/reference conformance includes strict raw and JSON-payload rejection of
+  `NaN`, `Infinity`, and `-Infinity`; recursive Unicode-scalar validation for
+  every envelope key/value, extension, and parsed JSON payload key/value; and
+  the shared 1024-byte ASCII media-type grammar documented in
+  `docs/A2A-PROTOCOL-v0.1.md`.
+- Recursive duplicate-member rejection is proven at the raw parsing boundary.
+  The object-level codec cannot recover collapsed keys, and existing MCP tools
+  are not raw canonical ingress.
 - The only fixture-verified external ingress codes are `accepted`, `duplicate`,
   `replayed_request`, `message_id_conflict`, `request_id_reuse`,
   `request_id_invalid`, `principal_context_required`, `malformed_envelope`,

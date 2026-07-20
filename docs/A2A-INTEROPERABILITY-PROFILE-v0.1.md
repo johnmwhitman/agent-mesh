@@ -18,10 +18,24 @@ principal. It must preserve unknown extension members and treat JSON object key
 order as non-semantic. It must not claim delivery, execution, authenticated
 identity, or durable deduplication.
 
-All protocol strings contain Unicode scalar values only. Unpaired UTF-16
-surrogates are invalid; valid non-BMP characters are allowed and body limits are
-measured in UTF-8 bytes. When consuming raw canonical JSON, the profile rejects
-duplicate object member names at every nesting level before object validation.
+Every string key and value in the envelope tree contains Unicode scalar values
+only, recursively including extensions. Parsed `application/json` and `+json`
+payload keys and string values follow the same rule. Unpaired UTF-16 surrogates
+are invalid; valid non-BMP characters are allowed and body limits are measured
+in UTF-8 bytes. Raw envelope JSON and JSON payload bodies reject `NaN`,
+`Infinity`, and `-Infinity`.
+
+The profile implements the shared ASCII media-type grammar: non-empty RFC token
+type and subtype; SP/HTAB-only OWS; zero or more parameters whose name is a
+non-empty token and whose value is a non-empty token or ASCII quoted-string;
+and a 1024 UTF-8 byte maximum. Unicode whitespace, non-ASCII, disallowed
+controls, missing parameter names, empty unquoted values, malformed parameters,
+and extra slashes are invalid.
+
+When consuming raw canonical JSON, the profile rejects duplicate object member
+names at every nesting level before object validation. This remains a raw
+transport/parsing responsibility because an object-level codec cannot recover
+member names already collapsed by a parser.
 
 ## Minimum conforming implementation
 
@@ -29,8 +43,8 @@ A profile implementation must:
 
 1. Parse a v0.1 canonical envelope without provider-specific fields.
 2. Validate protocol/version/kind, exact sender and recipient references,
-   concrete recipient constraints, timestamps, body/media-type rules, and size
-   limits.
+   concrete recipient constraints, strict JSON numbers, recursive scalar
+   strings, timestamps, body/media-type rules, and size limits.
 3. Preserve unknown extension members through decode/normalize/encode.
 4. Normalize envelopes deterministically for fixture comparison, independent of
    JSON object key order.
@@ -91,10 +105,12 @@ storage.
 ## Validation
 
 The standalone Python witness agrees with both language-neutral corpora for
-valid/invalid envelopes, extension preservation, Unicode scalar handling,
-recursive duplicate-member rejection, key-order independence, codec identity
+valid/invalid envelopes, extension preservation, recursive Unicode scalar
+handling, strict JSON constants, the shared media-type grammar, recursive raw
+duplicate-member rejection, key-order independence, codec identity
 classification, and the designed ingress decision model. Its negative
-self-test mutates a corpus expectation and confirms the witness exits nonzero.
+self-tests mutate a corpus expectation and feed a nonstandard numeric constant
+to the corpus parser, confirming the witness exits nonzero.
 
 That evidence is `reference-conformance` only. It does not prove production or
 durable ingress, authenticated principals, public authorization, delivery, or

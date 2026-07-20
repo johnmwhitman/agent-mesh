@@ -51,8 +51,18 @@ Unknown principal, sender mismatch, recipient, type, audience, and policy
 denials share the external code `AUTHORIZATION_DENIED`; detailed causes are
 protected local audit data only. Raw public JSON must reject duplicate object
 member names recursively before object validation. Protocol strings reject
-unpaired UTF-16 surrogates while allowing valid non-BMP Unicode scalars and
-counting payload bytes as UTF-8.
+unpaired UTF-16 surrogates recursively across every envelope key/value,
+extension, and parsed JSON payload key/value while allowing valid non-BMP
+Unicode scalars and counting payload bytes as UTF-8. Raw envelope JSON and JSON
+payload bodies reject `NaN`, `Infinity`, and `-Infinity`.
+
+The codec/reference profile shares an explicit ASCII media-type grammar:
+non-empty RFC token type/subtype, SP/HTAB-only OWS, parameters with non-empty
+token names and non-empty-token or ASCII-quoted values, and a 1024 UTF-8 byte
+limit. Unicode whitespace, non-ASCII, disallowed controls, missing parameter
+names, empty unquoted values, malformed parameters, and extra slashes are
+rejected. These rules do not promote the reference witness to public or durable
+ingress.
 
 ## Consequences and tradeoffs
 
