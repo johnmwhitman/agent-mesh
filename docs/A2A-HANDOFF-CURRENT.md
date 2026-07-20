@@ -145,3 +145,19 @@ documents linked below.
 - Deferred: source-coordinated live-WAL certification, repair execution,
   lifecycle controls, remote transport, multi-host ownership, daemon/dashboard,
   and public ingress.
+
+## Lifecycle visibility approval receipt
+
+- Approved range: `3115a9d..77dabf1`.
+- Independent GPT-5.5 high review found no Critical or Important findings.
+- Verification: `npm test` passed `483/483`; `npm run typecheck` passed.
+- Live ledger verification: `ok=true`, `0` errors, `0` warnings; counts are
+  fleets `34`, agents `82`, messages `4`, receipts `1`, ratifications `0`.
+- Portfolio Conductor structural validator exited `0`.
+- Review package: `.superpowers/sdd/review-3115a9d..77dabf1-lifecycle-visibility.diff`.
+
+## Next active strategy lane
+
+Design only: canonical public ingress, durable idempotency, and principal
+binding/authorization. This is not implementation, public activation, merge,
+push, deployment, or service activation. Existing gates remain in force.
