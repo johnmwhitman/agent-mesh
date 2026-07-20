@@ -12,9 +12,8 @@ import {
 } from "../mcp-stdio-connection.js";
 import {
   RendererResult,
-  RendererUnsupportedField,
-  RendererWarning,
 } from "./renderer-result.js";
+import { preflightRendererSpec, unsupportedCanonicalFields } from "./preflight.js";
 
 export interface OpenCodeMcpEntry {
   readonly type: "local";
@@ -31,20 +30,9 @@ export interface OpenCodeJsoncConfig {
 export function renderOpenCodeJsonc(
   spec: CanonicalMcpStdioConnection = MESH_FLEET_STDIO
 ): RendererResult<OpenCodeJsoncConfig> {
-  const unsupported: RendererUnsupportedField[] = [
-    {
-      field: "timeout",
-      reason: "OpenCode mcp stanza does not expose per-server timeout in documented examples.",
-    },
-    {
-      field: "env",
-      reason: "Documented OpenCode config examples do not include env allowlist.",
-    },
-    {
-      field: "capabilities",
-      reason: "Capabilities are implicit from the MCP server; not declared in config.",
-    },
-  ];
+  const rejected = preflightRendererSpec<OpenCodeJsoncConfig>("opencode-jsonc", spec);
+  if (rejected) return rejected;
+  const unsupported = unsupportedCanonicalFields(["serverId", "transport", "command"]);
 
   const config: OpenCodeJsoncConfig = {
     mcp: {
@@ -62,6 +50,6 @@ export function renderOpenCodeJsonc(
     config,
     warnings: [],
     unsupported,
-    note: "Matches documented README example. No env or timeout fields.",
+    note: "Matches the canonical meshfleet README example. Unsupported canonical fields are explicit.",
   };
 }

@@ -26,6 +26,19 @@ export interface RendererUnsupportedField {
   readonly suggestion?: string;
 }
 
+export const CANONICAL_CONNECTION_FIELDS = [
+  "serverId",
+  "name",
+  "protocol",
+  "transport",
+  "command",
+  "envAllowlist",
+  "capabilities",
+  "timeout",
+  "trust",
+  "description",
+] as const;
+
 export interface RendererResult<TConfig = unknown> {
   /** Target identifier (e.g., "generic-mcp-json", "opencode-jsonc"). */
   readonly target: string;

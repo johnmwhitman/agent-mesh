@@ -13,33 +13,22 @@ import {
 } from "../mcp-stdio-connection.js";
 import {
   RendererResult,
-  RendererUnsupportedField,
-  RendererWarning,
 } from "./renderer-result.js";
-import { GenericMcpJsonConfig, renderGenericMcpJson } from "./generic-mcp-json.js";
+import { GenericMcpJsonConfig, buildGenericMcpJsonConfig } from "./generic-mcp-json.js";
+import { preflightRendererSpec, unsupportedCanonicalFields } from "./preflight.js";
 
 export function renderClaudeCodeMcpJson(
   spec: CanonicalMcpStdioConnection = MESH_FLEET_STDIO
 ): RendererResult<GenericMcpJsonConfig> {
-  const base = renderGenericMcpJson(spec);
-
-  const unsupported: RendererUnsupportedField[] = [
-    ...base.unsupported,
-    {
-      field: "timeout",
-      reason: "Claude Code .mcp.json shape does not standardize timeout in documented examples.",
-    },
-    {
-      field: "env",
-      reason: "Documented Claude Code config does not include env allowlist.",
-    },
-  ];
+  const rejected = preflightRendererSpec<GenericMcpJsonConfig>("claude-code-mcp-json", spec);
+  if (rejected) return rejected;
+  const unsupported = unsupportedCanonicalFields(["serverId", "transport", "command"]);
 
   return {
     target: "claude-code-mcp-json",
-    status: base.status,
-    config: base.config,
-    warnings: base.warnings,
+    status: "supported",
+    config: buildGenericMcpJsonConfig(spec),
+    warnings: [],
     unsupported,
     note:
       "Schema matches README-documented .mcp.json. Live client execution is unverified per ADAPTER-CONTRACT.md.",

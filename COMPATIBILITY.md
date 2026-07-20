@@ -32,8 +32,8 @@ configuration as a working integration:
 | SSE inbox projection | `implemented` | Optional local inbox push, not general A2A HTTP | `src/sse-server.ts` |
 | Outbound worker execution | `coupled` | Current worker launch and parsing remain OpenCode-specific | `src/index.ts`, `src/spawn-result.ts` |
 | `meshfleet.a2a` v0.1 codec and fixtures | `codec-conformance-verified` | Pure provider-neutral validation, codec, language-neutral fixtures, and legacy internal mapping are covered by conformance tests; public canonical ingress is not implemented | `docs/A2A-PROTOCOL-v0.1.md`, `test/a2a-envelope.test.ts` |
-| Durable attempt lifecycle | `proposed` | Single-authority lifecycle contract is documented; implementation is pending | `docs/A2A-NEXT-SLICE.md` |
-| Provider-neutral runtime adapters | `proposed` | Adapter boundary is documented; current core remains OpenCode-coupled | `docs/ADAPTER-CONTRACT.md` |
+| Durable attempt lifecycle | `recovery-verified` | Isolated single-authority kernel proves migration, fencing, cancellation, replay, and transactional lifecycle events; public spawn/retry/MCP integration is deferred | `docs/A2A-NEXT-SLICE.md`, `src/attempt-lifecycle.ts`, `test/attempt-lifecycle.test.ts` |
+| Provider-neutral runtime adapters | `runtime-launch-verified` | Isolated RuntimeAdapter SPI, OpenCode adapter, and deterministic local-process adapter are verified; public runtime selection and vendor adapters are deferred | `docs/ADAPTER-CONTRACT.md`, `src/runtime`, `test/runtime` |
 | Multi-host coordination | `deferred` | No shared remote ownership authority exists | `docs/A2A-PROGRAM.md` |
 
 The complete ranked sequence and acceptance gates are in

@@ -3,6 +3,7 @@
  */
 
 export * from "./renderer-result.js";
+export * from "./preflight.js";
 export * from "./generic-mcp-json.js";
 export * from "./opencode-jsonc.js";
 export * from "./claude-code-mcp-json.js";

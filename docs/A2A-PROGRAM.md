@@ -24,7 +24,10 @@ verified boundaries:
 - The durable attempt lifecycle kernel is implemented for one local SQLite
   authority, but it is not integrated with spawning, retry, recovery, or MCP.
 - Public canonical-envelope ingress, authenticated principals, durable duplicate
-  persistence, and provider-neutral runtime adapters remain unimplemented.
+  persistence, public lifecycle integration, and public runtime selection remain
+  unimplemented. The provider-neutral RuntimeAdapter SPI plus isolated
+  OpenCode and deterministic local-process adapters are implemented and
+  runtime-launch-verified; they are not yet public multi-runtime orchestration.
 
 ## Ranked program
 

@@ -116,14 +116,14 @@ marked "per \<client\> docs — verification welcome."
 }
 ```
 
-### OpenCode — primary host; same block this repo documents in the install guide above
+### OpenCode — primary host; canonical `meshfleet` server identity
 
 `~/.config/opencode/opencode.jsonc`:
 
 ```jsonc
 {
   "mcp": {
-    "agent-mesh": {
+    "meshfleet": {
       "type": "local",
       "enabled": true,
       "command": ["npx", "-y", "meshfleet"]

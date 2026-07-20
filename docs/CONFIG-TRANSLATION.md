@@ -32,13 +32,22 @@ interface RendererResult<TConfig> {
 - `unverified`: the schema shape exists in documentation but live client execution has not been proven.
 - `secret-rejected`: the renderer detected inline credentials or secret-like values and refused to emit them.
 
-No renderer may silently drop fields. Unsupported fields are reported with reason and optional suggestion.
+No renderer may silently drop fields. Unsupported fields are reported exactly
+once by canonical field name with a reason and optional suggestion.
 
 ## Secret Rejection Policy
 
 - The canonical spec contains **zero** inline credentials, tokens, or secret-like environment keys.
-- Renderers MUST reject any attempt to inject secret-like values (patterns: `api_key`, `secret`, `token`, `password`, `private_key`, `auth`, Bearer tokens, long base64 strings).
+- Renderers MUST run shared recursive preflight over caller-supplied strings and
+  field names, including command/argv, IDs, environment allowlists,
+  capabilities, trust, descriptions, and extension-like nested data. They must
+  reject secret-like keys and values (patterns: `api_key`, `secret`, `token`,
+  `password`, `private_key`, `auth`, Bearer material, credential URLs, PEM
+  private keys, and long base64-like values) with status `secret-rejected` and
+  no emitted config.
 - Environment variable references are allowed only where the target schema has proven support in local evidence. Otherwise they are reported as unsupported.
+- Every canonical field must be either represented by emitted target data or
+  listed once in `unsupported`; no renderer may silently drop a field.
 
 ## Inbound vs Outbound
 
@@ -50,7 +59,7 @@ No renderer may silently drop fields. Unsupported fields are reported with reaso
 | Target | Evidence | Status |
 |--------|----------|--------|
 | generic-mcp-json | mcp.json, README examples | supported (static-config-verified) |
-| opencode-jsonc | README opencode.jsonc stanza | supported (static-config-verified) |
+| opencode-jsonc | README opencode.jsonc stanza using canonical `meshfleet` key | supported (static-config-verified) |
 | claude-code-mcp-json | README .mcp.json + `claude mcp add` | supported (static-config-verified) |
 | codex-mcp-json | README Codex stanza | supported (static-config-verified) |
 
