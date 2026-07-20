@@ -45,6 +45,7 @@ test("durable coordinator records pending projection before launch and settles a
     assert.equal(data.agents["agent-1"].status, "complete");
     assert.equal(data.fleets["fleet-1"].status, "complete");
     assert.ok(readEventLog().some((event) => event.event === "fleet_created"));
+    coordinator.stop();
   } finally {
     temp.cleanup();
   }
@@ -64,6 +65,7 @@ test("durable retry creates a distinct attempt and persisted eligibility", async
     assert.equal(state.attempts.length, 2);
     assert.notEqual(state.attempts[0].attempt_id, state.attempts[1].attempt_id);
     assert.ok(state.attempts[1].eligible_at >= state.attempts[0].updated_at);
+    coordinator.stop();
   } finally {
     temp.cleanup();
   }

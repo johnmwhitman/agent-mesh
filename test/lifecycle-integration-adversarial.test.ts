@@ -90,13 +90,35 @@ test("legacy v3 outbox layout upgrades to durable sequence before sequence index
     closeDb();
     const migrated = new Database(temp.dbFile, { readonly: true });
     assert.deepEqual(migrated.prepare("SELECT seq, event_id FROM lifecycle_event_outbox ORDER BY seq").all(), [
-      { seq: 1, event_id: "a" }, { seq: 2, event_id: "z" },
+      { seq: 1, event_id: "z" }, { seq: 2, event_id: "a" },
     ]);
     migrated.close();
   } finally {
     closeDb();
     temp.cleanup();
   }
+});
+
+test("partial v3 duplicate attempt numbers are repaired before uniqueness is restored", () => {
+  const temp = withTempDb();
+  try {
+    let now = 1;
+    const store = new LifecycleStore({ now: () => now, nextId: (() => { let n = 0; return () => `p-${++n}`; })() });
+    const initial = store.createWork({ workId: "w", fleetId: "f", retryJitter: false, retryBaseMs: 0 });
+    store.acquireLease({ workId: "w", attemptId: initial.attempts[0].attempt_id, ownerId: "o", leaseMs: 1 });
+    now = 2;
+    store.expireAndRetry("w", initial.attempts[0].attempt_id);
+    closeDb();
+    const raw = new Database(temp.dbFile);
+    raw.exec("DROP INDEX idx_attempts_work_number; UPDATE attempts SET attempt_number = 1 WHERE work_id = 'w'; UPDATE meta SET value = '3' WHERE key = 'storage_schema_version';");
+    raw.close();
+    setDbPath(temp.dbFile);
+    assert.equal(getStorageSchemaVersion(), 3);
+    closeDb();
+    const repaired = new Database(temp.dbFile, { readonly: true });
+    assert.deepEqual(repaired.prepare("SELECT attempt_number FROM attempts WHERE work_id = 'w' ORDER BY created_at, attempt_id").all(), [{ attempt_number: 1 }, { attempt_number: 2 }]);
+    repaired.close();
+  } finally { closeDb(); temp.cleanup(); }
 });
 
 test("expiry of final attempt is replay-terminal and emits the terminal failure event", () => {
@@ -118,6 +140,81 @@ test("expiry of final attempt is replay-terminal and emits the terminal failure 
   } finally { temp.cleanup(); }
 });
 
+test("final runtime failure event snapshots the same terminal state as the table", () => {
+  const temp = withTempDb();
+  try {
+    const store = new LifecycleStore({ now: () => 10, nextId: (() => { let n = 0; return () => `r-${++n}`; })() });
+    const initial = store.createWork({ workId: "w", fleetId: "f", maxAttempts: 1 });
+    const lease = store.acquireLease({ workId: "w", attemptId: initial.attempts[0].attempt_id, ownerId: "o", leaseMs: 10 });
+    assert.equal(lease.accepted, true);
+    if (lease.accepted) {
+      const settled = store.settleWithRetry({ workId: "w", attemptId: initial.attempts[0].attempt_id, ownerId: "o", ownerEpoch: lease.state.work.owner_epoch, outcome: "failure", error: "failed" });
+      assert.equal(settled.accepted, true);
+      if (settled.accepted) {
+        const replayed = store.replay("w")!;
+        assert.equal(settled.state.work.status, "failed");
+        assert.equal(replayed.events.at(-1)?.kind, "attempt_failed");
+        assert.equal(replayed.events.at(-1)?.payload.work.status, "failed");
+        assert.equal(replayed.events.at(-1)?.payload.work.terminal_at, settled.state.work.terminal_at);
+      }
+    }
+  } finally { temp.cleanup(); }
+});
+
+test("recovery queries and wakeups ignore legacy and shadow fleets", async () => {
+  const temp = withTempDb({ fleets: { durable: { id: "durable", status: "running", created_at: 1 }, legacy: { id: "legacy", status: "running", created_at: 1 }, shadow: { id: "shadow", status: "running", created_at: 1 } }, agents: { d: { id: "d", fleet_id: "durable", role: "r", prompt: "p", status: "pending" }, l: { id: "l", fleet_id: "legacy", role: "r", prompt: "p", status: "pending" }, s: { id: "s", fleet_id: "shadow", role: "r", prompt: "p", status: "pending" } }, messages: {}, inboxes: { d: [], l: [], s: [] }, capabilities: {} });
+  try {
+    const runtime = new ControlledRuntime();
+    const coordinator = new LifecycleExecutionCoordinator(runtime, { ownerId: "scope" });
+    coordinator.recordMode("durable", "durable");
+    coordinator.recordMode("shadow", "shadow");
+    const store = new LifecycleStore();
+    store.createWork({ workId: "d", fleetId: "durable", agentId: "d" });
+    store.createWork({ workId: "l", fleetId: "legacy", agentId: "l" });
+    store.createWork({ workId: "s", fleetId: "shadow", agentId: "s" });
+    coordinator.recover();
+    await tick();
+    assert.equal(runtime.starts, 1);
+    assert.notEqual(store.nextWakeAt(), null);
+    assert.equal(new LifecycleStore().getState("l")?.work.status, "pending");
+    assert.equal(new LifecycleStore().getState("s")?.work.status, "pending");
+    coordinator.stop();
+  } finally { temp.cleanup(); }
+});
+
+test("lease-expiry retry uses the captured deterministic delay", () => {
+  const temp = withTempDb();
+  try {
+    let now = 100;
+    const store = new LifecycleStore({ now: () => now, nextId: (() => { let n = 0; return () => `x-${++n}`; })() });
+    const initial = store.createWork({ workId: "w", fleetId: "f", retryBaseMs: 50, retryJitter: false });
+    store.acquireLease({ workId: "w", attemptId: initial.attempts[0].attempt_id, ownerId: "o", leaseMs: 1 });
+    now = 101;
+    const retried = store.expireAndRetry("w", initial.attempts[0].attempt_id);
+    assert.equal(retried.accepted, true);
+    if (retried.accepted) assert.equal(retried.state.attempts.at(-1)?.eligible_at, 151);
+  } finally { temp.cleanup(); }
+});
+
+test("pre-PID launch crash quarantines the attempt instead of launching a replacement", () => {
+  const temp = withTempDb();
+  try {
+    let now = 1;
+    const first = new LifecycleExecutionCoordinator(new ControlledRuntime(), { ownerId: "first", now: () => now, leaseMs: 1, beforeRuntimeStart: () => { throw new Error("simulated crash window"); } });
+    assert.throws(() => first.createFleet("f", [{ fleetId: "f", agentId: "a", role: "r", prompt: "p" }]), /simulated crash window/);
+    now = 2;
+    const replacementRuntime = new ControlledRuntime();
+    const replacement = new LifecycleExecutionCoordinator(replacementRuntime, { ownerId: "second", now: () => now, leaseMs: 1 });
+    replacement.recover();
+    const state = new LifecycleStore({ now: () => now }).getState("a")!;
+    assert.equal(state.work.status, "failed");
+    assert.match(String(state.work.error), /manual recovery required/);
+    assert.equal(replacementRuntime.starts, 0);
+    assert.ok(readEventLog().some((event) => event.event === "agent_launch_quarantined"));
+    replacement.stop();
+  } finally { temp.cleanup(); }
+});
+
 test("durable recovery wakes at a future lease boundary, contains the diagnostic pid, and emits retry outbox", async () => {
   const temp = withTempDb({ fleets: { f: { id: "f", status: "running", created_at: 1 } }, agents: { a: { id: "a", fleet_id: "f", role: "r", prompt: "p", status: "running" } }, messages: {}, inboxes: { a: [] }, capabilities: {} });
   try {
@@ -129,6 +226,7 @@ test("durable recovery wakes at a future lease boundary, contains the diagnostic
     const runtime = new ControlledRuntime();
     const contained: number[] = [];
     const coordinator = new LifecycleExecutionCoordinator(runtime, { ownerId: "recovery-owner", leaseMs: 100, retryBaseMs: 0, terminatePid: (pid) => contained.push(pid) });
+    coordinator.recordMode("f", "durable");
     coordinator.recover();
     assert.equal(runtime.starts, 0, "non-expired lease is not reclaimed at startup");
     await new Promise((done) => setTimeout(done, 45));
@@ -189,6 +287,7 @@ test("two coordinators launch due work once; durable attach keeps legacy project
     const second = new ControlledRuntime();
     const a = new LifecycleExecutionCoordinator(first, { ownerId: "one" });
     const b = new LifecycleExecutionCoordinator(second, { ownerId: "two" });
+    a.recordMode("f", "durable");
     a.recover(); b.recover();
     await tick();
     assert.equal(first.starts + second.starts, 1);

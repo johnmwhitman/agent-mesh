@@ -46,6 +46,7 @@ test("lifecycle: lease fencing, retry identity, cancellation, terminal immutabil
     assert.notEqual(second.attempt_id, first.attempt_id);
     assert.ok(second.owner_epoch > first.owner_epoch);
     assert.equal(store.settle({ workId: "work-1", attemptId: first.attempt_id, ownerId: "owner-a", ownerEpoch: 1, outcome: "success", result: "stale" }).accepted, false);
+    time.advance(2_000);
     const leaseB = store.acquireLease({ workId: "work-1", attemptId: second.attempt_id, ownerId: "owner-b", leaseMs: 10 });
     assert.equal(leaseB.accepted, true);
     const epoch = leaseB.accepted ? leaseB.state.work.owner_epoch : 0;

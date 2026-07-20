@@ -26,6 +26,8 @@ export interface LifecycleExecutionCoordinatorOptions {
   retryBaseMs?: number;
   /** Diagnostic containment only; never consulted for lease authority. */
   terminatePid?: (pid: number) => void;
+  /** Test-only seam for the crash window after durable intent commits. */
+  beforeRuntimeStart?: () => void;
 }
 
 const DEFAULT_LEASE_MS = 30_000;
@@ -108,6 +110,7 @@ export class LifecycleExecutionCoordinator {
   private readonly maxAttempts: number;
   private readonly retryBaseMs: number;
   private readonly terminatePid: (pid: number) => void;
+  private readonly beforeRuntimeStart?: () => void;
   private readonly handles = new Map<string, RuntimeHandle>();
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
   private recoveryTimer: ReturnType<typeof setTimeout> | undefined;
@@ -120,6 +123,7 @@ export class LifecycleExecutionCoordinator {
     this.maxAttempts = options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
     this.retryBaseMs = options.retryBaseMs ?? DEFAULT_RETRY_BASE_MS;
     this.terminatePid = options.terminatePid ?? ((pid) => { try { process.kill(pid, "SIGTERM"); } catch { /* diagnostic containment only */ } });
+    this.beforeRuntimeStart = options.beforeRuntimeStart;
   }
 
   modeForFleet(fleetId: string): LifecycleMode {
@@ -180,7 +184,8 @@ export class LifecycleExecutionCoordinator {
           const current = state.attempts.find((attempt) => attempt.attempt_id === state.work.current_attempt_id);
           queueEvent(db, "agent_retry_scheduled", { agent_id: agent.id, from_attempt: state.attempts.length - 1, to_attempt: state.attempts.length, delay_ms: Math.max(0, (current?.eligible_at ?? this.now()) - this.now()), last_error: "lease expired", timestamp: this.now() }, this.now());
         } else if (state.work.status === "failed") {
-          queueEvent(db, "agent_failed_permanent", { agent_id: agent.id, attempts: state.attempts.length, last_error: agent.error, timestamp: this.now() }, this.now());
+          const quarantined = String(state.work.error ?? "").includes("launch intent expired before durable handle registration");
+          queueEvent(db, quarantined ? "agent_launch_quarantined" : "agent_failed_permanent", { agent_id: agent.id, attempts: state.attempts.length, last_error: agent.error, timestamp: this.now() }, this.now());
         }
       }
       return states;
@@ -230,12 +235,20 @@ export class LifecycleExecutionCoordinator {
     if (this.handles.has(agentId)) return;
     const state = withLedgerAndStorage((data, db) => {
       const current = lifecycle(db, this.now).getState(agentId);
-      return current && { state: current, agent: data.agents[agentId] };
+      if (!current) return undefined;
+      const currentAttempt = current.attempts.find((attempt) => attempt.attempt_id === current.work.current_attempt_id);
+      if (!currentAttempt || currentAttempt.owner_id !== this.ownerId || currentAttempt.status !== "running") return undefined;
+      const intended = lifecycle(db, this.now).markLaunchIntent({ workId: agentId, attemptId: currentAttempt.attempt_id, ownerId: this.ownerId, ownerEpoch: currentAttempt.owner_epoch });
+      if (!intended.accepted) return undefined;
+      const agent = data.agents[agentId];
+      if (agent) queueEvent(db, "agent_launch_intended", { fleet_id: agent.fleet_id, agent_id: agentId, attempt_id: currentAttempt.attempt_id }, this.now());
+      return { state: intended.state, agent };
     });
     if (!state || !state.agent) return;
     const current = state.state.attempts.find((attempt) => attempt.attempt_id === state.state.work.current_attempt_id);
     if (!current || current.owner_id !== this.ownerId || current.status !== "running") return;
     const spec = { fleetId: state.agent.fleet_id, agentId, role: state.agent.role, prompt: state.agent.prompt, requestedAgent: state.agent.agent_file, cwd: process.cwd(), timeoutMs: this.runtime.describe().defaultTimeoutMs };
+    this.beforeRuntimeStart?.();
     void this.runtime.start(spec).then((handle) => {
       if (this.stopped) { void this.runtime.cancel(handle, "coordinator stopped before launch observation"); return; }
       const launched = withLedgerAndStorage((data, db) => {

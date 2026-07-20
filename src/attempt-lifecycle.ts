@@ -48,6 +48,8 @@ export interface Attempt {
   lease_until: number | null;
   attempt_number: number;
   eligible_at: number;
+  launch_intent_at: number | null;
+  launch_registered_at: number | null;
   created_at: number;
   updated_at: number;
   terminal_at: number | null;
@@ -120,6 +122,7 @@ interface AttemptRow {
   attempt_id: string; work_id: string; owner_id: string | null; owner_epoch: number;
   status: AttemptStatus; lease_until: number | null; created_at: number; updated_at: number;
   attempt_number: number; eligible_at: number;
+  launch_intent_at: number | null; launch_registered_at: number | null;
   terminal_at: number | null; result_json: string | null; error_json: string | null;
 }
 
@@ -226,7 +229,7 @@ export class LifecycleStore {
       const attempt: Attempt = {
         attempt_id: this.nextId(), work_id: input.workId, owner_id: null, owner_epoch: 0,
         status: "pending", lease_until: null, created_at: now, updated_at: now,
-        attempt_number: 1, eligible_at: now,
+        attempt_number: 1, eligible_at: now, launch_intent_at: null, launch_registered_at: null,
         terminal_at: null, result: undefined, error: undefined,
       };
       const work: WorkItem = {
@@ -326,7 +329,7 @@ export class LifecycleStore {
       const retry: Attempt = {
         attempt_id: this.nextId(), work_id: workId, owner_id: null, owner_epoch: nextEpoch,
         status: "pending", lease_until: null, created_at: now, updated_at: now,
-        attempt_number: attempt.attempt_number + 1, eligible_at: now,
+        attempt_number: attempt.attempt_number + 1, eligible_at: now + retryDelay(work, attempt), launch_intent_at: null, launch_registered_at: null,
         terminal_at: null, result: undefined, error: undefined,
       };
       work.current_attempt_id = retry.attempt_id;
@@ -389,7 +392,6 @@ export class LifecycleStore {
       attempt.error = input.error;
       attempt.updated_at = now;
       this.updateAttempt(db, attempt);
-      this.appendEvent(db, "attempt_failed", work, attempt, now);
       if (attempt.attempt_number >= work.max_attempts) {
         work.status = "failed";
         work.terminal_at = now;
@@ -397,6 +399,7 @@ export class LifecycleStore {
         work.error = input.error;
         work.updated_at = now;
         this.updateWork(db, work);
+        this.appendEvent(db, "attempt_failed", work, attempt, now);
         this.beforeCommit?.();
         return { accepted: true, state: this.snapshot(db, work.work_id) };
       }
@@ -404,7 +407,7 @@ export class LifecycleStore {
       const eligibleAt = now + retryDelay(work, attempt);
       const retry: Attempt = {
         attempt_id: this.nextId(), work_id: work.work_id, owner_id: null, owner_epoch: epoch,
-        status: "pending", lease_until: null, attempt_number: attempt.attempt_number + 1, eligible_at: eligibleAt,
+        status: "pending", lease_until: null, attempt_number: attempt.attempt_number + 1, eligible_at: eligibleAt, launch_intent_at: null, launch_registered_at: null,
         created_at: now, updated_at: now, terminal_at: null, result: undefined, error: undefined,
       };
       work.current_attempt_id = retry.attempt_id;
@@ -414,6 +417,7 @@ export class LifecycleStore {
       work.error = undefined;
       work.updated_at = now;
       this.updateWork(db, work);
+      this.appendEvent(db, "attempt_failed", work, attempt, now);
       this.insertAttempt(db, retry);
       this.appendEvent(db, "attempt_retried", work, retry, now);
       this.beforeCommit?.();
@@ -425,12 +429,30 @@ export class LifecycleStore {
   recoverExpired(): LifecycleState[] {
     return this.transaction((db) => {
       const now = this.now();
-      const rows = db.prepare("SELECT work_id, current_attempt_id FROM work_items WHERE status = 'running'").all() as Array<{ work_id: string; current_attempt_id: string }>;
+      const rows = db.prepare("SELECT w.work_id, w.current_attempt_id FROM work_items w JOIN fleets f ON f.id = w.fleet_id WHERE f.lifecycle_mode = 'durable' AND w.status = 'running'").all() as Array<{ work_id: string; current_attempt_id: string }>;
       const recovered: LifecycleState[] = [];
       const scoped = new LifecycleStore({ now: this.now, nextId: this.nextId, beforeCommit: this.beforeCommit, database: db });
       for (const row of rows) {
         const attempt = this.loadAttempt(db, row.current_attempt_id);
         if (!attempt || attempt.lease_until === null || attempt.lease_until > now) continue;
+        if (attempt.launch_intent_at !== null && attempt.launch_registered_at === null) {
+          const failure = "launch intent expired before durable handle registration; manual recovery required";
+          const work = this.loadWork(db, row.work_id)!;
+          attempt.status = "failed";
+          attempt.terminal_at = now;
+          attempt.lease_until = null;
+          attempt.error = failure;
+          attempt.updated_at = now;
+          work.status = "failed";
+          work.terminal_at = now;
+          work.error = failure;
+          work.updated_at = now;
+          this.updateAttempt(db, attempt);
+          this.updateWork(db, work);
+          this.appendEvent(db, "attempt_failed", work, attempt, now);
+          recovered.push(this.snapshot(db, row.work_id));
+          continue;
+        }
         const result = scoped.expireAndRetry(row.work_id, row.current_attempt_id);
         if (result.accepted) recovered.push(result.state);
       }
@@ -441,14 +463,14 @@ export class LifecycleStore {
   dueWork(): LifecycleState[] {
     return this.transaction((db) => {
       const now = this.now();
-      const rows = db.prepare("SELECT work_id FROM work_items WHERE status = 'pending' AND current_attempt_id IN (SELECT attempt_id FROM attempts WHERE status = 'pending' AND eligible_at <= ?)").all(now) as Array<{ work_id: string }>;
+      const rows = db.prepare("SELECT w.work_id FROM work_items w JOIN fleets f ON f.id = w.fleet_id JOIN attempts a ON a.attempt_id = w.current_attempt_id WHERE f.lifecycle_mode = 'durable' AND w.status = 'pending' AND a.status = 'pending' AND a.eligible_at <= ?").all(now) as Array<{ work_id: string }>;
       return rows.map((row) => this.snapshot(db, row.work_id));
     });
   }
 
   nextWakeAt(): number | null {
     return this.transaction((db) => {
-      const row = db.prepare("SELECT MIN(CASE WHEN a.status = 'running' THEN a.lease_until ELSE a.eligible_at END) AS wake_at FROM work_items w JOIN attempts a ON a.attempt_id = w.current_attempt_id WHERE (w.status = 'running' AND a.status = 'running' AND a.lease_until IS NOT NULL) OR (w.status = 'pending' AND a.status = 'pending')").get() as { wake_at: number | null };
+      const row = db.prepare("SELECT MIN(CASE WHEN a.status = 'running' THEN a.lease_until ELSE a.eligible_at END) AS wake_at FROM work_items w JOIN attempts a ON a.attempt_id = w.current_attempt_id JOIN fleets f ON f.id = w.fleet_id WHERE f.lifecycle_mode = 'durable' AND ((w.status = 'running' AND a.status = 'running' AND a.lease_until IS NOT NULL) OR (w.status = 'pending' AND a.status = 'pending'))").get() as { wake_at: number | null };
       return row.wake_at;
     });
   }
@@ -456,7 +478,7 @@ export class LifecycleStore {
   expiredRuntimePids(): Array<{ workId: string; attemptId: string; pid: number }> {
     return this.transaction((db) => {
       const now = this.now();
-      return db.prepare("SELECT w.work_id, a.attempt_id, a.runtime_pid FROM work_items w JOIN attempts a ON a.attempt_id = w.current_attempt_id WHERE w.status = 'running' AND a.status = 'running' AND a.lease_until <= ? AND a.runtime_pid IS NOT NULL").all(now)
+      return db.prepare("SELECT w.work_id, a.attempt_id, a.runtime_pid FROM work_items w JOIN attempts a ON a.attempt_id = w.current_attempt_id JOIN fleets f ON f.id = w.fleet_id WHERE f.lifecycle_mode = 'durable' AND w.status = 'running' AND a.status = 'running' AND a.lease_until <= ? AND a.runtime_pid IS NOT NULL").all(now)
         .map((row) => ({ workId: (row as { work_id: string }).work_id, attemptId: (row as { attempt_id: string }).attempt_id, pid: (row as { runtime_pid: number }).runtime_pid }));
     });
   }
@@ -467,7 +489,22 @@ export class LifecycleStore {
       const work = this.loadWork(db, input.workId);
       const attempt = this.loadAttempt(db, input.attemptId);
       if (!work || !attempt || !this.ownedMutationAllowed(work, attempt, input, now)) return { accepted: false, reason: "stale or terminal lease" };
-      db.prepare("UPDATE attempts SET runtime_pid = ?, runtime_meta_json = ? WHERE attempt_id = ? AND owner_id = ? AND owner_epoch = ?").run(input.pid ?? null, JSON.stringify(input.metadata), input.attemptId, input.ownerId, input.ownerEpoch);
+      db.prepare("UPDATE attempts SET runtime_pid = ?, runtime_meta_json = ?, launch_registered_at = ? WHERE attempt_id = ? AND owner_id = ? AND owner_epoch = ?").run(input.pid ?? null, JSON.stringify(input.metadata), now, input.attemptId, input.ownerId, input.ownerEpoch);
+      return { accepted: true, state: this.snapshot(db, input.workId) };
+    });
+  }
+
+  markLaunchIntent(input: { workId: string; attemptId: string; ownerId: string; ownerEpoch: number }): MutationResult {
+    return this.transaction((db) => {
+      const now = this.now();
+      const work = this.loadWork(db, input.workId);
+      const attempt = this.loadAttempt(db, input.attemptId);
+      if (!work || !attempt || !this.ownedMutationAllowed(work, attempt, input, now)) return { accepted: false, reason: "stale or terminal lease" };
+      if (attempt.launch_intent_at === null) {
+        attempt.launch_intent_at = now;
+        attempt.updated_at = now;
+        this.updateAttempt(db, attempt);
+      }
       return { accepted: true, state: this.snapshot(db, input.workId) };
     });
   }
@@ -535,10 +572,10 @@ export class LifecycleStore {
     db.prepare("UPDATE work_items SET agent_id = ?, max_attempts = ?, retry_base_ms = ?, retry_jitter = ?, status = ?, current_attempt_id = ?, owner_epoch = ?, cancelled_at = ?, terminal_at = ?, result_json = ?, error_json = ?, updated_at = ? WHERE work_id = ?").run(work.agent_id, work.max_attempts, work.retry_base_ms, work.retry_jitter ? 1 : 0, work.status, work.current_attempt_id, work.owner_epoch, work.cancelled_at, work.terminal_at, json(work.result), json(work.error), work.updated_at, work.work_id);
   }
   private insertAttempt(db: Database.Database, attempt: Attempt): void {
-    db.prepare("INSERT INTO attempts (attempt_id, work_id, owner_id, owner_epoch, status, lease_until, attempt_number, eligible_at, created_at, updated_at, terminal_at, result_json, error_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(attempt.attempt_id, attempt.work_id, attempt.owner_id, attempt.owner_epoch, attempt.status, attempt.lease_until, attempt.attempt_number, attempt.eligible_at, attempt.created_at, attempt.updated_at, attempt.terminal_at, json(attempt.result), json(attempt.error));
+    db.prepare("INSERT INTO attempts (attempt_id, work_id, owner_id, owner_epoch, status, lease_until, attempt_number, eligible_at, launch_intent_at, launch_registered_at, created_at, updated_at, terminal_at, result_json, error_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(attempt.attempt_id, attempt.work_id, attempt.owner_id, attempt.owner_epoch, attempt.status, attempt.lease_until, attempt.attempt_number, attempt.eligible_at, attempt.launch_intent_at, attempt.launch_registered_at, attempt.created_at, attempt.updated_at, attempt.terminal_at, json(attempt.result), json(attempt.error));
   }
   private updateAttempt(db: Database.Database, attempt: Attempt): void {
-    db.prepare("UPDATE attempts SET owner_id = ?, owner_epoch = ?, status = ?, lease_until = ?, attempt_number = ?, eligible_at = ?, updated_at = ?, terminal_at = ?, result_json = ?, error_json = ? WHERE attempt_id = ?").run(attempt.owner_id, attempt.owner_epoch, attempt.status, attempt.lease_until, attempt.attempt_number, attempt.eligible_at, attempt.updated_at, attempt.terminal_at, json(attempt.result), json(attempt.error), attempt.attempt_id);
+    db.prepare("UPDATE attempts SET owner_id = ?, owner_epoch = ?, status = ?, lease_until = ?, attempt_number = ?, eligible_at = ?, launch_intent_at = ?, launch_registered_at = ?, updated_at = ?, terminal_at = ?, result_json = ?, error_json = ? WHERE attempt_id = ?").run(attempt.owner_id, attempt.owner_epoch, attempt.status, attempt.lease_until, attempt.attempt_number, attempt.eligible_at, attempt.launch_intent_at, attempt.launch_registered_at, attempt.updated_at, attempt.terminal_at, json(attempt.result), json(attempt.error), attempt.attempt_id);
   }
   private appendEvent(db: Database.Database, kind: AttemptEventKind, work: WorkItem, attempt: Attempt, now: number): void {
     db.prepare("INSERT INTO attempt_events (event_id, work_id, attempt_id, owner_epoch, kind, occurred_at, payload) VALUES (?, ?, ?, ?, ?, ?, ?)").run(this.nextId(), work.work_id, attempt.attempt_id, attempt.owner_epoch, kind, now, JSON.stringify(encodeEventPayload(work, attempt)));

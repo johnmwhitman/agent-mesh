@@ -139,7 +139,6 @@ CREATE INDEX IF NOT EXISTS idx_attempt_events_work_seq ON attempt_events(work_id
  * v2: these columns are implementation authority, not a public ledger shape.
  */
 const LIFECYCLE_SCHEMA_V3 = `
-CREATE UNIQUE INDEX IF NOT EXISTS idx_attempts_work_number ON attempts(work_id, attempt_number);
 CREATE INDEX IF NOT EXISTS idx_attempts_due ON attempts(status, eligible_at, work_id);
 CREATE INDEX IF NOT EXISTS idx_work_items_fleet_status ON work_items(fleet_id, status);
 CREATE TABLE IF NOT EXISTS lifecycle_event_outbox (
@@ -171,15 +170,25 @@ function ensureColumn(db: Database.Database, table: "fleets" | "work_items" | "a
   if (!columns.some((item) => item.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${definition}`);
 }
 
-function backfillAttemptNumbers(db: Database.Database): void {
+function backfillAttemptNumbers(db: Database.Database, resetEligibility: boolean): void {
   const rows = db.prepare("SELECT attempt_id, work_id FROM attempts ORDER BY work_id, created_at, attempt_id").all() as Array<{ attempt_id: string; work_id: string }>;
-  const update = db.prepare("UPDATE attempts SET attempt_number = ?, eligible_at = 0 WHERE attempt_id = ?");
+  const update = db.prepare(resetEligibility
+    ? "UPDATE attempts SET attempt_number = ?, eligible_at = 0 WHERE attempt_id = ?"
+    : "UPDATE attempts SET attempt_number = ? WHERE attempt_id = ?");
   let workId = "";
   let number = 0;
   for (const row of rows) {
     if (row.work_id !== workId) { workId = row.work_id; number = 0; }
-    update.run(++number, row.attempt_id);
+    if (resetEligibility) update.run(++number, row.attempt_id);
+    else update.run(++number, row.attempt_id);
   }
+}
+
+function attemptNumbersNeedRepair(db: Database.Database): boolean {
+  const indexes = db.prepare("PRAGMA index_list(attempts)").all() as Array<{ name: string; unique: number }>;
+  const unique = indexes.some((index) => index.name === "idx_attempts_work_number" && index.unique === 1);
+  const duplicate = db.prepare("SELECT 1 FROM attempts GROUP BY work_id, attempt_number HAVING COUNT(*) > 1 LIMIT 1").get();
+  return !unique || Boolean(duplicate);
 }
 
 function ensureOutboxSequence(db: Database.Database): void {
@@ -198,7 +207,7 @@ function ensureOutboxSequence(db: Database.Database): void {
     );
     INSERT INTO lifecycle_event_outbox_v3 (event_id, event, payload, created_at, claimed_by, claimed_at, projected_at)
       SELECT event_id, event, payload, created_at, claimed_by, claimed_at, projected_at
-      FROM lifecycle_event_outbox ORDER BY created_at, event_id;
+      FROM lifecycle_event_outbox ORDER BY created_at, rowid;
     DROP TABLE lifecycle_event_outbox;
     ALTER TABLE lifecycle_event_outbox_v3 RENAME TO lifecycle_event_outbox;
   `);
@@ -248,7 +257,7 @@ function migrateStorage(db: Database.Database): void {
       // v2 did not persist scheduling. Every pre-v3 pending attempt was
       // eligible immediately; assign deterministic ordinal attempts before
       // installing the per-work uniqueness constraint.
-      backfillAttemptNumbers(db);
+      backfillAttemptNumbers(db, true);
       db.exec(LIFECYCLE_SCHEMA_V3);
       ensureOutboxSequence(db);
       db.exec("CREATE INDEX IF NOT EXISTS idx_lifecycle_outbox_due ON lifecycle_event_outbox(projected_at, claimed_at, seq)");
@@ -261,8 +270,11 @@ function migrateStorage(db: Database.Database): void {
       // ledger schema or making an already-valid migration non-idempotent.
       ensureColumn(db, "attempts", "runtime_pid", "runtime_pid INTEGER");
       ensureColumn(db, "attempts", "runtime_meta_json", "runtime_meta_json TEXT");
+      ensureColumn(db, "attempts", "launch_intent_at", "launch_intent_at INTEGER");
+      ensureColumn(db, "attempts", "launch_registered_at", "launch_registered_at INTEGER");
       db.exec(LIFECYCLE_SCHEMA_V3);
       ensureOutboxSequence(db);
+      if (attemptNumbersNeedRepair(db)) backfillAttemptNumbers(db, false);
       db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_attempts_work_number ON attempts(work_id, attempt_number)");
       db.exec("CREATE INDEX IF NOT EXISTS idx_lifecycle_outbox_due ON lifecycle_event_outbox(projected_at, claimed_at, seq)");
     }
