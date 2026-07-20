@@ -84,6 +84,15 @@ A2A-PROTOCOL-v0.1.md:
 - Computed report fields in raw input are FORBIDDEN_COMPUTED_FIELD.
 - Diagnostics return fixed codes and JSON paths only. They MUST NOT echo values.
 
+Diagnostic indexes are phase-bound. During parsing and structural validation,
+every path into `claims`, `features`, `provenance_refs`, or another source array
+MUST use the zero-based source-array index. No array may be provisionally
+normalized to choose a structural diagnostic. Whole-profile claim sorting and
+translation feature/provenance normalization begin only after the complete
+profile and every member of the relevant array structurally validate. A
+post-structural semantic or target-specific rule MAY use normalized indexes only
+when that rule explicitly says so; deferred-target T15 is such a rule.
+
 ## 5. Raw profile schema
 
 A raw profile is one closed object. Every listed member is required and no other
@@ -237,17 +246,40 @@ store, or cryptographic operation.
 
 ## 7. Computed validation and proof-verification report
 
-The exact API is:
+The exact call-level APIs are:
 
-    validateProfile(raw_profile, evaluation_time_ms) -> ValidationReport
-    compareProfiles(raw_profiles, evaluation_time_ms) -> ComparisonReport
+    validateProfile(raw_profile, evaluation_time_ms) -> ValidationResult
+    compareProfiles(raw_profiles, evaluation_time_ms) -> ComparisonResult
 
-`evaluation_time_ms` is required and uses the safe-integer rule above.
-`compareProfiles` MUST invoke equivalent validation semantics for every input
-with the same supplied value. Neither API may read an ambient clock.
+Both results are closed unions:
 
-`ValidationReport` is a closed discriminated union. A structurally normalized
-profile returns exactly:
+    ValidationResult =
+      {"ok":true,"value":ValidationReport}
+      | {"ok":false,"error":CallArgumentError}
+
+    ComparisonResult =
+      {"ok":true,"value":ComparisonReport}
+      | {"ok":false,"error":CallArgumentError}
+
+`CallArgumentError` is exactly:
+
+    {
+      "code": "INVALID_EVALUATION_TIME",
+      "field_path": "$evaluation_time_ms"
+    }
+
+Missing, non-number, non-integer, negative, or greater-than-9007199254740991
+`evaluation_time_ms` MUST return the `ok: false` branch before parsing
+`raw_profile` or `raw_profiles`. No `ValidationReport`, `ComparisonReport`,
+profile index, rejected argument, or other reflected value is produced. With a
+valid argument, each API returns `ok: true` and its report even when profile
+parsing, structural validation, time validation, or semantic validation makes
+that report's `valid` member false. `compareProfiles` MUST invoke equivalent
+validation semantics for every input with the same supplied value. Neither API
+may read an ambient clock.
+
+`ValidationReport` is a closed report object, not the call-level union. A
+structurally normalized profile returns exactly:
 
     {
       "validation_version": "meshfleet.a2a.capability-validation/v0.1",
@@ -269,8 +301,9 @@ error is a closed object containing exactly `code` and `field_path`, and errors
 sort by that unsigned ASCII tuple.
 
 Proof verification is computed report output, never profile input.
-`validateProfile` MUST always return `proof_results`. For every fully normalized
-claim it contains exactly one closed result:
+Every `ValidationReport` in the `ok: true` call branch MUST contain
+`proof_results`. For every fully normalized claim it contains exactly one
+closed result:
 
     {
       "claim_id": "clm_AbCdEf0123456789_-AbCd",
@@ -339,6 +372,11 @@ the required types, any extension key or any critical_extensions member
 produces `UNSUPPORTED_EXTENSION`. No v0.1 extension value grammar, preservation rule,
 namespace, fingerprint channel, privacy channel, or critical-extension
 negotiation exists.
+
+When either path enters a claim array, the diagnostic uses that claim's source
+index. Container validation and rejection of nonempty containers occur before
+claim-array normalization; a validator MUST NOT compute a provisional claim
+order for either error.
 
 A future profile version MAY define a bounded registered extension schema. It
 MUST do so under a new version and MUST specify its own normalization,
@@ -503,6 +541,10 @@ the comparison completed. Reported cross-profile identity or semantic
 contradictions and exact-duplicate groups are findings and do not by themselves
 change report `valid`. All arrays obey Section 10.
 
+`ComparisonReport` exists only in the `ok: true` branch of `ComparisonResult`.
+An invalid evaluation-time argument therefore cannot create a synthetic
+comparison error, profile result, profile index, or empty partial report.
+
 ## 12. Canonicalization and fingerprint
 
 Normalization performs closed-schema validation, strict value validation, the
@@ -655,7 +697,9 @@ or reflected. Root unknowns use `$`; source-profile unknowns use
 closed objects use their canonical container path. Multiple unknown keys in one
 object produce one error at that container. Across objects, choose the smallest
 canonical container path by unsigned ASCII bytes. Privacy names continue to use
-their defined canonical lowercase safe path. Diagnostics never echo values.
+their defined canonical lowercase safe path. Here and in every T03 through T13
+structural diagnostic, `i` is the source-array index. Diagnostics never echo
+values.
 
 ### 13.3 Translation result schema
 
@@ -762,17 +806,17 @@ allowed target and is that allowed target thereafter.
 | T00 | `evaluation_time_ms` argument | Missing, non-number, non-integer, negative, or greater than `9007199254740991` returns INVALID_EVALUATION_TIME at `$evaluation_time_ms` with target_ref invalid. This check precedes input parsing and target validation. |
 | T01 | Input JSON, type, and root shape | Malformed JSON, unsupported input type, or a non-plain/non-object root returns INVALID_TRANSLATION_INPUT at `$` with target_ref invalid. |
 | T02 | Target presence and enum | Missing, non-ASCII/non-string, malformed, or unknown target returns INVALID_TARGET at `$.target` with target_ref invalid and no reflected raw target. |
-| T03 | Forbidden privacy-name scan | Scan every translator-root and nested core/profile object, excluding contents of extensions objects. Return FORBIDDEN_PRIVACY_FIELD at the smallest forbidden-name path, using the canonical lowercase forbidden name rather than raw spelling. |
-| T04 | Unknown core fields | Return UNKNOWN_CORE_FIELD at the containing closed-object path only; never append or reflect the arbitrary key. Multiple unknown nonprivacy keys in one object produce one error. Across objects, select the smallest canonical container path by unsigned ASCII-byte order. Extension members are deferred to T06 and T07. |
-| T05 | Translation/profile versions and structural profile validation | Invalid translation_version returns INVALID_TRANSLATION_INPUT at `$.translation_version`. Otherwise validate source_profile while deferring extension container and content checks to T06 and T07; return its first stable profile code at the `$.source_profile`-prefixed path, ordered by code then field_path. |
-| T06 | Extension container shape | At translation-root, source-profile, and claim scope, a required `extensions` member that is missing, null, an array, or otherwise not an object returns INVALID_EXTENSION_CONTAINER at its `.extensions` container path. A required `critical_extensions` member that is missing, null, or not an array returns the same code at its `.critical_extensions` container path. If multiple containers fail, select the smallest canonical container path by unsigned ASCII-byte order. |
-| T07 | Extension contents | After T06 accepts every container, any key in an `extensions` object or any member in a `critical_extensions` array returns UNSUPPORTED_EXTENSION at that container path. Select the smallest canonical container path and never reflect or privacy-classify a key or member. |
+| T03 | Forbidden privacy-name scan | Scan every translator-root and nested core/profile object, excluding contents of extensions objects. Return FORBIDDEN_PRIVACY_FIELD at the smallest forbidden-name path, using the canonical lowercase forbidden name rather than raw spelling. Paths into arrays use source indexes. |
+| T04 | Unknown core fields | Return UNKNOWN_CORE_FIELD at the containing closed-object path only; never append or reflect the arbitrary key. Multiple unknown nonprivacy keys in one object produce one error. Across objects, select the smallest canonical container path by unsigned ASCII-byte order. Paths into claims or other arrays use source indexes because structural validation is incomplete. Extension members are deferred to T06 and T07. |
+| T05 | Translation/profile versions and structural profile validation | Invalid translation_version returns INVALID_TRANSLATION_INPUT at `$.translation_version`. Otherwise validate source_profile while deferring extension container and content checks to T06 and T07; return its first stable profile code at the `$.source_profile`-prefixed source-index path, ordered by code then field_path. No profile or claim normalization occurs yet. |
+| T06 | Extension container shape | At translation-root, source-profile, and claim scope, a required `extensions` member that is missing, null, an array, or otherwise not an object returns INVALID_EXTENSION_CONTAINER at its `.extensions` container path. A required `critical_extensions` member that is missing, null, or not an array returns the same code at its `.critical_extensions` container path. If multiple containers fail, select the smallest canonical container path by unsigned ASCII-byte order. Every array index is the source index; provisional normalization is forbidden. |
+| T07 | Extension contents | After T06 accepts every container, any key in an `extensions` object or any member in a `critical_extensions` array returns UNSUPPORTED_EXTENSION at that container path. Select the smallest canonical container path, use source indexes, and never reflect or privacy-classify a key or member. Only after T07 succeeds may profile claims be normalized. |
 | T08 | launch_template schema | A value other than either exact closed template returns INVALID_TRANSLATION_INPUT at `$.launch_template`. |
 | T09 | cwd_policy schema | A value outside the exact cwd enum returns INVALID_TRANSLATION_INPUT at `$.cwd_policy`. |
-| T10 | feature schema | Invalid cardinality, member shape, feature_id, state, or provenance_ref returns INVALID_TRANSLATION_INPUT at the smallest `$.features[i]` path. |
-| T11 | duplicate feature_id | The second occurrence in input order returns INVALID_TRANSLATION_INPUT at `$.features[i].feature_id`. |
-| T12 | provenance_refs schema and feature-reference membership | Invalid cardinality or opaque reference returns INVALID_TRANSLATION_INPUT at the smallest `$.provenance_refs[i]` path. A feature provenance_ref absent from the valid provenance_refs set returns INVALID_TRANSLATION_INPUT at the smallest `$.features[i].provenance_ref` path. |
-| T13 | duplicate provenance_ref | The second occurrence in input order returns DUPLICATE_SET_MEMBER at `$.provenance_refs[i]`. |
+| T10 | feature schema | Invalid cardinality, member shape, feature_id, state, or provenance_ref returns INVALID_TRANSLATION_INPUT at the smallest `$.features[i]` path using source indexes. |
+| T11 | duplicate feature_id | The second occurrence in source input order returns INVALID_TRANSLATION_INPUT at `$.features[i].feature_id`; `i` is the source index. |
+| T12 | provenance_refs schema and feature-reference membership | Invalid cardinality or opaque reference returns INVALID_TRANSLATION_INPUT at the smallest `$.provenance_refs[i]` path using source indexes. A feature provenance_ref absent from the valid provenance_refs set returns INVALID_TRANSLATION_INPUT at the smallest source-index `$.features[i].provenance_ref` path. |
+| T13 | duplicate provenance_ref | The second occurrence in source input order returns DUPLICATE_SET_MEMBER at `$.provenance_refs[i]`; `i` is the source index. |
 | T14 | Deferred-target non-none template | For antigravity-gemini, grok, or unknown-future-harness, return UNSUPPORTED_STATIC_TEMPLATE at `$.launch_template`. |
 | T15 | Deferred-target supported state | For those deferred targets, return UNSUPPORTED_TARGET_CLAIM at `$.features[i].state` or `$.source_profile.claims[i].state`. Normalize both arrays before assigning indexes, then select the smallest complete offending path by unsigned ASCII-byte order. |
 | T16 | Remaining target-specific compatibility | Apply any remaining registered v0.1 hard compatibility rule at its canonical path. v0.1 defines no additional hard rejection; ordinary representational gaps become deterministic losses. |
@@ -928,15 +972,63 @@ NOT echo rejected values.
 
 ## 15. Exact acceptance corpus
 
-Every corpus record MUST contain an explicit nonnegative safe-integer
-`evaluation_time_ms`, including malformed, normalization-only, fingerprint,
-comparison, translation, and render cases. A witness MUST reject a corpus
-record that omits it and MUST NOT substitute an ambient clock. Translation
-cases classify an invalid argument through T00; corpus harnesses MUST NOT reject
-such a case before the witness returns the prescribed TranslationError.
+Every corpus record is a closed object containing exactly `case_id`, `api`,
+`invocation_args`, and `expected`. `case_id` is a unique ASCII canonical ID.
+`api` is exactly one of:
+
+    validate-profile
+    compare-profiles
+    translate-profile
+    validate-translation-result
+    validate-validation-report
+    validate-comparison-report
+    render-conformance
+    normalize-profile
+    normalize-translation-input
+    normalize-translation-result
+    fingerprint-profile
+    fingerprint-claim
+    registry-consistency-check
+    static-witness-check
+
+`invocation_args` is a JSON object whose closed member set is the named
+arguments of the selected API. When present, `evaluation_time_ms` is carried as
+a raw JSON member of that object, not as harness metadata. Every ordinary
+`validate-profile`, `compare-profiles`, or `translate-profile` case MUST supply
+a nonnegative safe integer. Dedicated invalid-argument cases MAY omit the
+member or supply any raw JSON value needed by the vector and MUST expect the
+call-level error. Omission
+is represented only by structural absence of the `evaluation_time_ms` object
+member; JavaScript `undefined`, Python sentinels, default parameters, and
+out-of-band flags are forbidden. The harness MUST invoke the selected API and
+MUST NOT reject, coerce, or default the argument before the witness classifies
+it. APIs that do not accept evaluation time MUST reject that member as an
+unknown invocation argument.
 
 The shared TypeScript/Python corpus MUST include these named vectors with the
 stated result:
+
+The extension-container corpus additionally MUST expand the following closed
+Cartesian family into 40 distinct records. A generated `case_id` is exactly
+`extension.<context>.<member>.<variant>`.
+
+| context | api | extensions path | critical_extensions path | Index rule |
+|---|---|---|---|---|
+| profile-root | validate-profile | `$.extensions` | `$.critical_extensions` | No array index. |
+| profile-claim-source-2 | validate-profile | `$.claims[2].extensions` | `$.claims[2].critical_extensions` | The malformed claim is physically source element 2; the path remains 2 regardless of how valid siblings would later sort. |
+| translation-root | translate-profile | `$.extensions` | `$.critical_extensions` | T06 for malformed containers; T07 for nonempty containers; valid parsed target_ref is retained. |
+| translation-source-profile | translate-profile | `$.source_profile.extensions` | `$.source_profile.critical_extensions` | T06 or T07; no source-profile normalization occurs first. |
+| translation-result-root | validate-translation-result | `$.extensions` | `$.critical_extensions` | Translation-result validation, not translateProfile precedence. |
+
+For each context, member is exactly `extensions` or `critical-extensions`, and
+variant is exactly `missing`, `null`, `wrong-container-type`, or `nonempty`.
+`missing` means structural absence of that required member. For `extensions`,
+wrong-container-type is `[]`; for `critical-extensions`, it is `{}`. The first
+three variants return `INVALID_EXTENSION_CONTAINER` at the table's exact
+container path. `nonempty` supplies `{"x":true}` for `extensions` or `[true]`
+for `critical_extensions` and returns `UNSUPPORTED_EXTENSION` at that same
+container path. No error reflects `x`, `true`, a profile value, or an index
+other than the prescribed source index.
 
 | Vector | Expected result |
 |---|---|
@@ -966,6 +1058,13 @@ stated result:
 | array.translation-result-critical-nonempty | UNSUPPORTED_EXTENSION; reorder is impossible for accepted result because only [] is valid |
 | array.validation-errors-reordered | same normalized validation report bytes |
 | array.validation-errors-duplicate | INVALID_VALIDATION_REPORT |
+| diagnostic.profile-claim-source-index | validate-profile malformed claim physically at source index 2 reports `$.claims[2]`; a canonically earlier valid sibling does not change the path |
+| diagnostic.translation-privacy-source-index | T03 forbidden field in source claim index 2 reports the canonical privacy path under `$.source_profile.claims[2]` |
+| diagnostic.translation-unknown-source-index | T04 unknown field in source claim index 2 reports `$.source_profile.claims[2]` even when valid siblings would normalize around it |
+| diagnostic.translation-extension-source-index | T06 or T07 extension failure in source claim index 2 reports its container under `$.source_profile.claims[2]` |
+| diagnostic.translation-feature-source-index | T10 malformed feature physically at source index 2 reports under `$.features[2]`; feature normalization has not begun |
+| diagnostic.translation-provenance-source-index | T12 malformed provenance ref physically at source index 2 reports `$.provenance_refs[2]`; provenance sorting has not begun |
+| diagnostic.deferred-supported-normalized-index | after all structural rows pass, T15 normalizes claims and features and reports the supported state at its normalized index, demonstrating the phase switch |
 | claim.capability-valid | valid closed capability claim |
 | claim.transport-valid | valid closed transport claim |
 | claim.protocol-multiple-versions | valid; versions coexist |
@@ -1007,6 +1106,18 @@ stated result:
 | time.proof-before-not-before | NOT_YET_VALID_PROOF when evaluation_time_ms is one less than proof.not_before_ms |
 | time.proof-not-before-equality | time-valid when evaluation_time_ms equals proof.not_before_ms |
 | time.proof-expiry-equality | EXPIRED_PROOF when evaluation_time_ms equals proof.expires_at_ms; verification_status remains unsupported |
+| validation.evaluation-time-missing | validate-profile invocation_args structurally omits evaluation_time_ms; exact ok:false CallArgumentError; no ValidationReport |
+| validation.evaluation-time-non-number | validate-profile receives null, boolean, string, array, or object in separate cases; exact ok:false CallArgumentError; profile is not parsed |
+| validation.evaluation-time-non-integer | validate-profile receives 0.5; exact ok:false CallArgumentError; profile is not parsed |
+| validation.evaluation-time-negative | validate-profile receives -1; exact ok:false CallArgumentError; profile is not parsed |
+| validation.evaluation-time-unsafe | validate-profile receives 9007199254740992; exact ok:false CallArgumentError; profile is not parsed |
+| validation.evaluation-time-collision | invalid evaluation time plus malformed raw_profile returns only the call-level error |
+| comparison.evaluation-time-missing | compare-profiles invocation_args structurally omits evaluation_time_ms; exact ok:false CallArgumentError; no ComparisonReport or profile index |
+| comparison.evaluation-time-non-number | compare-profiles receives null, boolean, string, array, or object in separate cases; exact ok:false CallArgumentError; raw_profiles is not parsed |
+| comparison.evaluation-time-non-integer | compare-profiles receives 0.5; exact ok:false CallArgumentError; raw_profiles is not parsed |
+| comparison.evaluation-time-negative | compare-profiles receives -1; exact ok:false CallArgumentError; raw_profiles is not parsed |
+| comparison.evaluation-time-unsafe | compare-profiles receives 9007199254740992; exact ok:false CallArgumentError; raw_profiles is not parsed |
+| comparison.evaluation-time-collision | invalid evaluation time plus malformed raw_profiles returns only the call-level error with no reflected index or value |
 | translation.evaluation-time-missing | T00; INVALID_EVALUATION_TIME at $evaluation_time_ms with target_ref invalid |
 | translation.evaluation-time-non-number | T00; INVALID_EVALUATION_TIME at $evaluation_time_ms with target_ref invalid |
 | translation.evaluation-time-non-integer | T00; INVALID_EVALUATION_TIME at $evaluation_time_ms with target_ref invalid |
@@ -1022,7 +1133,7 @@ stated result:
 | extension.translation-root-critical-null | T06; INVALID_EXTENSION_CONTAINER at $.critical_extensions |
 | extension.translation-root-critical-nonarray | T06; INVALID_EXTENSION_CONTAINER at $.critical_extensions |
 | extension.source-profile-container | T06; invalid source-profile extensions container returns INVALID_EXTENSION_CONTAINER at $.source_profile.extensions |
-| extension.claim-container | T06; invalid claim critical_extensions container returns INVALID_EXTENSION_CONTAINER at $.source_profile.claims[i].critical_extensions using its normalized claim index |
+| extension.claim-container | T06; invalid claim critical_extensions container returns INVALID_EXTENSION_CONTAINER at $.source_profile.claims[i].critical_extensions using its source claim index |
 | extension.profile-key | any profile extension key produces UNSUPPORTED_EXTENSION |
 | extension.claim-key | any claim extension key produces UNSUPPORTED_EXTENSION |
 | extension.translation-input-key | T07; any translation-input extension key produces UNSUPPORTED_EXTENSION at $.extensions |
@@ -1040,7 +1151,7 @@ stated result:
 | privacy.unknown-empty-key | T04; an empty root member name returns UNKNOWN_CORE_FIELD at $ without reflecting the key |
 | privacy.unknown-unicode-key | T04; a Unicode root member name returns UNKNOWN_CORE_FIELD at $ without reflecting the key |
 | privacy.unknown-source-profile-key | T04; an unknown source-profile member returns UNKNOWN_CORE_FIELD at $.source_profile |
-| privacy.unknown-claim-key | T04; an unknown claim member returns UNKNOWN_CORE_FIELD at $.source_profile.claims[i] using its normalized claim index |
+| privacy.unknown-claim-key | T04; an unknown claim member returns UNKNOWN_CORE_FIELD at $.source_profile.claims[i] using its source claim index |
 | privacy.unknown-same-container | T04; multiple unknown nonprivacy root keys return one UNKNOWN_CORE_FIELD at $ |
 | privacy.unknown-across-containers | T04; unknown keys at root and source-profile scopes return one UNKNOWN_CORE_FIELD at $, the smallest canonical container path |
 | privacy.extension-unusual-keys | T07; uppercase, empty, and Unicode extension keys each return UNSUPPORTED_EXTENSION at $.extensions without reflection |
