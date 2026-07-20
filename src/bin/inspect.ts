@@ -28,6 +28,7 @@ import {
   buildCouncilsJson,
   buildFleetsJson,
   buildVerifyJson,
+  INSPECT_JSON_SCHEMA,
   PROVISIONAL_NOTE,
   type AgentRow,
 } from '../inspector.js'
@@ -47,7 +48,7 @@ Usage:
   npx agent-mesh inspect --export [file]    Dump the full ledger as JSON (stdout if no file)
   npx agent-mesh inspect --verify [file]    Audit ledger integrity (exit 1 on errors); [file] audits that ledger file read-only
   npx agent-mesh inspect --explain          Explain each --verify finding: meaning, benign cause, how to investigate (implies --verify)
-  npx agent-mesh inspect --json             Machine-readable output for the fleet list, --councils, and --verify
+  npx agent-mesh inspect --json             Machine-readable output for all inspect data modes
   npx agent-mesh doctor                     Diagnose install health (--json for machine output)
   npx agent-mesh inspect --help             This help
   npx agent-mesh demo                       60-second walkthrough on a temp ledger, ends with a real --verify
@@ -89,14 +90,14 @@ function main(): void {
   }
 
   if (args.includes('--metrics')) {
-    printMetrics()
+    printMetrics(jsonMode)
     return
   }
 
   if (args.includes('--events')) {
     const limitArg = args[args.indexOf('--events') + 1]
     const limit = limitArg ? parseInt(limitArg, 10) || 20 : 20
-    printEvents(limit)
+    printEvents(limit, jsonMode)
     return
   }
 
@@ -135,7 +136,7 @@ function main(): void {
   }
 
   if (args.includes('--receipts')) {
-    printReceipts(positional[0])
+    printReceipts(positional[0], jsonMode)
     return
   }
 
@@ -153,15 +154,20 @@ function main(): void {
     return
   }
 
-  printOneFleet(positional[0] as string)
+  printOneFleet(positional[0] as string, jsonMode)
 }
 
-function printReceipts(fleetId?: string): void {
+function printReceipts(fleetId?: string, json = false): void {
   const data = loadData()
-  process.stdout.write(PROVISIONAL_NOTE + '\n\n')
   const messages = Object.values(data.messages)
     .filter((m) => !fleetId || m.fleet_id === fleetId)
     .sort((a, b) => a.timestamp - b.timestamp)
+  if (json) {
+    const items = messages.map((m) => ({ message: m, receipts: getReceipts(m.id) }))
+    process.stdout.write(JSON.stringify({ schema: 'meshfleet.receipts/v1', items }, null, 2) + '\n')
+    return
+  }
+  process.stdout.write(PROVISIONAL_NOTE + '\n\n')
   if (messages.length === 0) {
     process.stdout.write(
       fleetId ? `No messages in fleet ${fleetId}.\n` : 'No messages recorded.\n'
@@ -211,17 +217,34 @@ function printAllFleets(): void {
   )
 }
 
-function printOneFleet(fleetId: string): void {
+function printOneFleet(fleetId: string, json = false): void {
   const data = loadData()
   const fleet = data.fleets[fleetId]
   if (!fleet) {
-    process.stderr.write(`Fleet ${fleetId} not found.\n`)
+    if (json) {
+      process.stdout.write(
+        JSON.stringify(
+          { schema: INSPECT_JSON_SCHEMA, kind: 'error', error: `Fleet ${fleetId} not found` },
+          null,
+          2,
+        ) + '\n'
+      )
+    } else {
+      process.stderr.write(`Fleet ${fleetId} not found.\n`)
+    }
     process.exit(1)
   }
 
   const agents: Agent[] = Object.values(data.agents).filter(
     (a): a is Agent => (a as Agent).fleet_id === fleetId
   )
+
+  if (json) {
+    process.stdout.write(
+      JSON.stringify({ schema: INSPECT_JSON_SCHEMA, kind: 'fleet', data: { fleet, agents } }, null, 2) + '\n'
+    )
+    return
+  }
 
   process.stdout.write(`Fleet ${fleetId}\n`)
   process.stdout.write(`Status: ${fleet.status}\n`)
@@ -253,8 +276,14 @@ function printOneFleet(fleetId: string): void {
   }
 }
 
-function printMetrics(): void {
+function printMetrics(json = false): void {
   const m = getFleetMetrics()
+  if (json) {
+    process.stdout.write(
+      JSON.stringify({ schema: INSPECT_JSON_SCHEMA, kind: 'metrics', data: m }, null, 2) + '\n'
+    )
+    return
+  }
   process.stdout.write('Agent Mesh — Fleet Metrics\n\n')
   process.stdout.write(`Total fleets:       ${m.total_fleets}\n`)
   process.stdout.write(`  completed:        ${m.completed_fleets}\n`)
@@ -269,8 +298,14 @@ function printMetrics(): void {
   process.stdout.write(`Success rate:       ${(m.success_rate * 100).toFixed(1)}%\n`)
 }
 
-function printEvents(limit: number): void {
+function printEvents(limit: number, json = false): void {
   const events = readEventLog(limit)
+  if (json) {
+    process.stdout.write(
+      JSON.stringify({ schema: INSPECT_JSON_SCHEMA, kind: 'events', data: events }, null, 2) + '\n'
+    )
+    return
+  }
   process.stdout.write(formatEventLog(events) + '\n')
 }
 

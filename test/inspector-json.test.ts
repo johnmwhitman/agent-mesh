@@ -1,6 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
@@ -13,8 +16,50 @@ import {
 } from "../src/inspector.js";
 import type { Ratification, Receipt } from "../src/core.js";
 import type { VerifyReport } from "../src/verify.js";
+import { closeDb, getDbPathOverride, importSnapshot, setDbPath } from "../src/db.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+const INSPECT = join(ROOT, "src", "bin", "inspect.ts");
+
+function runInspect(dbFile: string, args: string[]) {
+  return spawnSync(
+    process.execPath,
+    ["--import", "tsx", INSPECT, ...args],
+    {
+      encoding: "utf8",
+      env: { ...process.env, MESHFLEET_DB_FILE: dbFile },
+    },
+  );
+}
+
+function withCliLedger(run: (dbFile: string) => void): void {
+  const previous = getDbPathOverride();
+  const dir = mkdtempSync(join(tmpdir(), "meshfleet-inspect-json-"));
+  const dbFile = join(dir, "ledger.db");
+  try {
+    setDbPath(dbFile);
+    importSnapshot({
+      fleets: {
+        f1: { id: "f1", status: "running", created_at: 1_000 },
+      },
+      agents: {
+        a1: { id: "a1", fleet_id: "f1", role: "worker", prompt: "p", status: "running" },
+      },
+      messages: {},
+      inboxes: { a1: [] },
+      capabilities: {},
+      receipts: {},
+      ratifications: {},
+      templates: {},
+    });
+    closeDb();
+    run(dbFile);
+  } finally {
+    closeDb();
+    setDbPath(previous);
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
 
 test("the envelope schema id is stable", () => {
   assert.equal(INSPECT_JSON_SCHEMA, "meshfleet.inspect/v1");
@@ -108,4 +153,65 @@ test("the inspect CLI advertises and wires --json for the scriptable trio", () =
   assert.match(src, /buildVerifyJson/);
   assert.match(src, /buildFleetsJson/);
   assert.match(src, /buildCouncilsJson/);
+});
+
+test("inspect JSON modes emit one versioned document without provisional prose", () => {
+  withCliLedger((dbFile) => {
+    const cases = [
+      {
+        args: ["--json", "f1"],
+        assertOutput: (out: any) => {
+          assert.equal(out.schema, INSPECT_JSON_SCHEMA);
+          assert.equal(out.kind, "fleet");
+          assert.equal(out.data.fleet.id, "f1");
+          assert.equal(out.data.agents[0].id, "a1");
+        },
+      },
+      {
+        args: ["--json", "--receipts"],
+        assertOutput: (out: any) => {
+          assert.equal(out.schema, "meshfleet.receipts/v1");
+          assert.deepEqual(out.items, []);
+        },
+      },
+      {
+        args: ["--json", "--metrics"],
+        assertOutput: (out: any) => {
+          assert.equal(out.schema, INSPECT_JSON_SCHEMA);
+          assert.equal(out.kind, "metrics");
+          assert.equal(out.data.total_fleets, 1);
+        },
+      },
+      {
+        args: ["--json", "--events", "2"],
+        assertOutput: (out: any) => {
+          assert.equal(out.schema, INSPECT_JSON_SCHEMA);
+          assert.equal(out.kind, "events");
+          assert.ok(Array.isArray(out.data));
+        },
+      },
+    ];
+
+    for (const { args, assertOutput } of cases) {
+      const result = runInspect(dbFile, args);
+      assert.equal(result.status, 0, `${args.join(" ")} should succeed: ${result.stderr}`);
+      assert.equal(result.stderr, "");
+      assert.doesNotMatch(result.stdout, /Provisional/);
+      const parsed = JSON.parse(result.stdout);
+      assertOutput(parsed);
+      assert.deepEqual(JSON.parse(JSON.stringify(parsed)), parsed);
+    }
+  });
+});
+
+test("inspect --json missing fleet returns exit 1 and one JSON error document", () => {
+  withCliLedger((dbFile) => {
+    const result = runInspect(dbFile, ["--json", "missing"]);
+    assert.equal(result.status, 1);
+    assert.equal(result.stderr, "");
+    const parsed = JSON.parse(result.stdout);
+    assert.equal(parsed.schema, INSPECT_JSON_SCHEMA);
+    assert.equal(parsed.kind, "error");
+    assert.equal(parsed.error, "Fleet missing not found");
+  });
 });
