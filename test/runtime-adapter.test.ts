@@ -16,6 +16,15 @@ import type { ExecutionSpec, RuntimeAdapter, RuntimeResult } from "../src/runtim
 
 const FIXTURE = join(process.cwd(), "test/fixtures/runtime-process.mjs");
 
+// Signal-behaviour budgets must outlast child startup. A fixture cannot install
+// its SIGTERM handler or write its pre-signal marker until Node has finished
+// booting (~40ms observed on macOS/arm64); a signal delivered before that point
+// kills the child under the default disposition, producing an empty-stdout
+// SIGTERM exit that looks like an escalation bug. These budgets keep ~6x margin
+// over observed boot so the assertions below exercise behaviour, not a race.
+const CHILD_BOOT_BUDGET_MS = 250;
+const TERMINATION_GRACE_MS = 100;
+
 function spec(overrides: Partial<ExecutionSpec> = {}): ExecutionSpec {
   return {
     fleetId: "fleet-1",
@@ -31,7 +40,7 @@ function local(mode: string): LocalProcessRuntimeAdapter {
   return new LocalProcessRuntimeAdapter({
     command: process.execPath,
     buildArgs: (request) => [FIXTURE, mode, request.prompt],
-    terminationGraceMs: 25,
+    terminationGraceMs: TERMINATION_GRACE_MS,
   });
 }
 
@@ -75,7 +84,7 @@ test("local process adapter owns timeout and AbortSignal cancellation", async ()
 });
 
 test("timeout waits for cooperative SIGTERM exit and captures trailing output", async () => {
-  const result = await execute(local("term-exit"), spec({ timeoutMs: 25 }));
+  const result = await execute(local("term-exit"), spec({ timeoutMs: CHILD_BOOT_BUDGET_MS }));
   assert.equal(result.status, "timeout");
   assert.equal(result.stdout, "before-termterm-exit");
   assert.equal(result.signal, null);
@@ -83,7 +92,7 @@ test("timeout waits for cooperative SIGTERM exit and captures trailing output", 
 
 test("timeout escalates SIGTERM-resistant children and leaves no live child", async () => {
   const adapter = local("term-ignore");
-  const handle = await adapter.start(spec({ timeoutMs: 25 }));
+  const handle = await adapter.start(spec({ timeoutMs: CHILD_BOOT_BUDGET_MS }));
   const result = await adapter.wait(handle);
   assert.equal(result.status, "timeout");
   assert.equal(result.stdout, "before-termignored-term");
@@ -106,13 +115,16 @@ test("cancellation wins the timeout race and settles exactly once after forced k
     diagnostics: [],
     identity: { adapterId: "test", evidence: "none" },
   });
-  const handle = startProcessExecution(spec({ timeoutMs: 100 }), {
+  // The timeout must stay well clear of the abort below: cancellation only wins
+  // the race if it lands after the child is up but before the timeout fires.
+  const cancellationTimeoutMs = CHILD_BOOT_BUDGET_MS * 4;
+  const handle = startProcessExecution(spec({ timeoutMs: cancellationTimeoutMs }), {
     command: process.execPath,
     args: [FIXTURE, "term-ignore"],
     cwd: process.cwd(),
     environment: {},
-    timeoutMs: 100,
-    terminationGraceMs: 25,
+    timeoutMs: cancellationTimeoutMs,
+    terminationGraceMs: TERMINATION_GRACE_MS,
     normalizeClose: (raw) => {
       closeNormalizations += 1;
       return normalized(raw, "failure", "unexpected close normalization");
@@ -126,7 +138,7 @@ test("cancellation wins the timeout race and settles exactly once after forced k
   });
   const controller = new AbortController();
   const pending = waitForProcessExecution(handle, controller.signal);
-  await new Promise((resolve) => setTimeout(resolve, 25));
+  await new Promise((resolve) => setTimeout(resolve, CHILD_BOOT_BUDGET_MS));
   controller.abort();
   const result = await pending;
   assert.equal(result.status, "cancelled");
