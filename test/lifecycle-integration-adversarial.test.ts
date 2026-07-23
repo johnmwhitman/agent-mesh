@@ -64,10 +64,35 @@ const waitForFile = (file: string, timeoutMs = 1_000): void => {
  * a fixed delay races the very effect being asserted — it passes on an idle
  * machine and fails on a loaded CI runner.
  */
-const waitUntil = async (predicate: () => boolean, what: string, timeoutMs = 2_000): Promise<void> => {
-  const until = Date.now() + timeoutMs;
+const waitUntil = async (
+  predicate: () => boolean,
+  what: string,
+  timeoutMs = 2_000,
+  // Observed state at the moment of timeout. A bare "timed out waiting for X" cannot
+  // distinguish "nothing happened" (the runner starved) from "half of it happened" (a real
+  // ordering defect) — and that distinction is the whole diagnosis. Supply this wherever the
+  // predicate is a conjunction, so the NEXT CI failure arrives already diagnosed instead of
+  // costing another session a reproduction hunt.
+  //
+  // The poll count in the message is the second discriminator, and the sharper one: this loop
+  // polls every 5ms, so a healthy 2s wait is ~400 polls. Few polls against a full elapsed
+  // budget means the event loop itself was starved (a runner problem). Many polls with the
+  // condition still false means the loop ran fine and the effect genuinely never landed (a
+  // product problem). Those two demand opposite responses, and until now the failure text
+  // supported neither.
+  observed?: () => string,
+): Promise<void> => {
+  const started = Date.now();
+  const until = started + timeoutMs;
+  let polls = 0;
   while (!predicate()) {
-    if (Date.now() >= until) throw new Error(`timed out after ${timeoutMs}ms waiting for ${what}`);
+    if (Date.now() >= until) {
+      const state = observed ? ` | observed: ${observed()}` : "";
+      throw new Error(
+        `timed out after ${timeoutMs}ms waiting for ${what} (elapsed ${Date.now() - started}ms, ${polls} polls)${state}`,
+      );
+    }
+    polls += 1;
     await new Promise((done) => setTimeout(done, 5));
   }
 };
@@ -276,6 +301,8 @@ test("durable recovery wakes at a future lease boundary, contains the diagnostic
     await waitUntil(
       () => runtime.starts === 1 && contained.length === 1,
       "scheduled recovery to reclaim the expired lease and contain the dead pid",
+      2_000,
+      () => `runtime.starts=${runtime.starts} contained=[${contained.join(",")}]`,
     );
     assert.equal(runtime.starts, 1, "scheduled recovery reclaims after expiry without restart");
     assert.deepEqual(contained, [999_999]);
@@ -352,7 +379,12 @@ test("retry wake scheduling survives post-settlement projection failure", async 
     runtime.waits[0].resolve({ ...success(), status: "failure", exitCode: 1, error: "retry" });
     // Same class as the recovery flake above: the retry fires on its own ~1ms timer, so a fixed
     // 25ms sleep raced the effect it asserts. Wait for the observable condition instead.
-    await waitUntil(() => runtime.starts === 2, "the retry to launch a second attempt");
+    await waitUntil(
+      () => runtime.starts === 2,
+      "the retry to launch a second attempt",
+      2_000,
+      () => `runtime.starts=${runtime.starts}`,
+    );
     assert.equal(runtime.starts, 2);
     setOutboxAfterAppendForTest(undefined);
     coordinator.stop();
