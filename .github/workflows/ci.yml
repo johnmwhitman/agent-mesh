@@ -10,6 +10,13 @@ jobs:
   ci:
     name: Node ${{ matrix.node }} on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    # A green run takes 1-3 minutes. On 2026-07-23 a windows-2022 leg HUNG in the Test step
+    # for 46 minutes before the run ended; the same commit passed on rerun, so it was a
+    # nondeterministic child-process hang, not a failing assertion. Without a bound, GitHub's
+    # 360-minute default applies, so one hang burns six hours of runner time and leaves the
+    # matrix looking merely "slow" rather than stuck. 20 minutes is far above the worst
+    # observed honest run and far below the point where a hang costs anything.
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
