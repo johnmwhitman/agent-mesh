@@ -37,7 +37,8 @@ async function runBenchmark() {
   // 1. Dispatch
   const messages = [];
   for (let i = 0; i < numMessages; i++) {
-    messages.push(sendMessage("a1", "a2", fleetId, "test", `payload-${i}`));
+    // Must be an A2A_MESSAGE_TYPES member — the envelope codec rejects anything else.
+    messages.push(sendMessage("a1", "a2", fleetId, "handoff", `payload-${i}`));
   }
   
   // 2. Receipt Generation
