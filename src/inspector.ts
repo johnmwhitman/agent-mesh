@@ -437,6 +437,19 @@ export function formatReceiptTrail(msg: Message, receipts: Receipt[]): string {
   return lines.join('\n')
 }
 
+// ---------------------------------------------------------------------------
+// Live tail (`inspect --follow`) — one line per newly-observed message
+// ---------------------------------------------------------------------------
+
+/** Render one message as a single live-tail line: `ts  type  from → to  msg=id  payload`. */
+export function formatLiveMessage(msg: Message): string {
+  const to =
+    msg.to_agent_id === '*'
+      ? `* (${(msg.recipients ?? []).length})`
+      : truncate(msg.to_agent_id, 8)
+  return `${formatTimestamp(msg.timestamp)}  ${msg.type}  ${truncate(msg.from_agent_id, 8)} → ${to}  msg=${truncate(msg.id, 8)}  ${truncate(msg.payload, 60)}`
+}
+
 /** Render a council (ratification) with a receipt-derived vote breakdown + integrity gaps. */
 export function formatCouncil(rat: Ratification, votes: Receipt[]): string {
   const approvals = votes.filter((v) => v.action === 'r-ack').map((v) => v.agent_id)

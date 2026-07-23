@@ -28,6 +28,7 @@ import {
   formatTimeline,
   formatCouncil,
   formatVerifyReport,
+  formatLiveMessage,
   buildCouncilsJson,
   buildFleetsJson,
   buildVerifyJson,
@@ -36,7 +37,8 @@ import {
   type AgentRow,
 } from '../inspector.js'
 import { buildLifecycleView, formatLifecycleView, readLifecycleSnapshot } from '../lifecycle-visibility.js'
-import { listFleets, loadData, readEventLog, getReceipts, CURRENT_SCHEMA_VERSION, type Agent } from '../core.js'
+import { listFleets, loadData, readEventLog, getReceipts, CURRENT_SCHEMA_VERSION, type Agent, type Message } from '../core.js'
+import { resolveDbFile, closeDb, maxMessageRowid, pollMessagesSince } from '../db.js'
 import { verifyLedger, verifyLedgerFile } from '../verify.js'
 import { runDemo } from '../demo.js'
 
@@ -50,6 +52,7 @@ const USAGE = `agent-mesh inspect — CLI inspector for running fleets
   npx agent-mesh inspect --receipts [fleet] Show message receipts (who saw / acked)
   npx agent-mesh inspect --councils [fleet] Show councils (tally vs quorum, who voted)
   npx agent-mesh inspect timeline [fleet]    Reconstruct incident timeline
+  npx agent-mesh inspect --follow|-f [--fleet id]  Live-tail new P2P messages (ctrl-c to stop)
   npx agent-mesh inspect --export [file]    Dump the full ledger as JSON (stdout if no file)
   npx agent-mesh inspect --verify [file]    Audit ledger integrity (exit 1 on errors); [file] audits that ledger file read-only
   npx agent-mesh inspect --lifecycle [fleet] Show opt-in SQLite lifecycle diagnostics (--json supported)
@@ -110,6 +113,11 @@ function main(): void {
       process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`)
       process.exit(2)
     }
+    return
+  }
+
+  if (args.includes('--follow') || args.includes('-f')) {
+    runFollow(args)
     return
   }
 
@@ -184,6 +192,83 @@ function main(): void {
   }
 
   printOneFleet(positional[0] as string, jsonMode)
+}
+
+/**
+ * Live-tail new P2P messages (`inspect --follow`/`-f`). Read-only forever: the
+ * poll loop only ever runs `pollMessagesSince` (a plain SELECT) — no writer,
+ * no daemon beyond this one setInterval, no config file (same
+ * MESHFLEET_DB_FILE / resolveDbFile() the rest of `inspect` uses).
+ *
+ * Cursor is the messages table's implicit SQLite rowid, not a timestamp: two
+ * messages inserted in the same millisecond would tie under `timestamp > X`
+ * and one would silently never print. rowid is strictly increasing per
+ * insert, so it can't tie. `--fleet` filters INSIDE the poll query (SQL WHERE
+ * fleet_id = ?), so a message in another fleet can never advance the cursor
+ * past a same-tick message in the watched fleet before that one is seen.
+ */
+function runFollow(args: string[]): void {
+  const fleetIdx = args.indexOf('--fleet')
+  const fleetId = fleetIdx >= 0 ? args[fleetIdx + 1] : undefined
+  if (fleetIdx >= 0 && (!fleetId || fleetId.startsWith('-'))) {
+    process.stderr.write('--fleet requires a fleet id\n')
+    process.exit(2)
+  }
+
+  // A genuinely missing ledger is a hard error here (never invent demo data
+  // by silently creating one just because --follow opened a connection) —
+  // distinct from an EXISTING, empty ledger, which is the ordinary "watching,
+  // no messages yet" idle case below. Every other `inspect` subcommand
+  // auto-creates the ledger file on first touch (that's fine for a one-shot
+  // report), but a live-tail session watching a file that doesn't exist yet
+  // reads as broken, not idle.
+  const dbFile = resolveDbFile()
+  if (!existsSync(dbFile)) {
+    process.stderr.write(`Ledger not found: ${dbFile}\n`)
+    process.exit(2)
+  }
+
+  const intervalMs = 400
+  // INSERT OR REPLACE can reassign a message's rowid on update (e.g. an ack
+  // touching its row) — track emitted ids so a rowid-churned re-read of a
+  // message we already printed is never printed twice.
+  const seenIds = new Set<string>()
+  let cursor: number
+  try {
+    cursor = maxMessageRowid()
+  } catch (err) {
+    process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`)
+    process.exit(2)
+  }
+
+  process.stdout.write(
+    `ledger: ${dbFile}  · poll ${intervalMs}ms  · ctrl-c to stop\n` +
+      `watching… no messages yet  (spawn a fleet or send_message from MCP)\n`
+  )
+
+  let stopped = false
+  const tick = (): void => {
+    if (stopped) return
+    for (const row of pollMessagesSince(cursor, fleetId)) {
+      cursor = row.rowid
+      if (seenIds.has(row.id)) continue
+      seenIds.add(row.id)
+      process.stdout.write(formatLiveMessage(JSON.parse(row.data) as Message) + '\n')
+    }
+  }
+
+  const timer = setInterval(tick, intervalMs)
+  const stop = (): void => {
+    if (stopped) return
+    stopped = true
+    clearInterval(timer)
+    closeDb()
+    process.exit(0)
+  }
+  process.on('SIGINT', stop)
+  process.on('SIGTERM', stop)
+
+  tick() // first poll immediately — don't make the caller wait a full interval
 }
 
 function printReceipts(fleetId?: string, json = false): void {

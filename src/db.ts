@@ -1348,3 +1348,46 @@ export function importSnapshot(data: MeshData): void {
   const full = { ...emptyData(), ...data };
   db.transaction(() => persistDiff(db, full, new Map())).immediate();
 }
+
+// ---------------------------------------------------------------------------
+// Live-tail read path (`inspect --follow`) — read-only, no schema change.
+//
+// `messages` has no explicit sequence column, but the table is not
+// `WITHOUT ROWID`, so SQLite's implicit `rowid` is a monotonic per-insert
+// cursor for free. This is deliberately NOT a timestamp cursor: two messages
+// inserted in the same millisecond (real under fast sends) would tie under
+// `timestamp > cursor` and one would be silently skipped. rowid never ties.
+// ---------------------------------------------------------------------------
+
+/** One polled row: the raw JSON blob plus its rowid cursor position. */
+export interface MessageRow {
+  rowid: number;
+  id: string;
+  fleet_id: string;
+  data: string;
+}
+
+/** Current max messages.rowid, or 0 on an empty/absent table — the live-tail bootstrap cursor. */
+export function maxMessageRowid(): number {
+  const db = getDb();
+  const row = db.prepare("SELECT COALESCE(MAX(rowid), 0) AS m FROM messages").get() as { m: number };
+  return row.m;
+}
+
+/**
+ * Messages inserted after `cursor` (exclusive), oldest first, optionally
+ * restricted to one fleet. The fleet filter runs INSIDE this query (a WHERE
+ * clause), not as a post-hoc array filter after the caller has already
+ * advanced its cursor past non-matching rows — a message in a filtered-out
+ * fleet must never be able to hide a same-tick message in the watched fleet.
+ * Read-only: no pragma, no schema touch, no write statement anywhere here.
+ */
+export function pollMessagesSince(cursor: number, fleetId?: string): MessageRow[] {
+  const db = getDb();
+  const stmt = fleetId
+    ? db.prepare(
+        "SELECT rowid AS rowid, id, fleet_id, data FROM messages WHERE rowid > ? AND fleet_id = ? ORDER BY rowid ASC"
+      )
+    : db.prepare("SELECT rowid AS rowid, id, fleet_id, data FROM messages WHERE rowid > ? ORDER BY rowid ASC");
+  return (fleetId ? stmt.all(cursor, fleetId) : stmt.all(cursor)) as MessageRow[];
+}

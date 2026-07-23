@@ -1,0 +1,133 @@
+/**
+ * End-to-end coverage for `agent-mesh inspect --follow`: spawns the real CLI
+ * binary as its own process (same pattern as test/db-concurrency.test.ts) and
+ * verifies the roadmap-row acceptance criteria directly —
+ *
+ *   - empty ledger doesn't look broken: an idle banner prints immediately
+ *   - a message sent by ANOTHER process after --follow is already watching is
+ *     visible on stdout well inside the "<20s to first message" budget
+ *   - --fleet filtering happens in the child's poll loop, not post-hoc
+ *   - ctrl-c (SIGINT) exits promptly with code 0 — no hang, no stack trace
+ *
+ * This is read-only-forever by construction: the only mutation is done by the
+ * TEST process via sendMessage; the spawned --follow child never writes.
+ */
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { mkdtempSync, rmSync, existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { setDbPath, closeDb, readLedger } from "../src/db.js";
+import { sendMessage } from "../src/core.js";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const INSPECT_BIN = join(here, "..", "src", "bin", "inspect.ts");
+
+const FIRST_MESSAGE_BUDGET_MS = 15_000; // roadmap row: "<20s to first message visible"
+const POLL_STEP_MS = 100;
+
+function spawnFollow(dbFile: string, extraArgs: string[] = []): ChildProcessWithoutNullStreams {
+  return spawn(process.execPath, ["--import", "tsx", INSPECT_BIN, "--follow", ...extraArgs], {
+    env: { ...process.env, MESHFLEET_DB_FILE: dbFile },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+}
+
+/** Poll accumulated output until `predicate` passes or the budget elapses. */
+async function waitFor(getOutput: () => string, predicate: (out: string) => boolean, budgetMs: number): Promise<string> {
+  const start = Date.now();
+  while (Date.now() - start < budgetMs) {
+    const out = getOutput();
+    if (predicate(out)) return out;
+    await new Promise((r) => setTimeout(r, POLL_STEP_MS));
+  }
+  throw new Error(`timed out after ${budgetMs}ms waiting for output; got:\n${getOutput()}`);
+}
+
+function waitExit(child: ChildProcessWithoutNullStreams, budgetMs: number): Promise<number | null> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`process did not exit within ${budgetMs}ms`)), budgetMs);
+    child.on("exit", (code) => {
+      clearTimeout(timer);
+      resolve(code);
+    });
+  });
+}
+
+test("inspect --follow: idle banner on empty ledger, live message within budget, --fleet filters in-loop, clean ctrl-c exit", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "meshfleet-follow-"));
+  const dbFile = join(dir, "ledger.db");
+  let child: ChildProcessWithoutNullStreams | undefined;
+  try {
+    // Pre-initialize the DB in the parent (matches db-concurrency.test.ts) so
+    // the child attaches to an existing WAL db instead of racing the cold-file
+    // journal-mode conversion.
+    setDbPath(dbFile);
+    readLedger();
+    closeDb();
+
+    child = spawnFollow(dbFile, ["--fleet", "fleet-WATCH"]);
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (b) => (stdout += b.toString()));
+    child.stderr.on("data", (b) => (stderr += b.toString()));
+
+    // Empty-ledger case must not look broken: an explicit idle banner, fast.
+    await waitFor(() => stdout, (out) => /watching/i.test(out), 5_000);
+    assert.match(stdout, /ledger:.*poll \d+ms.*ctrl-c/i);
+
+    // A message on a FILTERED-OUT fleet must not appear (and must not be
+    // enough to "wake up" the follow loop into producing output).
+    setDbPath(dbFile);
+    sendMessage("agent-a", "agent-b", "fleet-OTHER", "alert", "should-not-print");
+    closeDb();
+
+    // The watched-fleet message, sent after, must appear inside the budget.
+    setDbPath(dbFile);
+    sendMessage("agent-a", "agent-b", "fleet-WATCH", "alert", "hello-from-watch");
+    closeDb();
+
+    const withMessage = await waitFor(
+      () => stdout,
+      (out) => out.includes("hello-from-watch"),
+      FIRST_MESSAGE_BUDGET_MS
+    );
+    assert.match(withMessage, /hello-from-watch/);
+    assert.doesNotMatch(withMessage, /should-not-print/, "--fleet filter must apply inside the poll loop, not post-hoc");
+
+    // Ctrl-c must exit promptly and cleanly — no hang, no stack trace on stderr.
+    child.kill("SIGINT");
+    const code = await waitExit(child, 5_000);
+    assert.equal(code, 0);
+    assert.doesNotMatch(stderr, /Error|Traceback|at Object\./, `unexpected stderr on clean exit:\n${stderr}`);
+  } finally {
+    if (child && child.exitCode === null && !child.killed) child.kill("SIGKILL");
+    setDbPath(null);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("inspect --follow: a genuinely missing ledger file is a hard error (exit 2) — never silently created", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "meshfleet-follow-missing-"));
+  const dbFile = join(dir, "does-not-exist.db");
+  let child: ChildProcessWithoutNullStreams | undefined;
+  try {
+    assert.equal(existsSync(dbFile), false);
+    child = spawnFollow(dbFile);
+    let stderr = "";
+    child.stdout.on("data", () => {}); // drain, don't care about content
+    child.stderr.on("data", (b) => (stderr += b.toString()));
+
+    const code = await waitExit(child, 5_000);
+    assert.equal(code, 2);
+    assert.match(stderr, /not found/i);
+    // The whole point of the check: --follow must never invent a ledger by
+    // opening a connection to a file that was never there.
+    assert.equal(existsSync(dbFile), false, "--follow must not create the ledger file as a side effect");
+  } finally {
+    if (child && child.exitCode === null && !child.killed) child.kill("SIGKILL");
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

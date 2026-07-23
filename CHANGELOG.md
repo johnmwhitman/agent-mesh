@@ -20,6 +20,14 @@ _Contains a wire-visible additive enum change; releases as 0.16.0._
   production ledger: errors unchanged, 12 genuine new findings, no false positives. Empty fleets
   are excluded — they are stuck, not finished.
 
+- **`inspect --follow` / `-f`** — zero-config live P2P message view. Polls the ledger via an
+  indexed `rowid > cursor` query (the messages table's implicit SQLite rowid — strictly
+  increasing per insert, so it can't tie the way a `timestamp >` cursor did on
+  same-millisecond sends). Optional `--fleet <id>` filters inside the poll query. Prints an
+  idle banner immediately on an empty ledger (never invents demo data), exits cleanly on
+  ctrl-c. Read-only forever: no new write path, no daemon beyond the existing poll-loop
+  pattern (`agent-mesh dashboard` already sets that precedent), no config file.
+
 ### Fixed
 - **Fleet completion is a lattice over agent terminal states, not a boolean.** Any `failed` →
   `failed`; otherwise any `interrupted` → `abandoned`; otherwise `complete`. The naive repair —
