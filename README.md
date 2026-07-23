@@ -208,7 +208,7 @@ TIMESTAMP            EVENT              DETAIL
 
 ---
 
-## 28 MCP tools
+## 27 MCP tools
 
 **Fleets**
 
@@ -227,7 +227,7 @@ TIMESTAMP            EVENT              DETAIL
 | Tool | What it does |
 |---|---|
 | `send_message` | P2P message (5 types) — or `to_agent_id: "*"` to broadcast to the whole fleet |
-| `send_messages` | Batched sends, one atomic transaction per batch (10k messages in ~50ms) |
+| `send_messages` | Batched sends, one atomic transaction per batch (up to 1000 messages; larger batches are rejected) |
 | `get_inbox` / `ack_message` | Poll and acknowledge; every ack writes a per-recipient receipt |
 | `subscribe_inbox` | Push delivery over SSE instead of polling (optional auth token) |
 | `receipt` / `get_receipts` | Write and query the witnessed-delivery ledger: who saw what, when |

@@ -1,11 +1,12 @@
 /**
  * Heartbeat — periodic liveness check for running agents.
  *
- * Emits heartbeat events while an agent is running. If the heartbeat
- * loop detects that more than `maxMissed` intervals have passed since
- * the last successful tick (e.g. because the agent process is hung or
- * the MCP server is blocked), the agent is marked as failed via the
- * onMaxMissed callback.
+ * Emits heartbeat events while an agent is running. Once the heartbeat
+ * loop counts `maxMissed` consecutive missed ticks since the last
+ * successful one (e.g. because the agent process is hung or the MCP
+ * server is blocked), the agent is marked as failed via the
+ * onMaxMissed callback. The threshold fires AT `maxMissed`, not above
+ * it — see the `missedCount >= maxMissed` guard below.
  *
  * The heartbeat loop runs in the same process as the MCP server. If the
  * MCP server itself is blocked, the heartbeat loop is blocked too —

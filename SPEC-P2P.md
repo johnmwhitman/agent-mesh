@@ -211,12 +211,14 @@ With P2P messaging, Sisyphus evolves from a **pure spawner** to a **swarm govern
 
 ## 8. Limitations (v0.2.0)
 
-1. **No push notifications** — agents must poll `get_inbox` on their own schedule.
+1. ~~**No push notifications**~~ — SUPERSEDED: `subscribe_inbox` now offers SSE push delivery;
+   polling `get_inbox` remains supported as the fallback.
 2. **No message retries** — at-least-once delivery only; no automatic retry or dead-letter queue.
 3. **No embedding-based matching** — capability routing uses keyword overlap only.
 4. **No automatic agent scaling** — orchestrator decides fleet size.
 5. **Single MCP server process** — no distributed ledger or multi-server coordination.
-6. **No heartbeat/watchdog** — hung agents are not detected automatically (planned for v0.3).
+6. ~~**No heartbeat/watchdog**~~ — SUPERSEDED: `src/heartbeat.ts` auto-fails an agent once it
+   misses `maxMissed` consecutive liveness checks.
 7. **64KB payload limit** — large context transfers should use file paths, not inline payloads.
 
 ---

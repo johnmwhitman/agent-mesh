@@ -101,6 +101,7 @@ sweep on demand, and `tally_ratification` still evaluates a single proposal.
 
 ## Not in scope yet
 
-- No tiered councils (HOOL's Council 1/2/3) — model that by choosing `quorum`
-  and `required_signoffs` per proposal.
-- No vote weighting — one agent, one vote.
+- ~~No tiered councils (HOOL's Council 1/2/3)~~ / ~~No vote weighting — one agent, one vote.~~
+  SUPERSEDED: `open_ratification` accepts an optional `weights` map of per-voter positive
+  integers (unlisted voters weigh 1), and the tally sums weights rather than counting heads.
+  The weight sum is capped to block overflow games. Omit `weights` for one-agent-one-vote.

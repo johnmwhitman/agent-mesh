@@ -77,9 +77,9 @@ Future versions will increment `CURRENT_SCHEMA_VERSION` and add a migration step
 | 0.2.0 | + send_message, get_inbox, ack_message | — |
 | 0.3.0 | + list_agents, attach_agent, route_work, register_capability | — |
 | 0.4.0 | + set_fleet_timeout, list_fleets | — |
-| 0.5.0 | + get_fleet_metrics | — |
+| 0.5.0 | (no new tools; `get_fleet_metrics` was never exposed over MCP — fleet metrics ship as the `--metrics` CLI report) | — |
 | 0.5.1 | + ping, get_health | — |
-| 0.6.0 | + save_fleet_template, list_fleet_templates, get_fleet_template, delete_fleet_template, spawn_from_template | — |
+| 0.6.0 | + save_fleet_template, list_fleet_templates, spawn_from_template | — |
 | 0.7.0 | + subscribe_inbox (SSE) | — |
 | 0.8.0 | (no new tools; retry/recovery/schema migration are behavior changes) | — |
 | 0.8.1 – 0.13.x | (no new tools; skill taxonomy is a library module, not a tool yet) | — |
