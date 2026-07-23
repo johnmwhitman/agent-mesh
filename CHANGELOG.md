@@ -5,6 +5,24 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 ## [Unreleased]
 
 ### Fixed
+- **`register_capability` silently discarded `agent_id` and `fleet_id` over MCP.** The tool's
+  schema is snake_case and `CapabilityInput` is camelCase, and the handler cast one to the other
+  without mapping — so `role`/`skills`/`model` (same spelling in both) came through while the ids
+  arrived `undefined`. The call still returned `{ok: true}`. Every capability registered over MCP
+  therefore collapsed onto a single row keyed `"undefined"`, each call overwriting the last, and
+  that row crashed `route_work`'s tie-breaker (`agent_id.localeCompare`) whenever it tied with a
+  healthy row. The handler now destructures explicitly like its siblings;
+  `register_capability` rejects a missing id at the write with a message naming the
+  wire-vs-input spelling; and `route_work` skips rows with no usable `agent_id`, so **ledgers
+  already carrying a poisoned row route correctly instead of failing for every healthy agent**.
+  This is the true cause of the `undefined.localeCompare` crash previously attributed to
+  registering against an unspawned `fleet_id`.
+- **A redirected ledger path no longer consumes the default-path JSON ledger.** `MESHFLEET_DB_FILE`
+  and `MESHFLEET_DATA_FILE` resolve independently, and the migrator paired a redirected
+  destination with a defaulted source: setting only the db path — the obvious way to sandbox a
+  run — imported the real JSON ledger into the throwaway db and renamed the real file to
+  `.migrated.<ts>`. An explicit db override is now treated as the isolation signal it is and the
+  migration is refused with a reason; setting both paths still migrates normally.
 - **`route_work` ranking: candidates below the top-N cut were unreachable by routing feedback.**
   Matches were truncated to `top_n` by *raw* score and only then re-weighted, so an agent's
   feedback adjustment — range `[0.5, 1.5]` — could reorder the survivors but never change who
