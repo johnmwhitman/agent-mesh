@@ -805,8 +805,70 @@ interface CapabilityInput {
   contextWindow?: number;
 }
 
+/**
+ * Ids that are never dispatchable. `capabilities[undefined]` coerces its key to
+ * the string "undefined", so these are the shapes a malformed write produces —
+ * not hypothetical values.
+ *
+ * Exported because the WRITE path, `routeWork`, and `verify_ledger` must agree
+ * on what a usable capability is. They previously did not: registration accepted
+ * rows that routing silently dropped and verification reported as `ok: true`,
+ * so a capability could be "successfully registered", never routable, and never
+ * flagged. One predicate, three callers.
+ */
+export const UNUSABLE_AGENT_IDS: ReadonlySet<string> = new Set(["undefined", "null", ""]);
+
+export function isUsableAgentId(v: unknown): v is string {
+  // Trimmed, because a whitespace-only id passed validation and then scored no
+  // routing matches — "registered but unroutable" through a different door than
+  // the one this predicate was written to close.
+  return typeof v === "string" && v.trim().length > 0 && !UNUSABLE_AGENT_IDS.has(v.trim());
+}
+
+/** Is this capability complete enough to score and dispatch? */
+export function isRoutableCapability(c: Partial<Capability> | undefined): boolean {
+  return (
+    isUsableAgentId(c?.agent_id) &&
+    typeof c?.role === "string" &&
+    c.role.trim().length > 0 &&
+    Array.isArray(c.skills) &&
+    c.skills.every((s) => typeof s === "string")
+  );
+}
+
 /** In-transaction helper. */
 export function _registerCapability(data: MeshData, input: CapabilityInput): void {
+  // Refuse to key a row on a missing id. Without this, a caller that passes the
+  // wrong field names (the MCP wire is snake_case, this input is camelCase)
+  // silently writes `capabilities["undefined"]` with `agent_id: undefined`:
+  // every such call overwrites the last, and the row later crashes routeWork's
+  // tie-breaker. Observed on a real ledger, so this guard is load-bearing, not
+  // defensive decoration.
+  if (!isUsableAgentId(input?.agentId)) {
+    throw new Error(
+      `register_capability: agentId is required and must be a usable non-empty string (got ${JSON.stringify(input?.agentId)}). ` +
+        `Note the MCP wire field is 'agent_id'; it must be mapped to 'agentId'.`
+    );
+  }
+  if (typeof input.fleetId !== "string" || input.fleetId.trim().length === 0) {
+    throw new Error(
+      `register_capability: fleetId is required and must be a non-empty string (got ${JSON.stringify(input.fleetId)}). ` +
+        `Note the MCP wire field is 'fleet_id'; it must be mapped to 'fleetId'.`
+    );
+  }
+  // Accepting a row that routeWork will silently refuse to offer is how a
+  // capability ends up "registered" but permanently unroutable. Reject at the
+  // write instead, using the same shape check routing applies.
+  if (typeof input.role !== "string" || input.role.trim().length === 0) {
+    throw new Error(
+      `register_capability: role is required and must be a non-empty string (got ${JSON.stringify(input.role)})`
+    );
+  }
+  if (!Array.isArray(input.skills) || !input.skills.every((sk) => typeof sk === "string")) {
+    throw new Error(
+      `register_capability: skills is required and must be an array of strings (got ${JSON.stringify(input.skills)})`
+    );
+  }
   data.capabilities[input.agentId] = {
     agent_id: input.agentId,
     fleet_id: input.fleetId,
@@ -824,7 +886,34 @@ export function registerCapability(input: CapabilityInput): void {
 
 export function routeWork(description: string, topN: number = 1): RouteMatch[] {
   const data = loadData();
-  const caps = Object.values(data.capabilities);
+  // Skip unusable rows before scoring. A ledger written before the
+  // register_capability guard above can hold a row with no agent id (the
+  // wire-format bug), and such a row is unroutable by definition — you cannot
+  // dispatch to an agent with no id. Left in, it throws in the `localeCompare`
+  // tie-breaker below and takes routing down for every healthy agent with it.
+  //
+  // `role` and `skills` are validated for the SAME reason, not for tidiness:
+  // the scorer calls `cap.role.toLowerCase()` and `cap.skills.map(...)`
+  // unconditionally, so a row missing either has exactly the blast radius the
+  // id bug had. Guarding only the id would have fixed one corrupt shape and
+  // left its siblings live.
+  //
+  // The id falls back to the record KEY: the ledger stores capabilities keyed by
+  // agent id, so a row whose key is sound but whose body lost its `agent_id`
+  // (hand-edited or partially imported) is still dispatchable, and the key is
+  // the authoritative half of that pair.
+  //
+  // But NOT the literal strings "undefined"/"null": `capabilities[undefined]`
+  // coerces its key to "undefined", so those are precisely the poisoned rows —
+  // falling back to that key would resurrect the exact bug this guards against
+  // and offer a route target no dispatcher can use. No real agent is named
+  // either, so refusing them costs nothing.
+  const caps = Object.entries(data.capabilities)
+    .map(([key, cap]) => {
+      const id = isUsableAgentId(cap?.agent_id) ? cap.agent_id : key;
+      return { ...cap, agent_id: id } as Capability;
+    })
+    .filter((c) => isRoutableCapability(c));
   if (caps.length === 0 || topN <= 0) return [];
 
   const tokenize = (s: string) =>

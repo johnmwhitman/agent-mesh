@@ -16,13 +16,17 @@ function finding(check: string, over: Partial<VerifyFinding> = {}): VerifyFindin
 /** Every check id verify.ts can emit, enumerated from its error("...")/warning("...") calls. */
 function checkIdsFromSource(): string[] {
   const src = readFileSync(join(ROOT, "src", "verify.ts"), "utf8");
-  const ids = [...src.matchAll(/(?:\berror|\bwarning)\("([^"]+)"/g)].map((m) => m[1] as string);
+  // `\s*` after the paren is load-bearing: a multi-line `error(\n  "check.id",`
+  // is invisible to a same-line pattern, and three checks added in 2026-07
+  // slipped past this guard exactly that way. A completeness guard that cannot
+  // see part of the source is not a completeness guard.
+  const ids = [...src.matchAll(/(?:\berror|\bwarning)\(\s*"([^"]+)"/g)].map((m) => m[1] as string);
   return [...new Set(ids)];
 }
 
 test("the check-id enumeration finds the known verify checks", () => {
   const ids = checkIdsFromSource();
-  assert.ok(ids.length >= 15, `expected a full check inventory, got ${ids.length}: ${ids.join(", ")}`);
+  assert.ok(ids.length >= 29, `expected a full check inventory, got ${ids.length}: ${ids.join(", ")}`);
   assert.ok(ids.includes("receipt.orphan_message"));
   assert.ok(ids.includes("ratification.status_mismatch"));
 });
@@ -106,4 +110,14 @@ test("the inspect CLI advertises and wires --explain (implying --verify)", () =>
   const src = readFileSync(join(ROOT, "src", "bin", "inspect.ts"), "utf8");
   assert.match(src, /--explain/, "usage text must document the flag");
   assert.match(src, /explain/i);
+});
+
+test("the enumeration sees MULTI-LINE error()/warning() calls", () => {
+  // The regression that motivated widening the pattern: three capability checks
+  // were written as `error(\n  "capability.x",` and the same-line pattern could
+  // not see them, so they shipped with no explanation and this suite stayed green.
+  const ids = checkIdsFromSource();
+  for (const id of ["capability.missing_agent_id", "capability.unroutable", "capability.key_mismatch"]) {
+    assert.ok(ids.includes(id), `${id} is declared multi-line and must still be enumerated`);
+  }
 });
