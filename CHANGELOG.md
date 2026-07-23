@@ -31,8 +31,14 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
   and `MESHFLEET_DATA_FILE` resolve independently, and the migrator paired a redirected
   destination with a defaulted source: setting only the db path — the obvious way to sandbox a
   run — imported the real JSON ledger into the throwaway db and renamed the real file to
-  `.migrated.<ts>`. An explicit db override is now treated as the isolation signal it is and the
-  migration is refused with a reason; setting both paths still migrates normally.
+  `.migrated.<ts>`. The migrator now refuses, loudly and with a reason, when the db is at a
+  **different path** than the default while no JSON path has been **declared**. The two sides are
+  deliberately tested differently: presence on the db side would treat `MESHFLEET_DB_FILE=<the
+  default path>` as isolation and disable first-boot migration forever, while path-comparison on
+  the JSON side would reject an explicit `MESHFLEET_DATA_FILE=<default path>` and refuse the very
+  migration that setting it authorizes. Declaring the JSON path still migrates normally — and an
+  empty db left behind by an earlier boot is migrated into rather than treated as already-migrated,
+  so the remedy keeps working after a restart. A populated db is never migrated over.
 - **`route_work` ranking: candidates below the top-N cut were unreachable by routing feedback.**
   Matches were truncated to `top_n` by *raw* score and only then re-weighted, so an agent's
   feedback adjustment — range `[0.5, 1.5]` — could reorder the survivors but never change who
