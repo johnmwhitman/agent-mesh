@@ -9,3 +9,7 @@ agent-mesh.json
 .omo/
 out-receipted-fleet/
 scratch/
+
+# Python reference-witness bytecode (reference/python/)
+__pycache__/
+*.pyc
