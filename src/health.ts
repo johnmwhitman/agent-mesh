@@ -65,6 +65,13 @@ export interface HealthReport {
   ledger_bytes: number
   events_log_bytes: number
   last_event_timestamp?: number
+  /**
+   * Fleets left `running` past 24h whose agents have ALL reached a terminal state. These are
+   * projection inconsistencies, not hangs, so they do not set `degraded` — but they are
+   * counted here so fixing the false alarm never hides them. Reconciling them to a terminal
+   * fleet status is a separate, explicit operator action.
+   */
+  abandoned_fleets: number
 }
 
 export function getHealth(): HealthReport {
@@ -76,14 +83,39 @@ export function getHealth(): HealthReport {
 
   const { ledgerBytes, eventsBytes, eventCount, lastTimestamp } = readStorageStats()
 
-  // Degraded if any fleet is "stuck" running for > 24h (suggests hung agent)
   const now = Date.now()
   const ONE_DAY = 24 * 60 * 60 * 1000
-  const hasStuckFleet = fleets.some(
-    (f) =>
-      f.status === 'running' &&
-      now - f.created_at > ONE_DAY
-  )
+
+  // A fleet left `running` past 24h is one of two very different things, and reporting them
+  // as the same thing made this signal useless.
+  //
+  // STUCK — work could still be moving (an agent is `pending` or `running`), or the fleet has
+  // no agents at all so nothing will ever trigger its completion. That is a hang: actionable,
+  // and it drives `degraded`.
+  //
+  // ABANDONED — every agent has reached a terminal state but the fleet was never closed. This
+  // is a projection inconsistency, not a hung worker: `recoverInterruptedAgents` flips crashed
+  // agents to `interrupted` without calling `_checkFleetCompletion`, and `_checkFleetCompletion`
+  // terminalizes only on `complete`/`failed`, so such a fleet can never close on its own. It is
+  // reported in its own field rather than folded into `degraded`, because a status latched at
+  // `degraded` forever carries exactly as much information as no status at all.
+  const isLiveAgentStatus = (s: string): boolean => s === 'pending' || s === 'running'
+  const oldRunning = fleets.filter((f) => f.status === 'running' && now - f.created_at > ONE_DAY)
+
+  let hasStuckFleet = false
+  let abandonedFleets = 0
+  for (const fleet of oldRunning) {
+    const fleetAgents = agents.filter((a) => a.fleet_id === fleet.id)
+    // Note the empty case is deliberately STUCK, not abandoned: `[].every(terminal)` is
+    // vacuously true, and treating that as "finished" would silently clear a fleet that
+    // nothing can ever complete.
+    if (fleetAgents.length === 0 || fleetAgents.some((a) => isLiveAgentStatus(a.status))) {
+      hasStuckFleet = true
+    } else {
+      abandonedFleets += 1
+    }
+  }
+
   const hasCorruptLedger = ledgerBytes < 0
 
   let status: 'ok' | 'degraded' | 'error' = 'ok'
@@ -98,6 +130,7 @@ export function getHealth(): HealthReport {
     messages: messages.length,
     capabilities: capabilities.length,
     events: eventCount,
+    abandoned_fleets: abandonedFleets,
     ledger_bytes: ledgerBytes,
     events_log_bytes: eventsBytes,
     last_event_timestamp: lastTimestamp,
