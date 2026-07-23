@@ -4,6 +4,17 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 
 ## [Unreleased]
 
+## [0.15.0] — 2026-07-23
+
+**The contract release.** `register_capability` was broken over MCP for a month — the published
+schema and the internal signature disagreed, so the tool reported success while discarding the
+agent id. Write, routing and verification now share one predicate, so a capability can no longer be
+"successfully registered", permanently unroutable, and reported clean by the audit. Plus
+budget-aware routing, and a routing-feedback ranking fix that had been silently capping which
+agents feedback could reach.
+
+_0.14.0 was staged but never published; everything in it ships here._
+
 ### Changed
 - ⚠️ **`verify_ledger` now reports unusable capability rows as ERRORS, so a ledger holding one goes
   from `ok: true` to `ok: false` and `inspect --verify` exits 1.** A compatibility event for anyone
