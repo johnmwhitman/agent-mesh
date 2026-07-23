@@ -8,9 +8,21 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 
 const testDir = "test";
-const files = readdirSync(testDir)
-  .filter((f) => f.endsWith(".test.ts"))
-  .map((f) => join(testDir, f));
+
+// Recurse. The original readdirSync was flat, so every *.test.ts in a subdirectory was
+// silently excluded from `npm test` and therefore from CI — three files under test/config/,
+// including a secret-rejection suite, had never run in the matrix. A test that does not run
+// is indistinguishable from a test that passes, which is the failure this repo has already
+// paid for twice (npm-cache false-green, dropped-file silent skip).
+function collectTests(dir) {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) return collectTests(full);
+    return entry.isFile() && entry.name.endsWith(".test.ts") ? [full] : [];
+  });
+}
+
+const files = collectTests(testDir).sort();
 
 if (files.length === 0) {
   console.error("No test files found in", testDir);
