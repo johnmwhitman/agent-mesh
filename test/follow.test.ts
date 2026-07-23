@@ -9,10 +9,15 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import Database from "better-sqlite3";
+import { createHash } from "node:crypto";
+import { mkdtempSync, rmSync, existsSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-import { maxMessageRowid, pollMessagesSince, withLedger } from "../src/db.js";
+import { maxMessageRowid, pollMessagesSince, withLedger, setDbPath, closeFollowDb } from "../src/db.js";
 import { type Message } from "../src/core.js";
-import { formatLiveMessage } from "../src/inspector.js";
+import { formatLiveMessage, dedupeFollowRows } from "../src/inspector.js";
 import { withTempDb } from "./helpers/with-temp-db.js";
 
 function makeMessage(over: Partial<Message> & { id: string }): Message {
@@ -32,12 +37,26 @@ function makeMessage(over: Partial<Message> & { id: string }): Message {
 // Empty ledger
 // ---------------------------------------------------------------------------
 
-test("follow: empty ledger — maxMessageRowid is 0, poll returns nothing", () => {
-  const db = withTempDb();
+test("follow: empty (but EXISTING) ledger — maxMessageRowid is 0, poll returns nothing", () => {
+  // `{}` forces withTempDb to seed (importSnapshot), which creates the file +
+  // schema via getDb() — the follow connection's `fileMustExist: true` needs
+  // the file to actually be there, same as a real first-run ledger created by
+  // any other inspect subcommand before anyone runs --follow against it.
+  const db = withTempDb({});
   try {
     assert.equal(maxMessageRowid(), 0);
     assert.deepEqual(pollMessagesSince(0), []);
     assert.deepEqual(pollMessagesSince(0, "any-fleet"), []);
+  } finally {
+    db.cleanup();
+  }
+});
+
+test("follow: a ledger path that has never been opened by anything throws (never silently created)", () => {
+  const db = withTempDb(); // path set, but file never created (no seed)
+  try {
+    assert.throws(() => maxMessageRowid());
+    assert.throws(() => pollMessagesSince(0));
   } finally {
     db.cleanup();
   }
@@ -144,6 +163,154 @@ test("follow: unfiltered poll sees all fleets; filtered poll on an unmatched fle
   } finally {
     db.cleanup();
   }
+});
+
+// ---------------------------------------------------------------------------
+// P0 fix regression: the follow connection must NEVER write — not the file,
+// not the journal mode, not a WAL sidecar. Built without going through
+// getDb() or withTempDb() at all, so nothing but the code under test can
+// possibly touch the ledger: schema is created with a raw, non-WAL
+// better-sqlite3 connection, closed, then only maxMessageRowid/
+// pollMessagesSince ever touch the file again.
+// ---------------------------------------------------------------------------
+
+test("follow: the dedicated connection never mutates the ledger — file bytes, journal mode, and sidecars all unchanged", () => {
+  const dir = mkdtempSync(join(tmpdir(), "meshfleet-follow-nowrite-"));
+  const dbFile = join(dir, "ledger.db");
+  try {
+    // Deliberately NOT getDb(): build schema with a plain connection so the
+    // journal mode stays SQLite's default (not WAL). If pollMessagesSince/
+    // maxMessageRowid silently fell back to getDb() (the P0 bug), opening it
+    // would immediately flip journal_mode to WAL and create -wal/-shm — the
+    // dedicated readonly connection must not.
+    const raw = new Database(dbFile);
+    raw.exec("CREATE TABLE messages (id TEXT PRIMARY KEY, fleet_id TEXT, data TEXT NOT NULL)");
+    const seedMsg: Message = makeMessage({ id: "m1", fleet_id: "f1" });
+    raw.prepare("INSERT INTO messages (id, fleet_id, data) VALUES (?, ?, ?)").run(
+      "m1",
+      "f1",
+      JSON.stringify(seedMsg)
+    );
+    const journalBefore = raw.pragma("journal_mode", { simple: true });
+    raw.close();
+
+    assert.notEqual(journalBefore, "wal", "test setup itself must not be in WAL mode (or this test proves nothing)");
+    assert.equal(existsSync(dbFile + "-wal"), false);
+    assert.equal(existsSync(dbFile + "-shm"), false);
+    const shaBefore = createHash("sha256").update(readFileSync(dbFile)).digest("hex");
+
+    setDbPath(dbFile);
+    try {
+      assert.equal(maxMessageRowid(), 1);
+      assert.equal(pollMessagesSince(0).length, 1);
+      assert.equal(pollMessagesSince(0, "f1").length, 1);
+      assert.equal(pollMessagesSince(0, "does-not-exist").length, 0);
+    } finally {
+      closeFollowDb();
+      setDbPath(null);
+    }
+
+    const shaAfter = createHash("sha256").update(readFileSync(dbFile)).digest("hex");
+    assert.equal(shaAfter, shaBefore, "the follow connection mutated the ledger file bytes");
+    assert.equal(existsSync(dbFile + "-wal"), false, "the follow connection created a WAL sidecar");
+    assert.equal(existsSync(dbFile + "-shm"), false, "the follow connection created a SHM sidecar");
+
+    const rawAfter = new Database(dbFile, { readonly: true });
+    const journalAfter = rawAfter.pragma("journal_mode", { simple: true });
+    rawAfter.close();
+    assert.equal(journalAfter, journalBefore, "the follow connection changed the journal mode");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("follow: against an already-WAL ledger (the realistic case — every other command bootstraps WAL), the main db file bytes are still never mutated", () => {
+  // Disclosed, verified residual: SQLite's own WAL-reader protocol may still
+  // create/touch `-wal`/`-shm` sidecars for ANY reader of a WAL-mode database
+  // (readonly or not) — that's inherent SQLite mechanics, not this feature
+  // writing application data. The property that actually matters, and that
+  // IS fully within this code's control, is asserted here: the main .db
+  // file's bytes never change.
+  const dir = mkdtempSync(join(tmpdir(), "meshfleet-follow-wal-nowrite-"));
+  const dbFile = join(dir, "ledger.db");
+  try {
+    const writer = new Database(dbFile);
+    writer.pragma("journal_mode = WAL");
+    writer.exec("CREATE TABLE messages (id TEXT PRIMARY KEY, fleet_id TEXT, data TEXT NOT NULL)");
+    const seedMsg: Message = makeMessage({ id: "m1", fleet_id: "f1" });
+    writer.prepare("INSERT INTO messages (id, fleet_id, data) VALUES (?, ?, ?)").run(
+      "m1",
+      "f1",
+      JSON.stringify(seedMsg)
+    );
+    writer.close(); // checkpoints; a clean WAL-mode ledger at rest, exactly like a real one between commands
+
+    const shaBefore = createHash("sha256").update(readFileSync(dbFile)).digest("hex");
+
+    setDbPath(dbFile);
+    try {
+      assert.equal(maxMessageRowid(), 1);
+      assert.equal(pollMessagesSince(0).length, 1);
+    } finally {
+      closeFollowDb();
+      setDbPath(null);
+    }
+
+    const shaAfter = createHash("sha256").update(readFileSync(dbFile)).digest("hex");
+    assert.equal(shaAfter, shaBefore, "the follow connection mutated the main ledger file's bytes");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// P0/§6 regression: INSERT OR REPLACE reassigns rowid on the same message id
+// — dedupeFollowRows (the seenIds gate) must not re-emit it.
+// ---------------------------------------------------------------------------
+
+test("follow: REPLACE reassigns rowid for the same message id, but dedupeFollowRows suppresses the re-print", () => {
+  const db = withTempDb();
+  try {
+    withLedger((data) => {
+      data.messages["m1"] = makeMessage({ id: "m1", payload: "v1" });
+    });
+    const seenIds = new Set<string>();
+    const firstRows = pollMessagesSince(0);
+    assert.equal(firstRows.length, 1);
+    assert.equal(dedupeFollowRows(firstRows, seenIds).length, 1, "first sighting must be emitted");
+    const cursorAfterFirst = firstRows[0]!.rowid;
+
+    // Re-write the SAME message id with different content — the LazyColl
+    // persist path issues INSERT OR REPLACE, which deletes+reinserts under
+    // the hood and assigns a NEW, higher rowid.
+    withLedger((data) => {
+      data.messages["m1"] = makeMessage({ id: "m1", payload: "v2 (updated)" });
+    });
+    const secondRows = pollMessagesSince(cursorAfterFirst);
+    assert.equal(secondRows.length, 1);
+    assert.equal(secondRows[0]!.id, "m1");
+    assert.notEqual(secondRows[0]!.rowid, cursorAfterFirst, "REPLACE must reassign rowid for this regression to be real");
+
+    assert.equal(
+      dedupeFollowRows(secondRows, seenIds).length,
+      0,
+      "same message id must not be re-emitted after a rowid-churning REPLACE"
+    );
+  } finally {
+    db.cleanup();
+  }
+});
+
+test("follow: dedupeFollowRows caps seenIds (FIFO eviction) so a long-running session can't leak memory", () => {
+  const seenIds = new Set<string>();
+  const cap = 5;
+  const rows = Array.from({ length: 8 }, (_, i) => ({ rowid: i + 1, id: `id-${i}` }));
+  const fresh = dedupeFollowRows(rows, seenIds, cap);
+  assert.equal(fresh.length, 8, "every distinct id is fresh on first sighting regardless of cap");
+  assert.ok(seenIds.size <= cap, `seenIds must stay capped at ${cap}, was ${seenIds.size}`);
+  // The oldest ids should have been evicted; the most recent ones remain.
+  assert.ok(seenIds.has("id-7"));
+  assert.ok(!seenIds.has("id-0"), "oldest id should have been evicted once over cap");
 });
 
 // ---------------------------------------------------------------------------

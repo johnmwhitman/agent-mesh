@@ -41,6 +41,7 @@ let handle: Database.Database | null = null;
 /** Test/override hook: point at a specific db file (null clears the override) and drop any open handle. */
 export function setDbPath(file: string | null): void {
   closeDb();
+  closeFollowDb(); // the follow connection is ALSO bound to a path; a stale cached handle must not survive a path switch
   dbFile = file;
 }
 
@@ -1350,14 +1351,72 @@ export function importSnapshot(data: MeshData): void {
 }
 
 // ---------------------------------------------------------------------------
-// Live-tail read path (`inspect --follow`) — read-only, no schema change.
+// Live-tail read path (`inspect --follow`) — a DEDICATED read-only connection,
+// deliberately separate from getDb().
 //
 // `messages` has no explicit sequence column, but the table is not
 // `WITHOUT ROWID`, so SQLite's implicit `rowid` is a monotonic per-insert
 // cursor for free. This is deliberately NOT a timestamp cursor: two messages
 // inserted in the same millisecond (real under fast sends) would tie under
 // `timestamp > cursor` and one would be silently skipped. rowid never ties.
+//
+// Why not getDb(): getDb() is the writer bootstrap for the other 27 commands
+// — on cold open it creates the file/directory if absent, runs
+// `CREATE TABLE IF NOT EXISTS`, writes a `meta` row, and converts the journal
+// to WAL. That directly contradicts "read-only forever": a first `--follow`
+// tick against a pre-existing-but-untouched ledger would still write schema,
+// meta, and WAL sidecars. Fixing getDb() itself is out of scope (27 other
+// commands depend on its exact bootstrap semantics).
+//
+// Why not readLedgerFile's temp-copy pattern either: that path audits a FROZEN
+// snapshot on purpose (evidence must not change under it). `--follow` is the
+// opposite — it must observe commits made by other processes WHILE it runs —
+// so it opens the LIVE file directly, but strictly `{ readonly: true,
+// fileMustExist: true }`: no pragma, no schema exec, no meta write, and it
+// throws instead of inventing a file if the ledger is deleted between the
+// caller's existsSync check and this open (closes the TOCTOU window on the
+// write side — a vanished file can no longer resurrect itself here).
+//
+// Disclosed residual (verified empirically, not a bug): if the ledger is
+// ALREADY in WAL mode (true of any real ledger, since getDb() sets that up
+// for every other command), SQLite's own WAL-reader protocol creates/touches
+// `-wal`/`-shm` sidecar files for ANY connection that reads it — readonly or
+// not, ours or any other reader in the codebase (`readLedger()` included).
+// That is inherent SQLite mechanics, not application data being written: the
+// main .db file's bytes, the schema, and every row are untouched, and no
+// pragma/schema/meta statement is ever issued by this module. Suppressing it
+// entirely would mean opening with SQLite's `immutable=1`, which asserts the
+// file will NEVER change underneath the connection — exactly the guarantee
+// `--follow` must NOT make, since watching for new commits from other
+// processes is the entire point.
 // ---------------------------------------------------------------------------
+
+let followHandle: Database.Database | null = null;
+
+/** Dedicated read-only connection for the follow poll loop. Never writes; throws if the file is absent. */
+function getFollowDb(): Database.Database {
+  if (followHandle) return followHandle;
+  const file = resolveDbFile();
+  followHandle = new Database(file, { readonly: true, fileMustExist: true });
+  return followHandle;
+}
+
+/** Close the dedicated follow connection (idempotent; safe even if never opened). */
+export function closeFollowDb(): void {
+  if (followHandle) {
+    followHandle.close();
+    followHandle = null;
+  }
+}
+
+/** Re-throw "no such table" as a legible "not a meshfleet ledger" diagnosis (mirrors readLedgerFile). */
+function translateFollowError(err: unknown): Error {
+  const detail = err instanceof Error ? err.message : String(err);
+  if (/no such table/i.test(detail)) {
+    return new Error(`not a meshfleet ledger — mesh tables are missing (${detail})`);
+  }
+  return err instanceof Error ? err : new Error(detail);
+}
 
 /** One polled row: the raw JSON blob plus its rowid cursor position. */
 export interface MessageRow {
@@ -1367,11 +1426,15 @@ export interface MessageRow {
   data: string;
 }
 
-/** Current max messages.rowid, or 0 on an empty/absent table — the live-tail bootstrap cursor. */
+/** Current max messages.rowid, or 0 on an empty table — the live-tail bootstrap cursor. */
 export function maxMessageRowid(): number {
-  const db = getDb();
-  const row = db.prepare("SELECT COALESCE(MAX(rowid), 0) AS m FROM messages").get() as { m: number };
-  return row.m;
+  try {
+    const db = getFollowDb();
+    const row = db.prepare("SELECT COALESCE(MAX(rowid), 0) AS m FROM messages").get() as { m: number };
+    return row.m;
+  } catch (err) {
+    throw translateFollowError(err);
+  }
 }
 
 /**
@@ -1380,14 +1443,19 @@ export function maxMessageRowid(): number {
  * clause), not as a post-hoc array filter after the caller has already
  * advanced its cursor past non-matching rows — a message in a filtered-out
  * fleet must never be able to hide a same-tick message in the watched fleet.
- * Read-only: no pragma, no schema touch, no write statement anywhere here.
+ * Read-only: no pragma, no schema touch, no write statement anywhere here —
+ * uses the dedicated readonly follow connection, never the writer's getDb().
  */
 export function pollMessagesSince(cursor: number, fleetId?: string): MessageRow[] {
-  const db = getDb();
-  const stmt = fleetId
-    ? db.prepare(
-        "SELECT rowid AS rowid, id, fleet_id, data FROM messages WHERE rowid > ? AND fleet_id = ? ORDER BY rowid ASC"
-      )
-    : db.prepare("SELECT rowid AS rowid, id, fleet_id, data FROM messages WHERE rowid > ? ORDER BY rowid ASC");
-  return (fleetId ? stmt.all(cursor, fleetId) : stmt.all(cursor)) as MessageRow[];
+  try {
+    const db = getFollowDb();
+    const stmt = fleetId
+      ? db.prepare(
+          "SELECT rowid AS rowid, id, fleet_id, data FROM messages WHERE rowid > ? AND fleet_id = ? ORDER BY rowid ASC"
+        )
+      : db.prepare("SELECT rowid AS rowid, id, fleet_id, data FROM messages WHERE rowid > ? ORDER BY rowid ASC");
+    return (fleetId ? stmt.all(cursor, fleetId) : stmt.all(cursor)) as MessageRow[];
+  } catch (err) {
+    throw translateFollowError(err);
+  }
 }

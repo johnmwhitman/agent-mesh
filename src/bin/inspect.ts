@@ -29,6 +29,7 @@ import {
   formatCouncil,
   formatVerifyReport,
   formatLiveMessage,
+  dedupeFollowRows,
   buildCouncilsJson,
   buildFleetsJson,
   buildVerifyJson,
@@ -38,7 +39,7 @@ import {
 } from '../inspector.js'
 import { buildLifecycleView, formatLifecycleView, readLifecycleSnapshot } from '../lifecycle-visibility.js'
 import { listFleets, loadData, readEventLog, getReceipts, CURRENT_SCHEMA_VERSION, type Agent, type Message } from '../core.js'
-import { resolveDbFile, closeDb, maxMessageRowid, pollMessagesSince } from '../db.js'
+import { resolveDbFile, closeFollowDb, maxMessageRowid, pollMessagesSince, type MessageRow } from '../db.js'
 import { verifyLedger, verifyLedgerFile } from '../verify.js'
 import { runDemo } from '../demo.js'
 
@@ -196,9 +197,11 @@ function main(): void {
 
 /**
  * Live-tail new P2P messages (`inspect --follow`/`-f`). Read-only forever: the
- * poll loop only ever runs `pollMessagesSince` (a plain SELECT) — no writer,
- * no daemon beyond this one setInterval, no config file (same
- * MESHFLEET_DB_FILE / resolveDbFile() the rest of `inspect` uses).
+ * poll loop runs on a DEDICATED `{ readonly: true, fileMustExist: true }`
+ * connection (`db.ts`'s follow-only handle) — never the shared `getDb()`
+ * writer, which bootstraps schema/meta/WAL on cold open. No daemon beyond
+ * this one setInterval, no config file (same MESHFLEET_DB_FILE /
+ * resolveDbFile() the rest of `inspect` uses).
  *
  * Cursor is the messages table's implicit SQLite rowid, not a timestamp: two
  * messages inserted in the same millisecond would tie under `timestamp > X`
@@ -221,7 +224,10 @@ function runFollow(args: string[]): void {
   // no messages yet" idle case below. Every other `inspect` subcommand
   // auto-creates the ledger file on first touch (that's fine for a one-shot
   // report), but a live-tail session watching a file that doesn't exist yet
-  // reads as broken, not idle.
+  // reads as broken, not idle. This is a fast pre-check only — the real
+  // enforcement is `pollMessagesSince`/`maxMessageRowid`'s dedicated
+  // `fileMustExist: true` connection, which throws (never creates) if the
+  // file is deleted in the TOCTOU window between this check and that open.
   const dbFile = resolveDbFile()
   if (!existsSync(dbFile)) {
     process.stderr.write(`Ledger not found: ${dbFile}\n`)
@@ -230,8 +236,9 @@ function runFollow(args: string[]): void {
 
   const intervalMs = 400
   // INSERT OR REPLACE can reassign a message's rowid on update (e.g. an ack
-  // touching its row) — track emitted ids so a rowid-churned re-read of a
-  // message we already printed is never printed twice.
+  // touching its row) — dedupeFollowRows tracks emitted ids (bounded) so a
+  // rowid-churned re-read of a message we already printed is never printed
+  // twice.
   const seenIds = new Set<string>()
   let cursor: number
   try {
@@ -249,11 +256,30 @@ function runFollow(args: string[]): void {
   let stopped = false
   const tick = (): void => {
     if (stopped) return
-    for (const row of pollMessagesSince(cursor, fleetId)) {
-      cursor = row.rowid
-      if (seenIds.has(row.id)) continue
-      seenIds.add(row.id)
-      process.stdout.write(formatLiveMessage(JSON.parse(row.data) as Message) + '\n')
+    let rows: MessageRow[]
+    try {
+      rows = pollMessagesSince(cursor, fleetId)
+    } catch (err) {
+      // A poll-time failure (e.g. the ledger vanished mid-session) must not
+      // crash with a raw stack trace — report and stop, same spirit as
+      // `agent-mesh dashboard`'s per-tick catch.
+      process.stderr.write(`follow: ${err instanceof Error ? err.message : String(err)}\n`)
+      stop()
+      process.exitCode = 1
+      return
+    }
+    if (rows.length === 0) return
+    cursor = rows[rows.length - 1]!.rowid // advance past EVERY returned row, matched or not, parsed or not
+    for (const row of dedupeFollowRows(rows, seenIds)) {
+      try {
+        process.stdout.write(formatLiveMessage(JSON.parse(row.data) as Message) + '\n')
+      } catch (err) {
+        // One malformed `data` blob must not take down the whole live-tail —
+        // skip it, note it, keep watching.
+        process.stderr.write(
+          `follow: skipping malformed message row (id=${row.id}): ${err instanceof Error ? err.message : String(err)}\n`
+        )
+      }
     }
   }
 
@@ -262,7 +288,7 @@ function runFollow(args: string[]): void {
     if (stopped) return
     stopped = true
     clearInterval(timer)
-    closeDb()
+    closeFollowDb()
     process.exit(0)
   }
   process.on('SIGINT', stop)

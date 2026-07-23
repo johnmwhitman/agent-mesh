@@ -19,6 +19,7 @@ import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import Database from "better-sqlite3";
 import { setDbPath, closeDb, readLedger } from "../src/db.js";
 import { sendMessage } from "../src/core.js";
 
@@ -102,6 +103,75 @@ test("inspect --follow: idle banner on empty ledger, live message within budget,
     const code = await waitExit(child, 5_000);
     assert.equal(code, 0);
     assert.doesNotMatch(stderr, /Error|Traceback|at Object\./, `unexpected stderr on clean exit:\n${stderr}`);
+  } finally {
+    if (child && child.exitCode === null && !child.killed) child.kill("SIGKILL");
+    setDbPath(null);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("inspect --follow: a malformed message row is skipped (logged to stderr), the loop keeps polling, later valid rows still print", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "meshfleet-follow-badjson-"));
+  const dbFile = join(dir, "ledger.db");
+  let child: ChildProcessWithoutNullStreams | undefined;
+  try {
+    setDbPath(dbFile);
+    readLedger();
+    closeDb();
+
+    child = spawnFollow(dbFile);
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (b) => (stdout += b.toString()));
+    child.stderr.on("data", (b) => (stderr += b.toString()));
+    await waitFor(() => stdout, (out) => /watching/i.test(out), 5_000);
+
+    // Insert a row whose `data` column is simply not valid JSON — a raw SQL
+    // write, bypassing the normal Message-shaped withLedger path on purpose,
+    // to simulate ledger corruption the follow loop must survive.
+    const raw = new Database(dbFile);
+    raw.prepare("INSERT INTO messages (id, fleet_id, data) VALUES (?, ?, ?)").run(
+      "bad-1",
+      "fleet-1",
+      "{ this is not valid JSON "
+    );
+    raw.close();
+
+    await waitFor(() => stderr, (out) => /skipping malformed message row/i.test(out), FIRST_MESSAGE_BUDGET_MS);
+    assert.match(stderr, /bad-1/);
+
+    // The loop must still be alive and still polling afterward.
+    assert.equal(child.exitCode, null, "follow must not crash/exit on a malformed row");
+    sendMessage("agent-a", "agent-b", "fleet-1", "alert", "still-alive-after-corruption");
+    await waitFor(() => stdout, (out) => out.includes("still-alive-after-corruption"), FIRST_MESSAGE_BUDGET_MS);
+
+    child.kill("SIGINT");
+    const code = await waitExit(child, 5_000);
+    assert.equal(code, 0);
+  } finally {
+    if (child && child.exitCode === null && !child.killed) child.kill("SIGKILL");
+    setDbPath(null);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("inspect --follow: SIGTERM also exits promptly and cleanly (same cleanup path as SIGINT)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "meshfleet-follow-sigterm-"));
+  const dbFile = join(dir, "ledger.db");
+  let child: ChildProcessWithoutNullStreams | undefined;
+  try {
+    setDbPath(dbFile);
+    readLedger();
+    closeDb();
+
+    child = spawnFollow(dbFile);
+    let stdout = "";
+    child.stdout.on("data", (b) => (stdout += b.toString()));
+    await waitFor(() => stdout, (out) => /watching/i.test(out), 5_000);
+
+    child.kill("SIGTERM");
+    const code = await waitExit(child, 5_000);
+    assert.equal(code, 0);
   } finally {
     if (child && child.exitCode === null && !child.killed) child.kill("SIGKILL");
     setDbPath(null);
