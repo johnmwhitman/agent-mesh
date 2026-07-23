@@ -19,10 +19,12 @@ test("packaged meshfleet executable completes an MCP stdio handshake", async () 
   );
 
   try {
-    // Windows resolves the npm shim as npm.cmd; execFileSync does not consult
-    // PATHEXT, so a bare "npm" raises spawnSync npm ENOENT there.
+    // Windows: execFileSync does not consult PATHEXT, so a bare "npm" raises
+    // ENOENT; and since the CVE-2024-27980 fix Node refuses to spawn a .cmd
+    // shim without a shell (EINVAL). Both are needed, and only on win32.
+    const isWindows = process.platform === "win32";
     execFileSync(
-      process.platform === "win32" ? "npm.cmd" : "npm",
+      isWindows ? "npm.cmd" : "npm",
       [
         "install",
         "--offline",
@@ -36,6 +38,7 @@ test("packaged meshfleet executable completes an MCP stdio handshake", async () 
         env: { ...process.env, npm_config_offline: "true" },
         stdio: "pipe",
         timeout: 120_000,
+        shell: isWindows,
       },
     );
 
