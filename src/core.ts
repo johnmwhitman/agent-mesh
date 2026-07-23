@@ -562,7 +562,16 @@ export function recoverInterruptedAgents(): number {
         if (agent.pid !== undefined && isPidAlive(agent.pid)) continue;
         agent.status = "interrupted";
         agent.completed_at = Date.now();
-        agent.error = "MCP server crashed before this agent completed; use retry or respawn to recover";
+        // This string is written into the evidence ledger, so it must name only
+        // mechanisms that actually exist. It previously said "use retry or respawn
+        // to recover" — there is no retry or respawn tool, and nothing anywhere
+        // re-runs an interrupted agent (`retry.ts` and the attempt lifecycle are
+        // automatic machinery for LIVE attempts, not an operator handle). The two
+        // real options are stated instead. Note attach_agent injects a REPLACEMENT
+        // agent and leaves this row as-is; it is not resumption. It also requires
+        // the fleet to still be `running`, which today it is, because completion
+        // never terminalizes an all-interrupted fleet.
+        agent.error = "MCP server crashed before this agent completed. This agent cannot be resumed; attach a replacement to the fleet with attach_agent, or re-run the work with spawn_fleet.";
         recovered.push(agent);
       }
     }
