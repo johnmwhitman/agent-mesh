@@ -58,6 +58,12 @@ test('a redirected db with a defaulted JSON path refuses to migrate', () => {
         /refusing to consume the default-path JSON/,
         'must refuse for the isolation reason specifically — not merely happen to no-op'
       )
+      assert.equal(
+        result.refused,
+        true,
+        'the refusal must be flagged so startup can SAY it was skipped — a silent skip ' +
+          'leaves a user who legitimately relocated their db staring at an empty ledger'
+      )
     }
   )
 })
@@ -81,6 +87,7 @@ test('redirecting BOTH paths still migrates normally', () => {
         /no json ledger to migrate/,
         'setting both paths must not trip the isolation refusal'
       )
+      assert.notEqual(result.refused, true, 'an ordinary no-op must not be flagged as a refusal')
     }
   )
 })

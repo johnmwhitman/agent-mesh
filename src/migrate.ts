@@ -65,6 +65,13 @@ export interface MigrationResult {
   reason?: string;
   rowCount?: number;
   backupPath?: string;
+  /**
+   * True only for the isolation refusal below — a migration that COULD have run
+   * and was deliberately declined. The ordinary no-ops (db already present, no
+   * JSON to migrate) leave this unset, so a caller can surface this one case
+   * without printing a line on every healthy boot.
+   */
+  refused?: boolean;
 }
 
 /**
@@ -92,6 +99,7 @@ export function migrateJsonToSqlite(): MigrationResult {
   if (dbRedirected && !jsonRedirected) {
     return {
       migrated: false,
+      refused: true,
       reason:
         "db path is redirected but the JSON ledger path is not — refusing to consume the " +
         "default-path JSON ledger into a relocated db. Set MESHFLEET_DATA_FILE too if this " +
