@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseLedgerExport, verdictFromVerifyOutput } from "./model.js";
+import { parseLedgerExport, parseVerifyEnvelope, verdictFromVerifyOutput } from "./model.js";
 
 const EXPORT = JSON.stringify({
   schema_version: 2,
@@ -67,4 +67,84 @@ test("verdictFromVerifyOutput classifies exit codes and extracts the summary lin
   const bad = verdictFromVerifyOutput(1, "✖ FAIL — 2 errors, 1 warning   (…)\n  ERROR receipt.orphan_message …\n");
   assert.equal(bad.ok, false);
   assert.match(bad.summary, /2 errors/);
+});
+
+test("parseVerifyEnvelope accepts a stable verify JSON envelope with zero findings", () => {
+  const envelope = JSON.stringify({
+    schema: "meshfleet.inspect/v1",
+    kind: "verify",
+    data: {
+      ok: true,
+      errors: 0,
+      warnings: 0,
+      counts: { fleets: 2, agents: 4, messages: 3, receipts: 1, councils: 1 },
+      findings: [],
+    },
+  });
+
+  const verdict = parseVerifyEnvelope(envelope);
+  assert.equal(verdict.ok, true);
+  assert.equal(verdict.errors, 0);
+  assert.equal(verdict.warnings, 0);
+  assert.equal(verdict.summary, "0 errors, 0 warnings (fleets 2 · agents 4 · messages 3 · receipts 1 · councils 1)");
+  assert.deepEqual(verdict.findings, []);
+});
+
+test("parseVerifyEnvelope parses failures and preserves findings", () => {
+  const envelope = JSON.stringify({
+    schema: "meshfleet.inspect/v1",
+    kind: "verify",
+    data: {
+      ok: false,
+      errors: 2,
+      warnings: 1,
+      counts: { fleets: 1, agents: 3, messages: 2, receipts: 0, councils: 5 },
+      findings: [
+        { severity: "ERROR", check: "receipt.orphan_message", detail: "message m1 missing" },
+        { severity: "WARN", check: "fleet.stale", detail: "fleet f2 has no activity" },
+      ],
+    },
+  });
+
+  const verdict = parseVerifyEnvelope(envelope);
+  assert.equal(verdict.ok, false);
+  assert.equal(verdict.errors, 2);
+  assert.equal(verdict.warnings, 1);
+  assert.equal(verdict.summary, "2 errors, 1 warnings (fleets 1 · agents 3 · messages 2 · receipts 0 · councils 5)");
+  assert.deepEqual(verdict.findings, [
+    { severity: "ERROR", check: "receipt.orphan_message", detail: "message m1 missing" },
+    { severity: "WARN", check: "fleet.stale", detail: "fleet f2 has no activity" },
+  ]);
+});
+
+test("parseVerifyEnvelope rejects unsupported kind", () => {
+  const envelope = JSON.stringify({
+    schema: "meshfleet.inspect/v1",
+    kind: "export",
+    data: { ok: true, errors: 0, warnings: 0, counts: { fleets: 0, agents: 0, messages: 0, receipts: 0, councils: 0 }, findings: [] },
+  });
+  assert.throws(
+    () => parseVerifyEnvelope(envelope),
+    /verify envelope has unexpected kind: export/,
+  );
+});
+
+test("parseVerifyEnvelope rejects garbage JSON", () => {
+  assert.throws(() => parseVerifyEnvelope("<<<not json>>>"), /not valid JSON/);
+});
+
+test("parseVerifyEnvelope enforces summary shape", () => {
+  const envelope = JSON.stringify({
+    schema: "meshfleet.inspect/v1",
+    kind: "verify",
+    data: {
+      ok: false,
+      errors: 12,
+      warnings: 7,
+      counts: { fleets: 9, agents: 8, messages: 7, receipts: 6, councils: 5 },
+      findings: [],
+    },
+  });
+  const verdict = parseVerifyEnvelope(envelope);
+  assert.equal(verdict.summary, "12 errors, 7 warnings (fleets 9 · agents 8 · messages 7 · receipts 6 · councils 5)");
 });

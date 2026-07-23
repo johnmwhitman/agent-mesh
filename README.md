@@ -89,7 +89,7 @@ For noncanonical development-only source-checkout usage (not the recommended rel
 }
 ```
 
-Restart OpenCode. Spawn a fleet. [Full install guide →](docs/install)
+Restart OpenCode. Spawn a fleet. [Wiring it into your client →](#wiring-it-into-your-client)
 
 ---
 

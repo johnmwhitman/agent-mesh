@@ -17,6 +17,7 @@
   },
   "files": [
     "dist",
+    "mcp.json",
     "README.md",
     "LICENSE",
     "AGENT-MESH-SPEC.md",
