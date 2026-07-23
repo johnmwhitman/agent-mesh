@@ -18,8 +18,8 @@
  */
 import { existsSync, renameSync, rmSync } from "fs";
 import { createHash } from "crypto";
-import { loadDataFromFile, resolveDataFile, type MeshData } from "./core.js";
-import { readLedger, importSnapshot, resolveDbFile, closeDb } from "./db.js";
+import { loadDataFromFile, resolveDataFile, defaultDataFile, type MeshData } from "./core.js";
+import { readLedger, importSnapshot, resolveDbFile, closeDb, getDbPathOverride } from "./db.js";
 
 const COLLECTIONS: (keyof MeshData)[] = [
   "fleets",
@@ -76,6 +76,29 @@ export function migrateJsonToSqlite(): MigrationResult {
   const jsonFile = resolveDataFile();
 
   if (existsSync(dbFile)) return { migrated: false, reason: "sqlite ledger already present" };
+
+  // Redirecting the db WITHOUT redirecting the JSON source used to pair a
+  // throwaway destination with the real ledger: migration would import the
+  // live JSON into the temp db and then RENAME the live file to
+  // `.migrated.<ts>`. Anyone isolating a test, probe, or dogfood run with
+  // `MESHFLEET_DB_FILE=$(mktemp -d)/x.db` therefore mutated production state
+  // while believing they were sandboxed. (Observed 2026-07-23.)
+  //
+  // An explicit db override is a deliberate isolation signal, so honour it as
+  // one: never reach across to the default-path JSON. Setting both paths — the
+  // way a real relocation does — still migrates normally.
+  const dbRedirected = Boolean(process.env.MESHFLEET_DB_FILE) || getDbPathOverride() !== null;
+  const jsonRedirected = resolveDataFile() !== defaultDataFile();
+  if (dbRedirected && !jsonRedirected) {
+    return {
+      migrated: false,
+      reason:
+        "db path is redirected but the JSON ledger path is not — refusing to consume the " +
+        "default-path JSON ledger into a relocated db. Set MESHFLEET_DATA_FILE too if this " +
+        "migration is intended.",
+    };
+  }
+
   if (!existsSync(jsonFile)) return { migrated: false, reason: "no json ledger to migrate" };
 
   // loadDataFromFile backfills v1→v2 and quarantines a corrupt file (returning
