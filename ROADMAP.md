@@ -2,6 +2,62 @@
 
 Agent Mesh is on a fast iteration cycle. This document tracks what's shipped, what's next, and what's on the longer horizon. Dates are aspirational; everything is best-effort and not a commitment.
 
+## A2A program status
+
+The ranked A2A strategy is canonical in
+[`docs/A2A-PROGRAM.md`](docs/A2A-PROGRAM.md):
+
+1. **Canonical envelope and conformance** - pure v0.1 codec, fixtures, and
+   internal legacy mapping are implemented. No public `send_a2a` tool, remote
+   transport, or authenticated canonical ingress is shipped.
+2. **Durable lifecycle kernel** - implemented for single-host durable fleets:
+   lease-driven spawn/attach, deterministic persisted retry, scheduled recovery,
+   fencing, launch-intent quarantine, recorded-PID containment only, and a
+   sequence-ordered repairable event
+   outbox. Logical ledger schema remains v2.
+3. **Provider-neutral runtime adapters** - internal OpenCode compatibility and
+   deterministic local-process proof are implemented; public selection and real
+   vendor adapters remain deferred.
+4. **Slice 4A portability proof** - canonical-ingress semantics are frozen in
+   design, and a standalone offline Python witness agrees with the
+   language-neutral corpora, strict raw-decoder limits, and exact custom
+   canonical digest output, including strict JSON payload depth/duplicates,
+   exact-decimal numeric identity, finite plain object-tree enforcement, and
+   negative self-tests. This is reference-conformance only: no production
+   ingress/store/tool, RFC JCS, signature, durable acceptance, delivery, or
+   authenticated-principal claim.
+5. **Slice 4B durable acceptance foundation** - implemented and locally
+   verified on the unmerged branch at `f1f98fb`: ordered global physical SQLite
+   v3-to-v4 migration, three private append-only keyed-token tables, exact
+   validation, and one accepted local-decision receipt per acceptance. Logical
+   ledger schema remains v2; v3 code refuses v4, so rollback needs a
+   pre-migration WAL-safe backup. No hidden lazy schema, raw identity/content
+   storage, legacy/lifecycle/outbox projection, auth, delivery, public tool, or
+   activation.
+6. **Slice 4C-0 capability profile and evidence taxonomy** - implemented and
+   independently verified as an offline/dormant semantic foundation at
+   `ea69cb9` over `234cd55..ea69cb9`: 363 exact five-operation cases, 363/363
+   direct TypeScript/Python byte differential, 530/530 full tests, passed
+   typecheck, and two APPROVED final independent reviews. Capability claims,
+   proof carriers, provider strings, model banners, and durable receipts never
+   grant authority. No public/runtime/auth/network/durable-registry activation.
+7. **Slice 4C-1 authenticated-local adapter proof** - contract designed, not
+   implemented; exactly one offline `evaluate-local-admission(request_json,
+   envelope_json, replay_oracle)` operation over independent raw UTF-8 texts is
+   specified, with an ephemeral non-acceptance plan, explicit
+   assumed local adapter boundary, supplied fixture binding/all-recipient policy
+   before replay, and no
+   public/auth/network/storage/runtime activation;
+   prove one principal-bound authenticated-local semantic path while remaining
+   offline and separately gated. No active, approved, remote, or multi-host
+   implementation claim.
+8. **Slice 4D then 4E** - offline delivery-attempt/transport conformance, then
+   deterministic two-host coordinator simulation; neither is implemented.
+
+Inbound MCP process compatibility does not imply outbound runtime neutrality,
+authenticated principal binding, lifecycle durability, or multi-host support.
+Those claims require the evidence gates in the canonical program.
+
 ## Shipped
 
 | Version | Theme | Highlights |
@@ -63,17 +119,17 @@ API freeze. Production-ready. Backward-compatible.
 - [x] **Schema versioning** — ledger includes a `schema_version` field; old ledgers auto-migrate
 - [x] **Backward compatibility matrix** — `COMPATIBILITY.md` documents the API + ledger schema guarantees per version; per-version fixture tests are a v1.0 follow-up
 - [x] **Performance benchmarks** — sub-100ms overhead per agent spawn, 10k messages per fleet
-- [x] **Distributed ledger option** — resolved differently and better in 0.12.0: SQLite (better-sqlite3, WAL + `BEGIN IMMEDIATE`) became THE ledger, not a flagged option, because the JSON store provably lost concurrent writes. Cross-MACHINE coordination (the libSQL idea) folds into the post-1.0 cloud relay.
-- [x] **npm publish** — DONE (2026-07-16). `meshfleet@0.13.0` live on the registry (dist-tag `latest`); published tarball verified end-to-end (fresh install, bins run, `inspect --verify` audits a real ledger clean).
+- [x] **Single-host SQLite ledger** — resolved differently and better in 0.12.0: SQLite (better-sqlite3, WAL + `BEGIN IMMEDIATE`) became THE ledger, not a flagged option, because the JSON store provably lost concurrent writes. This provides same-host process write exclusion only; it is not multi-host readiness. Cross-machine coordination (the libSQL idea) folds into the post-1.0 cloud relay.
+- [x] **npm publish** — CURRENT RELEASE: `meshfleet@0.14.0` is live on npm. The prior `0.13.0` release was published 2026-07-16 and its tarball was verified end-to-end (fresh install, bins run, `inspect --verify` audits a real ledger clean). Released `0.14.0` does **not** contain the unmerged Slice 4B durable-acceptance work (`acc4090..f1f98fb`) or Slice 4C-0 capability-profile work (`234cd55..ea69cb9`).
 - [x] **Auth token for MCP** — DONE (2026-07-16). Optional `MESHFLEET_AUTH_TOKEN` (legacy `AGENT_MESH_AUTH_TOKEN`): when set, the SSE listener requires `Authorization: Bearer <token>` (or `?token=` for EventSource) on every endpoint except `/healthz`; constant-time comparison; unset keeps the historical open local-trust default. The stdio MCP transport stays process-local (auth is the OS process boundary there by design).
 
-## v0.13 (staged)
+## v0.13 (released / historical)
 
 - [x] **Tiered councils / weighted quorum voting** — DONE (2026-07-16). Optional per-voter integer `weights` on `open_ratification`; quorum is a weight threshold, signoffs stay per-agent identity gates, unweighted behavior unchanged. Adversarially design-reviewed before build.
 - [x] **`verify_ledger` + `send_messages` + SSE auth + surgical reads** — see the CHANGELOG.
 - [x] **Vote re-casting is fully honest (A→B→A fix)** — DONE (2026-07-16). Every polarity change appends a sequence-suffixed receipt (`r-ack:1`, `r-decline:2`, …); the effective vote is derived from ledger content (highest seq, then timestamp, then decline-wins — fail-closed), never from row order. Same-polarity re-casts are no-ops; history is never mutated; legacy bare-vote ledgers tally identically. `verify_ledger` checks seq uniqueness/contiguity and flags malformed vote-like actions.
 
-## Now / Next / Later (post-0.13)
+## Now / Next / Later (post-0.14)
 
 Direction, not commitment — items ship when real usage pulls them.
 
@@ -83,7 +139,7 @@ Direction, not commitment — items ship when real usage pulls them.
 - `verify --explain` — failure triage for the ledger auditor
 
 **Next**
-- P1 spawn receipts: record requested and resolved runtime model identities explicitly in the ledger; P0 only validates the OpenCode banner when present and does not expand the ledger schema.
+- P1 spawn receipts: resolved runtime agent/model banner capture is implemented. Capability `model` remains routing self-description, not proof of runtime identity; requested-vs-resolved model binding remains future work.
 - Zero-install ledger verification (`npx` against any ledger file someone sends you)
 - A quickstart demo that ends with a verification, not a wall of text
 - `agent-mesh doctor` — 30-second diagnosis of broken installs
@@ -98,6 +154,13 @@ Direction, not commitment — items ship when real usage pulls them.
 - MCP stateless-spec migration as host support lands
 - Agent Mesh Protocol (AMP) — a cross-runtime wire format; a v0.1 draft exists and will be published when it stabilizes
 
+### Next distributed-safety slice (contract only)
+
+`docs/A2A-NEXT-SLICE.md` records the implemented single-host boundary for
+crash-safe attempt lifecycle state. It does not claim multi-host readiness:
+there is no shared coordinator, authenticated remote owner, or cross-host
+SQLite authority. Public MCP names and return shapes remain unchanged.
+
 ## Contributing to the roadmap
 
 Open a GitHub issue with the `roadmap` label. Tell us:
@@ -106,3 +169,44 @@ Open a GitHub issue with the `roadmap` label. Tell us:
 - Which version it would unlock
 
 We'll move items up if the use case is clear and the implementation is contained.
+
+## Lifecycle visibility
+
+Implemented as an opt-in local inspector and namespaced integrity verification.
+Repair remains deliberately non-actionable from this surface; outbox lag is
+observable, not a daemon, dashboard, or service claim.
+
+## A2A program closeout and next sequencing (2026-07-20)
+
+- [x] **Slice 4B: dormant durable acceptance** — implemented and locally
+  verified at `f1f98fb` over `acc4090..f1f98fb`. Physical SQLite v4 is ordered
+  and fail-closed; logical ledger schema remains v2. The private journal has no
+  public ingress, delivery, execution, auth provider, transport activation,
+  outbox, lifecycle execution, NDJSON, or legacy projection.
+- [x] **Slice 4C-0: capability profile and evidence taxonomy** — offline/dormant
+  semantic foundation implemented and independently verified at `ea69cb9` over
+  `234cd55..ea69cb9`. Exactly five operations, 363 executable cases, 363/363
+  direct byte differential, 56 extension-family cases, R00-R22, T00-T16
+  rejection precedence, all eight target behaviors, and producer uniqueness are
+  evidenced. The 13 serialized-report ingestion-only duplicate vectors remain
+  explicitly deferred. This is not proof verification, authority, public
+  ingress, runtime selection, network, persistence, delivery, execution,
+  release, or activation.
+- [ ] **Slice 4C-1: principal-bound authenticated-local semantic path** —
+  designed, not implemented. The contract has one operation over independent
+  raw `request_json` and unchanged 4A `envelope_json`, no wrapper/object-input
+  path, and no
+  public intermediate-success APIs; its admission plan is not acceptance,
+  persistence, receipt, delivery, execution, or reusable authority. Released
+  `meshfleet@0.14.0` does not contain Slice 4B, Slice 4C-0, or Slice 4C-1 branch
+  work.
+  proposed next, still offline and separately gated; do not treat it as active
+  or approved beyond proposal.
+- [ ] **Slice 4D: offline delivery-attempt and transport conformance** — compare
+  stdio, mailbox, HTTP/SSE, and WebSocket semantic traces without live peers.
+- [ ] **Slice 4E: deterministic two-host coordinator simulation** — prove
+  leases, monotonic fencing, cancellation, partition, and recovery semantics
+  before operational multi-host work.
+
+Public or remote activation, credentials, spend, deployment, and provider-live
+conformance remain separate human gates.

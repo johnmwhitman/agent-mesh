@@ -2,7 +2,7 @@
 
 > **Auditable multi-agent coordination for OpenCode.** Spawn parallel agents as independent OS processes. Route work to specialists. Let agents collaborate peer-to-peer — with witnessed receipts and quorum ratification, so you can answer: *who saw this, who approved it, prove it.* The core is MIT and free.
 
-**Website**: [meshfleet.app](https://meshfleet.app) · **Version**: 0.14.0 · **Tests**: 404/404 passing · [CI](https://github.com/johnmwhitman/agent-mesh/actions)
+**Website**: [meshfleet.app](https://meshfleet.app) · **Version**: 0.14.0 · [CI](https://github.com/johnmwhitman/agent-mesh/actions)
 
 *Maintained: last release 2026-07-19 (v0.14.0) · issues answered within 48h · no download-count theater.*
 
@@ -66,21 +66,21 @@ Add to `~/.config/opencode/opencode.jsonc` (npm install):
 ```jsonc
 {
   "mcp": {
-    "agent-mesh": {
+    "meshfleet": {
       "type": "local",
       "enabled": true,
-      "command": ["npx", "meshfleet"]
+      "command": ["npx", "-y", "meshfleet"]
     }
   }
 }
 ```
 
-or, if you built from source:
+For noncanonical development-only source-checkout usage (not the recommended release config):
 
 ```jsonc
 {
   "mcp": {
-    "agent-mesh": {
+    "meshfleet": {
       "type": "local",
       "enabled": true,
       "command": ["node", "~/.config/opencode/mcp-servers/agent-mesh/dist/index.js"]
@@ -116,17 +116,17 @@ marked "per \<client\> docs — verification welcome."
 }
 ```
 
-### OpenCode — primary host; same block this repo documents in the install guide above
+### OpenCode — primary host; canonical `meshfleet` server identity
 
 `~/.config/opencode/opencode.jsonc`:
 
 ```jsonc
 {
   "mcp": {
-    "agent-mesh": {
+    "meshfleet": {
       "type": "local",
       "enabled": true,
-      "command": ["npx", "meshfleet"]
+      "command": ["npx", "-y", "meshfleet"]
     }
   }
 }
@@ -153,9 +153,9 @@ Or project-scoped `.mcp.json` at the repo root:
 }
 ```
 
-### Cursor — per Cursor docs — verification welcome
+### Codex — same host-neutral stdio server
 
-`.cursor/mcp.json` (project) or `~/.cursor/mcp.json` (global):
+Configure Codex's MCP server entry with the same command and arguments:
 
 ```json
 {
@@ -167,6 +167,12 @@ Or project-scoped `.mcp.json` at the repo root:
   }
 }
 ```
+
+These Claude Code, Codex, OpenCode, and generic MCP configurations all call the
+same inbound stdio server. This proves client interoperability at the MCP
+boundary only: workers spawned by Meshfleet still execute through OpenCode's
+`opencode run`. The `subscribe_inbox` SSE endpoint is optional acceleration; it
+is not required for compatibility, and clients can use `get_inbox` polling.
 
 If any block above doesn't work in your client, [open an issue](https://github.com/johnmwhitman/agent-mesh/issues) — config rot is a bug.
 
@@ -202,7 +208,7 @@ TIMESTAMP            EVENT              DETAIL
 
 ---
 
-## 28 MCP tools
+## 27 MCP tools
 
 **Fleets**
 
@@ -221,7 +227,7 @@ TIMESTAMP            EVENT              DETAIL
 | Tool | What it does |
 |---|---|
 | `send_message` | P2P message (5 types) — or `to_agent_id: "*"` to broadcast to the whole fleet |
-| `send_messages` | Batched sends, one atomic transaction per batch (10k messages in ~50ms) |
+| `send_messages` | Batched sends, one atomic transaction per batch (up to 1000 messages; larger batches are rejected) |
 | `get_inbox` / `ack_message` | Poll and acknowledge; every ack writes a per-recipient receipt |
 | `subscribe_inbox` | Push delivery over SSE instead of polling (optional auth token) |
 | `receipt` / `get_receipts` | Write and query the witnessed-delivery ledger: who saw what, when |

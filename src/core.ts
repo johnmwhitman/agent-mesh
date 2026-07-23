@@ -7,7 +7,9 @@ import { getRoutingAdjustment } from "./routing-feedback.js";
 import { expandKeywordsWithSynonyms } from "./synonyms.js";
 import { getSkillTaxonomy, scoreSkillsAgainstKeywords } from "./skill-taxonomy.js";
 import { resolveEnv } from "./env.js";
-import { withLedger, readLedger, importSnapshot } from "./db.js";
+import { withLedger, withLedgerAndStorage, readLedger, importSnapshot } from "./db.js";
+import { mapLegacyMessage, projectLegacyMessage } from "./a2a/legacy-map.js";
+import { A2A_MESSAGE_TYPES, type A2AMessageType } from "./a2a/types.js";
 
 // ---------------------------------------------------------------------------
 // Data Models
@@ -26,6 +28,8 @@ export interface Agent {
   started_at?: number;
   completed_at?: number;
   retry_count?: number;
+  runtime_agent?: string;
+  runtime_model?: string;
 }
 
 export interface Fleet {
@@ -36,15 +40,9 @@ export interface Fleet {
   timeout_ms?: number;
 }
 
-export const MESSAGE_TYPES = [
-  "handoff",
-  "question",
-  "result",
-  "alert",
-  "request_help",
-] as const;
+export const MESSAGE_TYPES = A2A_MESSAGE_TYPES;
 
-export type MessageType = (typeof MESSAGE_TYPES)[number];
+export type MessageType = A2AMessageType;
 
 export interface Message {
   id: string;
@@ -379,6 +377,16 @@ export function appendEvent(
   appendFileSync(eventLogFile, entry, "utf-8");
 }
 
+/**
+ * Outbox projection helper. The event id is additive to the historical NDJSON
+ * shape, so existing inspector and MCP consumers retain their required keys.
+ */
+export function appendEventOnce(eventId: string, event: string, data: Record<string, unknown> = {}): void {
+  const marker = `\"event_id\":\"${eventId}\"`;
+  if (existsSync(eventLogFile) && readFileSync(eventLogFile, "utf-8").includes(marker)) return;
+  appendEvent(event, { ...data, event_id: eventId });
+}
+
 export function readEventLog(limit = 1000): Array<Record<string, unknown>> {
   if (!existsSync(eventLogFile)) return [];
   const content = readFileSync(eventLogFile, "utf-8");
@@ -500,7 +508,9 @@ export function markAgentFinished(
   agentId: string,
   status: "complete" | "failed",
   output: string,
-  error: string | undefined
+  error: string | undefined,
+  runtimeAgent?: string,
+  runtimeModel?: string
 ): void {
   // ONE transaction: mark the agent AND decide+set fleet completion from the same
   // snapshot (was two RMW cycles — two finishers could both read "not all done").
@@ -510,6 +520,8 @@ export function markAgentFinished(
     agent.status = status;
     agent.output = output;
     agent.error = error;
+    if (runtimeAgent !== undefined) agent.runtime_agent = runtimeAgent;
+    if (runtimeModel !== undefined) agent.runtime_model = runtimeModel;
     agent.completed_at = Date.now();
     _checkFleetCompletion(data, agent.fleet_id);
   });
@@ -540,9 +552,13 @@ export function recoverInterruptedAgents(): number {
   // Startup-only, parent-only (CHILD guard). isPidAlive is a read-only syscall so
   // it stays in the mutator; the recovery events are hoisted OUT of the txn.
   const recovered: Agent[] = [];
-  withLedger((data) => {
+  withLedgerAndStorage((data, db) => {
     for (const agent of Object.values(data.agents)) {
       if (agent.status === "running") {
+        const mode = db.prepare("SELECT lifecycle_mode FROM fleets WHERE id = ?").get(agent.fleet_id) as { lifecycle_mode?: string | null } | undefined;
+        // Durable ownership is lease-based; PID liveness is intentionally
+        // irrelevant and must not reclaim a non-expired managed attempt.
+        if (mode?.lifecycle_mode === "durable") continue;
         if (agent.pid !== undefined && isPidAlive(agent.pid)) continue;
         agent.status = "interrupted";
         agent.completed_at = Date.now();
@@ -590,20 +606,30 @@ export function _sendMessage(
       );
     }
   }
-  const message: Message = {
-    id: messageId,
-    from_agent_id: fromAgentId,
-    to_agent_id: toAgentId,
-    fleet_id: fleetId,
-    type,
-    payload,
-    correlation_id: correlationId,
-    timestamp: Date.now(),
-    acknowledged: false,
-    ...(recipients ? { recipients } : {}),
-  };
-  data.messages[messageId] = message;
   const delivered = recipients ?? [toAgentId];
+  // Direct self-messages are a legacy-valid local operation but cannot be
+  // represented by a canonical envelope, which forbids sender-as-recipient.
+  // Preserve that compatibility edge without extending the wire contract.
+  const message: Message = fromAgentId === toAgentId
+    ? {
+        id: messageId, from_agent_id: fromAgentId, to_agent_id: toAgentId,
+        fleet_id: fleetId, type, payload, correlation_id: correlationId,
+        timestamp: Date.now(), acknowledged: false,
+      }
+    : projectLegacyMessage(
+        mapLegacyMessage({
+          messageId,
+          fromAgentId,
+          toAgentId,
+          fleetId,
+          type,
+          payload,
+          timestamp: Date.now(),
+          correlationId,
+        }, recipients ? { broadcastRecipients: recipients } : {}),
+        toAgentId,
+      );
+  data.messages[messageId] = message;
   for (const recipient of delivered) {
     if (!data.inboxes[recipient]) data.inboxes[recipient] = [];
     data.inboxes[recipient].push(messageId);

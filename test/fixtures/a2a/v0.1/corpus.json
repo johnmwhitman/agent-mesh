@@ -1,0 +1,868 @@
+[
+  {
+    "name": "valid-direct",
+    "expected": "valid",
+    "input": {
+      "protocol": "meshfleet.a2a",
+      "version": "0.1",
+      "kind": "message",
+      "message_id": "msg-direct-1",
+      "sender": { "namespace": "mesh-local", "agent_id": "agent-a" },
+      "recipients": [{ "namespace": "mesh-local", "agent_id": "agent-b" }],
+      "type": "handoff",
+      "issued_at_ms": 1760000000000,
+      "expires_at_ms": 1760003600000,
+      "audience": "mesh-local",
+      "correlation_id": "request-1",
+      "dedupe_key": "dedupe-1",
+      "payload": { "media_type": "text/plain", "body": "Context passed to the next agent." },
+      "extensions": { "future.example": { "opaque": true } }
+    }
+  },
+  {
+    "name": "valid-empty-body",
+    "expected": "valid",
+    "input": {
+      "protocol": "meshfleet.a2a",
+      "version": "0.1",
+      "kind": "message",
+      "message_id": "msg-empty-1",
+      "sender": { "namespace": "mesh-local", "agent_id": "agent-a" },
+      "recipients": [{ "namespace": "mesh-local", "agent_id": "agent-b" }],
+      "type": "handoff",
+      "issued_at_ms": 1760000000000,
+      "payload": { "media_type": "text/plain", "body": "" }
+    }
+  },
+  {
+    "name": "valid-question",
+    "expected": "valid",
+    "input": {
+      "protocol": "meshfleet.a2a",
+      "version": "0.1",
+      "kind": "message",
+      "message_id": "msg-question-1",
+      "sender": { "namespace": "mesh-local", "agent_id": "agent-a" },
+      "recipients": [{ "namespace": "mesh-local", "agent_id": "agent-b" }],
+      "type": "question",
+      "issued_at_ms": 1760000000000,
+      "payload": { "media_type": "text/plain", "body": "Can you review this?" }
+    }
+  },
+  {
+    "name": "valid-result",
+    "expected": "valid",
+    "input": {
+      "protocol": "meshfleet.a2a",
+      "version": "0.1",
+      "kind": "message",
+      "message_id": "msg-result-1",
+      "sender": { "namespace": "mesh-local", "agent_id": "agent-a" },
+      "recipients": [{ "namespace": "mesh-local", "agent_id": "agent-b" }],
+      "type": "result",
+      "issued_at_ms": 1760000000000,
+      "payload": { "media_type": "text/plain", "body": "Review complete." }
+    }
+  },
+  {
+    "name": "valid-alert",
+    "expected": "valid",
+    "input": {
+      "protocol": "meshfleet.a2a",
+      "version": "0.1",
+      "kind": "message",
+      "message_id": "msg-alert-1",
+      "sender": { "namespace": "mesh-local", "agent_id": "agent-a" },
+      "recipients": [{ "namespace": "mesh-local", "agent_id": "agent-b" }],
+      "type": "alert",
+      "issued_at_ms": 1760000000000,
+      "payload": { "media_type": "text/plain", "body": "Attention required." }
+    }
+  },
+  {
+    "name": "valid-request-help",
+    "expected": "valid",
+    "input": {
+      "protocol": "meshfleet.a2a",
+      "version": "0.1",
+      "kind": "message",
+      "message_id": "msg-request-help-1",
+      "sender": { "namespace": "mesh-local", "agent_id": "agent-a" },
+      "recipients": [{ "namespace": "mesh-local", "agent_id": "agent-b" }],
+      "type": "request_help",
+      "issued_at_ms": 1760000000000,
+      "payload": { "media_type": "text/plain", "body": "Please help." }
+    }
+  },
+  {
+    "name": "valid-extensions",
+    "expected": "valid",
+    "input": {
+      "protocol": "meshfleet.a2a",
+      "version": "0.1",
+      "kind": "message",
+      "message_id": "msg-extension-1",
+      "sender": { "namespace": "mesh-local", "agent_id": "agent-a" },
+      "recipients": [{ "namespace": "mesh-local", "agent_id": "agent-b" }],
+      "type": "result",
+      "issued_at_ms": 1760000000000,
+      "payload": { "media_type": "application/json", "body": "{\"ok\":true}" },
+      "extensions": {
+        "provider": "example",
+        "model": "example-model",
+        "pid": 42,
+        "lease": "opaque",
+        "acknowledged": true
+      }
+    }
+  },
+  {
+    "name": "identity-first",
+    "expected": "valid",
+    "input": {
+      "protocol": "meshfleet.a2a",
+      "version": "0.1",
+      "kind": "message",
+      "message_id": "msg-identity-1",
+      "sender": { "namespace": "mesh-local", "agent_id": "agent-a" },
+      "recipients": [{ "namespace": "mesh-local", "agent_id": "agent-b" }],
+      "type": "result",
+      "issued_at_ms": 1760000000000,
+      "payload": { "media_type": "text/plain", "body": "identity" },
+      "extensions": { "future.example": { "alpha": 1, "beta": 2 } }
+    }
+  },
+  {
+    "name": "identity-reordered-extensions",
+    "expected": "duplicate",
+    "input": {
+      "protocol": "meshfleet.a2a",
+      "version": "0.1",
+      "kind": "message",
+      "message_id": "msg-identity-1",
+      "sender": { "agent_id": "agent-a", "namespace": "mesh-local" },
+      "recipients": [{ "agent_id": "agent-b", "namespace": "mesh-local" }],
+      "type": "result",
+      "issued_at_ms": 1760000000000,
+      "payload": { "body": "identity", "media_type": "text/plain" },
+      "extensions": { "future.example": { "beta": 2, "alpha": 1 } }
+    }
+  },
+  {
+    "name": "identity-true-conflict",
+    "expected": "conflict",
+    "input": {
+      "protocol": "meshfleet.a2a",
+      "version": "0.1",
+      "kind": "message",
+      "message_id": "msg-identity-1",
+      "sender": { "namespace": "mesh-local", "agent_id": "agent-a" },
+      "recipients": [{ "namespace": "mesh-local", "agent_id": "agent-b" }],
+      "type": "result",
+      "issued_at_ms": 1760000000000,
+      "payload": { "media_type": "text/plain", "body": "conflicting identity" },
+      "extensions": { "future.example": { "alpha": 1, "beta": 2 } }
+    }
+  },
+  {
+    "name": "missing-message-id",
+    "expected": "invalid",
+    "input": {
+      "protocol": "meshfleet.a2a",
+      "version": "0.1",
+      "kind": "message",
+      "sender": { "namespace": "mesh-local", "agent_id": "agent-a" },
+      "recipients": [{ "namespace": "mesh-local", "agent_id": "agent-b" }],
+      "type": "handoff",
+      "issued_at_ms": 1,
+      "payload": { "media_type": "text/plain", "body": "x" }
+    }
+  },
+  {
+    "name": "unsupported-version-0-2",
+    "expected": "invalid",
+    "input": {
+      "protocol": "meshfleet.a2a",
+      "version": "0.2",
+      "kind": "message",
+      "message_id": "m",
+      "sender": { "namespace": "n", "agent_id": "a" },
+      "recipients": [{ "namespace": "n", "agent_id": "b" }],
+      "type": "handoff",
+      "issued_at_ms": 1,
+      "payload": { "media_type": "text/plain", "body": "x" }
+    }
+  },
+  {
+    "name": "unsupported-major-version-1-0",
+    "expected": "invalid",
+    "input": {
+      "protocol": "meshfleet.a2a",
+      "version": "1.0",
+      "kind": "message",
+      "message_id": "m",
+      "sender": { "namespace": "n", "agent_id": "a" },
+      "recipients": [{ "namespace": "n", "agent_id": "b" }],
+      "type": "handoff",
+      "issued_at_ms": 1,
+      "payload": { "media_type": "text/plain", "body": "x" }
+    }
+  },
+  {
+    "name": "fractional-timestamp",
+    "expected": "invalid",
+    "input": {
+      "protocol": "meshfleet.a2a",
+      "version": "0.1",
+      "kind": "message",
+      "message_id": "m",
+      "sender": { "namespace": "n", "agent_id": "a" },
+      "recipients": [{ "namespace": "n", "agent_id": "b" }],
+      "type": "handoff",
+      "issued_at_ms": 1.5,
+      "payload": { "media_type": "text/plain", "body": "x" }
+    }
+  },
+  {
+    "name": "duplicate-recipient",
+    "expected": "invalid",
+    "input": {
+      "protocol": "meshfleet.a2a",
+      "version": "0.1",
+      "kind": "message",
+      "message_id": "m",
+      "sender": { "namespace": "n", "agent_id": "a" },
+      "recipients": [{ "namespace": "n", "agent_id": "b" }, { "namespace": "n", "agent_id": "b" }],
+      "type": "handoff",
+      "issued_at_ms": 1,
+      "payload": { "media_type": "text/plain", "body": "x" }
+    }
+  },
+  {
+    "name": "wildcard-recipient",
+    "expected": "invalid",
+    "input": {
+      "protocol": "meshfleet.a2a",
+      "version": "0.1",
+      "kind": "message",
+      "message_id": "m",
+      "sender": { "namespace": "n", "agent_id": "a" },
+      "recipients": [{ "namespace": "n", "agent_id": "*" }],
+      "type": "handoff",
+      "issued_at_ms": 1,
+      "payload": { "media_type": "text/plain", "body": "x" }
+    }
+  },
+  {
+    "name": "invalid-media-type",
+    "expected": "invalid",
+    "input": {
+      "protocol": "meshfleet.a2a",
+      "version": "0.1",
+      "kind": "message",
+      "message_id": "m",
+      "sender": { "namespace": "n", "agent_id": "a" },
+      "recipients": [{ "namespace": "n", "agent_id": "b" }],
+      "type": "handoff",
+      "issued_at_ms": 1,
+      "payload": { "media_type": "json", "body": "x" }
+    }
+  },
+  {
+    "name": "malformed-json-body",
+    "expected": "invalid",
+    "input": {
+      "protocol": "meshfleet.a2a",
+      "version": "0.1",
+      "kind": "message",
+      "message_id": "m",
+      "sender": { "namespace": "n", "agent_id": "a" },
+      "recipients": [{ "namespace": "n", "agent_id": "b" }],
+      "type": "handoff",
+      "issued_at_ms": 1,
+      "payload": { "media_type": "application/json", "body": "{" }
+    }
+  },
+  {
+    "name": "expiry-before-issue",
+    "expected": "invalid",
+    "input": {
+      "protocol": "meshfleet.a2a",
+      "version": "0.1",
+      "kind": "message",
+      "message_id": "m",
+      "sender": { "namespace": "n", "agent_id": "a" },
+      "recipients": [{ "namespace": "n", "agent_id": "b" }],
+      "type": "handoff",
+      "issued_at_ms": 2,
+      "expires_at_ms": 1,
+      "payload": { "media_type": "text/plain", "body": "x" }
+    }
+  },
+  {
+    "name": "expired-for-acceptance",
+    "expected": "invalid",
+    "options": { "forAcceptance": true, "nowMs": 2 },
+    "input": {
+      "protocol": "meshfleet.a2a",
+      "version": "0.1",
+      "kind": "message",
+      "message_id": "m",
+      "sender": { "namespace": "n", "agent_id": "a" },
+      "recipients": [{ "namespace": "n", "agent_id": "b" }],
+      "type": "handoff",
+      "issued_at_ms": 1,
+      "expires_at_ms": 2,
+      "payload": { "media_type": "text/plain", "body": "x" }
+    }
+  },
+  {
+    "name": "oversize-body",
+    "expected": "invalid",
+    "input": {
+      "protocol": "meshfleet.a2a",
+      "version": "0.1",
+      "kind": "message",
+      "message_id": "m",
+      "sender": { "namespace": "n", "agent_id": "a" },
+      "recipients": [{ "namespace": "n", "agent_id": "b" }],
+      "type": "handoff",
+      "issued_at_ms": 1,
+      "payload": { "media_type": "text/plain", "body": { "$fixture": "repeat", "value": "x", "count": 65537 } }
+    }
+  },
+  {
+    "name": "valid-media-type-parameter",
+    "expected": "valid",
+    "input": {
+      "protocol": "meshfleet.a2a", "version": "0.1", "kind": "message", "message_id": "media-parameter-valid",
+      "sender": { "namespace": "n", "agent_id": "a" }, "recipients": [{ "namespace": "n", "agent_id": "b" }],
+      "type": "handoff", "issued_at_ms": 1,
+      "payload": { "media_type": "text/plain; charset=utf-8", "body": "x" }
+    }
+  },
+  {
+    "name": "invalid-media-type-empty-parameter",
+    "expected": "invalid",
+    "input": {
+      "protocol": "meshfleet.a2a", "version": "0.1", "kind": "message", "message_id": "media-empty-parameter-valid",
+      "sender": { "namespace": "n", "agent_id": "a" }, "recipients": [{ "namespace": "n", "agent_id": "b" }],
+      "type": "handoff", "issued_at_ms": 1,
+      "payload": { "media_type": "text/plain;", "body": "x" }
+    }
+  },
+  {
+    "name": "valid-media-type-ascii-ows-and-token-parameter",
+    "expected": "valid",
+    "input": {
+      "protocol": "meshfleet.a2a", "version": "0.1", "kind": "message", "message_id": "media-ows-valid",
+      "sender": { "namespace": "n", "agent_id": "a" }, "recipients": [{ "namespace": "n", "agent_id": "b" }],
+      "type": "handoff", "issued_at_ms": 1,
+      "payload": { "media_type": "text/plain \t; charset \t= utf-8", "body": "x" }
+    }
+  },
+  {
+    "name": "valid-media-type-quoted-and-token-parameters",
+    "expected": "valid",
+    "input": {
+      "protocol": "meshfleet.a2a", "version": "0.1", "kind": "message", "message_id": "media-quoted-valid",
+      "sender": { "namespace": "n", "agent_id": "a" }, "recipients": [{ "namespace": "n", "agent_id": "b" }],
+      "type": "handoff", "issued_at_ms": 1,
+      "payload": { "media_type": "application/json; charset=\"utf-8\"; profile=compact", "body": "{\"ok\":true}" }
+    }
+  },
+  {
+    "name": "invalid-media-type-empty-name",
+    "expected": "invalid",
+    "input": {
+      "protocol": "meshfleet.a2a", "version": "0.1", "kind": "message", "message_id": "media-empty-name-invalid",
+      "sender": { "namespace": "n", "agent_id": "a" }, "recipients": [{ "namespace": "n", "agent_id": "b" }],
+      "type": "handoff", "issued_at_ms": 1,
+      "payload": { "media_type": "text/plain; =utf-8", "body": "x" }
+    }
+  },
+  {
+    "name": "invalid-media-type-empty-value",
+    "expected": "invalid",
+    "input": {
+      "protocol": "meshfleet.a2a", "version": "0.1", "kind": "message", "message_id": "media-empty-value-invalid",
+      "sender": { "namespace": "n", "agent_id": "a" }, "recipients": [{ "namespace": "n", "agent_id": "b" }],
+      "type": "handoff", "issued_at_ms": 1,
+      "payload": { "media_type": "text/plain; charset=", "body": "x" }
+    }
+  },
+  {
+    "name": "invalid-media-type-unclosed-quote",
+    "expected": "invalid",
+    "input": {
+      "protocol": "meshfleet.a2a", "version": "0.1", "kind": "message", "message_id": "media-quote-invalid",
+      "sender": { "namespace": "n", "agent_id": "a" }, "recipients": [{ "namespace": "n", "agent_id": "b" }],
+      "type": "handoff", "issued_at_ms": 1,
+      "payload": { "media_type": "text/plain; charset=\"utf-8", "body": "x" }
+    }
+  },
+  {
+    "name": "invalid-media-type-u0085",
+    "expected": "invalid",
+    "input": {
+      "protocol": "meshfleet.a2a", "version": "0.1", "kind": "message", "message_id": "media-u0085-invalid",
+      "sender": { "namespace": "n", "agent_id": "a" }, "recipients": [{ "namespace": "n", "agent_id": "b" }],
+      "type": "handoff", "issued_at_ms": 1,
+      "payload": { "media_type": "text/plain\u0085;charset=utf-8", "body": "x" }
+    }
+  },
+  {
+    "name": "invalid-media-type-nbsp",
+    "expected": "invalid",
+    "input": {
+      "protocol": "meshfleet.a2a", "version": "0.1", "kind": "message", "message_id": "media-nbsp-invalid",
+      "sender": { "namespace": "n", "agent_id": "a" }, "recipients": [{ "namespace": "n", "agent_id": "b" }],
+      "type": "handoff", "issued_at_ms": 1,
+      "payload": { "media_type": "text/plain\u00a0;charset=utf-8", "body": "x" }
+    }
+  },
+  {
+    "name": "invalid-media-type-control",
+    "expected": "invalid",
+    "input": {
+      "protocol": "meshfleet.a2a", "version": "0.1", "kind": "message", "message_id": "media-control-invalid",
+      "sender": { "namespace": "n", "agent_id": "a" }, "recipients": [{ "namespace": "n", "agent_id": "b" }],
+      "type": "handoff", "issued_at_ms": 1,
+      "payload": { "media_type": "text/plain; charset=ut\u0001f-8", "body": "x" }
+    }
+  },
+  {
+    "name": "invalid-media-type-extra-slash",
+    "expected": "invalid",
+    "input": {
+      "protocol": "meshfleet.a2a", "version": "0.1", "kind": "message", "message_id": "media-extra-slash-invalid",
+      "sender": { "namespace": "n", "agent_id": "a" }, "recipients": [{ "namespace": "n", "agent_id": "b" }],
+      "type": "handoff", "issued_at_ms": 1,
+      "payload": { "media_type": "text/plain/extra", "body": "x" }
+    }
+  },
+  {
+    "name": "invalid-media-type-parameter-missing-semicolon",
+    "expected": "invalid",
+    "input": {
+      "protocol": "meshfleet.a2a", "version": "0.1", "kind": "message", "message_id": "media-parameter-invalid",
+      "sender": { "namespace": "n", "agent_id": "a" }, "recipients": [{ "namespace": "n", "agent_id": "b" }],
+      "type": "handoff", "issued_at_ms": 1,
+      "payload": { "media_type": "text/plain charset=utf-8", "body": "x" }
+    }
+  },
+  {
+    "name": "valid-non-bmp-scalar",
+    "expected": "valid",
+    "input": {
+      "protocol": "meshfleet.a2a", "version": "0.1", "kind": "message", "message_id": "unicode-pair-valid",
+      "sender": { "namespace": "n", "agent_id": "a" }, "recipients": [{ "namespace": "n", "agent_id": "b" }],
+      "type": "handoff", "issued_at_ms": 1,
+      "payload": { "media_type": "text/plain", "body": "valid scalar \ud83d\ude80" }
+    }
+  },
+  {
+    "name": "invalid-lone-high-surrogate",
+    "expected": "invalid",
+    "input": {
+      "protocol": "meshfleet.a2a", "version": "0.1", "kind": "message", "message_id": "unicode-high-invalid",
+      "sender": { "namespace": "n", "agent_id": "a" }, "recipients": [{ "namespace": "n", "agent_id": "b" }],
+      "type": "handoff", "issued_at_ms": 1,
+      "payload": { "media_type": "text/plain", "body": "\ud800" }
+    }
+  },
+  {
+    "name": "invalid-lone-low-surrogate",
+    "expected": "invalid",
+    "input": {
+      "protocol": "meshfleet.a2a", "version": "0.1", "kind": "message", "message_id": "unicode-low-invalid",
+      "sender": { "namespace": "n", "agent_id": "a" }, "recipients": [{ "namespace": "n", "agent_id": "b" }],
+      "type": "handoff", "issued_at_ms": 1,
+      "payload": { "media_type": "text/plain", "body": "\udfff" }
+    }
+  },
+  {
+    "name": "invalid-nested-extension-high-surrogate-value",
+    "expected": "invalid",
+    "input": {
+      "protocol": "meshfleet.a2a", "version": "0.1", "kind": "message", "message_id": "extension-surrogate-value-invalid",
+      "sender": { "namespace": "n", "agent_id": "a" }, "recipients": [{ "namespace": "n", "agent_id": "b" }],
+      "type": "handoff", "issued_at_ms": 1, "payload": { "media_type": "text/plain", "body": "x" },
+      "extensions": { "nested": { "value": "\ud800" } }
+    }
+  },
+  {
+    "name": "invalid-nested-extension-low-surrogate-key",
+    "expected": "invalid",
+    "input": {
+      "protocol": "meshfleet.a2a", "version": "0.1", "kind": "message", "message_id": "extension-surrogate-key-invalid",
+      "sender": { "namespace": "n", "agent_id": "a" }, "recipients": [{ "namespace": "n", "agent_id": "b" }],
+      "type": "handoff", "issued_at_ms": 1, "payload": { "media_type": "text/plain", "body": "x" },
+      "extensions": { "nested": { "\udfff": "value" } }
+    }
+  },
+  {
+    "name": "invalid-json-payload-surrogate-value",
+    "expected": "invalid",
+    "input": {
+      "protocol": "meshfleet.a2a", "version": "0.1", "kind": "message", "message_id": "json-surrogate-value-invalid",
+      "sender": { "namespace": "n", "agent_id": "a" }, "recipients": [{ "namespace": "n", "agent_id": "b" }],
+      "type": "handoff", "issued_at_ms": 1,
+      "payload": { "media_type": "application/json", "body": "{\"nested\":{\"value\":\"\\ud800\"}}" }
+    }
+  },
+  {
+    "name": "invalid-json-payload-surrogate-key",
+    "expected": "invalid",
+    "input": {
+      "protocol": "meshfleet.a2a", "version": "0.1", "kind": "message", "message_id": "json-surrogate-key-invalid",
+      "sender": { "namespace": "n", "agent_id": "a" }, "recipients": [{ "namespace": "n", "agent_id": "b" }],
+      "type": "handoff", "issued_at_ms": 1,
+      "payload": { "media_type": "application/json", "body": "{\"nested\":{\"\\udfff\":\"value\"}}" }
+    }
+  },
+  {
+    "name": "valid-nested-non-bmp-scalars",
+    "expected": "valid",
+    "input": {
+      "protocol": "meshfleet.a2a", "version": "0.1", "kind": "message", "message_id": "nested-non-bmp-valid",
+      "sender": { "namespace": "n", "agent_id": "a" }, "recipients": [{ "namespace": "n", "agent_id": "b" }],
+      "type": "handoff", "issued_at_ms": 1,
+      "payload": { "media_type": "application/json", "body": "{\"nested\":{\"\ud83d\ude80\":\"\ud83d\ude80\"}}" },
+      "extensions": { "nested": { "\ud83d\ude80": "\ud83d\ude80" } }
+    }
+  },
+  {
+    "name": "invalid-json-payload-nan",
+    "expected": "invalid",
+    "input": {
+      "protocol": "meshfleet.a2a", "version": "0.1", "kind": "message", "message_id": "json-nan-invalid",
+      "sender": { "namespace": "n", "agent_id": "a" }, "recipients": [{ "namespace": "n", "agent_id": "b" }],
+      "type": "handoff", "issued_at_ms": 1, "payload": { "media_type": "application/json", "body": "{\"value\":NaN}" }
+    }
+  },
+  {
+    "name": "invalid-json-payload-infinity",
+    "expected": "invalid",
+    "input": {
+      "protocol": "meshfleet.a2a", "version": "0.1", "kind": "message", "message_id": "json-infinity-invalid",
+      "sender": { "namespace": "n", "agent_id": "a" }, "recipients": [{ "namespace": "n", "agent_id": "b" }],
+      "type": "handoff", "issued_at_ms": 1, "payload": { "media_type": "application/json", "body": "{\"value\":Infinity}" }
+    }
+  },
+  {
+    "name": "invalid-json-payload-negative-infinity",
+    "expected": "invalid",
+    "input": {
+      "protocol": "meshfleet.a2a", "version": "0.1", "kind": "message", "message_id": "json-negative-infinity-invalid",
+      "sender": { "namespace": "n", "agent_id": "a" }, "recipients": [{ "namespace": "n", "agent_id": "b" }],
+      "type": "handoff", "issued_at_ms": 1, "payload": { "media_type": "application/json", "body": "{\"value\":-Infinity}" }
+    }
+  },
+  {
+    "name": "raw-nonstandard-nan",
+    "expected": "invalid",
+    "raw_json": "{\"protocol\":\"meshfleet.a2a\",\"version\":\"0.1\",\"kind\":\"message\",\"message_id\":\"raw-nan\",\"sender\":{\"namespace\":\"n\",\"agent_id\":\"a\"},\"recipients\":[{\"namespace\":\"n\",\"agent_id\":\"b\"}],\"type\":\"handoff\",\"issued_at_ms\":1,\"payload\":{\"media_type\":\"text/plain\",\"body\":\"x\"},\"extensions\":{\"value\":NaN}}"
+  },
+  {
+    "name": "raw-nonstandard-infinity",
+    "expected": "invalid",
+    "raw_json": "{\"protocol\":\"meshfleet.a2a\",\"version\":\"0.1\",\"kind\":\"message\",\"message_id\":\"raw-infinity\",\"sender\":{\"namespace\":\"n\",\"agent_id\":\"a\"},\"recipients\":[{\"namespace\":\"n\",\"agent_id\":\"b\"}],\"type\":\"handoff\",\"issued_at_ms\":1,\"payload\":{\"media_type\":\"text/plain\",\"body\":\"x\"},\"extensions\":{\"value\":Infinity}}"
+  },
+  {
+    "name": "raw-nonstandard-negative-infinity",
+    "expected": "invalid",
+    "raw_json": "{\"protocol\":\"meshfleet.a2a\",\"version\":\"0.1\",\"kind\":\"message\",\"message_id\":\"raw-negative-infinity\",\"sender\":{\"namespace\":\"n\",\"agent_id\":\"a\"},\"recipients\":[{\"namespace\":\"n\",\"agent_id\":\"b\"}],\"type\":\"handoff\",\"issued_at_ms\":1,\"payload\":{\"media_type\":\"text/plain\",\"body\":\"x\"},\"extensions\":{\"value\":-Infinity}}"
+  },
+  {
+    "name": "raw-duplicate-top-level-message-id",
+    "expected": "invalid",
+    "raw_json": "{\"protocol\":\"meshfleet.a2a\",\"version\":\"0.1\",\"kind\":\"message\",\"message_id\":\"first\",\"message_id\":\"second\",\"sender\":{\"namespace\":\"n\",\"agent_id\":\"a\"},\"recipients\":[{\"namespace\":\"n\",\"agent_id\":\"b\"}],\"type\":\"handoff\",\"issued_at_ms\":1,\"payload\":{\"media_type\":\"text/plain\",\"body\":\"x\"}}"
+  },
+  {
+    "name": "raw-duplicate-nested-sender-agent-id",
+    "expected": "invalid",
+    "raw_json": "{\"protocol\":\"meshfleet.a2a\",\"version\":\"0.1\",\"kind\":\"message\",\"message_id\":\"nested-duplicate\",\"sender\":{\"namespace\":\"n\",\"agent_id\":\"a\",\"agent_id\":\"forged\"},\"recipients\":[{\"namespace\":\"n\",\"agent_id\":\"b\"}],\"type\":\"handoff\",\"issued_at_ms\":1,\"payload\":{\"media_type\":\"text/plain\",\"body\":\"x\"}}"
+  },
+  {
+    "name": "raw-malformed-truncated-object",
+    "expected": "invalid",
+    "raw_json": "{\"protocol\":\"meshfleet.a2a\",\"version\":\"0.1\""
+  },
+  {
+    "name": "raw-valid-exact-integral-fraction",
+    "expected": "valid",
+    "raw_json": "{\"protocol\":\"meshfleet.a2a\",\"version\":\"0.1\",\"kind\":\"message\",\"message_id\":\"raw-integral-fraction-valid\",\"sender\":{\"namespace\":\"n\",\"agent_id\":\"a\"},\"recipients\":[{\"namespace\":\"n\",\"agent_id\":\"b\"}],\"type\":\"handoff\",\"issued_at_ms\":1,\"payload\":{\"media_type\":\"text/plain\",\"body\":\"x\"},\"extensions\":{\"value\":1.0}}"
+  },
+  {
+    "name": "raw-valid-exact-integral-exponent",
+    "expected": "valid",
+    "raw_json": "{\"protocol\":\"meshfleet.a2a\",\"version\":\"0.1\",\"kind\":\"message\",\"message_id\":\"raw-integral-exponent-valid\",\"sender\":{\"namespace\":\"n\",\"agent_id\":\"a\"},\"recipients\":[{\"namespace\":\"n\",\"agent_id\":\"b\"}],\"type\":\"handoff\",\"issued_at_ms\":1e3,\"payload\":{\"media_type\":\"text/plain\",\"body\":\"x\"}}"
+  },
+  {
+    "name": "raw-decimal-identity-first",
+    "expected": "valid",
+    "raw_json": "{\"protocol\":\"meshfleet.a2a\",\"version\":\"0.1\",\"kind\":\"message\",\"message_id\":\"raw-decimal-identity\",\"sender\":{\"namespace\":\"n\",\"agent_id\":\"a\"},\"recipients\":[{\"namespace\":\"n\",\"agent_id\":\"b\"}],\"type\":\"handoff\",\"issued_at_ms\":1,\"payload\":{\"media_type\":\"text/plain\",\"body\":\"x\"},\"extensions\":{\"value\":0.1}}"
+  },
+  {
+    "name": "raw-decimal-identity-equivalent",
+    "expected": "duplicate",
+    "raw_json": "{\"protocol\":\"meshfleet.a2a\",\"version\":\"0.1\",\"kind\":\"message\",\"message_id\":\"raw-decimal-identity\",\"sender\":{\"namespace\":\"n\",\"agent_id\":\"a\"},\"recipients\":[{\"namespace\":\"n\",\"agent_id\":\"b\"}],\"type\":\"handoff\",\"issued_at_ms\":1,\"payload\":{\"media_type\":\"text/plain\",\"body\":\"x\"},\"extensions\":{\"value\":0.10}}"
+  },
+  {
+    "name": "raw-invalid-fraction-rounds-up-to-safe-integer",
+    "expected": "invalid",
+    "raw_json": "{\"protocol\":\"meshfleet.a2a\",\"version\":\"0.1\",\"kind\":\"message\",\"message_id\":\"round-up-invalid\",\"sender\":{\"namespace\":\"n\",\"agent_id\":\"a\"},\"recipients\":[{\"namespace\":\"n\",\"agent_id\":\"b\"}],\"type\":\"handoff\",\"issued_at_ms\":1,\"payload\":{\"media_type\":\"text/plain\",\"body\":\"x\"},\"extensions\":{\"value\":9007199254740991.1}}"
+  },
+  {
+    "name": "raw-invalid-fraction-rounds-down-to-safe-integer",
+    "expected": "invalid",
+    "raw_json": "{\"protocol\":\"meshfleet.a2a\",\"version\":\"0.1\",\"kind\":\"message\",\"message_id\":\"round-down-invalid\",\"sender\":{\"namespace\":\"n\",\"agent_id\":\"a\"},\"recipients\":[{\"namespace\":\"n\",\"agent_id\":\"b\"}],\"type\":\"handoff\",\"issued_at_ms\":1,\"payload\":{\"media_type\":\"text/plain\",\"body\":\"x\"},\"extensions\":{\"value\":9007199254740990.9}}"
+  },
+  {
+    "name": "raw-invalid-near-one-rounds-to-integer",
+    "expected": "invalid",
+    "raw_json": "{\"protocol\":\"meshfleet.a2a\",\"version\":\"0.1\",\"kind\":\"message\",\"message_id\":\"near-one-invalid\",\"sender\":{\"namespace\":\"n\",\"agent_id\":\"a\"},\"recipients\":[{\"namespace\":\"n\",\"agent_id\":\"b\"}],\"type\":\"handoff\",\"issued_at_ms\":1,\"payload\":{\"media_type\":\"text/plain\",\"body\":\"x\"},\"extensions\":{\"value\":0.99999999999999999}}"
+  },
+  {
+    "name": "raw-invalid-positive-unsafe-integer",
+    "expected": "invalid",
+    "raw_json": "{\"protocol\":\"meshfleet.a2a\",\"version\":\"0.1\",\"kind\":\"message\",\"message_id\":\"raw-positive-unsafe\",\"sender\":{\"namespace\":\"n\",\"agent_id\":\"a\"},\"recipients\":[{\"namespace\":\"n\",\"agent_id\":\"b\"}],\"type\":\"handoff\",\"issued_at_ms\":1,\"payload\":{\"media_type\":\"text/plain\",\"body\":\"x\"},\"extensions\":{\"value\":9007199254740992}}"
+  },
+  {
+    "name": "raw-invalid-negative-unsafe-integer",
+    "expected": "invalid",
+    "raw_json": "{\"protocol\":\"meshfleet.a2a\",\"version\":\"0.1\",\"kind\":\"message\",\"message_id\":\"raw-negative-unsafe\",\"sender\":{\"namespace\":\"n\",\"agent_id\":\"a\"},\"recipients\":[{\"namespace\":\"n\",\"agent_id\":\"b\"}],\"type\":\"handoff\",\"issued_at_ms\":1,\"payload\":{\"media_type\":\"text/plain\",\"body\":\"x\"},\"extensions\":{\"value\":-9007199254740992}}"
+  },
+  {
+    "name": "raw-invalid-unsafe-integral-fraction",
+    "expected": "invalid",
+    "raw_json": "{\"protocol\":\"meshfleet.a2a\",\"version\":\"0.1\",\"kind\":\"message\",\"message_id\":\"raw-unsafe-fraction\",\"sender\":{\"namespace\":\"n\",\"agent_id\":\"a\"},\"recipients\":[{\"namespace\":\"n\",\"agent_id\":\"b\"}],\"type\":\"handoff\",\"issued_at_ms\":1,\"payload\":{\"media_type\":\"text/plain\",\"body\":\"x\"},\"extensions\":{\"value\":9007199254740992.0}}"
+  },
+  {
+    "name": "raw-invalid-unsafe-integral-exponent",
+    "expected": "invalid",
+    "raw_json": "{\"protocol\":\"meshfleet.a2a\",\"version\":\"0.1\",\"kind\":\"message\",\"message_id\":\"raw-unsafe-exponent\",\"sender\":{\"namespace\":\"n\",\"agent_id\":\"a\"},\"recipients\":[{\"namespace\":\"n\",\"agent_id\":\"b\"}],\"type\":\"handoff\",\"issued_at_ms\":1,\"payload\":{\"media_type\":\"text/plain\",\"body\":\"x\"},\"extensions\":{\"value\":9007199254740992e0}}"
+  },
+  {
+    "name": "valid-json-payload-depth-64",
+    "expected": "valid",
+    "input": {
+      "protocol": "meshfleet.a2a", "version": "0.1", "kind": "message", "message_id": "json-depth-64-valid",
+      "sender": { "namespace": "n", "agent_id": "a" }, "recipients": [{ "namespace": "n", "agent_id": "b" }],
+      "type": "handoff", "issued_at_ms": 1,
+      "payload": { "media_type": "application/json", "body": { "$fixture": "json_depth", "depth": 64 } }
+    }
+  },
+  {
+    "name": "invalid-json-payload-depth-65",
+    "expected": "invalid",
+    "input": {
+      "protocol": "meshfleet.a2a", "version": "0.1", "kind": "message", "message_id": "json-depth-65-invalid",
+      "sender": { "namespace": "n", "agent_id": "a" }, "recipients": [{ "namespace": "n", "agent_id": "b" }],
+      "type": "handoff", "issued_at_ms": 1,
+      "payload": { "media_type": "application/json", "body": { "$fixture": "json_depth", "depth": 65 } }
+    }
+  },
+  {
+    "name": "invalid-json-payload-duplicate-nested-key",
+    "expected": "invalid",
+    "input": {
+      "protocol": "meshfleet.a2a", "version": "0.1", "kind": "message", "message_id": "json-duplicate-nested-invalid",
+      "sender": { "namespace": "n", "agent_id": "a" }, "recipients": [{ "namespace": "n", "agent_id": "b" }],
+      "type": "handoff", "issued_at_ms": 1,
+      "payload": { "media_type": "application/json", "body": "{\"nested\":{\"authority\":false,\"authority\":true}}" }
+    }
+  },
+  {
+    "name": "invalid-plus-json-payload-duplicate-nested-key",
+    "expected": "invalid",
+    "input": {
+      "protocol": "meshfleet.a2a", "version": "0.1", "kind": "message", "message_id": "plus-json-duplicate-invalid",
+      "sender": { "namespace": "n", "agent_id": "a" }, "recipients": [{ "namespace": "n", "agent_id": "b" }],
+      "type": "handoff", "issued_at_ms": 1,
+      "payload": { "media_type": "application/problem+json", "body": "{\"nested\":{\"code\":1,\"code\":2}}" }
+    }
+  },
+  {
+    "name": "valid-safe-integer-boundaries",
+    "expected": "valid",
+    "input": {
+      "protocol": "meshfleet.a2a", "version": "0.1", "kind": "message", "message_id": "safe-integer-boundaries-valid",
+      "sender": { "namespace": "n", "agent_id": "a" }, "recipients": [{ "namespace": "n", "agent_id": "b" }],
+      "type": "handoff", "issued_at_ms": 9007199254740991,
+      "payload": { "media_type": "text/plain", "body": "x" },
+      "extensions": { "minimum": -9007199254740991, "maximum": 9007199254740991 }
+    }
+  },
+  {
+    "name": "invalid-positive-unsafe-integer",
+    "expected": "invalid",
+    "input": {
+      "protocol": "meshfleet.a2a", "version": "0.1", "kind": "message", "message_id": "positive-unsafe-invalid",
+      "sender": { "namespace": "n", "agent_id": "a" }, "recipients": [{ "namespace": "n", "agent_id": "b" }],
+      "type": "handoff", "issued_at_ms": 1, "payload": { "media_type": "text/plain", "body": "x" },
+      "extensions": { "value": { "$fixture": "number", "value": "9007199254740992" } }
+    }
+  },
+  {
+    "name": "invalid-negative-unsafe-integer",
+    "expected": "invalid",
+    "input": {
+      "protocol": "meshfleet.a2a", "version": "0.1", "kind": "message", "message_id": "negative-unsafe-invalid",
+      "sender": { "namespace": "n", "agent_id": "a" }, "recipients": [{ "namespace": "n", "agent_id": "b" }],
+      "type": "handoff", "issued_at_ms": 1, "payload": { "media_type": "text/plain", "body": "x" },
+      "extensions": { "value": { "$fixture": "number", "value": "-9007199254740992" } }
+    }
+  },
+  {
+    "name": "invalid-adjacent-unsafe-integer-a",
+    "expected": "invalid",
+    "input": {
+      "protocol": "meshfleet.a2a", "version": "0.1", "kind": "message", "message_id": "adjacent-unsafe-a-invalid",
+      "sender": { "namespace": "n", "agent_id": "a" }, "recipients": [{ "namespace": "n", "agent_id": "b" }],
+      "type": "handoff", "issued_at_ms": 1, "payload": { "media_type": "text/plain", "body": "x" },
+      "extensions": { "value": { "$fixture": "number", "value": "9007199254740992" } }
+    }
+  },
+  {
+    "name": "invalid-adjacent-unsafe-integer-b",
+    "expected": "invalid",
+    "input": {
+      "protocol": "meshfleet.a2a", "version": "0.1", "kind": "message", "message_id": "adjacent-unsafe-b-invalid",
+      "sender": { "namespace": "n", "agent_id": "a" }, "recipients": [{ "namespace": "n", "agent_id": "b" }],
+      "type": "handoff", "issued_at_ms": 1, "payload": { "media_type": "text/plain", "body": "x" },
+      "extensions": { "value": { "$fixture": "number", "value": "9007199254740993" } }
+    }
+  },
+  {
+    "name": "valid-finite-fraction-and-negative-zero",
+    "expected": "valid",
+    "input": {
+      "protocol": "meshfleet.a2a", "version": "0.1", "kind": "message", "message_id": "fraction-negative-zero-valid",
+      "sender": { "namespace": "n", "agent_id": "a" }, "recipients": [{ "namespace": "n", "agent_id": "b" }],
+      "type": "handoff", "issued_at_ms": 1, "payload": { "media_type": "text/plain", "body": "x" },
+      "extensions": { "fraction": 1.25, "negative_zero": -0 }
+    }
+  },
+  {
+    "name": "invalid-exponent-unsafe-integral",
+    "expected": "invalid",
+    "input": {
+      "protocol": "meshfleet.a2a", "version": "0.1", "kind": "message", "message_id": "exponent-unsafe-invalid",
+      "sender": { "namespace": "n", "agent_id": "a" }, "recipients": [{ "namespace": "n", "agent_id": "b" }],
+      "type": "handoff", "issued_at_ms": 1, "payload": { "media_type": "text/plain", "body": "x" },
+      "extensions": { "value": { "$fixture": "number", "value": "9.007199254740992e15" } }
+    }
+  },
+  {
+    "name": "invalid-overflow-number",
+    "expected": "invalid",
+    "input": {
+      "protocol": "meshfleet.a2a", "version": "0.1", "kind": "message", "message_id": "overflow-invalid",
+      "sender": { "namespace": "n", "agent_id": "a" }, "recipients": [{ "namespace": "n", "agent_id": "b" }],
+      "type": "handoff", "issued_at_ms": 1, "payload": { "media_type": "text/plain", "body": "x" },
+      "extensions": { "value": { "$fixture": "number", "value": "1e309" } }
+    }
+  },
+  {
+    "name": "invalid-unsafe-timestamp",
+    "expected": "invalid",
+    "input": {
+      "protocol": "meshfleet.a2a", "version": "0.1", "kind": "message", "message_id": "timestamp-unsafe-invalid",
+      "sender": { "namespace": "n", "agent_id": "a" }, "recipients": [{ "namespace": "n", "agent_id": "b" }],
+      "type": "handoff", "issued_at_ms": { "$fixture": "number", "value": "9007199254740992" },
+      "payload": { "media_type": "text/plain", "body": "x" }
+    }
+  },
+  {
+    "name": "legacy-direct-mapping",
+    "kind": "legacy_mapping",
+    "expected": "mapping",
+    "input": {
+      "id": "legacy-direct-corpus",
+      "from_agent_id": "agent-a",
+      "to_agent_id": "agent-b",
+      "fleet_id": "fleet-corpus",
+      "type": "question",
+      "payload": "Question from the legacy surface.",
+      "timestamp": 123,
+      "correlation_id": "correlation-corpus"
+    },
+    "options": { "namespace": "mesh-local" },
+    "expected_mapping": {
+      "envelope": {
+        "protocol": "meshfleet.a2a",
+        "version": "0.1",
+        "kind": "message",
+        "message_id": "legacy-direct-corpus",
+        "sender": { "namespace": "mesh-local", "agent_id": "agent-a" },
+        "recipients": [{ "namespace": "mesh-local", "agent_id": "agent-b" }],
+        "type": "question",
+        "issued_at_ms": 123,
+        "correlation_id": "correlation-corpus",
+        "payload": { "media_type": "text/plain", "body": "Question from the legacy surface." },
+        "scope": { "fleet_id": "fleet-corpus" }
+      },
+      "recipients": ["agent-b"],
+      "projection": {
+        "id": "legacy-direct-corpus",
+        "from_agent_id": "agent-a",
+        "to_agent_id": "agent-b",
+        "fleet_id": "fleet-corpus",
+        "type": "question",
+        "payload": "Question from the legacy surface.",
+        "correlation_id": "correlation-corpus",
+        "timestamp": 123,
+        "acknowledged": false
+      }
+    }
+  },
+  {
+    "name": "legacy-broadcast-mapping",
+    "kind": "legacy_mapping",
+    "expected": "mapping",
+    "input": {
+      "id": "legacy-broadcast-corpus",
+      "from_agent_id": "agent-a",
+      "to_agent_id": "*",
+      "fleet_id": "fleet-corpus",
+      "type": "alert",
+      "payload": "Broadcast from the legacy surface.",
+      "timestamp": 456
+    },
+    "options": {
+      "namespace": "mesh-local",
+      "broadcast_recipients": ["agent-c", "agent-b"]
+    },
+    "expected_mapping": {
+      "envelope": {
+        "protocol": "meshfleet.a2a",
+        "version": "0.1",
+        "kind": "message",
+        "message_id": "legacy-broadcast-corpus",
+        "sender": { "namespace": "mesh-local", "agent_id": "agent-a" },
+        "recipients": [
+          { "namespace": "mesh-local", "agent_id": "agent-c" },
+          { "namespace": "mesh-local", "agent_id": "agent-b" }
+        ],
+        "type": "alert",
+        "issued_at_ms": 456,
+        "payload": { "media_type": "text/plain", "body": "Broadcast from the legacy surface." },
+        "scope": { "fleet_id": "fleet-corpus" }
+      },
+      "recipients": ["agent-c", "agent-b"],
+      "projection": {
+        "id": "legacy-broadcast-corpus",
+        "from_agent_id": "agent-a",
+        "to_agent_id": "*",
+        "fleet_id": "fleet-corpus",
+        "type": "alert",
+        "payload": "Broadcast from the legacy surface.",
+        "timestamp": 456,
+        "acknowledged": false,
+        "recipients": ["agent-c", "agent-b"]
+      }
+    }
+  }
+]

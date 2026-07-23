@@ -1,0 +1,107 @@
+{
+  "format": "meshfleet.a2a.ingress-contract/v0.1",
+  "label": "deterministic-policy-input-only-not-authentication-or-delivery",
+  "cases": [
+    {
+      "name": "accepted-new-and-request-replay",
+      "policy": {"bindings":{"principal-a":{"namespace":"mesh-local","agent_id":"agent-a"}},"grants":{"principal-a":{"recipients":[["mesh-local","agent-b"]],"types":["handoff"],"audiences":["mesh-local"]}}},
+      "steps": [
+        {"principal_id":"principal-a","request_id":"request-1","now_ms":100,"envelope":{"protocol":"meshfleet.a2a","version":"0.1","kind":"message","message_id":"message-1","sender":{"namespace":"mesh-local","agent_id":"agent-a"},"recipients":[{"namespace":"mesh-local","agent_id":"agent-b"}],"type":"handoff","issued_at_ms":1,"payload":{"media_type":"text/plain","body":"safe"}},"expected":{"disposition":"accepted","code":"accepted","replayed_request":false,"state":{"messages":1,"requests":1,"deliveries":1}}},
+        {"principal_id":"principal-a","request_id":"request-1","now_ms":1000,"envelope":{"protocol":"meshfleet.a2a","version":"0.1","kind":"message","message_id":"message-1","sender":{"namespace":"mesh-local","agent_id":"agent-a"},"recipients":[{"namespace":"mesh-local","agent_id":"agent-b"}],"type":"handoff","issued_at_ms":1,"payload":{"media_type":"text/plain","body":"safe"}},"expected":{"disposition":"replayed_request","code":"replayed_request","replayed_request":true,"state":{"messages":1,"requests":1,"deliveries":1}}}
+      ]
+    },
+    {
+      "name": "semantic-duplicate-and-message-conflict",
+      "policy": {"bindings":{"principal-a":{"namespace":"mesh-local","agent_id":"agent-a"}},"grants":{"principal-a":{"recipients":[["mesh-local","agent-b"]],"types":["handoff"],"audiences":[]}}},
+      "steps": [
+        {"principal_id":"principal-a","request_id":"request-1","now_ms":100,"envelope":{"protocol":"meshfleet.a2a","version":"0.1","kind":"message","message_id":"message-1","sender":{"namespace":"mesh-local","agent_id":"agent-a"},"recipients":[{"namespace":"mesh-local","agent_id":"agent-b"}],"type":"handoff","issued_at_ms":1,"payload":{"media_type":"text/plain","body":"same"}},"expected":{"disposition":"accepted","code":"accepted"}},
+        {"principal_id":"principal-a","request_id":"request-2","now_ms":100,"envelope":{"protocol":"meshfleet.a2a","version":"0.1","kind":"message","message_id":"message-1","sender":{"namespace":"mesh-local","agent_id":"agent-a"},"recipients":[{"namespace":"mesh-local","agent_id":"agent-b"}],"type":"handoff","issued_at_ms":1,"payload":{"media_type":"text/plain","body":"same"}},"expected":{"disposition":"duplicate","code":"duplicate","state":{"messages":1,"requests":2,"deliveries":1}}},
+        {"principal_id":"principal-a","request_id":"request-3","now_ms":100,"envelope":{"protocol":"meshfleet.a2a","version":"0.1","kind":"message","message_id":"message-1","sender":{"namespace":"mesh-local","agent_id":"agent-a"},"recipients":[{"namespace":"mesh-local","agent_id":"agent-b"}],"type":"handoff","issued_at_ms":1,"payload":{"media_type":"text/plain","body":"changed"}},"expected":{"disposition":"conflict","code":"message_id_conflict","state":{"messages":1,"requests":2,"deliveries":1}}}
+      ]
+    },
+    {
+      "name": "request-id-reuse-and-dedupe-key-is-content-only",
+      "policy": {"bindings":{"principal-a":{"namespace":"mesh-local","agent_id":"agent-a"}},"grants":{"principal-a":{"recipients":[["mesh-local","agent-b"]],"types":["handoff"],"audiences":[]}}},
+      "steps": [
+        {"principal_id":"principal-a","request_id":"request-1","now_ms":100,"envelope":{"protocol":"meshfleet.a2a","version":"0.1","kind":"message","message_id":"message-1","sender":{"namespace":"mesh-local","agent_id":"agent-a"},"recipients":[{"namespace":"mesh-local","agent_id":"agent-b"}],"type":"handoff","issued_at_ms":1,"dedupe_key":"shared","payload":{"media_type":"text/plain","body":"one"}},"expected":{"disposition":"accepted","code":"accepted"}},
+        {"principal_id":"principal-a","request_id":"request-1","now_ms":100,"envelope":{"protocol":"meshfleet.a2a","version":"0.1","kind":"message","message_id":"message-2","sender":{"namespace":"mesh-local","agent_id":"agent-a"},"recipients":[{"namespace":"mesh-local","agent_id":"agent-b"}],"type":"handoff","issued_at_ms":1,"dedupe_key":"shared","payload":{"media_type":"text/plain","body":"two"}},"expected":{"disposition":"conflict","code":"request_id_reuse"}},
+        {"principal_id":"principal-a","request_id":"request-2","now_ms":100,"envelope":{"protocol":"meshfleet.a2a","version":"0.1","kind":"message","message_id":"message-2","sender":{"namespace":"mesh-local","agent_id":"agent-a"},"recipients":[{"namespace":"mesh-local","agent_id":"agent-b"}],"type":"handoff","issued_at_ms":1,"dedupe_key":"shared","payload":{"media_type":"text/plain","body":"two"}},"expected":{"disposition":"accepted","code":"accepted","state":{"messages":2,"requests":2,"deliveries":2}}}
+      ]
+    },
+    {
+      "name": "recipient-order-is-duplicate-and-no-metadata-expansion",
+      "policy": {"bindings":{"principal-a":{"namespace":"mesh-local","agent_id":"agent-a"}},"grants":{"principal-a":{"recipients":[["mesh-local","agent-b"],["mesh-local","agent-c"]],"types":["handoff"],"audiences":["mesh-local"]}}},
+      "steps": [
+        {"principal_id":"principal-a","request_id":"request-1","now_ms":100,"envelope":{"protocol":"meshfleet.a2a","version":"0.1","kind":"message","message_id":"message-1","sender":{"namespace":"mesh-local","agent_id":"agent-a"},"recipients":[{"namespace":"mesh-local","agent_id":"agent-c"},{"namespace":"mesh-local","agent_id":"agent-b"}],"type":"handoff","issued_at_ms":1,"audience":"mesh-local","scope":{"fleet_id":"unrelated"},"payload":{"media_type":"text/plain","body":"two"}},"expected":{"disposition":"accepted","code":"accepted","state":{"messages":1,"requests":1,"deliveries":2}}},
+        {"principal_id":"principal-a","request_id":"request-2","now_ms":100,"envelope":{"protocol":"meshfleet.a2a","version":"0.1","kind":"message","message_id":"message-1","sender":{"namespace":"mesh-local","agent_id":"agent-a"},"recipients":[{"namespace":"mesh-local","agent_id":"agent-b"},{"namespace":"mesh-local","agent_id":"agent-c"}],"type":"handoff","issued_at_ms":1,"audience":"mesh-local","scope":{"fleet_id":"unrelated"},"payload":{"media_type":"text/plain","body":"two"}},"expected":{"disposition":"duplicate","code":"duplicate","state":{"messages":1,"requests":2,"deliveries":2}}}
+      ]
+    },
+    {
+      "name": "malformed-and-expiry-behavior",
+      "policy": {"bindings":{"principal-a":{"namespace":"mesh-local","agent_id":"agent-a"}},"grants":{"principal-a":{"recipients":[["mesh-local","agent-b"]],"types":["handoff"],"audiences":[]}}},
+      "steps": [
+        {"principal_id":"principal-a","request_id":"request-wildcard","now_ms":100,"envelope":{"protocol":"meshfleet.a2a","version":"0.1","kind":"message","message_id":"wild","sender":{"namespace":"mesh-local","agent_id":"agent-a"},"recipients":[{"namespace":"mesh-local","agent_id":"*"}],"type":"handoff","issued_at_ms":1,"payload":{"media_type":"text/plain","body":"x"}},"expected":{"disposition":"rejected","code":"malformed_envelope","state":{"messages":0,"requests":0,"deliveries":0}}},
+        {"principal_id":"principal-a","request_id":"request-duplicate","now_ms":100,"envelope":{"protocol":"meshfleet.a2a","version":"0.1","kind":"message","message_id":"dup","sender":{"namespace":"mesh-local","agent_id":"agent-a"},"recipients":[{"namespace":"mesh-local","agent_id":"agent-b"},{"namespace":"mesh-local","agent_id":"agent-b"}],"type":"handoff","issued_at_ms":1,"payload":{"media_type":"text/plain","body":"x"}},"expected":{"disposition":"rejected","code":"malformed_envelope"}},
+        {"principal_id":"principal-a","request_id":"request-expired","now_ms":100,"envelope":{"protocol":"meshfleet.a2a","version":"0.1","kind":"message","message_id":"expired","sender":{"namespace":"mesh-local","agent_id":"agent-a"},"recipients":[{"namespace":"mesh-local","agent_id":"agent-b"}],"type":"handoff","issued_at_ms":1,"expires_at_ms":99,"payload":{"media_type":"text/plain","body":"x"}},"expected":{"disposition":"rejected","code":"expired_at_acceptance","state":{"messages":0,"requests":0,"deliveries":0}}},
+        {"principal_id":"principal-a","request_id":"request-live","now_ms":50,"envelope":{"protocol":"meshfleet.a2a","version":"0.1","kind":"message","message_id":"later-expired","sender":{"namespace":"mesh-local","agent_id":"agent-a"},"recipients":[{"namespace":"mesh-local","agent_id":"agent-b"}],"type":"handoff","issued_at_ms":1,"expires_at_ms":99,"payload":{"media_type":"text/plain","body":"x"}},"expected":{"disposition":"accepted","code":"accepted"}},
+        {"principal_id":"principal-a","request_id":"request-later","now_ms":1000,"envelope":{"protocol":"meshfleet.a2a","version":"0.1","kind":"message","message_id":"later-expired","sender":{"namespace":"mesh-local","agent_id":"agent-a"},"recipients":[{"namespace":"mesh-local","agent_id":"agent-b"}],"type":"handoff","issued_at_ms":1,"expires_at_ms":99,"payload":{"media_type":"text/plain","body":"x"}},"expected":{"disposition":"duplicate","code":"duplicate","state":{"messages":1,"requests":2,"deliveries":1}}}
+      ]
+    },
+    {
+      "name": "binding-and-authorization-precede-identity",
+      "policy": {"bindings":{"principal-a":{"namespace":"mesh-local","agent_id":"agent-a"},"principal-b":{"namespace":"mesh-local","agent_id":"agent-b"}},"grants":{"principal-a":{"recipients":[["mesh-local","agent-b"]],"types":["handoff"],"audiences":[]},"principal-b":{"recipients":[],"types":[],"audiences":[]}}},
+      "steps": [
+        {"principal_id":"principal-a","request_id":"request-1","now_ms":1,"envelope":{"protocol":"meshfleet.a2a","version":"0.1","kind":"message","message_id":"message-1","sender":{"namespace":"mesh-local","agent_id":"agent-a"},"recipients":[{"namespace":"mesh-local","agent_id":"agent-b"}],"type":"handoff","issued_at_ms":1,"payload":{"media_type":"text/plain","body":"x"}},"expected":{"disposition":"accepted","code":"accepted"}},
+        {"principal_id":"principal-b","request_id":"request-2","now_ms":1,"envelope":{"protocol":"meshfleet.a2a","version":"0.1","kind":"message","message_id":"message-1","sender":{"namespace":"mesh-local","agent_id":"agent-a"},"recipients":[{"namespace":"mesh-local","agent_id":"agent-b"}],"type":"handoff","issued_at_ms":1,"payload":{"media_type":"text/plain","body":"x"}},"expected":{"disposition":"rejected","code":"AUTHORIZATION_DENIED"}},
+        {"principal_id":"unknown","request_id":"request-3","now_ms":1,"envelope":{"protocol":"meshfleet.a2a","version":"0.1","kind":"message","message_id":"message-1","sender":{"namespace":"mesh-local","agent_id":"agent-a"},"recipients":[{"namespace":"mesh-local","agent_id":"agent-b"}],"type":"handoff","issued_at_ms":1,"payload":{"media_type":"text/plain","body":"x"}},"expected":{"disposition":"rejected","code":"AUTHORIZATION_DENIED"}},
+        {"request_id":"request-4","now_ms":1,"envelope":{"protocol":"meshfleet.a2a","version":"0.1","kind":"message","message_id":"message-1","sender":{"namespace":"mesh-local","agent_id":"agent-a"},"recipients":[{"namespace":"mesh-local","agent_id":"agent-b"}],"type":"handoff","issued_at_ms":1,"payload":{"media_type":"text/plain","body":"x"}},"expected":{"disposition":"rejected","code":"principal_context_required"}},
+        {"principal_id":"principal-a","request_id":"request-5","now_ms":1,"envelope":{"protocol":"meshfleet.a2a","version":"0.1","kind":"message","message_id":"message-2","sender":{"namespace":"mesh-local","agent_id":"agent-a"},"recipients":[{"namespace":"mesh-local","agent_id":"agent-b"},{"namespace":"mesh-local","agent_id":"agent-c"}],"type":"handoff","issued_at_ms":1,"payload":{"media_type":"text/plain","body":"x"}},"expected":{"disposition":"rejected","code":"AUTHORIZATION_DENIED","state":{"messages":1,"requests":1,"deliveries":1}}}
+      ]
+    },
+    {
+      "name": "extensions-cannot-create-authority-and-transaction-is-atomic",
+      "policy": {"bindings":{"principal-a":{"namespace":"mesh-local","agent_id":"agent-a"}},"grants":{"principal-a":{"recipients":[["mesh-local","agent-b"]],"types":["handoff"],"audiences":[]}}},
+      "steps": [
+        {"principal_id":"principal-a","request_id":"request-authority","now_ms":1,"envelope":{"protocol":"meshfleet.a2a","version":"0.1","kind":"message","message_id":"authority","sender":{"namespace":"mesh-local","agent_id":"agent-a"},"recipients":[{"namespace":"mesh-local","agent_id":"agent-b"}],"type":"alert","issued_at_ms":1,"payload":{"media_type":"text/plain","body":"x"},"extensions":{"grant":"handoff","capability":"alert","receipt":"accepted"}},"expected":{"disposition":"rejected","code":"AUTHORIZATION_DENIED","state":{"messages":0,"requests":0,"deliveries":0}}},
+        {"principal_id":"principal-a","request_id":"request-rollback","now_ms":1,"inject_failure":true,"envelope":{"protocol":"meshfleet.a2a","version":"0.1","kind":"message","message_id":"atomic","sender":{"namespace":"mesh-local","agent_id":"agent-a"},"recipients":[{"namespace":"mesh-local","agent_id":"agent-b"}],"type":"handoff","issued_at_ms":1,"payload":{"media_type":"text/plain","body":"x"}},"expected":{"disposition":"rejected","code":"ingress_storage_unavailable","state":{"messages":0,"requests":0,"deliveries":0}}},
+        {"principal_id":"principal-a","request_id":"request-rollback","now_ms":1,"envelope":{"protocol":"meshfleet.a2a","version":"0.1","kind":"message","message_id":"atomic","sender":{"namespace":"mesh-local","agent_id":"agent-a"},"recipients":[{"namespace":"mesh-local","agent_id":"agent-b"}],"type":"handoff","issued_at_ms":1,"payload":{"media_type":"text/plain","body":"x"}},"expected":{"disposition":"accepted","code":"accepted","state":{"messages":1,"requests":1,"deliveries":1}}}
+      ]
+    },
+    {
+      "name": "raw-json-duplicate-members-fail-before-policy",
+      "policy": {"bindings":{"principal-a":{"namespace":"mesh-local","agent_id":"agent-a"}},"grants":{"principal-a":{"recipients":[["mesh-local","agent-b"]],"types":["handoff"],"audiences":[]}}},
+      "steps": [
+        {"raw_json":"{\"principal_id\":\"principal-a\",\"request_id\":\"first\",\"request_id\":\"second\",\"now_ms\":1,\"envelope\":{\"protocol\":\"meshfleet.a2a\",\"version\":\"0.1\",\"kind\":\"message\",\"message_id\":\"raw-request\",\"sender\":{\"namespace\":\"mesh-local\",\"agent_id\":\"agent-a\"},\"recipients\":[{\"namespace\":\"mesh-local\",\"agent_id\":\"agent-b\"}],\"type\":\"handoff\",\"issued_at_ms\":1,\"payload\":{\"media_type\":\"text/plain\",\"body\":\"x\"}}}","expected":{"disposition":"rejected","code":"malformed_envelope","state":{"messages":0,"requests":0,"deliveries":0}}},
+        {"raw_json":"{\"principal_id\":\"principal-a\",\"request_id\":\"nested\",\"now_ms\":1,\"envelope\":{\"protocol\":\"meshfleet.a2a\",\"version\":\"0.1\",\"kind\":\"message\",\"message_id\":\"raw-sender\",\"sender\":{\"namespace\":\"mesh-local\",\"agent_id\":\"agent-a\",\"agent_id\":\"forged\"},\"recipients\":[{\"namespace\":\"mesh-local\",\"agent_id\":\"agent-b\"}],\"type\":\"handoff\",\"issued_at_ms\":1,\"payload\":{\"media_type\":\"text/plain\",\"body\":\"x\"}}}","expected":{"disposition":"rejected","code":"malformed_envelope","state":{"messages":0,"requests":0,"deliveries":0}}},
+        {"raw_json":"{\"principal_id\":\"principal-a\",\"request_id\":\"nan\",\"now_ms\":NaN,\"envelope\":{}}","expected":{"disposition":"rejected","code":"malformed_envelope","state":{"messages":0,"requests":0,"deliveries":0}}},
+        {"raw_json":"{\"principal_id\":\"principal-a\",\"request_id\":\"infinity\",\"now_ms\":Infinity,\"envelope\":{}}","expected":{"disposition":"rejected","code":"malformed_envelope","state":{"messages":0,"requests":0,"deliveries":0}}},
+        {"raw_json":"{\"principal_id\":\"principal-a\",\"request_id\":\"negative-infinity\",\"now_ms\":-Infinity,\"envelope\":{}}","expected":{"disposition":"rejected","code":"malformed_envelope","state":{"messages":0,"requests":0,"deliveries":0}}}
+      ]
+    },
+    {
+      "name": "current-policy-revocation-precedes-request-replay",
+      "policy": {"bindings":{"principal-a":{"namespace":"mesh-local","agent_id":"agent-a"}},"grants":{"principal-a":{"recipients":[["mesh-local","agent-b"]],"types":["handoff"],"audiences":[]}}},
+      "steps": [
+        {"principal_id":"principal-a","request_id":"request-revoked","now_ms":1,"envelope":{"protocol":"meshfleet.a2a","version":"0.1","kind":"message","message_id":"message-revoked","sender":{"namespace":"mesh-local","agent_id":"agent-a"},"recipients":[{"namespace":"mesh-local","agent_id":"agent-b"}],"type":"handoff","issued_at_ms":1,"payload":{"media_type":"text/plain","body":"x"}},"expected":{"disposition":"accepted","code":"accepted","state":{"messages":1,"requests":1,"deliveries":1}}},
+        {"policy":{"bindings":{"principal-a":{"namespace":"mesh-local","agent_id":"agent-a"}},"grants":{}},"principal_id":"principal-a","request_id":"request-revoked","now_ms":2,"envelope":{"protocol":"meshfleet.a2a","version":"0.1","kind":"message","message_id":"message-revoked","sender":{"namespace":"mesh-local","agent_id":"agent-a"},"recipients":[{"namespace":"mesh-local","agent_id":"agent-b"}],"type":"handoff","issued_at_ms":1,"payload":{"media_type":"text/plain","body":"x"}},"expected":{"disposition":"rejected","code":"AUTHORIZATION_DENIED","state":{"messages":1,"requests":1,"deliveries":1}}}
+      ]
+    },
+    {
+      "name": "authorization-details-are-non-enumerating",
+      "policy": {"bindings":{"principal-a":{"namespace":"mesh-local","agent_id":"agent-a"}},"grants":{"principal-a":{"recipients":[["mesh-local","agent-b"]],"types":["handoff"],"audiences":["allowed"]}}},
+      "steps": [
+        {"principal_id":"principal-a","request_id":"type-denied","now_ms":1,"envelope":{"protocol":"meshfleet.a2a","version":"0.1","kind":"message","message_id":"type-denied","sender":{"namespace":"mesh-local","agent_id":"agent-a"},"recipients":[{"namespace":"mesh-local","agent_id":"agent-b"}],"type":"alert","issued_at_ms":1,"payload":{"media_type":"text/plain","body":"x"}},"expected":{"disposition":"rejected","code":"AUTHORIZATION_DENIED"}},
+        {"principal_id":"principal-a","request_id":"audience-denied","now_ms":1,"envelope":{"protocol":"meshfleet.a2a","version":"0.1","kind":"message","message_id":"audience-denied","sender":{"namespace":"mesh-local","agent_id":"agent-a"},"recipients":[{"namespace":"mesh-local","agent_id":"agent-b"}],"type":"handoff","issued_at_ms":1,"audience":"denied","payload":{"media_type":"text/plain","body":"x"}},"expected":{"disposition":"rejected","code":"AUTHORIZATION_DENIED"}},
+        {"principal_id":"principal-a","request_id":"recipient-denied","now_ms":1,"envelope":{"protocol":"meshfleet.a2a","version":"0.1","kind":"message","message_id":"recipient-denied","sender":{"namespace":"mesh-local","agent_id":"agent-a"},"recipients":[{"namespace":"mesh-local","agent_id":"agent-c"}],"type":"handoff","issued_at_ms":1,"payload":{"media_type":"text/plain","body":"x"}},"expected":{"disposition":"rejected","code":"AUTHORIZATION_DENIED","state":{"messages":0,"requests":0,"deliveries":0}}}
+      ]
+    },
+    {
+      "name": "contract-validation-and-storage-codes",
+      "policy": {"bindings":{"principal-a":{"namespace":"mesh-local","agent_id":"agent-a"}},"grants":{"principal-a":{"recipients":[["mesh-local","agent-b"]],"types":["handoff"],"audiences":[]}}},
+      "steps": [
+        {"principal_id":"principal-a","request_id":"version","now_ms":1,"envelope":{"protocol":"meshfleet.a2a","version":"0.2","kind":"message","message_id":"version","sender":{"namespace":"mesh-local","agent_id":"agent-a"},"recipients":[{"namespace":"mesh-local","agent_id":"agent-b"}],"type":"handoff","issued_at_ms":1,"payload":{"media_type":"text/plain","body":"x"}},"expected":{"disposition":"rejected","code":"unsupported_version"}},
+        {"principal_id":"principal-a","request_id":"","now_ms":1,"envelope":{"protocol":"meshfleet.a2a","version":"0.1","kind":"message","message_id":"request-invalid","sender":{"namespace":"mesh-local","agent_id":"agent-a"},"recipients":[{"namespace":"mesh-local","agent_id":"agent-b"}],"type":"handoff","issued_at_ms":1,"payload":{"media_type":"text/plain","body":"x"}},"expected":{"disposition":"rejected","code":"request_id_invalid","state":{"messages":0,"requests":0,"deliveries":0}}}
+      ]
+    }
+  ]
+}

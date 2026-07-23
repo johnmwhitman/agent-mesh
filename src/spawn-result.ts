@@ -11,6 +11,8 @@ export interface SpawnResultClassification {
   stderr: string;
   error?: string;
   warning?: string;
+  runtime_agent?: string;
+  runtime_model?: string;
 }
 
 const ANSI_ESCAPE = /\x1b\[[0-?]*[ -/]*[@-~]/g;
@@ -21,6 +23,16 @@ const PROVIDER_DIAGNOSTIC = /(?:ProviderModelNotFoundError|ProviderAuthError|Aut
 interface DiagnosticAttribution {
   model?: string;
   provider?: string;
+}
+
+export function runtimeModelsMatch(expected?: string, observed?: string): boolean {
+  if (!expected || !observed) return false;
+  const expectedValue = expected.toLowerCase();
+  const observedValue = observed.toLowerCase();
+  if (expectedValue.includes("/") && observedValue.includes("/")) {
+    return expectedValue === observedValue;
+  }
+  return expectedValue.split("/").at(-1) === observedValue.split("/").at(-1);
 }
 
 function runtimeBanner(stderr: string): { agent: string; model: string } | undefined {
@@ -57,7 +69,7 @@ function isRuntimeDiagnostic(
   }
 
   if (attribution.model) {
-    return attribution.model === runtimeModel || attribution.model === runtimeModelName;
+    return runtimeModelsMatch(attribution.model, runtimeModel) || attribution.model === runtimeModelName;
   }
   if (attribution.provider) return attribution.provider === runtimeProvider;
   return true;
@@ -66,7 +78,9 @@ function isRuntimeDiagnostic(
 export function classifySpawnResult(
   input: SpawnResultInput
 ): SpawnResultClassification {
-  const receipt = { stdout: input.stdout, stderr: input.stderr };
+  const banner = runtimeBanner(input.stderr);
+  const runtimeMeta = banner ? { runtime_agent: banner.agent, runtime_model: banner.model } : {};
+  const receipt = { stdout: input.stdout, stderr: input.stderr, ...runtimeMeta };
   const plainStderr = input.stderr.replace(ANSI_ESCAPE, "");
   if (input.exitCode !== 0) {
     return { ...receipt, success: false, error: `Spawn failed with exit code ${input.exitCode}` };
@@ -77,7 +91,6 @@ export function classifySpawnResult(
   if (EXPLICIT_FALLBACK.test(plainStderr)) {
     return { ...receipt, success: false, error: "Explicit OpenCode agent fallback detected" };
   }
-  const banner = runtimeBanner(input.stderr);
   if (input.requestedAgent && !banner) {
     return { ...receipt, success: false, error: "Requested agent but runtime agent banner is missing or unparsable" };
   }

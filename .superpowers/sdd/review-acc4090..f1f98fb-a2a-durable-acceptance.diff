@@ -1,0 +1,2122 @@
+diff --git a/COMPATIBILITY.md b/COMPATIBILITY.md
+index a3b9565..cc7455d 100644
+--- a/COMPATIBILITY.md
++++ b/COMPATIBILITY.md
+@@ -13,6 +13,7 @@ configuration as a working integration:
+ | `designed` | A normative contract exists; executable evidence is absent or separately classified |
+ | `fixture-verified` | A language-neutral corpus has executable expected outcomes; no production surface is implied |
+ | `reference-conformance` | An independent implementation agrees with the corpus; no public, durable, or authenticated ingress is implied |
++| `dormant-internal-durable-verified` | A private disabled-by-surface acceptance journal has migration, replay, atomicity, privacy, compatibility, and review evidence; still no public ingress, auth, or delivery claim |
+ | `implemented-public-ingress` | Reserved for a separately reviewed public ingress with durable acceptance, current authorization, and compatibility evidence |
+ | `documented` | Configuration or behavior is described; no executable proof |
+ | `static-config-verified` | Target configuration shape is checked without a live client |
+@@ -39,6 +40,7 @@ configuration as a working integration:
+ | Canonical ingress contract v0.1 | `fixture-verified` | Deterministic fixtures exercise the designed ordering and stable external result vocabulary; this is not a production store, policy engine, delivery path, or public tool | `docs/A2A-INGRESS-CONTRACT-v0.1.md`, `test/fixtures/a2a/ingress/v0.1/corpus.json` |
+ | Durable attempt lifecycle | `recovery-verified` | Durable-mode `spawn_fleet` and `attach_agent` preserve MCP shapes while using one SQLite authority for leases, deterministic retry, launch-intent quarantine, scheduled recovery, recorded-PID containment only, fenced projections, and sequence-ordered repairable event outbox | `docs/A2A-NEXT-SLICE.md`, `src/lifecycle-execution.ts`, `test/lifecycle-integration-adversarial.test.ts` |
+ | Provider-neutral runtime adapters | `runtime-launch-verified` | Isolated RuntimeAdapter SPI, OpenCode adapter, and deterministic local-process adapter are verified; public runtime selection and vendor adapters are deferred | `docs/ADAPTER-CONTRACT.md`, `src/runtime`, `test/runtime` |
++| Dormant durable acceptance journal | `designed` | Ordered physical v3-to-v4 migration, three private append-only tables, pre-authorized keyed-token API, accepted-only local receipts, and no delivery/public surface are specified but not implemented | `docs/A2A-DURABLE-ACCEPTANCE-v0.1.md`, `docs/adr/0005-dormant-durable-acceptance-journal.md` |
+ | Multi-host coordination | `deferred` | No shared remote ownership authority exists | `docs/A2A-PROGRAM.md` |
+ 
+ The complete ranked sequence and acceptance gates are in
+@@ -174,3 +176,10 @@ Open an issue at https://github.com/johnmwhitman/agent-mesh/issues with:
+ - Any Slice 4B store must use an ordered, explicit physical migration. It may
+   not hide a lazy/unversioned schema, alter legacy projections, or deliver a
+   message before separately authorized work.
++- Slice 4B design narrows physical compatibility: a future normal current-binary
++  open may migrate v3 to v4, and old v3 binaries cannot reopen v4. Logical-v2
++  exports and current/new-binary v4 open remain the compatibility promise.
++  Rollback requires a pre-migration WAL-safe backup; no automatic downgrade.
++- Current package/storage remains `0.14.0` and physical v3. The designed v4
++  migration and `dormant-internal-durable-verified` status are unshipped and
++  must not be claimed until executable evidence exists.
+diff --git a/ROADMAP.md b/ROADMAP.md
+index 63f6a7e..6ea1d08 100644
+--- a/ROADMAP.md
++++ b/ROADMAP.md
+@@ -26,9 +26,13 @@ The ranked A2A strategy is canonical in
+    negative self-tests. This is reference-conformance only: no production
+    ingress/store/tool, RFC JCS, signature, durable acceptance, delivery, or
+    authenticated-principal claim.
+-5. **Slice 4B durable acceptance foundation** - after 4A: explicit physical
+-   SQLite migration and dormant internal acceptance journal/decision receipts;
+-   no hidden lazy schema, legacy projection, delivery, or public tool.
++5. **Slice 4B durable acceptance foundation** - contract designed, not
++   implemented: ordered global physical SQLite v3-to-v4 migration, three private
++   append-only keyed-token tables, and exactly one accepted local-decision
++   receipt per acceptance. Older v3 binaries cannot reopen v4; implementation
++   requires a WAL-safe backup gate and full migration/privacy/atomicity review.
++   No hidden lazy schema, raw identity/content storage, legacy/lifecycle/outbox
++   projection, auth, delivery, or public tool.
+ 6. **Slice 4C authenticated-local adapter proof** - later: prove one
+    adapter-derived authenticated local principal and semantic client path, then
+    separately review any public ingress. No remote or multi-host claim.
+diff --git a/docs/A2A-DURABLE-ACCEPTANCE-v0.1.md b/docs/A2A-DURABLE-ACCEPTANCE-v0.1.md
+new file mode 100644
+index 0000000..ddec737
+--- /dev/null
++++ b/docs/A2A-DURABLE-ACCEPTANCE-v0.1.md
+@@ -0,0 +1,431 @@
++# Dormant Durable Acceptance Contract v0.1
++
++**Status:** Designed; not implemented. The future evidence level is
++`dormant-internal-durable-verified`, which remains below public ingress.
++
++This contract defines Slice 4B's private, single-host persistence seam. It does
++not expose a tool, authenticate a principal, authorize a request, deliver a
++message, or change current package behavior.
++
++## Problem
++
++Slice 4A defines canonical ingress semantics and a portable digest, but its
++identity classification is process-local. Slice 4B needs restart-safe local
++acceptance, request replay, conflict decisions, and one honest local-decision
++receipt without persisting the identities or message content that a future
++authentication adapter will handle.
++
++The seam must remain dormant and private so durable storage does not become an
++accidental public ingress, delivery queue, policy engine, or actor-identity
++claim.
++
++## Constraints
++
++- Logical ledger schema remains v2.
++- Physical SQLite migration is global, ordered, and explicit: v3 to v4 through
++  the existing `BEGIN IMMEDIATE` migration chain.
++- Only three private append-only tables are added: acceptance records, request
++  mappings, and decision receipts.
++- No public `send_a2a`, legacy projection, delivery, outbox, lifecycle event,
++  NDJSON record, runtime action, transport, or authentication is added.
++- The internal API accepts pre-authorized, pre-tokenized values only. It does
++  not authenticate or authorize.
++- Existing MCP tools, inspector defaults and JSON schemas, logical exports,
++  runtime defaults, and package `0.14.0` remain unchanged. Opt-in lifecycle
++  diagnostics may report the physical schema version honestly.
++- This is unshipped branch design. No migration or durable journal is currently
++  implemented or released.
++
++## Options considered
++
++### Canonical bytes versus digest only
++
++1. Store normalized canonical bytes: supports later reconstruction but creates
++   a second plaintext message store containing payloads and extensions.
++2. Store only the versioned canonical digest: selected. It proves equality for
++   this local decision seam without retaining message content.
++
++Tradeoff: digest-only storage cannot reconstruct an envelope and still permits
++guessing attacks when candidate content has low entropy.
++
++### Raw identifiers versus keyed tokens
++
++1. Persist principal, request, sender, and message identifiers: rejected due to
++   unnecessary identity disclosure and coupling to a future auth scheme.
++2. Persist opaque domain-separated keyed tokens plus `key_id`: selected. The
++   future authenticated adapter computes tokens before invoking storage.
++
++Tokens are pseudonymous equality handles, not encryption, authentication, or
++proof of possession. Key algorithm, provisioning, rotation, revocation, and
++multi-key lookup remain deferred.
++
++### Negative receipts versus accepted-only receipts
++
++1. Persist denied, malformed, expired, conflict, and storage-failure receipts:
++   rejected because they reserve or disclose identities and turn a dormant
++   journal into a denial audit store.
++2. Persist exactly one immutable `accepted` receipt per accepted semantic
++   identity: selected. All negative outcomes leave no durable row.
++
++### Lazy versus ordered global migration
++
++1. Create capability tables lazily on first API use: rejected because a hidden
++   partial schema can escape the canonical migration validator.
++2. Add v3 to v4 to the existing global ordered migration chain: selected. A
++   normal current-branch database open may create empty v4 tables even when the
++   dormant API is never called.
++
++This is automatic on current-binary open but explicit in the global physical
++schema chain; it is not a lazy feature migration or an operator-manual DDL step.
++
++## Decision
++
++### Physical schema v4
++
++The v3 to v4 migration runs in one existing `BEGIN IMMEDIATE` migration
++transaction:
++
++1. Read and strictly validate the current physical version.
++2. Reject unknown future, malformed, missing-in-an-initialized-database, or
++   otherwise unsupported version state.
++3. Preflight `sqlite_schema`. Any partial v4 layout or pre-existing object in
++   the reserved `a2a_` namespace fails closed; no object is adopted, dropped,
++   renamed, or repaired.
++4. Create exactly the three private tables, required indexes, foreign keys,
++   checks, and append-only triggers.
++5. Validate the complete expected v4 layout inside the transaction.
++6. Set physical schema version `4` last.
++7. Commit atomically. Any failure rolls back to intact v3 with no partial v4
++   objects or version change.
++
++On every v4 reopen, validate the complete table/index/trigger/constraint layout
++before use. Unknown, malformed, partial, or tampered v4 fails closed. Never
++repair or finish it lazily.
++
++### Compatibility and backup boundary
++
++A normal branch open may migrate an otherwise healthy v3 database and create
++empty v4 tables. An older v3 binary cannot reopen that v4 database. Therefore
++the compatibility promise is narrowed to:
++
++- logical schema-v2 exports remain compatible;
++- current and newer binaries may open a validated v4 database;
++- old physical v3 binaries are not promised forward readability of v4.
++
++Before first v3 to v4 open, create a pre-migration SQLite backup using the
++SQLite backup API or another reviewed WAL-safe snapshot procedure. Copying only
++the main database file while WAL state may be live is not a valid backup.
++
++Rollback means restoring that pre-migration backup with a compatible binary.
++There is no automatic downgrade and no supported v4 to v3 in-place reversal.
++Once v4 contains acceptance rows, dropping or rewriting them requires a
++separately reviewed forward migration.
++
++### Private tables
++
++The three tables are named exactly:
++
++1. `a2a_acceptance_records`
++2. `a2a_request_mappings`
++3. `a2a_decision_receipts`
++
++No fourth policy, recipient, envelope, denial, delivery, outbox, tombstone, or
++key-management table is permitted in v4.
++
++#### Acceptance records
++
++One row represents one accepted semantic identity:
++
++- `acceptance_id`: opaque local row identity, primary key.
++- `semantic_token` plus `semantic_key_id`: opaque domain-separated keyed token
++  and its key identifier; unique together.
++- `canonical_digest`: exact validated
++  `meshfleet.a2a.fingerprint.v1:sha256:<hex>`.
++- `accepted_at`: nonnegative safe-integer epoch milliseconds.
++- `expires_at`: optional nonnegative safe-integer epoch milliseconds, greater
++  than `accepted_at` when present.
++- `authorization_context_digest`: a local reported-provenance digest only.
++- `authorization_evaluator_version`: nonempty evaluator version only.
++- `receipt_id`: unique reference to the one acceptance receipt.
++
++`authorization_context_digest` and evaluator version report what the upstream
++caller said it evaluated. They do not prove policy contents, actor identity,
++authorization correctness, or cryptographic attestation.
++
++#### Request mappings
++
++The request key is the composite:
++
++```text
++(principal_key_id, principal_token, request_key_id, request_token)
++```
++
++Each append-only mapping references one acceptance and its original receipt,
++stores the candidate canonical digest, records a nonnegative safe-integer
++timestamp, and constrains `outcome` to exactly `accepted` or `duplicate`.
++
++An `accepted` mapping is inserted with the new acceptance. A `duplicate`
++mapping points to the original acceptance and original `accepted` receipt.
++
++#### Decision receipts
++
++Exactly one immutable receipt exists for every acceptance:
++
++- decision is exactly `accepted`;
++- evidence level is exactly `internal_local_decision`;
++- receipt references exactly one acceptance;
++- receipt timestamp is a nonnegative safe-integer epoch millisecond;
++- no principal, sender, recipient, policy, denial, payload, runtime, delivery,
++  signature, or attestation field is present.
++
++The receipt means only that this local SQLite authority committed an acceptance
++decision. It is not actor evidence, authentication, authorization proof,
++delivery, execution, external side effect, exactly-once behavior, signature,
++attestation, or multi-host evidence.
++
++### Token and data-minimization rules
++
++The future authentication adapter produces opaque domain-separated keyed tokens
++and the corresponding `key_id` values before storage. Semantic, principal, and
++request token domains MUST be distinct. Storage never derives a token from raw
++identity input and never receives the token key.
++
++The three tables MUST NOT persist:
++
++- raw principal IDs or request IDs;
++- raw sender namespace/agent IDs or message IDs;
++- raw envelope bytes, normalized canonical bytes, payloads, or extensions;
++- recipient rows or recipient identifiers;
++- `dedupe_key`;
++- policy documents, grants, detailed authorization decisions, or denial data;
++- filesystem paths, process/runtime/provider/model/PID data;
++- legacy messages, lifecycle state, outbox state, or NDJSON data.
++
++`dedupe_key` has no table column, index, lookup, uniqueness, or identity role.
++It remains fingerprinted envelope content only, so changing it under the same
++semantic token changes the canonical digest and produces a semantic conflict.
++
++### Confidentiality boundary
++
++Keyed tokens reduce direct identifier exposure but do not make the database
++confidential. Canonical and authorization-context digests can permit offline
++guessing when candidate inputs are predictable. Metadata, timing, row counts,
++and equality relationships remain observable. A direct database reader is
++inside the trusted local boundary. Encryption at rest and hostile-local-reader
++defense are not claimed.
++
++## Internal API contract
++
++The dormant API accepts only:
++
++- pre-authorized status asserted by the trusted internal call boundary;
++- precomputed semantic/principal/request tokens and their key IDs;
++- validated canonical digest;
++- optional expiry;
++- authorization-context digest and evaluator version;
++- injected/storage transaction clock and generated local IDs.
++
++It MUST be invoked only after structural validation, current principal binding,
++current sender/type/audience policy evaluation, and all-recipient authorization.
++The storage API does not perform or verify any of those operations.
++
++The transaction returns exactly one internal disposition:
++
++- `accepted`
++- `request_replay`
++- `request_conflict`
++- `semantic_duplicate`
++- `semantic_conflict`
++
++For `request_replay`, the result also returns the stored request outcome
++(`accepted` or `duplicate`) and the original acceptance/receipt references.
++
++### Atomic decision order
++
++Within one `BEGIN IMMEDIATE` transaction:
++
++1. Validate all IDs, key IDs, token shape/length, digest formats, evaluator
++   version, timestamp/expiry relations, and current v4 schema layout.
++2. Look up the composite request token key.
++3. If it exists with identical semantic reference and canonical digest, return
++   `request_replay` with its stored outcome and write nothing.
++4. If it exists with any conflicting identity or digest, return
++   `request_conflict` and write nothing.
++5. Look up `(semantic_key_id, semantic_token)`.
++6. If it exists with identical canonical digest, insert only a new request
++   mapping with outcome `duplicate`, referencing the original acceptance and
++   receipt; return `semantic_duplicate`.
++7. If it exists with a different canonical digest, return `semantic_conflict`
++   and write nothing.
++8. For an unseen semantic identity, evaluate expiry against the transaction
++   clock. Expired input writes nothing.
++9. Insert one acceptance, one `accepted` decision receipt, and one request
++   mapping with outcome `accepted` atomically; return `accepted` only after
++   commit.
++
++Conflicts, expiry, denied or malformed upstream requests, and storage failures
++persist nothing and reserve no semantic or request identity. A denied or
++malformed request MUST NOT invoke this storage API. Transaction rollback removes
++all candidate rows on any insert, constraint, hook, or commit failure.
++
++There is no delivery, recipient fan-out, outbox, legacy projection, lifecycle
++event, runtime action, process launch, NDJSON write, or public acknowledgement
++inside or after this transaction.
++
++## Append-only and integrity invariants
++
++- `UPDATE` and `DELETE` on all three tables fail through append-only triggers.
++- Acceptance semantic token/key ID is unique.
++- Request principal/request token plus key IDs form one composite primary or
++  unique key.
++- One acceptance has exactly one receipt; receipt and request references use
++  strict foreign keys, with any insertion cycle handled atomically through
++  reviewed deferred constraints or equivalent validated ordering.
++- Decision and evidence values are closed checks: `accepted` and
++  `internal_local_decision` only.
++- Request outcome is checked to `accepted|duplicate` only.
++- Tokens, key IDs, local IDs, digests, evaluator version, timestamps, and expiry
++  relations have strict type, nonempty/length, syntax, and range checks.
++- Canonical digest format is the Slice 4A versioned lowercase SHA-256 form.
++- No API bypass can insert a request mapping that disagrees with its referenced
++  acceptance digest or receipt.
++- `foreign_keys` and integrity checks are enabled and verified on every open.
++- No tombstone or retention job exists in v1. Accepted identity rows are
++  permanent until a separately reviewed retention migration defines safe
++  semantics.
++
++Exact token byte length, keyed algorithm, and key-ID syntax MUST be frozen before
++implementation and covered by schema checks; this contract does not select a
++key-management system by implication.
++
++## Exact acceptance tests for implementation
++
++### Migration and reopen
++
++1. Clean v3 opens through one `BEGIN IMMEDIATE` migration and produces the exact
++   empty v4 layout with version set last.
++2. Injected failure at every DDL/version step rolls back to byte-logical v3 with
++   no partial `a2a_` object.
++3. Unknown future physical version fails closed.
++4. Malformed or unsupported physical version fails closed.
++5. Every pre-existing reserved `a2a_` table, index, trigger, or view causes v3
++   migration refusal without mutation.
++6. Every partial, malformed, or tampered v4 layout fails on reopen and is not
++   repaired.
++7. A valid v4 layout reopens without DDL or data mutation.
++8. Normal current-branch open may create empty v4 tables without invoking the
++   dormant API.
++9. A v3 binary refuses the v4 database; logical v2 export remains readable
++   through the supported import/export path.
++10. WAL-safe pre-migration backup restores under a compatible v3 binary; main-
++    file-only copying is not accepted as rollback evidence.
++
++### Acceptance semantics
++
++11. New authorized tokens atomically create one acceptance, one accepted
++    receipt, and one `accepted` request mapping.
++12. Exact request replay returns `request_replay` plus the stored outcome and
++    original references with zero writes.
++13. Same request token key with changed semantic token or digest returns
++    `request_conflict` with zero writes.
++14. New request token plus existing semantic token and identical digest inserts
++    only one `duplicate` request mapping and returns `semantic_duplicate`.
++15. Existing semantic token with changed digest returns `semantic_conflict`
++    with zero writes.
++16. Unseen expired input writes nothing and reserves no request or semantic
++    identity.
++17. Denied and malformed upstream requests never call storage and leave all
++    three tables unchanged.
++18. Injected failure before each insert, between inserts, at deferred foreign-key
++    evaluation, and at commit leaves no row or reservation.
++19. Concurrent identical requests produce one acceptance/receipt/mapping and
++    deterministic replay for the loser.
++20. Concurrent different requests for one identical semantic digest produce one
++    acceptance/receipt plus one accepted and one duplicate mapping.
++21. Concurrent conflicting semantic digests produce one accepted transaction
++    and one semantic conflict, never mixed state.
++22. Close/reopen preserves replay, duplicate, conflict, and original receipt
++    references.
++
++### Privacy, integrity, and non-coupling
++
++23. Database content and schema inspection finds none of the forbidden raw IDs,
++    envelope/canonical bytes, payloads, extensions, recipients, `dedupe_key`,
++    policy details, denials, paths, or runtime data.
++24. Every `UPDATE` and `DELETE` attempt on each table fails without mutation.
++25. Invalid token/key ID, digest, timestamp, expiry, outcome, evidence level,
++    receipt cardinality, or foreign-key reference fails atomically.
++26. Exactly one immutable `accepted`/`internal_local_decision` receipt exists
++    per acceptance; duplicate requests never create another receipt.
++27. Changing only `dedupe_key` under one semantic token produces a digest-based
++    semantic conflict; no schema/index lookup uses `dedupe_key`.
++28. No acceptance path writes legacy messages, inboxes, lifecycle tables,
++    event outbox, NDJSON, recipient rows, or runtime state.
++29. Existing MCP tools, defaults, inspector text/JSON, logical exports, runtime
++    selection, and package metadata remain byte/shape compatible, except opt-in
++    lifecycle diagnostics may report physical v4 honestly.
++30. A direct database reader can observe token equality, timing, counts, and
++    guessable digest matches; tests/docs make no confidentiality claim.
++
++## Forbidden claims
++
++Even after implementation evidence, Slice 4B MUST NOT be described as:
++
++- public canonical ingress or a public `send_a2a` tool;
++- authenticated principal or authorization enforcement;
++- sender, actor, signature, or runtime attestation;
++- message delivery, recipient acknowledgement, task execution, or side effect;
++- exactly-once delivery or execution;
++- remote transport, shared coordinator, or multi-host authority;
++- encrypted/confidential storage or protection from a direct local DB reader;
++- policy audit, denial audit, retention, or key-management implementation.
++
++## Tradeoffs
++
++- Global v4 migration makes the schema coherent but breaks physical reopen by
++  older v3 binaries.
++- Digest-only records minimize content retention but prevent reconstruction and
++  may permit guessing.
++- Keyed tokens avoid raw IDs but create future rotation and multi-key lookup
++  obligations.
++- Accepted-only receipts keep denial data out of storage but provide no durable
++  record of rejected attempts.
++- Permanent append-only identities make replay stable but defer retention and
++  deletion pressure.
++- No delivery/outbox coupling keeps the seam reversible but proves acceptance
++  only, not useful message movement.
++
++## Reversibility
++
++Before migration, revert the implementation with no database effect. After an
++empty v4 migration, rollback requires restoring the WAL-safe v3 backup; do not
++drop tables or edit the version in place. After acceptance rows exist, disable
++all callers and retain the append-only data until a reviewed forward migration.
++
++The public API remains reversible because none is added. Physical storage is
++not automatically reversible.
++
++## Evidence and validation
++
++Current status is designed only. The Slice 4A codec, canonical digest, ingress
++corpus, and Python reference witness are prerequisites, not evidence that v4 or
++this API exists.
++
++Upgrade status to `dormant-internal-durable-verified` only after all tests above,
++full existing compatibility tests, migration/rollback evidence, live ledger
++verification, and independent whole-slice review with no Critical or Important
++findings. That status remains below `implemented-public-ingress`.
++
++## Deferred questions
++
++- Keyed-token algorithm, token length, key-ID grammar, secure key source, and
++  domain labels.
++- Key rotation, revocation, active-key lookup, and whether one identity must be
++  checked under multiple historical key IDs.
++- Which authenticated local adapter may mint tokens and assert preauthorization.
++- Authorization-context digest construction and evaluator-version lifecycle.
++- Backup tooling and operator UX for the irreversible v3-to-v4 compatibility
++  boundary.
++- Retention, tombstones, legal deletion, and any future archival migration.
++- Whether a later delivery transaction can safely consume acceptance without
++  weakening current authorization or exactly-once claim boundaries.
+diff --git a/docs/A2A-INGRESS-CONTRACT-v0.1.md b/docs/A2A-INGRESS-CONTRACT-v0.1.md
+index 7e69ffd..5c5083e 100644
+--- a/docs/A2A-INGRESS-CONTRACT-v0.1.md
++++ b/docs/A2A-INGRESS-CONTRACT-v0.1.md
+@@ -204,6 +204,13 @@ not a signature, authentication, attestation, or multi-host claim.
+   semantic client path, then separately review any public ingress surface. No
+   remote or multi-host claim follows.
+ 
++Slice 4B is now specified by `docs/A2A-DURABLE-ACCEPTANCE-v0.1.md` and ADR 0005.
++It stores opaque precomputed keyed identity tokens and the canonical digest, not
++raw identities or envelope content. Its API is downstream of current binding
++and all-recipient authorization and cannot authenticate, authorize, or deliver.
++Until executable migration, transaction, privacy, compatibility, and review
++evidence exists, its status remains `designed`.
++
+ ## Tradeoffs and reversibility
+ 
+ The design adds configuration and durable state before convenience. That is
+diff --git a/docs/A2A-PROGRAM.md b/docs/A2A-PROGRAM.md
+index adb365c..0e73a4a 100644
+--- a/docs/A2A-PROGRAM.md
++++ b/docs/A2A-PROGRAM.md
+@@ -31,6 +31,9 @@ verified boundaries:
+   unimplemented. The provider-neutral RuntimeAdapter SPI plus isolated
+   OpenCode and deterministic local-process adapters are implemented and
+   runtime-launch-verified; they are not yet public multi-runtime orchestration.
++- Slice 4A is reference-conformance verified. Slice 4B now has a designed
++  dormant durable-acceptance contract; no physical v4 migration, journal, or
++  internal acceptance API is implemented yet.
+ 
+ ## Ranked program
+ 
+@@ -166,6 +169,7 @@ separate human and architecture gate:
+ | `docs/ADAPTER-CONTRACT.md` | Transport, delivery, runtime, coordinator, and renderer boundaries |
+ | `docs/A2A-THREAT-MODEL.md` | Trust zones, threats, controls, and security invariants |
+ | `docs/A2A-NEXT-SLICE.md` | Durable lifecycle contract and acceptance bar |
++| `docs/A2A-DURABLE-ACCEPTANCE-v0.1.md` | Slice 4B physical migration, private journal, transaction, privacy, and evidence contract |
+ | `docs/adr/` | Durable decisions and their tradeoffs |
+ | `COMPATIBILITY.md` | Public API, ledger, and conformance registry |
+ | `ROADMAP.md` | Product sequencing and shipped-versus-planned view |
+@@ -193,10 +197,13 @@ They are additive, reversible, and do not widen the current MCP surface.
+    no production ingress/store/tool, delivery, legacy projection, transport,
+    authentication, or multi-host claim.
+ 2. **Slice 4B: explicit dormant durable acceptance foundation.** Introduce an
+-   ordered physical SQLite migration plus an internal acceptance journal and
+-   local decision receipts. It must be versioned, inactive by default, and
+-   incapable of legacy projection or delivery. Do not use a hidden/lazy
+-   unversioned schema or expose `send_a2a`.
++   ordered global physical SQLite v3-to-v4 migration plus a private append-only
++   acceptance journal, request mappings, and one local decision receipt per
++   acceptance. The API accepts pre-authorized keyed tokens only and performs no
++   auth or delivery. It must be versioned, dormant, incapable of legacy/
++   lifecycle/outbox/NDJSON projection, and validated on every reopen. Do not use
++   hidden/lazy schema repair or expose `send_a2a`. Contract:
++   `docs/A2A-DURABLE-ACCEPTANCE-v0.1.md`.
+ 3. **Slice 4C: authenticated-local adapter and semantic client proof.** Prove
+    an adapter-derived authenticated local principal and one semantic client
+    path, then conduct a separate review for any public ingress surface. This
+diff --git a/docs/A2A-THREAT-MODEL.md b/docs/A2A-THREAT-MODEL.md
+index e8bd04e..5bf2800 100644
+--- a/docs/A2A-THREAT-MODEL.md
++++ b/docs/A2A-THREAT-MODEL.md
+@@ -134,3 +134,34 @@ before parsing into the object-level codec. Protocol strings containing
+ unpaired UTF-16 surrogates are invalid; valid non-BMP Unicode scalars remain
+ allowed and are byte-limited as UTF-8. The existing MCP surface is not evidence
+ of either raw canonical parsing behavior or public ingress.
++
++## Slice 4B dormant journal threats
++
++- **Migration shadowing or partial schema:** v3-to-v4 preflights the reserved
++  `a2a_` namespace, runs in the global `BEGIN IMMEDIATE` chain, sets version
++  last, and rejects unknown/malformed/partial/tampered layouts. Reopen validates;
++  it never repairs lazily.
++- **Raw identity/content retention:** only domain-separated keyed tokens, key
++  IDs, canonical digest, minimal acceptance provenance, request outcome, and one
++  local-decision receipt may persist. Raw IDs, envelope bytes, payloads,
++  extensions, recipients, `dedupe_key`, policy/denial, paths, and runtime data
++  are forbidden.
++- **Token/digest confidentiality overclaim:** tokens are pseudonymous equality
++  handles, not encryption. Digests can permit guessing; timing, counts, and
++  equality remain observable. A direct DB reader is trusted local.
++- **Confused storage deputy:** the API accepts only pre-authorized/pre-tokenized
++  inputs after current all-recipient authorization, but does not verify auth.
++  No message content can call or authorize it.
++- **Negative identity reservation:** conflict, expiry, denial, malformed input,
++  and storage failure write nothing. Only accepted identities and accepted/
++  duplicate request mappings persist.
++- **Receipt inflation:** exactly one immutable `accepted` receipt at
++  `internal_local_decision` exists per acceptance. Duplicate/replay paths never
++  mint another receipt.
++- **Rollback illusion:** old v3 binaries cannot reopen v4. A WAL-safe
++  pre-migration backup is mandatory evidence; there is no automatic downgrade.
++- **Retention erosion:** v1 has no deletion, tombstone, or retention job.
++  Accepted rows remain permanent until a reviewed forward migration.
++
++These controls remain design requirements. They do not prove public ingress,
++authentication, authorization, delivery, confidentiality, or multi-host safety.
+diff --git a/docs/CONFORMANCE-MATRIX.yaml b/docs/CONFORMANCE-MATRIX.yaml
+index 5e42bb1..0282142 100644
+--- a/docs/CONFORMANCE-MATRIX.yaml
++++ b/docs/CONFORMANCE-MATRIX.yaml
+@@ -12,6 +12,7 @@
+     "designed",
+     "fixture-verified",
+     "reference-conformance",
++    "dormant-internal-durable-verified",
+     "implemented-public-ingress",
+     "documented",
+     "static-config-verified",
+@@ -47,6 +48,7 @@
+   "a2a_protocol": [
+     {"target": "canonical-ingress-contract-v0.1", "status": "fixture-verified", "evidence": ["docs/A2A-INGRESS-CONTRACT-v0.1.md", "docs/adr/0004-principal-bound-canonical-ingress.md", "test/fixtures/a2a/ingress/v0.1/corpus.json"], "notes": "Fixtures exercise the designed authorization-before-replay ordering and non-enumerating external codes; no public ingress, authenticated principal, durable journal, or delivery is implemented."},
+     {"target": "minimal-interoperability-profile-v0.1", "status": "reference-conformance", "evidence": ["docs/A2A-INTEROPERABILITY-PROFILE-v0.1.md", "src/a2a/codec.ts", "reference/python/a2a_reference.py", "test/a2a-reference-python.test.ts"], "notes": "TypeScript and standalone Python agree on exact-decimal pre-parse numeric rejection, finite acyclic plain JSON object trees, 128 KiB/64-level limits, preserved valid extensions, and digest refusal for rejected values, in addition to the shared strict parsing and fingerprint vectors. This is not RFC JCS or public, durable, signed, or authenticated ingress evidence."},
++    {"target": "dormant-durable-acceptance-v0.1", "status": "designed", "evidence": ["docs/A2A-DURABLE-ACCEPTANCE-v0.1.md", "docs/adr/0005-dormant-durable-acceptance-journal.md"], "notes": "Designed global physical v3-to-v4 migration and three-table private keyed-token acceptance journal only. No implementation, public tool, auth, delivery, storage migration, or durable evidence exists."},
+     {"target": "public-canonical-send_a2a", "status": "deferred", "evidence": ["docs/A2A-PROGRAM.md", "docs/A2A-INGRESS-CONTRACT-v0.1.md"], "notes": "Absent from the MCP registry pending Slice 4B durable journal and Slice 4C adapter/authenticated-local principal evidence."}
+   ],
+   "gates": [
+diff --git a/docs/adr/0005-dormant-durable-acceptance-journal.md b/docs/adr/0005-dormant-durable-acceptance-journal.md
+new file mode 100644
+index 0000000..ffb40d5
+--- /dev/null
++++ b/docs/adr/0005-dormant-durable-acceptance-journal.md
+@@ -0,0 +1,132 @@
++# ADR 0005: Dormant durable acceptance journal
++
++**Status:** Accepted for Slice 4B design; not implemented.
++
++## Problem
++
++Slice 4A has portable canonical identity semantics but only process-local
++classification. A future local ingress needs restart-safe acceptance and replay
++without storing raw identities/message content or prematurely exposing delivery,
++authentication, or a public tool.
++
++## Constraints
++
++- Logical schema v2 and all public/default behavior remain unchanged.
++- Physical migration must be ordered, global, transactional, and fail closed.
++- Storage receives pre-authorized keyed tokens only and cannot authenticate or
++  authorize.
++- Only accepted local decisions persist; no negative audit, delivery, outbox,
++  legacy projection, lifecycle event, or NDJSON coupling.
++- This branch contract is unshipped and carries no implementation evidence.
++
++## Options
++
++### Digest-only versus canonical bytes
++
++Canonical bytes would support reconstruction but duplicate payload/extension
++content. Choose the versioned canonical digest only. Accept inability to
++reconstruct and offline-guessing risk.
++
++### Raw identities versus opaque keyed tokens
++
++Raw principal/request/sender/message IDs create unnecessary disclosure and auth
++coupling. Choose domain-separated keyed tokens plus key IDs, produced by a
++future authenticated adapter. Tokens are not encryption or authentication.
++
++### Negative versus accepted-only receipts
++
++Negative receipts would retain denial and identity-attempt data. Choose exactly
++one immutable `accepted` receipt per acceptance and no durable negative result.
++
++### Lazy versus global migration
++
++Lazy feature DDL risks hidden/partial schema. Choose an explicit v3-to-v4 step
++in the existing global `BEGIN IMMEDIATE` chain. A normal current-binary open may
++therefore create empty v4 tables.
++
++## Decision
++
++Physical v4 adds exactly three private append-only tables: acceptance records,
++request mappings, and decision receipts. The migration preflights reserved
++`a2a_` objects, creates and validates the complete layout atomically, and sets
++version 4 last. Unknown future, malformed, partial, tampered, or pre-existing
++reserved state fails closed. A valid v4 reopen validates but never lazily
++repairs the layout.
++
++Acceptance identity is a unique `(semantic_key_id, semantic_token)`. Request
++identity is `(principal_key_id, principal_token, request_key_id,
++request_token)`. No raw identity, envelope/canonical bytes, payload/extensions,
++recipient, `dedupe_key`, policy/denial, path, runtime, legacy, lifecycle, outbox,
++or NDJSON data is stored.
++
++One acceptance stores the canonical digest, acceptance/optional-expiry times,
++authorization-context digest and evaluator version as reported local
++provenance, and one receipt reference. Exactly one immutable receipt says
++`accepted` at evidence level `internal_local_decision`. It proves only a local
++SQLite decision.
++
++The private API is callable only after current binding and all-recipient/type/
++audience authorization. It accepts pre-authorized, pre-tokenized values and
++returns `accepted`, `request_replay`, `request_conflict`,
++`semantic_duplicate`, or `semantic_conflict`. It does not authenticate or
++authorize.
++
++New acceptance atomically inserts acceptance, receipt, and accepted request
++mapping. Semantic duplicate inserts only a duplicate request mapping pointing
++to the original acceptance/receipt. Exact request replay writes nothing and
++returns the stored outcome. Conflicts, expiry, denied/malformed upstream input,
++and storage failure write nothing and reserve no identity.
++
++All three tables reject update/delete. Strict checks and foreign keys bind
++tokens, key IDs, digests, timestamps, outcomes, receipt cardinality, and
++references. There is no tombstone/retention job in v1; accepted identities are
++permanent pending a separately reviewed retention migration.
++
++## Compatibility consequence
++
++Older physical-v3 binaries cannot reopen v4. Compatibility is narrowed to
++logical v2 exports plus current/new-binary v4 validation. Before migration, an
++operator needs a SQLite backup-API or otherwise reviewed WAL-safe snapshot.
++Main-file-only copying under possible WAL activity is insufficient. Rollback is
++backup restoration; there is no automatic or in-place downgrade.
++
++## Tradeoffs
++
++- Coherent global migration sacrifices old-binary physical reopen.
++- Data minimization sacrifices envelope reconstruction and still permits digest
++  guessing/equality analysis by a trusted local DB reader.
++- Keyed tokens defer key rotation, revocation, and multi-key lookup design.
++- Accepted-only append-only state protects replay semantics but defers retention
++  and deletion.
++- Dormancy avoids public compatibility obligations but proves no delivery.
++
++## Reversibility
++
++Before migration, revert freely. After v4 creation, restore the pre-migration
++WAL-safe backup to return to v3. After rows exist, disable callers and preserve
++data until a forward migration is reviewed. Never edit the version or drop
++populated tables as rollback.
++
++## Evidence and validation
++
++Status remains `designed`. Implementation must satisfy the exact migration,
++reopen, atomic acceptance/replay/conflict, concurrency, append-only, privacy,
++constraint, non-coupling, backup, and compatibility cases in
++`docs/A2A-DURABLE-ACCEPTANCE-v0.1.md`, then pass the full suite and independent
++review. Only then may it become `dormant-internal-durable-verified`, still below
++public ingress.
++
++## Forbidden claims
++
++No public tool, ingress, authenticated actor, authorization enforcement,
++delivery, execution, exactly-once side effect, remote transport, multi-host
++authority, signature, attestation, confidentiality, key management, or denial
++audit is established.
++
++## Deferred questions
++
++- Token PRF, domain labels, byte length, key-ID syntax, provisioning, rotation,
++  revocation, and historical-key lookup.
++- Authenticated adapter and authorization-context digest integration.
++- Operator backup UX and retention/tombstone forward migration.
++- Any later delivery or public-ingress transaction boundary.
+diff --git a/package.json b/package.json
+index ca0ebd7..456aea4 100644
+--- a/package.json
++++ b/package.json
+@@ -4,6 +4,12 @@
+   "description": "Auditable multi-agent coordination for OpenCode — parallel agent fleets with P2P messaging, witnessed receipts, and quorum ratification. Who saw this, who approved it, prove it.",
+   "main": "dist/index.js",
+   "type": "module",
++  "exports": {
++    ".": "./dist/index.js",
++    "./package.json": "./package.json",
++    "./bin/inspect": "./dist/bin/inspect.js",
++    "./bin/dashboard": "./dist/bin/dashboard.js"
++  },
+   "bin": {
+     "meshfleet": "dist/index.js",
+     "agent-mesh": "dist/bin/inspect.js",
+diff --git a/src/a2a/durable-acceptance.ts b/src/a2a/durable-acceptance.ts
+new file mode 100644
+index 0000000..987ef15
+--- /dev/null
++++ b/src/a2a/durable-acceptance.ts
+@@ -0,0 +1,216 @@
++/**
++ * Private dormant acceptance journal. This module deliberately has no public
++ * registry export and no caller in the current runtime. A future trusted
++ * adapter must authorize and tokenize before invoking this storage seam.
++ */
++import { randomBytes } from "node:crypto";
++import { assertA2aDurableSchema, withStorageTransaction } from "../db.js";
++
++const OPAQUE_32 = /^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/;
++const KEY_ID = /^[A-Za-z0-9._-]{1,64}$/;
++const CANONICAL_DIGEST = /^meshfleet\.a2a\.fingerprint\.v1:sha256:[0-9a-f]{64}$/;
++const AUTHORIZATION_CONTEXT_DIGEST = /^sha256:[0-9a-f]{64}$/;
++const EVALUATOR_VERSION = /^[A-Za-z0-9._:-]{1,128}$/;
++
++export interface DurableAcceptanceToken {
++  keyId: string;
++  token: string;
++}
++
++export interface DurableAcceptanceInput {
++  semantic: DurableAcceptanceToken;
++  principal: DurableAcceptanceToken;
++  request: DurableAcceptanceToken;
++  canonicalDigest: string;
++  expiresAt?: number;
++  authorizationContextDigest: string;
++  authorizationEvaluatorVersion: string;
++}
++
++export interface DurableAcceptanceHooks {
++  now: () => number;
++  /** Isolated test hook. Production callers do not provide storage mutation hooks. */
++  beforeWrite?: (stage: "before_acceptance" | "between_acceptance_receipt" | "between_receipt_mapping" | "before_commit") => void;
++}
++
++export type DurableAcceptanceDisposition =
++  | "accepted"
++  | "request_replay"
++  | "request_conflict"
++  | "semantic_duplicate"
++  | "semantic_conflict"
++  | "expired";
++
++export interface DurableAcceptanceReference {
++  acceptanceId: string;
++  receiptId: string;
++}
++
++export type DurableAcceptanceResult =
++  | ({ disposition: "accepted" | "semantic_duplicate"; } & DurableAcceptanceReference)
++  | ({ disposition: "request_replay"; storedOutcome: "accepted" | "duplicate"; } & DurableAcceptanceReference)
++  | { disposition: "request_conflict" | "semantic_conflict" | "expired"; };
++
++export class DurableAcceptanceInputError extends Error {
++  constructor(message: string) {
++    super(message);
++    this.name = "DurableAcceptanceInputError";
++  }
++}
++
++function requireString(value: unknown, expression: RegExp, label: string): asserts value is string {
++  if (typeof value !== "string" || !expression.test(value)) throw new DurableAcceptanceInputError("invalid " + label);
++}
++
++function requireToken(value: DurableAcceptanceToken, label: string): void {
++  if (!value || typeof value !== "object") throw new DurableAcceptanceInputError("invalid " + label);
++  requireString(value.keyId, KEY_ID, label + " key id");
++  requireOpaque32(value.token, label + " token");
++}
++
++function requireOpaque32(value: unknown, label: string): asserts value is string {
++  if (typeof value !== "string" || !OPAQUE_32.test(value)) throw new DurableAcceptanceInputError("invalid " + label);
++  const decoded = Buffer.from(value, "base64url");
++  if (decoded.length !== 32 || decoded.toString("base64url") !== value) throw new DurableAcceptanceInputError("non-canonical " + label);
++}
++
++function sameToken(left: DurableAcceptanceToken, right: DurableAcceptanceToken): boolean {
++  return left.keyId === right.keyId && left.token === right.token;
++}
++
++function requireTimestamp(value: unknown, label: string): asserts value is number {
++  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) throw new DurableAcceptanceInputError("invalid " + label);
++}
++
++function validateInput(input: DurableAcceptanceInput): void {
++  if (!input || typeof input !== "object") throw new DurableAcceptanceInputError("invalid durable acceptance input");
++  requireToken(input.semantic, "semantic");
++  requireToken(input.principal, "principal");
++  requireToken(input.request, "request");
++  if (sameToken(input.semantic, input.principal) || sameToken(input.semantic, input.request) || sameToken(input.principal, input.request)) {
++    throw new DurableAcceptanceInputError("semantic, principal, and request tokens must use distinct domains");
++  }
++  requireString(input.canonicalDigest, CANONICAL_DIGEST, "canonical digest");
++  requireString(input.authorizationContextDigest, AUTHORIZATION_CONTEXT_DIGEST, "authorization context digest");
++  requireString(input.authorizationEvaluatorVersion, EVALUATOR_VERSION, "authorization evaluator version");
++  if (input.expiresAt !== undefined) requireTimestamp(input.expiresAt, "expiry");
++}
++
++type RequestRow = {
++  outcome: "accepted" | "duplicate";
++  acceptance_id: string;
++  receipt_id: string;
++  canonical_digest: string;
++  semantic_key_id: string;
++  semantic_token: string;
++};
++
++type AcceptanceRow = {
++  acceptance_id: string;
++  receipt_id: string;
++  canonical_digest: string;
++};
++
++/**
++ * Record a pre-authorized, pre-tokenized local acceptance without delivery,
++ * auth verification, public acknowledgement, or any legacy/runtime projection.
++ */
++export function recordDurableAcceptance(input: DurableAcceptanceInput, hooks: DurableAcceptanceHooks): DurableAcceptanceResult {
++  validateInput(input);
++  if (!hooks || typeof hooks.now !== "function") {
++    throw new DurableAcceptanceInputError("durable acceptance requires a transaction clock hook");
++  }
++  return withStorageTransaction((db) => {
++    assertA2aDurableSchema(db);
++    const now = hooks.now();
++    requireTimestamp(now, "transaction clock");
++
++    const existingRequest = db.prepare(
++      "SELECT m.outcome, m.acceptance_id, m.receipt_id, m.canonical_digest, a.semantic_key_id, a.semantic_token " +
++      "FROM a2a_request_mappings AS m JOIN a2a_acceptance_records AS a ON a.acceptance_id = m.acceptance_id " +
++      "WHERE m.principal_key_id = ? AND m.principal_token = ? AND m.request_key_id = ? AND m.request_token = ?"
++    ).get(input.principal.keyId, input.principal.token, input.request.keyId, input.request.token) as RequestRow | undefined;
++
++    if (existingRequest) {
++      if (
++        existingRequest.semantic_key_id === input.semantic.keyId &&
++        existingRequest.semantic_token === input.semantic.token &&
++        existingRequest.canonical_digest === input.canonicalDigest
++      ) {
++        return {
++          disposition: "request_replay",
++          storedOutcome: existingRequest.outcome,
++          acceptanceId: existingRequest.acceptance_id,
++          receiptId: existingRequest.receipt_id,
++        };
++      }
++      return { disposition: "request_conflict" };
++    }
++
++    const existingSemantic = db.prepare(
++      "SELECT acceptance_id, receipt_id, canonical_digest FROM a2a_acceptance_records WHERE semantic_key_id = ? AND semantic_token = ?"
++    ).get(input.semantic.keyId, input.semantic.token) as AcceptanceRow | undefined;
++    if (existingSemantic) {
++      if (existingSemantic.canonical_digest !== input.canonicalDigest) return { disposition: "semantic_conflict" };
++      db.prepare(
++        "INSERT INTO a2a_request_mappings (principal_key_id, principal_token, request_key_id, request_token, acceptance_id, receipt_id, canonical_digest, mapped_at, outcome) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'duplicate')"
++      ).run(
++        input.principal.keyId,
++        input.principal.token,
++        input.request.keyId,
++        input.request.token,
++        existingSemantic.acceptance_id,
++        existingSemantic.receipt_id,
++        input.canonicalDigest,
++        now,
++      );
++      hooks.beforeWrite?.("before_commit");
++      return {
++        disposition: "semantic_duplicate",
++        acceptanceId: existingSemantic.acceptance_id,
++        receiptId: existingSemantic.receipt_id,
++      };
++    }
++
++    if (input.expiresAt !== undefined && input.expiresAt <= now) {
++      // Expiry has no durable representation and cannot reserve any identity.
++      return { disposition: "expired" };
++    }
++
++    const acceptanceId = randomBytes(32).toString("base64url");
++    const receiptId = randomBytes(32).toString("base64url");
++    hooks.beforeWrite?.("before_acceptance");
++    db.prepare(
++      "INSERT INTO a2a_acceptance_records (acceptance_id, semantic_key_id, semantic_token, canonical_digest, accepted_at, expires_at, authorization_context_digest, authorization_evaluator_version, receipt_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
++    ).run(
++      acceptanceId,
++      input.semantic.keyId,
++      input.semantic.token,
++      input.canonicalDigest,
++      now,
++      input.expiresAt ?? null,
++      input.authorizationContextDigest,
++      input.authorizationEvaluatorVersion,
++      receiptId,
++    );
++    hooks.beforeWrite?.("between_acceptance_receipt");
++    db.prepare(
++      "INSERT INTO a2a_decision_receipts (receipt_id, acceptance_id, decision, evidence_level, decided_at) VALUES (?, ?, 'accepted', 'internal_local_decision', ?)"
++    ).run(receiptId, acceptanceId, now);
++    hooks.beforeWrite?.("between_receipt_mapping");
++    db.prepare(
++      "INSERT INTO a2a_request_mappings (principal_key_id, principal_token, request_key_id, request_token, acceptance_id, receipt_id, canonical_digest, mapped_at, outcome) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'accepted')"
++    ).run(
++      input.principal.keyId,
++      input.principal.token,
++      input.request.keyId,
++      input.request.token,
++      acceptanceId,
++      receiptId,
++      input.canonicalDigest,
++      now,
++    );
++    hooks.beforeWrite?.("before_commit");
++    return { disposition: "accepted", acceptanceId, receiptId };
++  });
++}
+diff --git a/src/db.ts b/src/db.ts
+index 75e4721..d13c4d7 100644
+--- a/src/db.ts
++++ b/src/db.ts
+@@ -77,7 +77,8 @@ CREATE INDEX IF NOT EXISTS idx_ratifications_fleet ON ratifications(fleet_id);
+  * imported from any supported JSON version retains that logical marker; these
+  * migrations only add internal relational storage.
+  */
+-export const CURRENT_STORAGE_SCHEMA_VERSION = 3;
++export const CURRENT_STORAGE_SCHEMA_VERSION = 4;
++const SQLITE_SAFE_INTEGER = 9_007_199_254_740_991;
+ 
+ const LIFECYCLE_SCHEMA_V2 = `
+ CREATE TABLE IF NOT EXISTS work_items (
+@@ -165,6 +166,202 @@ BEFORE UPDATE OF attempt_number, eligible_at ON attempts WHEN NEW.attempt_number
+ BEGIN SELECT RAISE(ABORT, 'invalid lifecycle attempt schedule'); END;
+ `;
+ 
++type A2aSchemaObject = {
++  type: "table" | "index" | "trigger";
++  name: string;
++  table: string;
++  sql: string;
++  faultStep: string;
++};
++
++const a2aSafeInteger = (column: string): string => "typeof(" + column + ") = 'integer' AND " + column + " BETWEEN 0 AND " + SQLITE_SAFE_INTEGER;
++const a2aKeyId = (column: string): string => "typeof(" + column + ") = 'text' AND length(" + column + ") BETWEEN 1 AND 64 AND " + column + " NOT GLOB '*[^A-Za-z0-9._-]*'";
++const a2aOpaque32 = (column: string): string => "typeof(" + column + ") = 'text' AND length(" + column + ") = 43 AND " + column + " NOT GLOB '*[^A-Za-z0-9_-]*' AND substr(" + column + ", 43, 1) GLOB '[AEIMQUYcgkosw048]'";
++const a2aCanonicalDigest = (column: string): string => "typeof(" + column + ") = 'text' AND length(" + column + ") = 100 AND substr(" + column + ", 1, 36) = 'meshfleet.a2a.fingerprint.v1:sha256:' AND substr(" + column + ", 37) NOT GLOB '*[^0-9a-f]*'";
++const a2aAuthorizationDigest = (column: string): string => "typeof(" + column + ") = 'text' AND length(" + column + ") = 71 AND substr(" + column + ", 1, 7) = 'sha256:' AND substr(" + column + ", 8) NOT GLOB '*[^0-9a-f]*'";
++const a2aEvaluatorVersion = (column: string): string => "typeof(" + column + ") = 'text' AND length(" + column + ") BETWEEN 1 AND 128 AND " + column + " NOT GLOB '*[^A-Za-z0-9._:-]*'";
++
++const A2A_SCHEMA_V4: readonly A2aSchemaObject[] = [
++  {
++    type: "table",
++    name: "a2a_acceptance_records",
++    table: "a2a_acceptance_records",
++    faultStep: "v4:acceptance-records",
++    sql: "CREATE TABLE a2a_acceptance_records (" +
++      "acceptance_id TEXT PRIMARY KEY NOT NULL CHECK (" + a2aOpaque32("acceptance_id") + ")," +
++      "semantic_key_id TEXT NOT NULL CHECK (" + a2aKeyId("semantic_key_id") + ")," +
++      "semantic_token TEXT NOT NULL CHECK (" + a2aOpaque32("semantic_token") + ")," +
++      "canonical_digest TEXT NOT NULL CHECK (" + a2aCanonicalDigest("canonical_digest") + ")," +
++      "accepted_at INTEGER NOT NULL CHECK (" + a2aSafeInteger("accepted_at") + ")," +
++      "expires_at INTEGER CHECK (expires_at IS NULL OR (" + a2aSafeInteger("expires_at") + " AND expires_at > accepted_at))," +
++      "authorization_context_digest TEXT NOT NULL CHECK (" + a2aAuthorizationDigest("authorization_context_digest") + ")," +
++      "authorization_evaluator_version TEXT NOT NULL CHECK (" + a2aEvaluatorVersion("authorization_evaluator_version") + ")," +
++      "receipt_id TEXT NOT NULL UNIQUE CHECK (" + a2aOpaque32("receipt_id") + ")," +
++      "UNIQUE (semantic_key_id, semantic_token)," +
++      "UNIQUE (acceptance_id, canonical_digest)," +
++      "FOREIGN KEY (receipt_id) REFERENCES a2a_decision_receipts(receipt_id) ON UPDATE RESTRICT ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED" +
++    ")",
++  },
++  {
++    type: "table",
++    name: "a2a_decision_receipts",
++    table: "a2a_decision_receipts",
++    faultStep: "v4:decision-receipts",
++    sql: "CREATE TABLE a2a_decision_receipts (" +
++      "receipt_id TEXT PRIMARY KEY NOT NULL CHECK (" + a2aOpaque32("receipt_id") + ")," +
++      "acceptance_id TEXT NOT NULL UNIQUE CHECK (" + a2aOpaque32("acceptance_id") + ")," +
++      "decision TEXT NOT NULL CHECK (decision = 'accepted')," +
++      "evidence_level TEXT NOT NULL CHECK (evidence_level = 'internal_local_decision')," +
++      "decided_at INTEGER NOT NULL CHECK (" + a2aSafeInteger("decided_at") + ")," +
++      "UNIQUE (acceptance_id, receipt_id)," +
++      "FOREIGN KEY (acceptance_id) REFERENCES a2a_acceptance_records(acceptance_id) ON UPDATE RESTRICT ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED" +
++    ")",
++  },
++  {
++    type: "table",
++    name: "a2a_request_mappings",
++    table: "a2a_request_mappings",
++    faultStep: "v4:request-mappings",
++    sql: "CREATE TABLE a2a_request_mappings (" +
++      "principal_key_id TEXT NOT NULL CHECK (" + a2aKeyId("principal_key_id") + ")," +
++      "principal_token TEXT NOT NULL CHECK (" + a2aOpaque32("principal_token") + ")," +
++      "request_key_id TEXT NOT NULL CHECK (" + a2aKeyId("request_key_id") + ")," +
++      "request_token TEXT NOT NULL CHECK (" + a2aOpaque32("request_token") + ")," +
++      "acceptance_id TEXT NOT NULL CHECK (" + a2aOpaque32("acceptance_id") + ")," +
++      "receipt_id TEXT NOT NULL CHECK (" + a2aOpaque32("receipt_id") + ")," +
++      "canonical_digest TEXT NOT NULL CHECK (" + a2aCanonicalDigest("canonical_digest") + ")," +
++      "mapped_at INTEGER NOT NULL CHECK (" + a2aSafeInteger("mapped_at") + ")," +
++      "outcome TEXT NOT NULL CHECK (outcome IN ('accepted', 'duplicate'))," +
++      "PRIMARY KEY (principal_key_id, principal_token, request_key_id, request_token)," +
++      "FOREIGN KEY (acceptance_id, canonical_digest) REFERENCES a2a_acceptance_records(acceptance_id, canonical_digest) ON UPDATE RESTRICT ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED," +
++      "FOREIGN KEY (acceptance_id, receipt_id) REFERENCES a2a_decision_receipts(acceptance_id, receipt_id) ON UPDATE RESTRICT ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED" +
++    ")",
++  },
++  { type: "index", name: "a2a_request_mappings_acceptance_idx", table: "a2a_request_mappings", faultStep: "v4:request-acceptance-index", sql: "CREATE INDEX a2a_request_mappings_acceptance_idx ON a2a_request_mappings(acceptance_id)" },
++  { type: "index", name: "a2a_request_mappings_receipt_idx", table: "a2a_request_mappings", faultStep: "v4:request-receipt-index", sql: "CREATE INDEX a2a_request_mappings_receipt_idx ON a2a_request_mappings(receipt_id)" },
++  ...(["a2a_acceptance_records", "a2a_request_mappings", "a2a_decision_receipts"] as const).flatMap((table) => [
++    { type: "trigger" as const, name: table + "_no_update", table, faultStep: "v4:" + table + "-no-update", sql: "CREATE TRIGGER " + table + "_no_update BEFORE UPDATE ON " + table + " BEGIN SELECT RAISE(ABORT, '" + table + " is append-only'); END" },
++    { type: "trigger" as const, name: table + "_no_delete", table, faultStep: "v4:" + table + "-no-delete", sql: "CREATE TRIGGER " + table + "_no_delete BEFORE DELETE ON " + table + " BEGIN SELECT RAISE(ABORT, '" + table + " is append-only'); END" },
++  ]),
++];
++
++function asciiFold(value: string): string {
++  return value.replace(/[A-Z]/g, (char) => String.fromCharCode(char.charCodeAt(0) + 32));
++}
++
++function schemaSqlTokens(sql: string): string[] {
++  const tokens: string[] = [];
++  let index = 0;
++  while (index < sql.length) {
++    const char = sql[index]!;
++    if (/\s/.test(char)) { index++; continue; }
++    if (char === "-" && sql[index + 1] === "-") {
++      index += 2;
++      while (index < sql.length && sql[index] !== "\n" && sql[index] !== "\r") index++;
++      continue;
++    }
++    if (char === "/" && sql[index + 1] === "*") {
++      const end = sql.indexOf("*/", index + 2);
++      if (end < 0) throw new Error("invalid schema SQL: unterminated comment");
++      index = end + 2;
++      continue;
++    }
++    if (char === "'") {
++      const start = index++;
++      let closed = false;
++      while (index < sql.length) {
++        if (sql[index] !== "'") { index++; continue; }
++        if (sql[index + 1] === "'") { index += 2; continue; }
++        index++;
++        closed = true;
++        break;
++      }
++      if (!closed) throw new Error("invalid schema SQL: unterminated string literal");
++      tokens.push("literal:" + sql.slice(start, index));
++      continue;
++    }
++    if (char === '"' || char === "`" || char === "[") {
++      const close = char === "[" ? "]" : char;
++      let value = "";
++      let closed = false;
++      index++;
++      while (index < sql.length) {
++        if (sql[index] !== close) { value += sql[index++]; continue; }
++        if (sql[index + 1] === close) { value += close; index += 2; continue; }
++        index++;
++        closed = true;
++        break;
++      }
++      if (!closed) throw new Error("invalid schema SQL: unterminated quoted identifier");
++      tokens.push("identifier:" + asciiFold(value));
++      continue;
++    }
++    if (/[A-Za-z0-9_$]/.test(char)) {
++      const start = index++;
++      while (index < sql.length && /[A-Za-z0-9_$]/.test(sql[index]!)) index++;
++      tokens.push("identifier:" + asciiFold(sql.slice(start, index)));
++      continue;
++    }
++    tokens.push("punctuation:" + char);
++    index++;
++  }
++  while (tokens.at(-1) === "punctuation:;") tokens.pop();
++  return tokens;
++}
++
++function schemaSqlMatches(actual: string, expected: string): boolean {
++  const actualTokens = schemaSqlTokens(actual);
++  const expectedTokens = schemaSqlTokens(expected);
++  return actualTokens.length === expectedTokens.length && actualTokens.every((token, index) => token === expectedTokens[index]);
++}
++
++function a2aSchemaRows(db: Database.Database): Array<{ type: string; name: string; tbl_name: string; sql: string | null }> {
++  return db.prepare("SELECT type, name, tbl_name, sql FROM sqlite_schema WHERE sql IS NOT NULL AND type IN ('table', 'index', 'trigger', 'view') AND (lower(name) GLOB 'a2a_*' OR lower(tbl_name) IN ('a2a_acceptance_records', 'a2a_request_mappings', 'a2a_decision_receipts')) ORDER BY type, name").all() as Array<{ type: string; name: string; tbl_name: string; sql: string | null }>;
++}
++
++function unexpectedA2aSchemaObject(db: Database.Database, permitExpectedObjects: boolean): { type: string; name: string } | undefined {
++  const expected = new Set(A2A_SCHEMA_V4.map((item) => item.type + ":" + asciiFold(item.name)));
++  const tables = ["a2a_acceptance_records", "a2a_request_mappings", "a2a_decision_receipts"];
++  const rows = db.prepare("SELECT type, name, tbl_name, sql FROM sqlite_schema WHERE sql IS NOT NULL AND type IN ('table', 'index', 'trigger', 'view') ORDER BY type, name").all() as Array<{ type: string; name: string; tbl_name: string; sql: string }>;
++  return rows.find((row) => {
++    if (permitExpectedObjects && expected.has(row.type + ":" + asciiFold(row.name))) return false;
++    const name = asciiFold(row.name);
++    const table = asciiFold(row.tbl_name);
++    const sqlTokens = new Set(schemaSqlTokens(row.sql));
++    return name.startsWith("a2a_") || tables.includes(table) || tables.some((candidate) => sqlTokens.has("identifier:" + candidate));
++  });
++}
++
++function preflightA2aNamespace(db: Database.Database): void {
++  const reserved = unexpectedA2aSchemaObject(db, false);
++  if (reserved) throw new Error("refusing v4 migration: reserved or dependent A2A " + reserved.type + " already exists (" + reserved.name + ")");
++}
++
++function validateA2aV4Layout(db: Database.Database): void {
++  const unexpected = unexpectedA2aSchemaObject(db, true);
++  if (unexpected) throw new Error("invalid v4 a2a layout: unexpected or dependent " + unexpected.type + " " + unexpected.name);
++  const actual = a2aSchemaRows(db);
++  if (actual.length !== A2A_SCHEMA_V4.length) throw new Error("invalid v4 a2a layout: unexpected object count");
++  const expected = new Map(A2A_SCHEMA_V4.map((item) => [item.type + ":" + asciiFold(item.name), item]));
++  for (const row of actual) {
++    const item = expected.get(row.type + ":" + asciiFold(row.name));
++    if (!item || asciiFold(row.tbl_name) !== item.table || row.sql === null || !schemaSqlMatches(row.sql, item.sql)) {
++      throw new Error("invalid v4 a2a layout: " + row.type + " " + row.name);
++    }
++  }
++  if ((db.pragma("foreign_keys", { simple: true }) as number) !== 1) throw new Error("invalid v4 a2a layout: foreign_keys is disabled");
++  if ((db.prepare("PRAGMA foreign_key_check").all() as unknown[]).length !== 0) throw new Error("invalid v4 a2a layout: foreign key check failed");
++  const integrity = db.prepare("PRAGMA integrity_check").all() as Array<{ integrity_check?: string }>;
++  if (integrity.length !== 1 || integrity[0]?.integrity_check !== "ok") throw new Error("invalid v4 a2a layout: integrity check failed");
++}
++
++/** Internal guard used as the first operation in every durable-acceptance transaction. */
++export function assertA2aDurableSchema(db: Database.Database): void {
++  const version = physicalStorageVersion(db);
++  if (version !== 4) throw new Error("durable acceptance requires physical storage schema version 4");
++  validateA2aV4Layout(db);
++}
++
+ function ensureColumn(db: Database.Database, table: "fleets" | "work_items" | "attempts", column: string, definition: string): void {
+   const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+   if (!columns.some((item) => item.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${definition}`);
+@@ -214,19 +411,48 @@ function ensureOutboxSequence(db: Database.Database): void {
+ }
+ 
+ let storageMigrationFaultForTest = false;
++let storageMigrationFaultStepForTest: string | null = null;
+ 
+ /** Test-only fault injection proving a failing migration rolls back completely. */
+ export function setStorageMigrationFaultForTest(enabled: boolean): void {
+   storageMigrationFaultForTest = enabled;
+ }
+ 
++/** Test-only v4 fault injection after an individual DDL or version-marker step. */
++export function setStorageMigrationFaultStepForTest(step: string | null): void {
++  storageMigrationFaultStepForTest = step;
++}
++
++function maybeFailStorageMigration(step: string): void {
++  if (storageMigrationFaultStepForTest === step) throw new Error("forced storage migration failure at " + step);
++}
++
++function hasInitializedPhysicalStorage(db: Database.Database): boolean {
++  return Boolean(db.prepare("SELECT 1 FROM sqlite_schema WHERE name IN ('work_items', 'attempts', 'attempt_events', 'lifecycle_event_outbox') LIMIT 1").get());
++}
++
+ function physicalStorageVersion(db: Database.Database): number {
+   const row = db.prepare("SELECT value FROM meta WHERE key = 'storage_schema_version'").get() as { value: string } | undefined;
+-  if (!row) return 1;
+-  if (!/^\d+$/.test(row.value)) throw new Error(`unsupported storage schema version: ${row.value}`);
++  if (!row) {
++    if (hasInitializedPhysicalStorage(db)) throw new Error("unsupported storage schema version: missing");
++    return 1;
++  }
++  if (!/^[1-9]\d*$/.test(row.value)) throw new Error(`unsupported storage schema version: ${row.value}`);
+   return Number(row.value);
+ }
+ 
++function migrateA2aV4(db: Database.Database): void {
++  preflightA2aNamespace(db);
++  for (const object of A2A_SCHEMA_V4) {
++    db.exec(object.sql);
++    maybeFailStorageMigration(object.faultStep);
++  }
++  validateA2aV4Layout(db);
++  const result = db.prepare("UPDATE meta SET value = '4' WHERE key = 'storage_schema_version'").run();
++  if (result.changes !== 1) throw new Error("invalid v4 migration: missing storage schema marker");
++  maybeFailStorageMigration("v4:version-marker");
++}
++
+ function migrateStorage(db: Database.Database): void {
+   const migrate = db.transaction(() => {
+     let version = physicalStorageVersion(db);
+@@ -235,7 +461,7 @@ function migrateStorage(db: Database.Database): void {
+         `unsupported newer storage schema version ${version}; this meshfleet build supports up to ${CURRENT_STORAGE_SCHEMA_VERSION}`
+       );
+     }
+-    while (version < CURRENT_STORAGE_SCHEMA_VERSION) {
++    while (version < 3) {
+       if (version === 1) {
+         db.exec(LIFECYCLE_SCHEMA_V2);
+         db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('storage_schema_version', '2')").run();
+@@ -277,7 +503,10 @@ function migrateStorage(db: Database.Database): void {
+       if (attemptNumbersNeedRepair(db)) backfillAttemptNumbers(db, false);
+       db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_attempts_work_number ON attempts(work_id, attempt_number)");
+       db.exec("CREATE INDEX IF NOT EXISTS idx_lifecycle_outbox_due ON lifecycle_event_outbox(projected_at, claimed_at, seq)");
++      migrateA2aV4(db);
++      version = 4;
+     }
++    if (version === 4) validateA2aV4Layout(db);
+   }).immediate;
+   migrate();
+ }
+@@ -297,6 +526,7 @@ function getDb(): Database.Database {
+   // otherwise throw "database is locked" instead of waiting.
+   try {
+     db.pragma("foreign_keys = ON"); // enforce relational lifecycle invariants on every handle
++    if ((db.pragma("foreign_keys", { simple: true }) as number) !== 1) throw new Error("SQLite foreign_keys could not be enabled");
+     db.pragma("busy_timeout = 5000"); // wait for a concurrent writer instead of erroring
+     db.pragma("journal_mode = WAL"); // local-disk only; the ledger lives under ~/.config
+     db.pragma("synchronous = NORMAL"); // WAL-recommended; durable except last txn on OS crash
+diff --git a/src/lifecycle-visibility.ts b/src/lifecycle-visibility.ts
+index 007e107..7544333 100644
+--- a/src/lifecycle-visibility.ts
++++ b/src/lifecycle-visibility.ts
+@@ -13,7 +13,7 @@ import type { VerifyFinding } from "./verify.js";
+ export const LIFECYCLE_JSON_SCHEMA = "meshfleet.lifecycle/v1";
+ export const LIFECYCLE_SCAN_LIMIT = 200_000;
+ const OUTBOX_LAG_MS = 60_000;
+-const MAX_SUPPORTED_STORAGE_VERSION = 3;
++const MAX_SUPPORTED_STORAGE_VERSION = 4;
+ const MODES = new Set(["legacy", "shadow", "durable"]);
+ const WORK_STATES = new Set(["pending", "running", "succeeded", "failed", "cancelled"]);
+ const ATTEMPT_STATES = new Set(["pending", "running", "expired", "succeeded", "failed", "cancelled"]);
+diff --git a/test/a2a-durable-acceptance.test.ts b/test/a2a-durable-acceptance.test.ts
+new file mode 100644
+index 0000000..042c9da
+--- /dev/null
++++ b/test/a2a-durable-acceptance.test.ts
+@@ -0,0 +1,122 @@
++import { test } from "node:test";
++import assert from "node:assert/strict";
++import Database from "better-sqlite3";
++import { createHash } from "node:crypto";
++import { closeDb, getStorageSchemaVersion, setDbPath, setStorageMigrationFaultStepForTest, withLedgerAndStorage } from "../src/db.js";
++import { DurableAcceptanceInputError, recordDurableAcceptance } from "../src/a2a/durable-acceptance.js";
++import { withTempDb } from "./helpers/with-temp-db.js";
++
++const token = (label: string) => createHash("sha256").update(label).digest("base64url");
++const canonicalDigest = (suffix = "a") => "meshfleet.a2a.fingerprint.v1:sha256:" + suffix.repeat(64);
++const authorizationContextDigest = (suffix = "b") => "sha256:" + suffix.repeat(64);
++
++function input(overrides: Record<string, unknown> = {}) {
++  return {
++    semantic: { keyId: "semantic-v1", token: token("semantic") },
++    principal: { keyId: "principal-v1", token: token("principal") },
++    request: { keyId: "request-v1", token: token("request") },
++    canonicalDigest: canonicalDigest(),
++    authorizationContextDigest: authorizationContextDigest(),
++    authorizationEvaluatorVersion: "policy-v1",
++    ...overrides,
++  };
++}
++
++function hooks(now: () => number, failAt?: string) {
++  return {
++    now,
++    beforeWrite: (step: string) => { if (step === failAt) throw new Error("forced journal failure"); },
++  };
++}
++
++function rowCounts() {
++  return withLedgerAndStorage((_data, db) => ({
++    acceptances: Number((db.prepare("SELECT COUNT(*) AS count FROM a2a_acceptance_records").get() as { count: number }).count),
++    mappings: Number((db.prepare("SELECT COUNT(*) AS count FROM a2a_request_mappings").get() as { count: number }).count),
++    receipts: Number((db.prepare("SELECT COUNT(*) AS count FROM a2a_decision_receipts").get() as { count: number }).count),
++  }));
++}
++
++test("durable acceptance is request-first across expiry and leaves negative outcomes unreserved", () => {
++  const temp = withTempDb();
++  try {
++    let now = 10;
++    const first = recordDurableAcceptance(input({ expiresAt: 11 }), hooks(() => now));
++    assert.equal(first.disposition, "accepted");
++    if (first.disposition !== "accepted") throw new Error("expected acceptance");
++    now = 12;
++
++    const replay = recordDurableAcceptance(input({ expiresAt: 11 }), hooks(() => now));
++    assert.deepEqual(replay, { disposition: "request_replay", storedOutcome: "accepted", acceptanceId: first.acceptanceId, receiptId: first.receiptId });
++
++    const duplicate = recordDurableAcceptance(input({ request: { keyId: "request-v1", token: token("new-request") }, expiresAt: 11 }), hooks(() => now));
++    assert.deepEqual(duplicate, { disposition: "semantic_duplicate", acceptanceId: first.acceptanceId, receiptId: first.receiptId });
++    assert.deepEqual(rowCounts(), { acceptances: 1, mappings: 2, receipts: 1 });
++
++    assert.deepEqual(recordDurableAcceptance(input({ semantic: { keyId: "semantic-v1", token: token("unseen") }, request: { keyId: "request-v1", token: token("expired") }, expiresAt: 11 }), hooks(() => now)), { disposition: "expired" });
++    assert.deepEqual(recordDurableAcceptance(input({ canonicalDigest: canonicalDigest("c"), expiresAt: 11 }), hooks(() => now)), { disposition: "request_conflict" });
++    assert.deepEqual(recordDurableAcceptance(input({ request: { keyId: "request-v1", token: token("semantic-conflict") }, canonicalDigest: canonicalDigest("c"), expiresAt: 11 }), hooks(() => now)), { disposition: "semantic_conflict" });
++    assert.deepEqual(rowCounts(), { acceptances: 1, mappings: 2, receipts: 1 });
++  } finally { temp.cleanup(); }
++});
++
++test("durable acceptance validates domains, commits all three rows atomically, and stores no prohibited columns", () => {
++  const temp = withTempDb();
++  try {
++    assert.throws(() => recordDurableAcceptance(input({ request: { keyId: "semantic-v1", token: token("semantic") } }), hooks(() => 1)), DurableAcceptanceInputError);
++    assert.throws(() => recordDurableAcceptance(input(), hooks(() => 1, "between_receipt_mapping")), /forced journal failure/);
++    assert.deepEqual(rowCounts(), { acceptances: 0, mappings: 0, receipts: 0 });
++
++    const accepted = recordDurableAcceptance(input(), hooks(() => 1));
++    assert.equal(accepted.disposition, "accepted");
++    if (accepted.disposition !== "accepted") throw new Error("expected acceptance");
++    for (const id of [accepted.acceptanceId, accepted.receiptId]) {
++      assert.match(id, /^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/);
++      assert.equal(Buffer.from(id, "base64url").length, 32);
++      assert.equal(Buffer.from(id, "base64url").toString("base64url"), id);
++    }
++    withLedgerAndStorage((_data, db) => {
++      const columns = ["a2a_acceptance_records", "a2a_request_mappings", "a2a_decision_receipts"].flatMap((table) =>
++        (db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map((column) => column.name)
++      );
++      for (const prohibited of ["principal_id", "request_id", "sender", "message_id", "payload", "extension", "recipient", "dedupe_key", "policy", "denial", "path", "runtime", "outbox"]) {
++        assert.equal(columns.includes(prohibited), false, prohibited);
++      }
++      assert.throws(() => db.prepare("UPDATE a2a_acceptance_records SET accepted_at = 2").run(), /append-only/);
++      assert.throws(() => db.prepare("DELETE FROM a2a_decision_receipts").run(), /append-only/);
++    });
++  } finally { temp.cleanup(); }
++});
++
++test("v3 to v4 migration is ordered, atomic, and rejects tampered v4 layout", () => {
++  const temp = withTempDb();
++  try {
++    assert.equal(getStorageSchemaVersion(), 4);
++    closeDb();
++    let raw = new Database(temp.dbFile);
++    raw.exec("DROP TABLE a2a_request_mappings; DROP TABLE a2a_decision_receipts; DROP TABLE a2a_acceptance_records; UPDATE meta SET value = '3' WHERE key = 'storage_schema_version';");
++    raw.close();
++
++    setStorageMigrationFaultStepForTest("v4:decision-receipts");
++    setDbPath(temp.dbFile);
++    assert.throws(() => getStorageSchemaVersion(), /forced storage migration failure/);
++    closeDb();
++    raw = new Database(temp.dbFile, { readonly: true });
++    assert.equal((raw.prepare("SELECT value FROM meta WHERE key = 'storage_schema_version'").get() as { value: string }).value, "3");
++    assert.equal(Number((raw.prepare("SELECT COUNT(*) AS count FROM sqlite_schema WHERE name GLOB 'a2a_*'").get() as { count: number }).count), 0);
++    raw.close();
++
++    setStorageMigrationFaultStepForTest(null);
++    setDbPath(temp.dbFile);
++    assert.equal(getStorageSchemaVersion(), 4);
++    closeDb();
++    raw = new Database(temp.dbFile);
++    raw.exec("DROP TRIGGER a2a_decision_receipts_no_delete");
++    raw.close();
++    setDbPath(temp.dbFile);
++    assert.throws(() => getStorageSchemaVersion(), /invalid v4 a2a layout/);
++  } finally {
++    setStorageMigrationFaultStepForTest(null);
++    temp.cleanup();
++  }
++});
+diff --git a/test/a2a-durable-behavior-evidence.test.ts b/test/a2a-durable-behavior-evidence.test.ts
+new file mode 100644
+index 0000000..1da1f01
+--- /dev/null
++++ b/test/a2a-durable-behavior-evidence.test.ts
+@@ -0,0 +1,228 @@
++import { test } from "node:test";
++import assert from "node:assert/strict";
++import Database from "better-sqlite3";
++import { createHash } from "node:crypto";
++import { spawn } from "node:child_process";
++import { fileURLToPath } from "node:url";
++import { appendEvent, readEventLog } from "../src/core.js";
++import { closeDb, getStorageSchemaVersion, readLedger, setDbPath, withLedgerAndStorage } from "../src/db.js";
++import { DurableAcceptanceInputError, recordDurableAcceptance } from "../src/a2a/durable-acceptance.js";
++import { LifecycleStore } from "../src/attempt-lifecycle.js";
++import { readLifecycleSnapshot } from "../src/lifecycle-visibility.js";
++import { withTempDb } from "./helpers/with-temp-db.js";
++
++const opaque = (label: string) => createHash("sha256").update(label).digest("base64url");
++const canonicalDigest = (suffix = "a") => "meshfleet.a2a.fingerprint.v1:sha256:" + suffix.repeat(64);
++const authorizationDigest = (suffix = "b") => "sha256:" + suffix.repeat(64);
++const OPAQUE_PATTERN = /^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/;
++const BASE64URL = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
++
++function aliasOf(value: string): string {
++  const index = BASE64URL.indexOf(value.at(-1)!);
++  assert.equal(index % 4, 0);
++  return value.slice(0, -1) + BASE64URL[index + 1];
++}
++
++function input(overrides: Record<string, unknown> = {}) {
++  return {
++    semantic: { keyId: "semantic-v1", token: opaque("semantic") },
++    principal: { keyId: "principal-v1", token: opaque("principal") },
++    request: { keyId: "request-v1", token: opaque("request") },
++    canonicalDigest: canonicalDigest(),
++    authorizationContextDigest: authorizationDigest(),
++    authorizationEvaluatorVersion: "policy-v1",
++    ...overrides,
++  };
++}
++
++const hooks = (now: () => number, failAt?: string) => ({
++  now,
++  beforeWrite: (stage: string) => { if (stage === failAt) throw new Error("forced write failure"); },
++});
++
++function counts(): { acceptances: number; mappings: number; receipts: number } {
++  return withLedgerAndStorage((_data, db) => ({
++    acceptances: Number((db.prepare("SELECT COUNT(*) AS count FROM a2a_acceptance_records").get() as { count: number }).count),
++    mappings: Number((db.prepare("SELECT COUNT(*) AS count FROM a2a_request_mappings").get() as { count: number }).count),
++    receipts: Number((db.prepare("SELECT COUNT(*) AS count FROM a2a_decision_receipts").get() as { count: number }).count),
++  }));
++}
++
++test("canonical token decoding rejects base64url aliases in TypeScript and SQLite", () => {
++  const temp = withTempDb();
++  try {
++    const canonical = opaque("semantic");
++    const alias = aliasOf(canonical);
++    assert.deepEqual(Buffer.from(alias, "base64url"), Buffer.from(canonical, "base64url"));
++    assert.notEqual(Buffer.from(alias, "base64url").toString("base64url"), alias);
++    assert.throws(() => recordDurableAcceptance(input({ semantic: { keyId: "semantic-v1", token: alias } }), hooks(() => 1)), DurableAcceptanceInputError);
++    withLedgerAndStorage((_data, db) => {
++      assert.throws(() => db.prepare("INSERT INTO a2a_acceptance_records (acceptance_id, semantic_key_id, semantic_token, canonical_digest, accepted_at, expires_at, authorization_context_digest, authorization_evaluator_version, receipt_id) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?)")
++        .run(opaque("acceptance"), "semantic-v1", alias, canonicalDigest(), 1, authorizationDigest(), "policy-v1", opaque("receipt")), /CHECK constraint failed/);
++    });
++    assert.deepEqual(counts(), { acceptances: 0, mappings: 0, receipts: 0 });
++  } finally { temp.cleanup(); }
++});
++
++test("restart preserves replay, conflict, semantic duplicate, duplicate replay outcome, and one receipt", () => {
++  const temp = withTempDb();
++  try {
++    let now = 1;
++    const accepted = recordDurableAcceptance(input({ expiresAt: 2 }), hooks(() => now));
++    assert.equal(accepted.disposition, "accepted");
++    if (accepted.disposition !== "accepted") throw new Error("expected acceptance");
++    closeDb();
++    setDbPath(temp.dbFile);
++    now = 3;
++    const replay = recordDurableAcceptance(input({ expiresAt: 2 }), hooks(() => now));
++    assert.deepEqual(replay, { disposition: "request_replay", storedOutcome: "accepted", acceptanceId: accepted.acceptanceId, receiptId: accepted.receiptId });
++
++    const duplicateInput = input({ request: { keyId: "request-v1", token: opaque("duplicate-request") }, expiresAt: 2 });
++    assert.deepEqual(recordDurableAcceptance(duplicateInput, hooks(() => now)), { disposition: "semantic_duplicate", acceptanceId: accepted.acceptanceId, receiptId: accepted.receiptId });
++    closeDb();
++    setDbPath(temp.dbFile);
++    assert.deepEqual(recordDurableAcceptance(duplicateInput, hooks(() => now)), { disposition: "request_replay", storedOutcome: "duplicate", acceptanceId: accepted.acceptanceId, receiptId: accepted.receiptId });
++    assert.deepEqual(recordDurableAcceptance(input({ canonicalDigest: canonicalDigest("c"), expiresAt: 2 }), hooks(() => now)), { disposition: "request_conflict" });
++    assert.deepEqual(recordDurableAcceptance(input({ request: { keyId: "request-v1", token: opaque("semantic-conflict") }, canonicalDigest: canonicalDigest("c"), expiresAt: 2 }), hooks(() => now)), { disposition: "semantic_conflict" });
++    assert.deepEqual(counts(), { acceptances: 1, mappings: 2, receipts: 1 });
++  } finally { temp.cleanup(); }
++});
++
++function runWriter(dbFile: string, candidate: ReturnType<typeof input>): Promise<Record<string, unknown>> {
++  const helper = fileURLToPath(new URL("./helpers/a2a-acceptance-writer.mjs", import.meta.url));
++  return new Promise((resolve, reject) => {
++    const child = spawn(process.execPath, ["--import", "tsx", helper, dbFile, JSON.stringify(candidate), "10"], { stdio: ["ignore", "pipe", "pipe"] });
++    let stdout = "";
++    let stderr = "";
++    child.stdout.setEncoding("utf8").on("data", (chunk) => { stdout += chunk; });
++    child.stderr.setEncoding("utf8").on("data", (chunk) => { stderr += chunk; });
++    child.once("error", reject);
++    child.once("exit", (code) => code === 0 ? resolve(JSON.parse(stdout)) : reject(new Error("writer exited " + code + ": " + stderr)));
++  });
++}
++
++test("cross-process identical, duplicate, and conflicting semantic races preserve final invariants", async () => {
++  const scenarios: Array<{ candidates: [ReturnType<typeof input>, ReturnType<typeof input>]; dispositions: string[]; expected: { acceptances: number; mappings: number; receipts: number } }> = [
++    { candidates: [input(), input()], dispositions: ["accepted", "request_replay"], expected: { acceptances: 1, mappings: 1, receipts: 1 } },
++    { candidates: [input(), input({ request: { keyId: "request-v1", token: opaque("race-duplicate") } })], dispositions: ["accepted", "semantic_duplicate"], expected: { acceptances: 1, mappings: 2, receipts: 1 } },
++    { candidates: [input(), input({ request: { keyId: "request-v1", token: opaque("race-conflict") }, canonicalDigest: canonicalDigest("c") })], dispositions: ["accepted", "semantic_conflict"], expected: { acceptances: 1, mappings: 1, receipts: 1 } },
++  ];
++  for (const scenario of scenarios) {
++    const temp = withTempDb();
++    try {
++      assert.equal(getStorageSchemaVersion(), 4);
++      closeDb();
++      const results = await Promise.all(scenario.candidates.map((candidate) => runWriter(temp.dbFile, candidate)));
++      assert.deepEqual(results.map((result) => String(result.disposition)).sort(), [...scenario.dispositions].sort());
++      setDbPath(temp.dbFile);
++      assert.deepEqual(counts(), scenario.expected);
++    } finally { temp.cleanup(); }
++  }
++});
++
++test("UPDATE and DELETE are rejected for each private table", () => {
++  const temp = withTempDb();
++  try {
++    assert.equal(recordDurableAcceptance(input(), hooks(() => 1)).disposition, "accepted");
++    withLedgerAndStorage((_data, db) => {
++      for (const table of ["a2a_acceptance_records", "a2a_request_mappings", "a2a_decision_receipts"]) {
++        assert.throws(() => db.prepare(`UPDATE ${table} SET rowid = rowid`).run(), /append-only/, table);
++        assert.throws(() => db.prepare(`DELETE FROM ${table}`).run(), /append-only/, table);
++      }
++    });
++    assert.deepEqual(counts(), { acceptances: 1, mappings: 1, receipts: 1 });
++  } finally { temp.cleanup(); }
++});
++
++type DirectOverrides = Record<string, unknown>;
++function directInsert(overrides: DirectOverrides = {}): void {
++  const values = {
++    acceptanceId: opaque("direct-acceptance"), receiptId: opaque("direct-receipt"), semanticToken: opaque("direct-semantic"),
++    principalToken: opaque("direct-principal"), requestToken: opaque("direct-request"), digest: canonicalDigest(), mappingDigest: canonicalDigest(),
++    semanticKeyId: "semantic-v1", principalKeyId: "principal-v1", requestKeyId: "request-v1",
++    acceptedAt: 1, expiresAt: 2, authorizationDigest: authorizationDigest(), evaluator: "policy-v1", decision: "accepted",
++    evidence: "internal_local_decision", decidedAt: 1, mappedAt: 1, outcome: "accepted", mappingAcceptanceId: undefined, mappingReceiptId: undefined,
++    ...overrides,
++  };
++  withLedgerAndStorage((_data, db) => {
++    db.prepare("INSERT INTO a2a_acceptance_records (acceptance_id, semantic_key_id, semantic_token, canonical_digest, accepted_at, expires_at, authorization_context_digest, authorization_evaluator_version, receipt_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
++      .run(values.acceptanceId, values.semanticKeyId, values.semanticToken, values.digest, values.acceptedAt, values.expiresAt, values.authorizationDigest, values.evaluator, values.receiptId);
++    db.prepare("INSERT INTO a2a_decision_receipts (receipt_id, acceptance_id, decision, evidence_level, decided_at) VALUES (?, ?, ?, ?, ?)")
++      .run(values.receiptId, values.acceptanceId, values.decision, values.evidence, values.decidedAt);
++    db.prepare("INSERT INTO a2a_request_mappings (principal_key_id, principal_token, request_key_id, request_token, acceptance_id, receipt_id, canonical_digest, mapped_at, outcome) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
++      .run(values.principalKeyId, values.principalToken, values.requestKeyId, values.requestToken, values.mappingAcceptanceId ?? values.acceptanceId, values.mappingReceiptId ?? values.receiptId, values.mappingDigest, values.mappedAt, values.outcome);
++  });
++}
++
++test("direct SQL constraint matrix rejects noncanonical, out-of-range, closed-value, and cross-reference violations", () => {
++  const temp = withTempDb();
++  const alias = aliasOf(opaque("direct-semantic"));
++  const cases: Array<[string, DirectOverrides]> = [
++    ["acceptance id", { acceptanceId: alias }], ["receipt id", { receiptId: alias }], ["semantic token", { semanticToken: alias }],
++    ["semantic key id", { semanticKeyId: "bad key" }], ["principal key id", { principalKeyId: "bad key" }], ["request key id", { requestKeyId: "bad key" }],
++    ["principal token", { principalToken: alias }], ["request token", { requestToken: alias }],
++    ["canonical digest", { digest: "meshfleet.a2a.fingerprint.v1:sha256:" + "A".repeat(64) }],
++    ["accepted timestamp", { acceptedAt: -1 }], ["unsafe timestamp", { acceptedAt: 9_007_199_254_740_992 }],
++    ["expiry relation", { expiresAt: 1 }], ["authorization digest", { authorizationDigest: "sha256:" + "A".repeat(64) }],
++    ["evaluator", { evaluator: "" }], ["evaluator alphabet", { evaluator: "policy version" }], ["decision", { decision: "denied" }], ["evidence", { evidence: "external" }],
++    ["decision timestamp", { decidedAt: -1 }], ["mapping timestamp", { mappedAt: -1 }], ["outcome", { outcome: "replayed" }],
++    ["mapping digest", { mappingDigest: canonicalDigest("c") }], ["mapping acceptance", { mappingAcceptanceId: opaque("missing-acceptance") }],
++    ["mapping receipt", { mappingReceiptId: opaque("missing-receipt") }],
++  ];
++  try {
++    for (const [label, overrides] of cases) {
++      assert.throws(() => directInsert(overrides), undefined, label);
++      assert.deepEqual(counts(), { acceptances: 0, mappings: 0, receipts: 0 }, label);
++    }
++  } finally { temp.cleanup(); }
++});
++
++test("raw sentinel is absent from stored values, schema, diagnostics, and generated IDs", () => {
++  const temp = withTempDb();
++  const sentinel = "RAW-SENDER-MESSAGE-PAYLOAD-DEDUPE-POLICY-PATH-RUNTIME-SENTINEL";
++  try {
++    assert.throws(() => recordDurableAcceptance(input({ semantic: { keyId: "semantic-v1", token: sentinel } }), hooks(() => 1)), DurableAcceptanceInputError);
++    const result = recordDurableAcceptance(input(), hooks(() => 1));
++    assert.equal(result.disposition, "accepted");
++    if (result.disposition !== "accepted") throw new Error("expected acceptance");
++    for (const id of [result.acceptanceId, result.receiptId]) {
++      assert.match(id, OPAQUE_PATTERN);
++      assert.equal(Buffer.from(id, "base64url").length, 32);
++    }
++    const raw = new Database(temp.dbFile, { readonly: true });
++    const stored = ["a2a_acceptance_records", "a2a_request_mappings", "a2a_decision_receipts"].flatMap((table) => raw.prepare(`SELECT * FROM ${table}`).all());
++    const schema = raw.prepare("SELECT type, name, tbl_name, sql FROM sqlite_schema WHERE sql IS NOT NULL ORDER BY type, name").all();
++    raw.close();
++    const diagnostics = readLifecycleSnapshot(temp.dbFile);
++    assert.equal(JSON.stringify({ stored, schema, diagnostics, ids: [result.acceptanceId, result.receiptId] }).includes(sentinel), false);
++  } finally { temp.cleanup(); }
++});
++
++test("durable acceptance leaves logical ledger, lifecycle, outbox, and NDJSON unchanged", () => {
++  const temp = withTempDb({ fleets: { f: { id: "f", status: "running", created_at: 1 } } });
++  try {
++    let generated = 0;
++    const store = new LifecycleStore({ now: () => 5, nextId: () => `lifecycle-${++generated}` });
++    store.createWork({ workId: "work", fleetId: "f", agentId: "agent" });
++    appendEvent("baseline_event", { marker: "preserve" });
++    withLedgerAndStorage((_data, db) => db.prepare("INSERT INTO lifecycle_event_outbox (event_id, event, payload, created_at, claimed_by, claimed_at, projected_at) VALUES ('baseline-outbox', 'baseline', '{\"marker\":true}', 5, NULL, NULL, NULL)").run());
++    const beforeLedger = readLedger();
++    const beforeEvents = readEventLog();
++    const beforeLifecycle = withLedgerAndStorage((_data, db) => ({
++      work: db.prepare("SELECT * FROM work_items ORDER BY work_id").all(),
++      attempts: db.prepare("SELECT * FROM attempts ORDER BY attempt_id").all(),
++      events: db.prepare("SELECT * FROM attempt_events ORDER BY seq").all(),
++      outbox: db.prepare("SELECT * FROM lifecycle_event_outbox ORDER BY seq").all(),
++    }));
++
++    assert.equal(recordDurableAcceptance(input(), hooks(() => 6)).disposition, "accepted");
++    assert.deepEqual(readLedger(), beforeLedger);
++    assert.deepEqual(readEventLog(), beforeEvents);
++    assert.deepEqual(withLedgerAndStorage((_data, db) => ({
++      work: db.prepare("SELECT * FROM work_items ORDER BY work_id").all(),
++      attempts: db.prepare("SELECT * FROM attempts ORDER BY attempt_id").all(),
++      events: db.prepare("SELECT * FROM attempt_events ORDER BY seq").all(),
++      outbox: db.prepare("SELECT * FROM lifecycle_event_outbox ORDER BY seq").all(),
++    })), beforeLifecycle);
++  } finally { temp.cleanup(); }
++});
+diff --git a/test/a2a-durable-migration-evidence.test.ts b/test/a2a-durable-migration-evidence.test.ts
+new file mode 100644
+index 0000000..de8b016
+--- /dev/null
++++ b/test/a2a-durable-migration-evidence.test.ts
+@@ -0,0 +1,253 @@
++import { test } from "node:test";
++import assert from "node:assert/strict";
++import Database from "better-sqlite3";
++import { copyFileSync } from "node:fs";
++import { spawnSync } from "node:child_process";
++import { fileURLToPath } from "node:url";
++import { join } from "node:path";
++import { closeDb, getStorageSchemaVersion, setDbPath, setStorageMigrationFaultStepForTest } from "../src/db.js";
++import { recordDurableAcceptance } from "../src/a2a/durable-acceptance.js";
++import { createHash } from "node:crypto";
++import { withTempDb } from "./helpers/with-temp-db.js";
++
++const V4_FAULT_STEPS = [
++  "v4:acceptance-records",
++  "v4:decision-receipts",
++  "v4:request-mappings",
++  "v4:request-acceptance-index",
++  "v4:request-receipt-index",
++  "v4:a2a_acceptance_records-no-update",
++  "v4:a2a_acceptance_records-no-delete",
++  "v4:a2a_request_mappings-no-update",
++  "v4:a2a_request_mappings-no-delete",
++  "v4:a2a_decision_receipts-no-update",
++  "v4:a2a_decision_receipts-no-delete",
++  "v4:version-marker",
++] as const;
++
++function dropA2aToV3(db: Database.Database): void {
++  db.exec("DROP TABLE a2a_request_mappings; DROP TABLE a2a_decision_receipts; DROP TABLE a2a_acceptance_records; UPDATE meta SET value = '3' WHERE key = 'storage_schema_version';");
++}
++
++function schemaSnapshot(db: Database.Database): unknown[] {
++  return db.prepare("SELECT type, name, tbl_name, sql FROM sqlite_schema WHERE sql IS NOT NULL ORDER BY type, name").all();
++}
++
++function a2aObjectCount(db: Database.Database): number {
++  return Number((db.prepare("SELECT COUNT(*) AS count FROM sqlite_schema WHERE lower(name) GLOB 'a2a_*' OR lower(tbl_name) GLOB 'a2a_*'").get() as { count: number }).count);
++}
++
++function tamperSchemaSql(dbFile: string, table: string, from: string, to: string): void {
++  const raw = new Database(dbFile);
++  try {
++    raw.unsafeMode(true);
++    raw.pragma("writable_schema = ON");
++    const changed = raw.prepare("UPDATE sqlite_schema SET sql = replace(sql, ?, ?) WHERE type = 'table' AND name = ?").run(from, to, table);
++    assert.equal(changed.changes, 1);
++    const version = raw.pragma("schema_version", { simple: true }) as number;
++    raw.pragma("schema_version = " + (version + 1));
++    raw.pragma("writable_schema = OFF");
++  } finally { raw.close(); }
++}
++
++const opaque = (label: string) => createHash("sha256").update(label).digest("base64url");
++const durableInput = () => ({
++  semantic: { keyId: "semantic-v1", token: opaque("semantic") },
++  principal: { keyId: "principal-v1", token: opaque("principal") },
++  request: { keyId: "request-v1", token: opaque("request") },
++  canonicalDigest: "meshfleet.a2a.fingerprint.v1:sha256:" + "a".repeat(64),
++  authorizationContextDigest: "sha256:" + "b".repeat(64),
++  authorizationEvaluatorVersion: "policy-v1",
++});
++
++test("every v4 DDL and marker-last fault rolls back to intact v3 with no A2A object", () => {
++  for (const step of V4_FAULT_STEPS) {
++    const temp = withTempDb({ fleets: { preserved: { id: "preserved", status: "running", created_at: 1 } } });
++    try {
++      assert.equal(getStorageSchemaVersion(), 4);
++      closeDb();
++      let raw = new Database(temp.dbFile);
++      dropA2aToV3(raw);
++      raw.close();
++
++      setStorageMigrationFaultStepForTest(step);
++      setDbPath(temp.dbFile);
++      assert.throws(() => getStorageSchemaVersion(), new RegExp("forced storage migration failure at " + step.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
++      closeDb();
++
++      raw = new Database(temp.dbFile, { readonly: true });
++      assert.equal((raw.prepare("SELECT value FROM meta WHERE key = 'storage_schema_version'").get() as { value: string }).value, "3", step);
++      assert.equal(a2aObjectCount(raw), 0, step);
++      assert.ok(raw.prepare("SELECT 1 FROM work_items LIMIT 1"));
++      assert.ok(raw.prepare("SELECT data FROM fleets WHERE id = 'preserved'").get(), step);
++      raw.close();
++    } finally {
++      setStorageMigrationFaultStepForTest(null);
++      temp.cleanup();
++    }
++  }
++});
++
++test("reserved table, index, trigger, view, and foreign dependency refuse migration without mutation", () => {
++  const cases = [
++    ["table", "CREATE TABLE a2a_reserved (value TEXT)"],
++    ["expected-name-table", "CREATE TABLE a2a_acceptance_records (value TEXT)"],
++    ["index", "CREATE INDEX a2a_reserved ON meta(value)"],
++    ["trigger", "CREATE TRIGGER a2a_reserved AFTER INSERT ON meta BEGIN SELECT 1; END"],
++    ["view", "CREATE VIEW a2a_reserved AS SELECT 1 AS value"],
++    ["foreign-view", "CREATE VIEW audit_export AS SELECT * FROM a2a_acceptance_records"],
++  ] as const;
++
++  for (const [label, ddl] of cases) {
++    const temp = withTempDb();
++    try {
++      assert.equal(getStorageSchemaVersion(), 4);
++      closeDb();
++      let raw = new Database(temp.dbFile);
++      dropA2aToV3(raw);
++      raw.exec(ddl);
++      const before = schemaSnapshot(raw);
++      raw.close();
++
++      setDbPath(temp.dbFile);
++      assert.throws(() => getStorageSchemaVersion(), /refusing v4 migration/, label);
++      closeDb();
++      raw = new Database(temp.dbFile, { readonly: true });
++      assert.equal((raw.prepare("SELECT value FROM meta WHERE key = 'storage_schema_version'").get() as { value: string }).value, "3");
++      assert.deepEqual(schemaSnapshot(raw), before, label);
++      raw.close();
++    } finally { temp.cleanup(); }
++  }
++});
++
++test("partial, malformed, extra, and foreign-dependent v4 layouts fail closed while valid reopen is inert", () => {
++  const valid = withTempDb();
++  try {
++    assert.equal(getStorageSchemaVersion(), 4);
++    closeDb();
++    let raw = new Database(valid.dbFile, { readonly: true });
++    const before = schemaSnapshot(raw);
++    raw.close();
++    setDbPath(valid.dbFile);
++    assert.equal(getStorageSchemaVersion(), 4);
++    closeDb();
++    raw = new Database(valid.dbFile, { readonly: true });
++    assert.deepEqual(schemaSnapshot(raw), before);
++    raw.close();
++  } finally { valid.cleanup(); }
++
++  const cases = [
++    ["partial", "DROP TRIGGER a2a_decision_receipts_no_delete"],
++    ["malformed", "DROP TRIGGER a2a_decision_receipts_no_delete; CREATE TRIGGER a2a_decision_receipts_no_delete BEFORE DELETE ON a2a_decision_receipts BEGIN SELECT 1; END"],
++    ["extra", "CREATE TABLE a2a_extra (value TEXT)"],
++    ["foreign-view", "CREATE VIEW audit_export AS SELECT acceptance_id FROM a2a_acceptance_records"],
++    ["foreign-index", "CREATE INDEX audit_acceptance_time ON a2a_acceptance_records(accepted_at)"],
++  ] as const;
++  for (const [label, ddl] of cases) {
++    const temp = withTempDb();
++    try {
++      assert.equal(getStorageSchemaVersion(), 4);
++      closeDb();
++      const raw = new Database(temp.dbFile);
++      raw.exec(ddl);
++      raw.close();
++      setDbPath(temp.dbFile);
++      assert.throws(() => getStorageSchemaVersion(), /invalid v4 a2a layout/, label);
++    } finally { temp.cleanup(); }
++  }
++});
++
++test("cached durable handle validates exact layout before any acceptance lookup or write", () => {
++  for (const ddl of [
++    "CREATE VIEW audit_export AS SELECT * FROM a2a_acceptance_records",
++    "DROP TRIGGER a2a_acceptance_records_no_update",
++  ]) {
++    const temp = withTempDb();
++    try {
++      assert.equal(getStorageSchemaVersion(), 4);
++      const attacker = new Database(temp.dbFile);
++      attacker.exec(ddl);
++      attacker.close();
++      assert.throws(() => recordDurableAcceptance(durableInput(), { now: () => 1 }), /invalid v4 a2a layout/);
++      const raw = new Database(temp.dbFile, { readonly: true });
++      assert.equal(Number((raw.prepare("SELECT COUNT(*) AS count FROM a2a_acceptance_records").get() as { count: number }).count), 0);
++      raw.close();
++    } finally { temp.cleanup(); }
++  }
++});
++
++test("exact schema comparison preserves decision literals on reopen and cached-handle validation", () => {
++  const reopen = withTempDb();
++  try {
++    assert.equal(getStorageSchemaVersion(), 4);
++    closeDb();
++    tamperSchemaSql(reopen.dbFile, "a2a_decision_receipts", "'accepted'", "'ACCEPTED'");
++    setDbPath(reopen.dbFile);
++    assert.throws(() => getStorageSchemaVersion(), /invalid v4 a2a layout: table a2a_decision_receipts/);
++  } finally { reopen.cleanup(); }
++
++  const cached = withTempDb();
++  try {
++    assert.equal(getStorageSchemaVersion(), 4);
++    tamperSchemaSql(cached.dbFile, "a2a_decision_receipts", "'internal_local_decision'", "'INTERNAL_LOCAL_DECISION'");
++    assert.throws(() => recordDurableAcceptance(durableInput(), { now: () => 1 }), /invalid v4 a2a layout: table a2a_decision_receipts/);
++    const raw = new Database(cached.dbFile, { readonly: true });
++    assert.equal(Number((raw.prepare("SELECT COUNT(*) AS count FROM a2a_acceptance_records").get() as { count: number }).count), 0);
++    raw.close();
++  } finally { cached.cleanup(); }
++});
++
++test("ASCII-only identifier folding rejects Kelvin-sign aliases on reopen and cached handles", () => {
++  const reopen = withTempDb();
++  try {
++    assert.equal(getStorageSchemaVersion(), 4);
++    closeDb();
++    tamperSchemaSql(reopen.dbFile, "a2a_acceptance_records", "semantic_key_id", '"semantic_Key_id"');
++    setDbPath(reopen.dbFile);
++    assert.throws(() => getStorageSchemaVersion(), /invalid v4 a2a layout: table a2a_acceptance_records/);
++  } finally { reopen.cleanup(); }
++
++  const cached = withTempDb();
++  try {
++    assert.equal(getStorageSchemaVersion(), 4);
++    tamperSchemaSql(cached.dbFile, "a2a_acceptance_records", "semantic_key_id", '"semantic_Key_id"');
++    assert.throws(() => recordDurableAcceptance(durableInput(), { now: () => 1 }), /invalid v4 a2a layout: table a2a_acceptance_records/);
++    const raw = new Database(cached.dbFile, { readonly: true });
++    assert.equal(Number((raw.prepare("SELECT COUNT(*) AS count FROM a2a_acceptance_records").get() as { count: number }).count), 0);
++    raw.close();
++  } finally { cached.cleanup(); }
++});
++
++test("frozen v3 reader refuses v4 and WAL-safe SQLite backup restores readable v3", async () => {
++  const temp = withTempDb({ fleets: { before: { id: "before", status: "running", created_at: 1 } } });
++  const reader = fileURLToPath(new URL("./helpers/storage-v3-reader.mjs", import.meta.url));
++  const backup = join(temp.dir, "pre-v4.backup.db");
++  const restored = join(temp.dir, "restored-v3.db");
++  try {
++    assert.equal(getStorageSchemaVersion(), 4);
++    closeDb();
++    const raw = new Database(temp.dbFile);
++    dropA2aToV3(raw);
++    raw.pragma("journal_mode = WAL");
++    raw.pragma("wal_autocheckpoint = 0");
++    raw.prepare("INSERT INTO fleets (id, data) VALUES (?, ?)").run("wal-frame", JSON.stringify({ id: "wal-frame", status: "running", created_at: 2 }));
++    await raw.backup(backup);
++    raw.close();
++    copyFileSync(backup, restored);
++
++    setDbPath(temp.dbFile);
++    assert.equal(getStorageSchemaVersion(), 4);
++    closeDb();
++    const refused = spawnSync(process.execPath, [reader, temp.dbFile], { encoding: "utf8" });
++    assert.equal(refused.status, 3);
++    assert.match(refused.stderr, /refused newer physical storage version 4/);
++
++    const accepted = spawnSync(process.execPath, [reader, restored], { encoding: "utf8" });
++    assert.equal(accepted.status, 0, accepted.stderr);
++    assert.deepEqual(JSON.parse(accepted.stdout), { storageVersion: 3 });
++    const restoredDb = new Database(restored, { readonly: true });
++    assert.ok(restoredDb.prepare("SELECT data FROM fleets WHERE id = 'wal-frame'").get());
++    assert.equal(a2aObjectCount(restoredDb), 0);
++    restoredDb.close();
++  } finally { temp.cleanup(); }
++});
+diff --git a/test/a2a-package-boundary.test.ts b/test/a2a-package-boundary.test.ts
+new file mode 100644
+index 0000000..33eb098
+--- /dev/null
++++ b/test/a2a-package-boundary.test.ts
+@@ -0,0 +1,39 @@
++import { test } from "node:test";
++import assert from "node:assert/strict";
++import { readFileSync } from "node:fs";
++
++test("package exports preserve intended entrypoints and deny internal durable seams", () => {
++  const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
++    main: string;
++    bin: Record<string, string>;
++    exports: Record<string, string>;
++  };
++  assert.equal(pkg.main, "dist/index.js");
++  assert.deepEqual(pkg.bin, {
++    meshfleet: "dist/index.js",
++    "agent-mesh": "dist/bin/inspect.js",
++    "agent-mesh-dashboard": "dist/bin/dashboard.js",
++  });
++  assert.deepEqual(pkg.exports, {
++    ".": "./dist/index.js",
++    "./package.json": "./package.json",
++    "./bin/inspect": "./dist/bin/inspect.js",
++    "./bin/dashboard": "./dist/bin/dashboard.js",
++  });
++
++  for (const specifier of ["meshfleet", "meshfleet/package.json", "meshfleet/bin/inspect", "meshfleet/bin/dashboard"]) {
++    assert.doesNotThrow(() => import.meta.resolve(specifier));
++  }
++  for (const specifier of [
++    "meshfleet/a2a/durable-acceptance",
++    "meshfleet/dist/a2a/durable-acceptance.js",
++    "meshfleet/db",
++    "meshfleet/src/a2a/durable-acceptance.js",
++  ]) {
++    assert.throws(() => import.meta.resolve(specifier), (error: unknown) => (error as NodeJS.ErrnoException).code === "ERR_PACKAGE_PATH_NOT_EXPORTED");
++  }
++
++  const rootSource = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");
++  assert.equal(rootSource.includes("recordDurableAcceptance"), false);
++  assert.equal(rootSource.includes("send_a2a"), false);
++});
+diff --git a/test/attempt-lifecycle.test.ts b/test/attempt-lifecycle.test.ts
+index 4cb9f33..3592d40 100644
+--- a/test/attempt-lifecycle.test.ts
++++ b/test/attempt-lifecycle.test.ts
+@@ -139,12 +139,12 @@ test("storage migration: v2 logical ledger is preserved, idempotent, fail-closed
+     withLedger((data) => Object.assign(data, structuredClone(representative) as typeof data));
+     closeDb();
+     const raw = new Database(temp.dbFile);
+-    raw.exec("DROP TABLE attempt_events; DROP TABLE attempts; DROP TABLE work_items;");
++    raw.exec("DROP TABLE a2a_request_mappings; DROP TABLE a2a_decision_receipts; DROP TABLE a2a_acceptance_records; DROP TABLE lifecycle_event_outbox; DROP TABLE attempt_events; DROP TABLE attempts; DROP TABLE work_items;");
+     raw.prepare("DELETE FROM meta WHERE key = 'storage_schema_version'").run();
+     raw.close();
+     setDbPath(temp.dbFile);
+     assert.deepEqual(readLedger(), representative);
+-    assert.equal(getStorageSchemaVersion(), 3);
++    assert.equal(getStorageSchemaVersion(), 4);
+     const logical = new Database(temp.dbFile, { readonly: true });
+     assert.equal((logical.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string }).value, "2");
+     assert.equal((logical.prepare("SELECT COUNT(*) AS n FROM work_items").get() as { n: number }).n, 0);
+@@ -153,7 +153,7 @@ test("storage migration: v2 logical ledger is preserved, idempotent, fail-closed
+     logical.close();
+     closeDb();
+     setDbPath(temp.dbFile);
+-    assert.equal(getStorageSchemaVersion(), 3);
++    assert.equal(getStorageSchemaVersion(), 4);
+     closeDb();
+     const newer = new Database(temp.dbFile);
+     newer.prepare("UPDATE meta SET value = '99' WHERE key = 'storage_schema_version'").run();
+@@ -200,7 +200,7 @@ test("storage migration: forced failure leaves old physical layout untouched", (
+     readLedger();
+     closeDb();
+     const raw = new Database(temp.dbFile);
+-    raw.exec("DROP TABLE attempt_events; DROP TABLE attempts; DROP TABLE work_items;");
++    raw.exec("DROP TABLE a2a_request_mappings; DROP TABLE a2a_decision_receipts; DROP TABLE a2a_acceptance_records; DROP TABLE lifecycle_event_outbox; DROP TABLE attempt_events; DROP TABLE attempts; DROP TABLE work_items;");
+     raw.prepare("DELETE FROM meta WHERE key = 'storage_schema_version'").run();
+     raw.close();
+     setStorageMigrationFaultForTest(true);
+diff --git a/test/helpers/a2a-acceptance-writer.mjs b/test/helpers/a2a-acceptance-writer.mjs
+new file mode 100644
+index 0000000..3bc79d2
+--- /dev/null
++++ b/test/helpers/a2a-acceptance-writer.mjs
+@@ -0,0 +1,13 @@
++import { recordDurableAcceptance } from "../../src/a2a/durable-acceptance.js";
++import { closeDb, setDbPath } from "../../src/db.js";
++
++const [dbFile, encodedInput, encodedNow] = process.argv.slice(2);
++if (!dbFile || !encodedInput || !encodedNow) throw new Error("usage: a2a-acceptance-writer DB INPUT_JSON NOW");
++
++try {
++  setDbPath(dbFile);
++  const result = recordDurableAcceptance(JSON.parse(encodedInput), { now: () => Number(encodedNow) });
++  process.stdout.write(JSON.stringify(result));
++} finally {
++  closeDb();
++}
+diff --git a/test/helpers/storage-v3-reader.mjs b/test/helpers/storage-v3-reader.mjs
+new file mode 100644
+index 0000000..59846f1
+--- /dev/null
++++ b/test/helpers/storage-v3-reader.mjs
+@@ -0,0 +1,20 @@
++import Database from "better-sqlite3";
++
++const [dbFile] = process.argv.slice(2);
++if (!dbFile) throw new Error("usage: storage-v3-reader DB");
++
++const db = new Database(dbFile, { readonly: true, fileMustExist: true });
++try {
++  const row = db.prepare("SELECT value FROM meta WHERE key = 'storage_schema_version'").get();
++  if (!row || !/^[1-9][0-9]*$/.test(row.value)) {
++    process.stderr.write("v3 reader refused malformed or missing storage version\n");
++    process.exitCode = 2;
++  } else if (Number(row.value) > 3) {
++    process.stderr.write("v3 reader refused newer physical storage version " + row.value + "\n");
++    process.exitCode = 3;
++  } else {
++    process.stdout.write(JSON.stringify({ storageVersion: Number(row.value) }));
++  }
++} finally {
++  db.close();
++}
+diff --git a/test/lifecycle-integration-adversarial.test.ts b/test/lifecycle-integration-adversarial.test.ts
+index 6aeec61..19021ef 100644
+--- a/test/lifecycle-integration-adversarial.test.ts
++++ b/test/lifecycle-integration-adversarial.test.ts
+@@ -78,7 +78,7 @@ test("v2 retry histories receive deterministic attempt numbers before unique ind
+     `);
+     raw.close();
+     setDbPath(file);
+-    assert.equal(getStorageSchemaVersion(), 3);
++    assert.equal(getStorageSchemaVersion(), 4);
+     closeDb();
+     const migrated = new Database(file, { readonly: true });
+     assert.deepEqual(migrated.prepare("SELECT attempt_id, attempt_number, eligible_at FROM attempts ORDER BY attempt_id").all(), [
+@@ -96,10 +96,13 @@ test("v2 retry histories receive deterministic attempt numbers before unique ind
+ test("legacy v3 outbox layout upgrades to durable sequence before sequence indexing", () => {
+   const temp = withTempDb();
+   try {
+-    assert.equal(getStorageSchemaVersion(), 3);
++    assert.equal(getStorageSchemaVersion(), 4);
+     closeDb();
+     const raw = new Database(temp.dbFile);
+     raw.exec(`
++      DROP TABLE a2a_request_mappings;
++      DROP TABLE a2a_decision_receipts;
++      DROP TABLE a2a_acceptance_records;
+       DROP TABLE lifecycle_event_outbox;
+       CREATE TABLE lifecycle_event_outbox (
+         event_id TEXT PRIMARY KEY, event TEXT NOT NULL, payload TEXT NOT NULL,
+@@ -111,7 +114,7 @@ test("legacy v3 outbox layout upgrades to durable sequence before sequence index
+     `);
+     raw.close();
+     setDbPath(temp.dbFile);
+-    assert.equal(getStorageSchemaVersion(), 3);
++    assert.equal(getStorageSchemaVersion(), 4);
+     closeDb();
+     const migrated = new Database(temp.dbFile, { readonly: true });
+     assert.deepEqual(migrated.prepare("SELECT seq, event_id FROM lifecycle_event_outbox ORDER BY seq").all(), [
+@@ -135,10 +138,10 @@ test("partial v3 duplicate attempt numbers are repaired before uniqueness is res
+     store.expireAndRetry("w", initial.attempts[0].attempt_id);
+     closeDb();
+     const raw = new Database(temp.dbFile);
+-    raw.exec("DROP INDEX idx_attempts_work_number; UPDATE attempts SET attempt_number = 1 WHERE work_id = 'w'; UPDATE meta SET value = '3' WHERE key = 'storage_schema_version';");
++    raw.exec("DROP INDEX idx_attempts_work_number; DROP TABLE a2a_request_mappings; DROP TABLE a2a_decision_receipts; DROP TABLE a2a_acceptance_records; UPDATE attempts SET attempt_number = 1 WHERE work_id = 'w'; UPDATE meta SET value = '3' WHERE key = 'storage_schema_version';");
+     raw.close();
+     setDbPath(temp.dbFile);
+-    assert.equal(getStorageSchemaVersion(), 3);
++    assert.equal(getStorageSchemaVersion(), 4);
+     closeDb();
+     const repaired = new Database(temp.dbFile, { readonly: true });
+     assert.deepEqual(repaired.prepare("SELECT attempt_number FROM attempts WHERE work_id = 'w' ORDER BY created_at, attempt_id").all(), [{ attempt_number: 1 }, { attempt_number: 2 }]);
+diff --git a/test/lifecycle-visibility.test.ts b/test/lifecycle-visibility.test.ts
+index b81e985..b8fb0fa 100644
+--- a/test/lifecycle-visibility.test.ts
++++ b/test/lifecycle-visibility.test.ts
+@@ -141,22 +141,22 @@ test("attempt replay checks historical attempts without false positives for vali
+   assert.ok(findings.some((finding) => finding.check === "lifecycle.replay.state_mismatch" && finding.subject === "first"));
+ });
+ 
+-test("active verifier preserves special collection keys and future storage fails closed", () => {
++test("active verifier preserves special collection keys, reports v4, and rejects future storage", () => {
+   const temp = withTempDb();
+   try {
+     const fleets = Object.create(null) as Record<string, { id: string; status: "running"; created_at: number }>;
+     Object.defineProperty(fleets, "__proto__", { value: { id: "__proto__", status: "running", created_at: 1 }, enumerable: true, configurable: true });
+     temp.seed({ fleets });
+-    withLedgerAndStorage((data, db) => {
++    withLedgerAndStorage((data) => {
+       Object.defineProperty(data.templates!, "__proto__", { value: { name: "special" }, enumerable: true, configurable: true });
+-      db.prepare("UPDATE meta SET value = '4' WHERE key = 'storage_schema_version'").run();
+     });
+-    assert.throws(() => readLifecycleSnapshot(temp.dbFile), /unsupported storage schema version: 4/);
+-    withLedgerAndStorage((_data, db) => db.prepare("UPDATE meta SET value = '3' WHERE key = 'storage_schema_version'").run());
+     const snapshot = readLifecycleSnapshot(temp.dbFile);
++    assert.equal(snapshot.storageVersion, 4);
+     assert.equal(Object.hasOwn(snapshot.data.fleets, "__proto__"), true);
+     assert.equal(Object.hasOwn(snapshot.data.templates!, "__proto__"), true);
+     assert.equal(verifyLedger().ok, true);
++    withLedgerAndStorage((_data, db) => db.prepare("UPDATE meta SET value = '5' WHERE key = 'storage_schema_version'").run());
++    assert.throws(() => readLifecycleSnapshot(temp.dbFile), /unsupported storage schema version: 5/);
+   } finally { temp.cleanup(); }
+ });
+ 

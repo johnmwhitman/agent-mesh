@@ -1,0 +1,142 @@
+# ADR 0004: Principal-bound canonical ingress
+
+**Status:** Accepted for design and sequencing; implementation deferred.
+
+## Problem
+
+Canonical envelope sender fields are routing claims, not authenticated actor
+identity. A public sender API without principal binding, recipient
+authorization, durable idempotency, and an honest acknowledgement boundary
+would enable spoofing, replay, and confused-deputy delivery.
+
+## Constraints
+
+- Keep the v0.14.0 MCP surface, default inspection, logical v2 ledger, and
+  physical v3 SQLite storage compatible.
+- Do not add a public `send_a2a` tool, network transport, credentials,
+  remote/multi-host coordinator, runtime selection, or delivery claim.
+- Preserve a future adapter boundary without asserting that current local
+  callers have been authenticated.
+
+## Options
+
+1. Trust the envelope sender: rejected; caller-controlled identifiers are not
+   authority.
+2. Add a public validation-only tool: rejected; its name would still create
+   public semantics before durable policy and acceptance are defined.
+3. Bind an adapter-derived opaque principal to the exact sender, then introduce
+   durable acceptance before public exposure: accepted.
+4. Require signatures, mTLS, or attestation now: deferred; key lifecycle,
+   transport, revocation, and remote trust are not yet designed or evidenced.
+
+## Decision
+
+Canonical ingress will use an opaque, adapter-derived principal outside the
+envelope. Policy matches it to an exact sender namespace/agent reference before
+any identity lookup or persistence. The principal binding is a local policy
+fact, not proof of authentication until a verified adapter exists.
+
+Message identity is `(bound sender namespace, bound sender agent_id,
+message_id)`. Retry identity is `(adapter-derived principal_id, request_id)`.
+`dedupe_key` is fingerprinted content only. Every concrete recipient must be
+authorized atomically; metadata never expands recipients or grants authority.
+
+Processing order is structural/request validation, current principal binding
+and all-recipient/type/audience authorization, request replay lookup, then
+semantic identity lookup and persistence. Expiry applies only to unseen
+semantic identities. Current authorization always precedes replay, so a
+revoked or denied request cannot reuse an older acceptance.
+
+Unknown principal, sender mismatch, recipient, type, audience, and policy
+denials share the external code `AUTHORIZATION_DENIED`; detailed causes are
+protected local audit data only. Raw public JSON must reject duplicate object
+member names recursively before object validation. Protocol strings reject
+unpaired UTF-16 surrogates recursively across every envelope key/value,
+extension, and parsed JSON payload key/value while allowing valid non-BMP
+Unicode scalars and counting payload bytes as UTF-8. Raw envelope JSON and JSON
+payload bodies reject `NaN`, `Infinity`, and `-Infinity`.
+
+The codec/reference profile shares an explicit ASCII media-type grammar:
+non-empty RFC token type/subtype, SP/HTAB-only OWS, parameters with non-empty
+token names and non-empty-token or ASCII-quoted values, and a 1024 UTF-8 byte
+limit. Unicode whitespace, non-ASCII, disallowed controls, missing parameter
+names, empty unquoted values, malformed parameters, and extra slashes are
+rejected. These rules do not promote the reference witness to public or durable
+ingress.
+
+The strict raw envelope decoder is capped at 128 KiB UTF-8 and 64 nesting
+levels, with a root container at depth 1. It rejects malformed/non-finite JSON
+and recursive duplicate decoded keys, including escape-equivalent spellings,
+before object-level `validateEnvelope`. `application/json` and `*+json` bodies
+use the same strict parser and max-64 depth rule, within their existing 64 KiB
+body cap. Object validation alone makes no raw-source guarantee.
+
+The recursive envelope numeric domain admits integral values only within
+`[-9007199254740991, 9007199254740991]`, with timestamps also nonnegative.
+Non-integral values are finite binary64. Integral-valued floats outside the safe
+range, unsafe integer/exponent forms, and overflow fail rather than round. `-0`
+is valid and normalizes to `+0`; equivalent permitted fractional lexical forms
+may share semantic binary64 identity.
+
+Raw decimal tokens are analyzed exactly before lossy host parsing. Exact
+integral fraction/exponent forms are accepted only when safe, and exact
+nonintegers that round to integral binary64 values are rejected. Object-level
+inputs admit only finite acyclic JSON values in dense plain arrays and plain or
+null-prototype data objects with enumerable own data properties. Undefined,
+functions, symbols, bigints, custom prototypes (`Date`, `Map`, `Set`, or class
+instances), sparse/subclassed arrays, accessors, non-enumerable properties,
+cycles, and depth over 64 are rejected. Property descriptors are inspected
+without invoking getters.
+
+The object-level encoded envelope is capped at 128 KiB UTF-8. Unknown valid JSON
+extensions remain preserved as non-authoritative content.
+
+Canonical identity comparison uses exactly
+`meshfleet.a2a.fingerprint.v1:sha256:<hex>`. SHA-256 covers a domain prefix,
+zero separator, and custom tagged canonical tree of the normalized envelope
+only. The tree uses explicit JSON type tags, unsigned 64-bit big-endian string
+lengths and collection counts, Unicode-scalar UTF-8, unsigned UTF-8 key sorting,
+ordered arrays, and finite big-endian binary64 numbers with `-0` normalized to
+`+0`. Invalid/unsupported trees fail recursively. Ingress recipient sorting
+precedes digesting; principal, runtime, transport, and policy context are never
+included.
+
+Digest calculation revalidates the numeric domain for the normalized envelope
+and again during canonical tree encoding. Full structural validation also runs,
+so rejected numeric or structural values cannot obtain a digest.
+
+This is not RFC JCS. The digest is not a signature, actor authentication,
+attestation, receipt, durable decision, or public-ingress implementation.
+
+## Consequences and tradeoffs
+
+This deliberately delays an easy public API and requires future policy
+administration, but prevents legacy local-trust behavior from becoming a
+security contract by accident. Durable acceptance receipts may prove a local
+decision only, never actor identity, delivery, execution, external side effect,
+exactly-once behavior, signature, attestation, or multi-host operation.
+
+## Reversibility
+
+Slice 4A changes only specifications and conformance evidence. Slice 4B must
+use an explicit ordered SQLite migration and a dormant additive journal; it
+must not hide a lazy, unversioned capability schema. Any public ingress is a
+separate decision after adapter and client-path evidence.
+
+## Evidence and validation
+
+Current evidence establishes a provider-neutral codec and an independent
+offline Python witness that agrees with the language-neutral corpora, including
+a mutated-corpus negative self-test and exact TypeScript/Python digest agreement
+for the shared vectors. This remains reference-conformance only, not public,
+durable, signed, or authenticated ingress. Single-host lifecycle storage is not
+ingress-journal evidence. Validation before public exposure still requires
+durable replay/conflict tests across restart and process boundaries, atomic
+authorization/storage failure tests, migration evidence, legacy compatibility
+snapshots, and independent review.
+
+## Deferred questions
+
+- Authenticated-local adapter, principal issuance, rotation, and revocation.
+- Namespace/recipient policy administration and protected audit retention.
+- Delivery/outbox semantics and any later remote trust topology.

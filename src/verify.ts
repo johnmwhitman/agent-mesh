@@ -24,7 +24,8 @@
 import { existsSync } from "fs";
 import { BROADCAST, messageRecipients, type MeshData, type Message, type Receipt } from "./core.js";
 import { MAX_TOTAL_WEIGHT, MAX_VOTE_WEIGHT, computeTally, parseVoteAction } from "./ratify.js";
-import { readLedger, readLedgerFile } from "./db.js";
+import { readLedger } from "./db.js";
+import { readLifecycleSnapshot, readLifecycleSnapshotFile, verifyLifecycleSnapshot } from "./lifecycle-visibility.js";
 
 export interface VerifyFinding {
   severity: "error" | "warning";
@@ -51,8 +52,8 @@ export interface VerifyReport {
 }
 
 /** True when every addressed recipient of `msg` holds an 'ack' receipt — the same derivation _writeReceipt uses. */
-function derivedAcknowledged(msg: Message, receipts: Record<string, Receipt>): boolean {
-  return messageRecipients(msg).every((r) => receipts[`${msg.id}:${r}:ack`] !== undefined);
+function derivedAcknowledged(msg: Message, validatedAckReceipts: ReadonlySet<string>): boolean {
+  return messageRecipients(msg).every((r) => validatedAckReceipts.has(`${msg.id}:${r}:ack`));
 }
 
 /** Verify a MeshData snapshot. Pure and read-only; `now` only affects deadline-dependent tally recomputation. */
@@ -72,6 +73,14 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
   for (const a of Object.values(data.agents)) {
     if (!data.fleets[a.fleet_id]) {
       warning("agent.orphan_fleet", a.id, `agent ${a.id} references fleet ${a.fleet_id}, which this ledger does not hold`);
+    } else {
+      const fleet = data.fleets[a.fleet_id];
+      if (fleet && a.started_at !== undefined && a.started_at < fleet.created_at) {
+        error("agent.tampered_timestamp", a.id, `agent started before fleet was created`);
+      }
+    }
+    if (a.started_at !== undefined && a.completed_at !== undefined && a.completed_at < a.started_at) {
+      error("agent.tampered_timestamp", a.id, `agent completed before it started`);
     }
   }
 
@@ -82,7 +91,16 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
     }
   }
 
+  const invalidMessageTimestamps = new Set<string>();
+  for (const msg of Object.values(data.messages)) {
+    if (!Number.isFinite(msg.timestamp)) {
+      error("message.invalid_timestamp", msg.id, `message ${msg.id} has a missing or non-finite timestamp`);
+      invalidMessageTimestamps.add(msg.id);
+    }
+  }
+
   // --- receipts ---------------------------------------------------------------
+  const validatedAckReceipts = new Set<string>();
   for (const [key, r] of Object.entries(receipts)) {
     if (key !== `${r.message_id}:${r.agent_id}:${r.action}`) {
       error("receipt.key_mismatch", key, `receipt key ${key} disagrees with its fields (${r.message_id}:${r.agent_id}:${r.action}) — the idempotency guarantee is broken`);
@@ -93,25 +111,45 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
       error("receipt.orphan_message", key, `receipt ${key} points at message ${r.message_id}, which this ledger does not hold`);
       continue;
     }
+    if (invalidMessageTimestamps.has(msg.id)) {
+      continue;
+    }
     // "*" is the legacy-broadcast placeholder: the v1→v2 migration backfills
     // `${id}:*:ack` for an acknowledged broadcast whose recipients were never
     // captured (schema v1 predates the recipients field). Not an unknown agent.
     if (!data.agents[r.agent_id] && r.agent_id !== BROADCAST) {
       warning("receipt.unknown_agent", key, `receipt ${key} was written by ${r.agent_id}, which this ledger has not registered as an agent`);
     }
+    if (!Number.isFinite(r.timestamp)) {
+      error("receipt.invalid_timestamp", key, `receipt ${key} has a missing or non-finite timestamp`);
+      continue;
+    }
     if (r.timestamp < msg.timestamp) {
       error("receipt.before_message", key, `receipt ${key} is timestamped ${r.timestamp}, before its message (${msg.timestamp})`);
+      continue;
+    }
+    if (
+      r.action === "ack" &&
+      (r.agent_id === BROADCAST || messageRecipients(msg).includes(r.agent_id))
+    ) {
+      validatedAckReceipts.add(key);
     }
   }
 
-  // --- messages: the derived acknowledged flag --------------------------------
+  // --- messages: the derived acknowledged flag -------------------------------
   for (const msg of Object.values(data.messages)) {
-    const derived = derivedAcknowledged(msg, receipts);
+    const f = data.fleets[msg.fleet_id];
+    if (f && msg.timestamp < f.created_at) {
+      error("message.tampered_timestamp", msg.id, `message timestamp is before fleet creation`);
+    }
+
+    const derived = derivedAcknowledged(msg, validatedAckReceipts);
     if (msg.acknowledged && !derived) {
       error("message.ack_flag_mismatch", msg.id, `message ${msg.id} claims acknowledged, but not every addressed recipient holds an 'ack' receipt`);
     } else if (!msg.acknowledged && derived) {
       warning("message.ack_flag_mismatch", msg.id, `message ${msg.id} has an 'ack' receipt from every addressed recipient but acknowledged=false (understates; a write-path recompute was missed)`);
     }
+
   }
 
   // --- inboxes ------------------------------------------------------------------
@@ -122,7 +160,7 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
         error("inbox.dangling_message", `${agentId}:${id}`, `inbox of ${agentId} holds message ${id}, which this ledger does not hold`);
         continue;
       }
-      if (receipts[`${id}:${agentId}:ack`]) {
+      if (validatedAckReceipts.has(`${id}:${agentId}:ack`)) {
         error("inbox.acked_still_queued", `${agentId}:${id}`, `message ${id} is still in the inbox of ${agentId}, but ${agentId} holds an 'ack' receipt on it — ack consumes`);
       }
     }
@@ -257,7 +295,18 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
 
 /** Verify the active ledger (lock-free snapshot read; never mutates). */
 export function verifyLedger(now: number = Date.now()): VerifyReport {
-  return verifyMeshData(readLedger(), now);
+  let snapshot;
+  try { snapshot = readLifecycleSnapshot(); }
+  catch (error) {
+    // Preserve the historical fresh-install verifier behavior. The opt-in
+    // lifecycle inspector remains strict and never creates an absent ledger.
+    if (error instanceof Error && error.message === "ledger file not found") return verifyMeshData(readLedger(), now);
+    throw error;
+  }
+  const core = verifyMeshData(snapshot.data, now);
+  const findings = [...core.findings, ...verifyLifecycleSnapshot(snapshot, now)];
+  const errors = findings.filter((finding) => finding.severity === "error").length;
+  return { ...core, ok: errors === 0, errors, warnings: findings.length - errors, findings };
 }
 
 /**
@@ -273,7 +322,11 @@ export function verifyLedgerFile(file: string, now: number = Date.now()): Verify
   // the global handle, the path config, or — critically — the audited file
   // itself. No WAL conversion, no schema creation, no meta writes.
   try {
-    return verifyMeshData(readLedgerFile(file), now);
+    const snapshot = readLifecycleSnapshotFile(file);
+    const core = verifyMeshData(snapshot.data, now);
+    const findings = [...core.findings, ...verifyLifecycleSnapshot(snapshot, now)];
+    const errors = findings.filter((finding) => finding.severity === "error").length;
+    return { ...core, ok: errors === 0, errors, warnings: findings.length - errors, findings };
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     if (/file is not a database|not a database|SQLITE_NOTADB|malformed/i.test(detail)) {
@@ -285,4 +338,3 @@ export function verifyLedgerFile(file: string, now: number = Date.now()): Verify
     throw err;
   }
 }
-

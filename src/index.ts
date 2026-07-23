@@ -6,7 +6,6 @@ import {
   ListToolsRequestSchema,
   type CallToolResult,
 } from "@modelcontextprotocol/sdk/types.js";
-import { spawn } from "child_process";
 import { randomUUID } from "crypto";
 import { createRequire } from "module";
 import { resolveEnv } from "./env.js";
@@ -58,18 +57,14 @@ import { notifySubscribers } from "./realtime.js";
 import { startSseServer, stopSseServer, subscribeInboxUrl } from "./sse-server.js";
 import { createHeartbeat } from "./heartbeat.js";
 import {
-  AGENT_SPAWN_STDIO,
-  agentTimeoutMs,
-  buildRunArgs,
-} from "./spawn-config.js";
-import {
   computeBackoff,
   scheduleRetry as scheduleAgentRetry,
   shouldRetry as shouldAgentRetry,
 } from "./retry.js";
 import { recordRoutingOutcome } from "./routing-feedback.js";
-import { buildFailureDetail, createAttemptSettlementGate, type AttemptTerminalEvent } from "./spawn-attempt.js";
-import { classifySpawnResult } from "./spawn-result.js";
+import { buildFailureDetail } from "./spawn-attempt.js";
+import { getDefaultRuntimeAdapter } from "./runtime/registry.js";
+import { defaultLifecycleMode, LifecycleExecutionCoordinator, repairLifecycleOutbox } from "./lifecycle-execution.js";
 
 // ---------------------------------------------------------------------------
 // Server
@@ -91,87 +86,52 @@ interface SpawnAgentInput {
   agentFile?: string;
 }
 
+const runtimeAdapter = getDefaultRuntimeAdapter();
+const lifecycleCoordinator = new LifecycleExecutionCoordinator(runtimeAdapter);
+
 /**
  * Inner spawn loop. attempt is 1-indexed (first attempt = 1).
  * On any transient failure path, decides retry vs permanent via shouldAgentRetry().
  */
 function trySpawn(input: SpawnAgentInput, agentId: string, attempt: number): void {
-  const child = spawn("opencode", buildRunArgs(input), {
-    // stdin MUST be ignored — `opencode run` hangs forever on a piped
-    // stdin. Contract + evidence documented in spawn-config.ts.
-    stdio: AGENT_SPAWN_STDIO,
-    // AGENT_MESH_CHILD marks nested agent-mesh instances: the child's
-    // opencode loads the user's MCP config (agent-mesh included), and
-    // without the marker that nested instance runs startup recovery on the
-    // SAME ledger and flips the parent's live agents to "interrupted"
-    // within seconds of spawn (verified 2026-07-03: events.log shows
-    // agent_interrupted_recovered 2s after agent_spawned).
-    env: { ...process.env, AGENT_MESH_CHILD: "1" },
-  });
-
-  if (child.pid !== undefined) {
-    const pid = child.pid;
-    withLedger((data) => {
-      const a = data.agents[agentId];
-      if (a) a.pid = pid;
-    });
-  }
-
-  let stdout = "";
-  let stderr = "";
-  child.stdout.on("data", (d) => (stdout += d.toString()));
-  child.stderr.on("data", (d) => (stderr += d.toString()));
-
-  const claimSettlement = createAttemptSettlementGate();
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  let heartbeat: ReturnType<typeof createHeartbeat>;
-
-  function settleAttempt(event: AttemptTerminalEvent, finish: () => void): void {
-    if (!claimSettlement(event)) return;
-    if (timeout !== undefined) clearTimeout(timeout);
-    heartbeat.stop();
-    finish();
-  }
-
-  // Watchdog: auto-fail only when the child process is actually gone
-  // (12 consecutive dead checks x 5s = 60s) but "close" never fired.
-  // Healthy long-running agents are never killed by the watchdog.
-  heartbeat = createHeartbeat(agentId, input.fleetId, {
-    intervalMs: 5_000,
-    onHeartbeat: () => {},
-    maxMissed: 12,
-    isAlive: () => child.exitCode === null && child.signalCode === null,
-    onMaxMissed: (reason: string) => {
-      settleAttempt("heartbeat", () => {
-        if (!child.killed) child.kill("SIGKILL");
-        handleTransientFailure(input, agentId, attempt, stdout, stderr, `Heartbeat watchdog: ${reason}`);
+  const spec = {
+    fleetId: input.fleetId,
+    agentId,
+    role: input.role,
+    prompt: input.prompt,
+    requestedAgent: input.agentFile,
+    cwd: process.cwd(),
+    timeoutMs: runtimeAdapter.describe().defaultTimeoutMs,
+  };
+  void runtimeAdapter.start(spec).then((handle) => {
+    if (handle.pid !== undefined) {
+      withLedger((data) => {
+        const agent = data.agents[agentId];
+        if (agent) agent.pid = handle.pid;
       });
-    },
-  });
-
-  timeout = setTimeout(() => {
-    settleAttempt("timeout", () => {
-      if (!child.killed) child.kill("SIGTERM");
-      handleTransientFailure(input, agentId, attempt, stdout, stderr, `Timed out after ${agentTimeoutMs()}ms`);
+    }
+    let watchdogReason: string | undefined;
+    const heartbeat = createHeartbeat(agentId, input.fleetId, {
+      intervalMs: 5_000,
+      onHeartbeat: () => {},
+      maxMissed: 12,
+      isAlive: () => handle.isAlive(),
+      onMaxMissed: (reason) => {
+        watchdogReason = `Heartbeat watchdog: ${reason}`;
+        void runtimeAdapter.cancel(handle, watchdogReason);
+      },
     });
-  }, agentTimeoutMs());
-
-  child.on("error", (err: Error) => {
-    settleAttempt("error", () => {
-      handleTransientFailure(input, agentId, attempt, stdout, stderr, err.message);
-    });
-  });
-
-  child.on("close", (code: number | null) => {
-    settleAttempt("close", () => {
-      const result = classifySpawnResult({
-        exitCode: code,
-        stdout,
-        stderr,
-        requestedAgent: input.agentFile,
-      });
-      if (result.success) {
-        markAgentFinished(agentId, "complete", result.stdout, result.stderr || undefined);
+    void runtimeAdapter.wait(handle).then((result) => {
+      heartbeat.stop();
+      if (result.status === "success") {
+        markAgentFinished(
+          agentId,
+          "complete",
+          result.stdout,
+          result.stderr || undefined,
+          result.identity.agent,
+          result.identity.model,
+        );
         return;
       }
       handleTransientFailure(
@@ -180,9 +140,13 @@ function trySpawn(input: SpawnAgentInput, agentId: string, attempt: number): voi
         attempt,
         result.stdout,
         result.stderr,
-        result.error ?? `Spawn failed with exit code ${code}`
+        watchdogReason ?? result.error ?? `Spawn failed with exit code ${result.exitCode}`,
+        result.identity.agent,
+        result.identity.model,
       );
     });
+  }).catch((error: unknown) => {
+    handleTransientFailure(input, agentId, attempt, "", "", error instanceof Error ? error.message : String(error));
   });
 }
 
@@ -192,7 +156,9 @@ function handleTransientFailure(
   attempt: number,
   stdout: string,
   stderr: string,
-  errorDetail: string
+  errorDetail: string,
+  runtimeAgent?: string,
+  runtimeModel?: string
 ): void {
   const failureDetail = buildFailureDetail(stderr, errorDetail);
   if (!shouldAgentRetry(attempt)) {
@@ -206,7 +172,9 @@ function handleTransientFailure(
       agentId,
       "failed",
       stdout,
-      `Permanent failure after ${attempt} attempt(s). Last error: ${failureDetail}`
+      `Permanent failure after ${attempt} attempt(s). Last error: ${failureDetail}`,
+      runtimeAgent,
+      runtimeModel
     );
     return;
   }
@@ -634,6 +602,23 @@ toolHandlers["spawn_fleet"] = async (args) => {
       agent: a.agent,
     }));
 
+    let lifecycleMode;
+    try {
+      lifecycleMode = defaultLifecycleMode();
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : String(err));
+    }
+    if (lifecycleMode === "durable") {
+      try {
+        lifecycleCoordinator.createFleet(fleetId, specs.map((s) => ({ fleetId, agentId: s.agentId, role: s.role, prompt: s.prompt, agentFile: s.agent })));
+      } catch (err) {
+        // Durable mode is fail-closed: do not fall back to legacy spawning.
+        return jsonError(err instanceof Error ? err.message : String(err));
+      }
+      for (const s of specs) if (s.agent) autoRegisterFromAgent(s.agentId, fleetId, s.agent);
+      return jsonResult({ fleet_id: fleetId, agent_ids: specs.map((s) => s.agentId) });
+    }
+
     // Phase 1 — ONE txn: create the fleet + pre-register every agent row.
     // spawn() is a side-effect, so it cannot live in the txn; committing the
     // rows first means a crash after commit leaves recoverable "running" agents,
@@ -652,6 +637,7 @@ toolHandlers["spawn_fleet"] = async (args) => {
         });
       }
     });
+    if (lifecycleMode === "shadow") lifecycleCoordinator.recordMode(fleetId, "shadow");
     appendEvent("fleet_created", { fleet_id: fleetId });
     appendEvent("spawn_fleet_called", { fleet_id: fleetId, agent_count: agents.length });
 
@@ -939,6 +925,18 @@ toolHandlers["attach_agent"] = async (args) => {
       agent?: string;
     };
     const agentId = randomUUID();
+    let lifecycleMode;
+    try {
+      lifecycleMode = lifecycleCoordinator.modeForFleet(fleet_id);
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : String(err));
+    }
+    if (lifecycleMode === "durable") {
+      const check = lifecycleCoordinator.attachAgent({ fleetId: fleet_id, agentId, role, prompt, agentFile: agent });
+      if (check.error) return jsonError(check.error);
+      if (agent) autoRegisterFromAgent(agentId, fleet_id, agent);
+      return jsonResult({ agent_id: agentId, fleet_id, role, agent_file: agent ?? null, message: `Agent ${role} attached to fleet ${fleet_id}` });
+    }
     // Re-check exists && running INSIDE the txn and pre-register the row in the
     // same transaction. Checking outside (as before) let a concurrent
     // checkFleetCompletion flip the fleet to complete between check and write —
@@ -1068,6 +1066,8 @@ if (!isChildInstance) {
   // v0.7.x: recover any agents left in 'running' state from a previous
   // crashed process so fleet_status reflects reality. Liveness-probed since
   // 2026-07-03 — only agents with a missing/dead pid are flipped.
+  repairLifecycleOutbox();
+  lifecycleCoordinator.recover();
   const recoveredCount = recoverInterruptedAgents();
   if (recoveredCount > 0) {
     console.error(`Agent Mesh v${MESH_VERSION} — recovered ${recoveredCount} interrupted agent(s) from previous run`);

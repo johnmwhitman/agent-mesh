@@ -33,11 +33,16 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
-      - name: Test
-        run: npm test
-
+      # Build BEFORE test, matching package.json's own prepublishOnly
+      # ("npm run build && npm test"). Tests that install this package into a
+      # temp project (test/mcp-stdio.test.ts) pack it per the "files" list,
+      # which is dist-only — with no dist/ the packed bin target is missing and
+      # the MCP child exits instantly ("Connection closed").
       - name: Build
         run: npm run build
+
+      - name: Test
+        run: npm test
 
       - name: CLI smoke (unix)
         if: matrix.os != 'windows-2022'

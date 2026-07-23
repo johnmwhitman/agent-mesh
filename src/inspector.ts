@@ -488,6 +488,21 @@ const CHECK_EXPLANATIONS: Record<string, CheckExplanation> = {
     benign: "agents copied in from another mesh, or old fleet rows pruned without their agents",
     investigate: "agent-mesh inspect --export | jq '.agents'",
   },
+  "agent.tampered_timestamp": {
+    what: "an agent started before its fleet was created, or completed before it started",
+    benign: "a hand-edited export with an incorrect timestamp",
+    investigate: "agent-mesh inspect --export | jq '.agents'",
+  },
+  "message.tampered_timestamp": {
+    what: "a message is timestamped before the fleet was created",
+    benign: "a hand-edited export with a tampered timestamp",
+    investigate: "agent-mesh inspect --export | jq '.messages'",
+  },
+  "message.invalid_timestamp": {
+    what: "a message has a missing, non-numeric, or non-finite timestamp and cannot support derived state",
+    benign: "a hand-edited or partially-corrupted export",
+    investigate: "agent-mesh inspect --export | jq '.messages'",
+  },
   "capability.unknown_agent": {
     what: "a capability is registered for an agent this ledger never registered",
     benign: "a cross-attached fleet advertising capabilities before its agent rows synced",
@@ -501,6 +516,11 @@ const CHECK_EXPLANATIONS: Record<string, CheckExplanation> = {
   "receipt.orphan_message": {
     what: "the receipt references a message this ledger doesn't hold",
     benign: "a partially-restored backup that kept receipts but trimmed messages",
+    investigate: "agent-mesh inspect --export | jq '.receipts'",
+  },
+  "receipt.invalid_timestamp": {
+    what: "the receipt has a missing, non-numeric, or non-finite timestamp and cannot support derived state",
+    benign: "a hand-edited or partially-corrupted export",
     investigate: "agent-mesh inspect --export | jq '.receipts'",
   },
   "receipt.unknown_agent": {
@@ -621,6 +641,7 @@ export function formatVerifyExplanation(finding: VerifyFinding): string {
 // ---------------------------------------------------------------------------
 
 export const INSPECT_JSON_SCHEMA = "meshfleet.inspect/v1";
+export { LIFECYCLE_JSON_SCHEMA, formatLifecycleView } from "./lifecycle-visibility.js";
 
 export interface InspectJsonEnvelope<K extends string, D> {
   schema: typeof INSPECT_JSON_SCHEMA;
