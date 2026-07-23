@@ -19,8 +19,10 @@ test("packaged meshfleet executable completes an MCP stdio handshake", async () 
   );
 
   try {
+    // Windows resolves the npm shim as npm.cmd; execFileSync does not consult
+    // PATHEXT, so a bare "npm" raises spawnSync npm ENOENT there.
     execFileSync(
-      "npm",
+      process.platform === "win32" ? "npm.cmd" : "npm",
       [
         "install",
         "--offline",
