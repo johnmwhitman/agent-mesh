@@ -235,10 +235,12 @@ function runFollow(args: string[]): void {
   }
 
   const intervalMs = 400
-  // INSERT OR REPLACE can reassign a message's rowid on update (e.g. an ack
-  // touching its row) — dedupeFollowRows tracks emitted ids (bounded) so a
-  // rowid-churned re-read of a message we already printed is never printed
-  // twice.
+  // dedupeFollowRows tracks emitted ids (bounded) so a message that somehow
+  // resurfaces at a different rowid is never printed twice. Today's real
+  // persistence (db.ts's ON CONFLICT DO UPDATE) preserves rowid across an
+  // in-place update, so this can't happen through the normal write path — but
+  // it's cheap insurance against any future persistence change, migration, or
+  // raw-SQL admin script that reintroduces rowid churn.
   const seenIds = new Set<string>()
   let cursor: number
   try {

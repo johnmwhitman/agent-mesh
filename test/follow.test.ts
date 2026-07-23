@@ -264,41 +264,65 @@ test("follow: against an already-WAL ledger (the realistic case — every other 
 });
 
 // ---------------------------------------------------------------------------
-// P0/§6 regression: INSERT OR REPLACE reassigns rowid on the same message id
-// — dedupeFollowRows (the seenIds gate) must not re-emit it.
+// P0/§6 regression: dedupeFollowRows (the seenIds gate) must suppress a
+// repeat sighting of the same message id at a DIFFERENT rowid.
+//
+// NOTE ON A REAL UPSTREAM CHANGE (found while rebasing onto main's PR #15):
+// the design doc and grk's review assumed LazyColl.persist() used
+// `INSERT OR REPLACE`, which SQLite implements as delete-then-insert and so
+// reassigns rowid on an update to an existing key. PR #15's durable-lifecycle
+// work switched persistence to `INSERT ... ON CONFLICT(pk) DO UPDATE`
+// (db.ts's LazyColl.persist/eagerPersist) — verified empirically: an UPDATE
+// preserves rowid, it does NOT reassign it. So today, no write path in this
+// codebase can actually change an existing message's rowid; the scenario
+// dedupeFollowRows was built to guard against currently cannot occur through
+// the real persistence layer. It stays anyway as cheap, harmless insurance
+// (a future migration, a raw-SQL admin script, or another persistence change
+// could reintroduce rowid churn) — tested here directly against the pure
+// function with a synthetic same-id/different-rowid pair, decoupled from
+// whatever today's real DB does, so this coverage survives regardless of
+// which persistence strategy is in effect.
 // ---------------------------------------------------------------------------
 
-test("follow: REPLACE reassigns rowid for the same message id, but dedupeFollowRows suppresses the re-print", () => {
+test("follow: an in-place update to an existing message does NOT change its rowid (verifies the current ON CONFLICT DO UPDATE persistence — not delete+insert)", () => {
   const db = withTempDb();
   try {
     withLedger((data) => {
       data.messages["m1"] = makeMessage({ id: "m1", payload: "v1" });
     });
-    const seenIds = new Set<string>();
     const firstRows = pollMessagesSince(0);
     assert.equal(firstRows.length, 1);
-    assert.equal(dedupeFollowRows(firstRows, seenIds).length, 1, "first sighting must be emitted");
     const cursorAfterFirst = firstRows[0]!.rowid;
 
-    // Re-write the SAME message id with different content — the LazyColl
-    // persist path issues INSERT OR REPLACE, which deletes+reinserts under
-    // the hood and assigns a NEW, higher rowid.
+    // Re-write the SAME message id with different content.
     withLedger((data) => {
       data.messages["m1"] = makeMessage({ id: "m1", payload: "v2 (updated)" });
     });
-    const secondRows = pollMessagesSince(cursorAfterFirst);
-    assert.equal(secondRows.length, 1);
-    assert.equal(secondRows[0]!.id, "m1");
-    assert.notEqual(secondRows[0]!.rowid, cursorAfterFirst, "REPLACE must reassign rowid for this regression to be real");
 
-    assert.equal(
-      dedupeFollowRows(secondRows, seenIds).length,
-      0,
-      "same message id must not be re-emitted after a rowid-churning REPLACE"
-    );
+    // Under ON CONFLICT DO UPDATE this is an UPDATE of the existing row: its
+    // rowid does not change, so it never becomes visible to `rowid > cursor`
+    // again — the follow feed simply never re-surfaces field-level edits to
+    // an already-seen message, by construction of the cursor itself (no
+    // dedup logic needed for THIS case).
+    assert.deepEqual(pollMessagesSince(cursorAfterFirst), []);
   } finally {
     db.cleanup();
   }
+});
+
+test("follow: dedupeFollowRows suppresses a repeat sighting of the same message id at a different rowid (synthetic — the seenIds contract itself, independent of how the DB behaves today)", () => {
+  const seenIds = new Set<string>();
+  const first = dedupeFollowRows([{ rowid: 1, id: "m1" }], seenIds);
+  assert.equal(first.length, 1, "first sighting must be emitted");
+
+  // Simulate the id resurfacing at a NEW rowid (whatever the cause — future
+  // migration, admin tooling, a persistence strategy change back to
+  // delete+insert). dedupeFollowRows must not care how it got here.
+  const second = dedupeFollowRows([{ rowid: 2, id: "m1" }], seenIds);
+  assert.equal(second.length, 0, "same message id at a different rowid must not be re-emitted");
+
+  const third = dedupeFollowRows([{ rowid: 3, id: "m2" }], seenIds);
+  assert.equal(third.length, 1, "a genuinely different id must still be emitted");
 });
 
 test("follow: dedupeFollowRows caps seenIds (FIFO eviction) so a long-running session can't leak memory", () => {

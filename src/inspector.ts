@@ -460,10 +460,14 @@ export const FOLLOW_SEEN_CAP = 2000
  * anything but `seenIds` — easy to unit test without a database or a spawned
  * process.
  *
- * Exists because `INSERT OR REPLACE` (an ack touching a message's row, etc.)
- * can reassign a message's rowid on update — the SAME message then re-appears
- * at a NEW, higher rowid on a later poll. Without this, `--follow` would
- * print it twice.
+ * Exists as insurance against a message resurfacing at a NEW rowid for the
+ * same id (an ack touching its row, a migration, etc.) — without this,
+ * `--follow` would print it twice. Today's real persistence (db.ts's
+ * `INSERT ... ON CONFLICT(pk) DO UPDATE`, since PR #15's durable-lifecycle
+ * work) preserves rowid across an in-place update, so this can't currently
+ * happen through the normal write path — kept anyway because it's cheap and
+ * because that guarantee is an implementation detail of the persistence
+ * layer, not a contract this module should assume will never change.
  */
 export function dedupeFollowRows<T extends { id: string }>(
   rows: readonly T[],
