@@ -213,6 +213,15 @@ export function resolveDataFile(): string {
   return resolveEnv(process.env, "MESHFLEET_DATA_FILE", "AGENT_MESH_DATA_FILE") ?? dataFile;
 }
 
+/**
+ * The compiled-in default JSON ledger path, ignoring every override. Used by the
+ * migrator to tell "the caller pointed us somewhere deliberately" apart from
+ * "we fell back to the real user ledger".
+ */
+export function defaultDataFile(): string {
+  return DEFAULT_DATA_FILE;
+}
+
 export function resolveDataDir(): string {
   return resolveEnv(process.env, "MESHFLEET_DATA_DIR", "AGENT_MESH_DATA_DIR") ?? dataDir;
 }
@@ -807,6 +816,24 @@ interface CapabilityInput {
 
 /** In-transaction helper. */
 export function _registerCapability(data: MeshData, input: CapabilityInput): void {
+  // Refuse to key a row on a missing id. Without this, a caller that passes the
+  // wrong field names (the MCP wire is snake_case, this input is camelCase)
+  // silently writes `capabilities["undefined"]` with `agent_id: undefined`:
+  // every such call overwrites the last, and the row later crashes routeWork's
+  // tie-breaker. Observed on a real ledger, so this guard is load-bearing, not
+  // defensive decoration.
+  if (typeof input?.agentId !== "string" || input.agentId.length === 0) {
+    throw new Error(
+      `register_capability: agentId is required and must be a non-empty string (got ${JSON.stringify(input?.agentId)}). ` +
+        `Note the MCP wire field is 'agent_id'; it must be mapped to 'agentId'.`
+    );
+  }
+  if (typeof input.fleetId !== "string" || input.fleetId.length === 0) {
+    throw new Error(
+      `register_capability: fleetId is required and must be a non-empty string (got ${JSON.stringify(input.fleetId)}). ` +
+        `Note the MCP wire field is 'fleet_id'; it must be mapped to 'fleetId'.`
+    );
+  }
   data.capabilities[input.agentId] = {
     agent_id: input.agentId,
     fleet_id: input.fleetId,
@@ -824,7 +851,15 @@ export function registerCapability(input: CapabilityInput): void {
 
 export function routeWork(description: string, topN: number = 1): RouteMatch[] {
   const data = loadData();
-  const caps = Object.values(data.capabilities);
+  // Drop rows with no usable agent id before scoring. Ledgers written before
+  // the register_capability guard above can contain one (the wire-format bug),
+  // and such a row is unroutable by definition — you cannot dispatch to an
+  // agent with no id. Left in, it also throws in the `localeCompare`
+  // tie-breaker below and takes routing down for every healthy agent with it.
+  // `verify_ledger` reports these rows; routing simply refuses to offer them.
+  const caps = Object.values(data.capabilities).filter(
+    (c) => typeof c?.agent_id === "string" && c.agent_id.length > 0
+  );
   if (caps.length === 0 || topN <= 0) return [];
 
   const tokenize = (s: string) =>

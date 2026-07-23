@@ -893,8 +893,29 @@ toolHandlers["sweep_ratifications"] = async (args) => {
 };
 
 toolHandlers["register_capability"] = async (args) => {
-    registerCapability(args as Parameters<typeof registerCapability>[0]);
-    return jsonResult({ ok: true });
+    // The wire schema is snake_case; CapabilityInput is camelCase. This handler
+    // used to pass `args` straight through with a cast, so `agent_id`,
+    // `fleet_id` and `context_window` all arrived undefined while `role`,
+    // `skills` and `model` — which happen to share a spelling — came through
+    // fine. The call then returned {ok:true} having written a row keyed
+    // "undefined". Destructure explicitly, exactly like every sibling handler.
+    const { agent_id, fleet_id, role, skills, model, context_window } = args as {
+      agent_id: string;
+      fleet_id: string;
+      role: string;
+      skills: string[];
+      model?: string;
+      context_window?: number;
+    };
+    registerCapability({
+      agentId: agent_id,
+      fleetId: fleet_id,
+      role,
+      skills,
+      model,
+      contextWindow: context_window,
+    });
+    return jsonResult({ ok: true, agent_id, fleet_id });
 };
 
 toolHandlers["route_work"] = async (args) => {
