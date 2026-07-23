@@ -193,10 +193,23 @@ export class LifecycleExecutionCoordinator {
 
   recover(): void {
     if (this.stopped) return;
-    const expiredPids = withLedgerAndStorage((_data, db) => lifecycle(db, this.now).expiredRuntimePids());
+    // ONE clock read for the whole pass. Containment (expiredRuntimePids) and reclaim
+    // (recoverExpired) run in separate transactions; when each read the clock for itself, a
+    // lease expiring in the window between them was invisible to the first and visible to the
+    // second. The result was work reclaimed and relaunched while its dead process was never
+    // terminated — an orphan running alongside its own replacement. The recovery wake is armed
+    // for exactly lease_until, so passes land on that boundary by design, which is what made
+    // this reachable in practice rather than merely in theory.
+    //
+    // Freezing the clock makes the two queries agree by construction. A lease that expires
+    // moments after `at` is simply caught by the next wake, which is correct: skipping a
+    // reclaim is recoverable, reclaiming without containing is not.
+    const at = this.now();
+    const frozen = (): number => at;
+    const expiredPids = withLedgerAndStorage((_data, db) => lifecycle(db, frozen).expiredRuntimePids());
     for (const { pid } of expiredPids) this.terminatePid(pid);
     const recovered = withLedgerAndStorage((data, db) => {
-      const states = lifecycle(db, this.now).recoverExpired();
+      const states = lifecycle(db, frozen).recoverExpired();
       for (const state of states) {
         this.projectPending(data, state);
         const agent = state.work.agent_id ? data.agents[state.work.agent_id] : undefined;

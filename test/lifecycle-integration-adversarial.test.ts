@@ -484,3 +484,102 @@ test("captured no-jitter policy persists the exact deterministic eligible time",
     }
   } finally { temp.cleanup(); }
 });
+
+test("recovery never reclaims work whose dead pid it declined to contain (clock TOCTOU)", async () => {
+  // Regression for a real defect, not a test artifact. recover() ran two separate
+  // transactions and each read the clock independently: expiredRuntimePids() (which drives
+  // containment) and recoverExpired() (which drives reclaim). A lease expiring in the window
+  // BETWEEN those two reads was invisible to the first and visible to the second, so the work
+  // was reclaimed and relaunched while the dead process was never terminated — an orphan
+  // running concurrently with its own replacement.
+  //
+  // CI proved it before this test existed. The instrumented timeout reported
+  // `379 polls | observed: runtime.starts=1 contained=[]` — a healthy event loop, reclaim
+  // done, containment never attempted. That is a product bug wearing a flake's clothing,
+  // which is why it survived one "fix" already.
+  //
+  // The invariant is one-directional on purpose: declining to reclaim is recoverable (the next
+  // wake retries), reclaiming without containing is not. So this asserts the implication, not
+  // that recovery must fire — the companion test below covers the firing case.
+  const temp = withTempDb({
+    fleets: { f: { id: "f", status: "running", created_at: 1 } },
+    agents: { a: { id: "a", fleet_id: "f", role: "r", prompt: "p", status: "running" } },
+    messages: {}, inboxes: { a: [] }, capabilities: {},
+  });
+  try {
+    const store = new LifecycleStore();
+    const initial = store.createWork({ workId: "a", fleetId: "f", agentId: "a", retryBaseMs: 0 });
+    const attemptId = initial.attempts[0]!.attempt_id;
+    const lease = store.acquireLease({ workId: "a", attemptId, ownerId: "dead-owner", leaseMs: 25 });
+    assert.equal(lease.accepted, true);
+    if (lease.accepted) {
+      store.recordRuntimeMetadata({
+        workId: "a", attemptId, ownerId: "dead-owner",
+        ownerEpoch: lease.state.work.owner_epoch, pid: 999_999, metadata: { source: "test" },
+      });
+    }
+
+    const leaseUntil = store.getState("a")!.attempts[0]!.lease_until!;
+    const runtime = new ControlledRuntime();
+    const contained: number[] = [];
+    // The exact interleaving the runners hit by accident, made deterministic: the containment
+    // query sees a pre-expiry clock while everything else sees post-expiry. Keying on the
+    // caller (rather than on a read counter) is what makes this reproduce reliably — the
+    // number of clock reads before the containment query is an implementation detail, and a
+    // counter-based clock silently stops reproducing the moment that count changes. A
+    // regression test that quietly goes vacuous is worse than none.
+    const now = (): number =>
+      (new Error().stack ?? "").includes("expiredRuntimePids") ? leaseUntil - 1 : leaseUntil + 1;
+    const coordinator = new LifecycleExecutionCoordinator(runtime, {
+      ownerId: "recovery-owner", leaseMs: 100, retryBaseMs: 0,
+      now, terminatePid: (pid) => contained.push(pid),
+    });
+    coordinator.recordMode("f", "durable");
+
+    coordinator.recover();
+
+    const reclaimed = runtime.starts > 0;
+    assert.ok(
+      !reclaimed || contained.includes(999_999),
+      `reclaimed work without containing its dead pid (starts=${runtime.starts}, contained=[${contained.join(",")}])`,
+    );
+    coordinator.stop();
+  } finally { temp.cleanup(); }
+});
+
+test("recovery still contains and reclaims once the lease is unambiguously expired", async () => {
+  // Guards the fix from degenerating into "never recover": with the whole pass reading a clock
+  // past expiry, containment AND reclaim must both happen.
+  const temp = withTempDb({
+    fleets: { f: { id: "f", status: "running", created_at: 1 } },
+    agents: { a: { id: "a", fleet_id: "f", role: "r", prompt: "p", status: "running" } },
+    messages: {}, inboxes: { a: [] }, capabilities: {},
+  });
+  try {
+    const store = new LifecycleStore();
+    const initial = store.createWork({ workId: "a", fleetId: "f", agentId: "a", retryBaseMs: 0 });
+    const attemptId = initial.attempts[0]!.attempt_id;
+    const lease = store.acquireLease({ workId: "a", attemptId, ownerId: "dead-owner", leaseMs: 25 });
+    assert.equal(lease.accepted, true);
+    if (lease.accepted) {
+      store.recordRuntimeMetadata({
+        workId: "a", attemptId, ownerId: "dead-owner",
+        ownerEpoch: lease.state.work.owner_epoch, pid: 999_999, metadata: { source: "test" },
+      });
+    }
+    const leaseUntil = store.getState("a")!.attempts[0]!.lease_until!;
+    const runtime = new ControlledRuntime();
+    const contained: number[] = [];
+    const coordinator = new LifecycleExecutionCoordinator(runtime, {
+      ownerId: "recovery-owner", leaseMs: 100, retryBaseMs: 0,
+      now: () => leaseUntil + 5, terminatePid: (pid) => contained.push(pid),
+    });
+    coordinator.recordMode("f", "durable");
+
+    coordinator.recover();
+
+    assert.deepEqual(contained, [999_999], "an unambiguously expired lease must contain its pid");
+    assert.equal(runtime.starts, 1, "and must reclaim the work");
+    coordinator.stop();
+  } finally { temp.cleanup(); }
+});
