@@ -137,11 +137,15 @@ export function openRatification(input: OpenRatificationInput): string {
   return withLedger((data): string => {
     // Council privacy fix (2026-07-19): a narrowed `voters` list means the proposal is a
     // targeted discussion, not a fleet-wide announcement — the broadcast must not deliver
-    // to agents outside the council. Deliver only to voters ∪ required signoffs ∪ the
-    // proposer. When `voters` is omitted (default = every other fleet agent), the send
-    // stays a true broadcast, unchanged.
+    // to agents outside the council. Deliver only to voters ∪ required signoffs. The
+    // proposer is deliberately excluded: they authored the message and don't need it
+    // delivered to their own inbox — and the canonical A2A envelope now enforces that
+    // globally (validateEnvelope rejects sender-as-recipient), so including them here
+    // would make _sendMessage's legacy-map delivery fail outright. When `voters` is
+    // omitted (default = every other fleet agent), the send stays a true broadcast,
+    // unchanged.
     const narrowedRecipients = input.voters
-      ? [...new Set([...input.voters, ...(input.requiredSignoffs ?? []), input.proposer])]
+      ? [...new Set([...input.voters, ...(input.requiredSignoffs ?? [])])]
       : undefined;
     const { messageId } = _sendMessage(
       data,

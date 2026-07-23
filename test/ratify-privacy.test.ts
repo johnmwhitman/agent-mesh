@@ -13,8 +13,14 @@ import { castVote, getRatification, openRatification, tallyRatification } from "
 // agents who were never meant to see it.
 //
 // Fix: when `voters` is explicit, deliver the proposal only to
-// voters ∪ required_signoffs ∪ {proposer}. When `voters` is omitted (default
-// = every other agent), the send stays a true broadcast, unchanged.
+// voters ∪ required_signoffs. The proposer is not a delivery recipient —
+// they authored the message and don't need it in their own inbox, and the
+// canonical A2A envelope (src/a2a/codec.ts validateEnvelope) now enforces
+// "sender must not be a recipient" globally, so including the proposer here
+// would make delivery fail outright. The proposer is still tracked via the
+// ratification record itself (getRatification().proposer), independent of
+// message delivery. When `voters` is omitted (default = every other agent),
+// the send stays a true broadcast, unchanged.
 
 function agent(id: string, fleetId = "f1"): Agent {
   return { id, fleet_id: fleetId, role: "peer", prompt: "p", status: "running" };
@@ -56,7 +62,7 @@ test("narrowed voters: a non-voter, non-signoff, non-proposer agent's inbox does
   }
 });
 
-test("narrowed voters: voters, required signoffs, and the proposer DO receive the proposal", () => {
+test("narrowed voters: voters and required signoffs receive the proposal; the proposer does not", () => {
   const l = withTempDb();
   try {
     fleet(9);
@@ -68,13 +74,20 @@ test("narrowed voters: voters, required signoffs, and the proposer DO receive th
       voters: ["p1", "p2", "p3"],
       requiredSignoffs: ["p3"],
     });
-    for (const recipient of ["p1", "p2", "p3", "proposer"]) {
+    for (const recipient of ["p1", "p2", "p3"]) {
       const inbox = getInbox(recipient);
       assert.ok(
         inbox.some((m) => m.id === mid),
-        `${recipient} (voter/signoff/proposer) must receive the narrowed proposal`
+        `${recipient} (voter/signoff) must receive the narrowed proposal`
       );
     }
+    assert.ok(
+      !getInbox("proposer").some((m) => m.id === mid),
+      "proposer authored the proposal and is not a delivery recipient of it"
+    );
+    // The proposer identity is still tracked independent of delivery, via the
+    // ratification record itself.
+    assert.equal(getRatification(mid)!.proposer, "proposer");
   } finally {
     l.cleanup();
   }
@@ -129,7 +142,7 @@ test("default broadcast (voters omitted): delivery is unchanged — every other 
   }
 });
 
-test("narrowed voters: message.recipients is frozen at send to exactly voters ∪ required_signoffs ∪ proposer", () => {
+test("narrowed voters: message.recipients is frozen at send to exactly voters ∪ required_signoffs (no proposer)", () => {
   const l = withTempDb();
   try {
     fleet(9);
@@ -141,7 +154,7 @@ test("narrowed voters: message.recipients is frozen at send to exactly voters �
       voters: ["p1", "p2"],
     });
     const msg = getInbox("p1").find((m) => m.id === mid)!;
-    assert.deepEqual([...msg.recipients!].sort(), ["p1", "p2", "proposer"]);
+    assert.deepEqual([...msg.recipients!].sort(), ["p1", "p2"]);
   } finally {
     l.cleanup();
   }
