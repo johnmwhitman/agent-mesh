@@ -57,6 +57,20 @@ const waitForFile = (file: string, timeoutMs = 1_000): void => {
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
   }
 };
+/**
+ * Poll until `predicate` holds. Assertions on scheduled work must wait for the
+ * observable condition, never for a guessed sleep: a lease-boundary recovery
+ * fires on its own timer and its containment callback lands asynchronously, so
+ * a fixed delay races the very effect being asserted — it passes on an idle
+ * machine and fails on a loaded CI runner.
+ */
+const waitUntil = async (predicate: () => boolean, what: string, timeoutMs = 2_000): Promise<void> => {
+  const until = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() >= until) throw new Error(`timed out after ${timeoutMs}ms waiting for ${what}`);
+    await new Promise((done) => setTimeout(done, 5));
+  }
+};
 const waitForExit = (child: ReturnType<typeof spawn>): Promise<void> => new Promise((resolve, reject) => {
   child.once("error", reject);
   child.once("exit", (code) => code === 0 ? resolve() : reject(new Error(`child exited ${code}`)));
@@ -257,7 +271,12 @@ test("durable recovery wakes at a future lease boundary, contains the diagnostic
     coordinator.recordMode("f", "durable");
     coordinator.recover();
     assert.equal(runtime.starts, 0, "non-expired lease is not reclaimed at startup");
-    await new Promise((done) => setTimeout(done, 45));
+    // The lease expires at 25ms; reclaim and containment then land on their own
+    // schedule. Wait for both rather than sleeping past a guessed deadline.
+    await waitUntil(
+      () => runtime.starts === 1 && contained.length === 1,
+      "scheduled recovery to reclaim the expired lease and contain the dead pid",
+    );
     assert.equal(runtime.starts, 1, "scheduled recovery reclaims after expiry without restart");
     assert.deepEqual(contained, [999_999]);
     assert.ok(readEventLog().some((event) => event.event === "agent_retry_scheduled"));
