@@ -4,7 +4,30 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 
 ## [Unreleased]
 
+### Changed
+- ⚠️ **`verify_ledger` now reports unusable capability rows as ERRORS, so a ledger holding one goes
+  from `ok: true` to `ok: false` and `inspect --verify` exits 1.** A compatibility event for anyone
+  using that exit code as a scripted audit gate, and a deliberate one: such a row names no agent,
+  can never be routed to, and an audit that called it "ok" was not telling the truth. The row is
+  inert — routing skips it — so this is a reporting change, not a behaviour change. `inspect
+  --explain` names the cause and gives the export/edit/re-import steps to clear it. New checks:
+  `capability.missing_agent_id` and `capability.unroutable` (errors), plus
+  `capability.key_mismatch` (a **warning** — routing repairs that row from its key).
+
 ### Fixed
+- **`register_capability` silently discarded `agent_id` and `fleet_id` over MCP.** The tool's
+  schema is snake_case and `CapabilityInput` is camelCase, and the handler cast one to the other
+  without mapping — so `role`/`skills`/`model` (same spelling in both) came through while the ids
+  arrived `undefined`. The call still returned `{ok: true}`. Every capability registered over MCP
+  therefore collapsed onto a single row keyed `"undefined"`, each call overwriting the last, and
+  that row crashed `route_work`'s tie-breaker (`agent_id.localeCompare`) whenever it tied on weight
+  with a healthy row. The handler now destructures explicitly like its siblings and returns a
+  `jsonError` envelope on bad input; the write rejects unusable ids, blank roles and non-string
+  skills; and `route_work` skips rows it cannot score, so **ledgers already carrying a poisoned row
+  route correctly instead of failing for every healthy agent**. Write, routing and verification now
+  share one predicate, so a capability can no longer be "successfully registered", permanently
+  unroutable, and reported clean. This is the true cause of the `undefined.localeCompare` crash
+  previously attributed to registering against an unspawned `fleet_id`.
 - **`route_work` ranking: candidates below the top-N cut were unreachable by routing feedback.**
   Matches were truncated to `top_n` by *raw* score and only then re-weighted, so an agent's
   feedback adjustment — range `[0.5, 1.5]` — could reorder the survivors but never change who

@@ -22,7 +22,7 @@
  * Read-only by design: verification never mutates the ledger it audits.
  */
 import { existsSync } from "fs";
-import { BROADCAST, messageRecipients, type MeshData, type Message, type Receipt } from "./core.js";
+import { BROADCAST, isRoutableCapability, isUsableAgentId, messageRecipients, type MeshData, type Message, type Receipt } from "./core.js";
 import { MAX_TOTAL_WEIGHT, MAX_VOTE_WEIGHT, computeTally, parseVoteAction } from "./ratify.js";
 import { readLedger } from "./db.js";
 import { readLifecycleSnapshot, readLifecycleSnapshotFile, verifyLifecycleSnapshot } from "./lifecycle-visibility.js";
@@ -85,9 +85,56 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
   }
 
   // --- capabilities ----------------------------------------------------------
-  for (const c of Object.values(data.capabilities)) {
-    if (!data.agents[c.agent_id]) {
-      warning("capability.unknown_agent", c.agent_id, `capability registered for ${c.agent_id}, which this ledger has not registered as an agent`);
+  for (const [key, c] of Object.entries(data.capabilities)) {
+    // A capability with no usable agent id is an ERROR, not a surprise: the row
+    // asserts that some agent can do something while naming no agent, so nothing
+    // can act on it and routing must skip it entirely. Reported specifically
+    // because the generic unknown-agent warning below renders as "capability
+    // registered for undefined", which diagnoses nothing. This is the shape a
+    // pre-fix `register_capability` wrote when the snake_case wire payload was
+    // passed to a camelCase input (key coerces to the string "undefined").
+    // routeWork repairs a missing body agent_id from the record KEY, so verify
+    // must judge the same normalized row it does. Reporting a hard error for a
+    // row routing happily dispatches to would be a false alarm — and the
+    // reverse (silence on a row routing drops) is the false-green this whole
+    // section exists to end. One normalization, both readers.
+    const effectiveId = isUsableAgentId(c?.agent_id) ? c.agent_id : key;
+    if (!isUsableAgentId(effectiveId)) {
+      error(
+        "capability.missing_agent_id",
+        key,
+        `capability row "${key}" has no usable agent_id (${JSON.stringify(c?.agent_id)}) and its key is not usable either — it names no agent, so it cannot be routed to or acted on`
+      );
+      continue;
+    }
+    if (!isUsableAgentId(c?.agent_id)) {
+      warning(
+        "capability.key_mismatch",
+        key,
+        `capability row "${key}" has no usable agent_id in its body (${JSON.stringify(c?.agent_id)}); routing falls back to the key, but the row should be rewritten`
+      );
+    }
+    // Same predicate routing applies. Without this, a row could be stored,
+    // silently dropped by routeWork, and still reported ok — the three-way
+    // disagreement between write, route and verify that an adversarial pass
+    // found.
+    if (!isRoutableCapability({ ...c, agent_id: effectiveId })) {
+      error(
+        "capability.unroutable",
+        key,
+        `capability "${c.agent_id}" is missing a usable role or skills (role=${JSON.stringify(c.role)}, skills=${JSON.stringify(c.skills)}) — routing will never offer it`
+      );
+      continue;
+    }
+    if (isUsableAgentId(c?.agent_id) && key !== c.agent_id) {
+      warning(
+        "capability.key_mismatch",
+        key,
+        `capability stored under key "${key}" but its agent_id is "${c.agent_id}" — one of the two is wrong`
+      );
+    }
+    if (!data.agents[effectiveId]) {
+      warning("capability.unknown_agent", effectiveId, `capability registered for ${effectiveId}, which this ledger has not registered as an agent`);
     }
   }
 

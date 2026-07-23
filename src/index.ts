@@ -435,9 +435,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       inputSchema: {
         type: "object",
         properties: {
-          agent_id: { type: "string" },
-          fleet_id: { type: "string" },
-          role: { type: "string" },
+          // minLength mirrors the write-path validation: the schema is the
+          // published contract, and a schema that accepts what the server
+          // rejects sends clients a false promise.
+          agent_id: { type: "string", minLength: 1 },
+          fleet_id: { type: "string", minLength: 1 },
+          role: { type: "string", minLength: 1 },
           skills: { type: "array", items: { type: "string" } },
           model: { type: "string" },
           context_window: { type: "number" },
@@ -893,8 +896,38 @@ toolHandlers["sweep_ratifications"] = async (args) => {
 };
 
 toolHandlers["register_capability"] = async (args) => {
-    registerCapability(args as Parameters<typeof registerCapability>[0]);
-    return jsonResult({ ok: true });
+    // The wire schema is snake_case; CapabilityInput is camelCase. This handler
+    // used to pass `args` straight through with a cast, so `agent_id`,
+    // `fleet_id` and `context_window` all arrived undefined while `role`,
+    // `skills` and `model` — which happen to share a spelling — came through
+    // fine. The call then returned {ok:true} having written a row keyed
+    // "undefined". Destructure explicitly, exactly like every sibling handler.
+    const { agent_id, fleet_id, role, skills, model, context_window } = args as {
+      agent_id: string;
+      fleet_id: string;
+      role: string;
+      skills: string[];
+      model?: string;
+      context_window?: number;
+    };
+    // Siblings (set_fleet_timeout, open_ratification, ...) return a jsonError
+    // envelope rather than letting a throw escape as a protocol-level error.
+    // registerCapability now rejects malformed ids, so this handler needs the
+    // same treatment or a sloppy client gets a transport fault instead of a
+    // readable tool result.
+    try {
+      registerCapability({
+        agentId: agent_id,
+        fleetId: fleet_id,
+        role,
+        skills,
+        model,
+        contextWindow: context_window,
+      });
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : String(err));
+    }
+    return jsonResult({ ok: true, agent_id, fleet_id });
 };
 
 toolHandlers["route_work"] = async (args) => {
