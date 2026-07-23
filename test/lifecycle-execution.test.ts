@@ -55,7 +55,14 @@ test("durable retry creates a distinct attempt and persisted eligibility", async
   const temp = withTempDb();
   try {
     const runtime = new ControlledRuntime();
-    const coordinator = new LifecycleExecutionCoordinator(runtime, { ownerId: "owner-a", retryBaseMs: 10, maxAttempts: 2 });
+    // The retry delay is deliberately unreachable (jitter is 0.8-1.2x base, so >=48s) rather
+    // than merely "long enough". This test asserts the PERSISTED state after a failure settles
+    // -- a second attempt row exists and is scheduled -- not how fast the retry fires. With a
+    // small base (was 10ms) the retry timer beat the assertion whenever the runner stalled for
+    // more than one event-loop tick, which is routine on loaded Windows CI: work.status read
+    // 'running' because attempt 2 had already launched. Racing the scheduler proves nothing
+    // this test claims, so the race is removed instead of widened.
+    const coordinator = new LifecycleExecutionCoordinator(runtime, { ownerId: "owner-a", retryBaseMs: 60_000, maxAttempts: 2 });
     coordinator.createFleet("fleet-1", [{ fleetId: "fleet-1", agentId: "agent-1", role: "worker", prompt: "work" }]);
     await new Promise((done) => setImmediate(done));
     runtime.results[0].resolve({ ...success(), status: "failure", exitCode: 1, error: "Bearer secret-value" });

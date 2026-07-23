@@ -350,7 +350,9 @@ test("retry wake scheduling survives post-settlement projection failure", async 
     await tick();
     setOutboxAfterAppendForTest(() => { throw new Error("projection unavailable"); });
     runtime.waits[0].resolve({ ...success(), status: "failure", exitCode: 1, error: "retry" });
-    await new Promise((done) => setTimeout(done, 25));
+    // Same class as the recovery flake above: the retry fires on its own ~1ms timer, so a fixed
+    // 25ms sleep raced the effect it asserts. Wait for the observable condition instead.
+    await waitUntil(() => runtime.starts === 2, "the retry to launch a second attempt");
     assert.equal(runtime.starts, 2);
     setOutboxAfterAppendForTest(undefined);
     coordinator.stop();
