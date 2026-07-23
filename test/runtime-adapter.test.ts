@@ -25,6 +25,19 @@ const FIXTURE = join(process.cwd(), "test/fixtures/runtime-process.mjs");
 const CHILD_BOOT_BUDGET_MS = 250;
 const TERMINATION_GRACE_MS = 100;
 
+// Cooperative termination is POSIX-only. Windows has no SIGTERM a child can
+// trap: process.kill(pid, "SIGTERM") maps onto TerminateProcess, which is
+// unconditional and immediate, so a child can neither install a handler, flush
+// trailing output, nor resist long enough to be escalated to SIGKILL. Tests
+// that assert those behaviours describe semantics the platform cannot express,
+// so they are skipped there by contract rather than silenced — see
+// COMPATIBILITY.md, "Runtime adapter platform support". Everything portable in
+// this file still runs on Windows.
+const POSIX_SIGNALS_ONLY =
+  process.platform === "win32"
+    ? "POSIX-only: Windows TerminateProcess cannot deliver a catchable SIGTERM"
+    : false;
+
 function spec(overrides: Partial<ExecutionSpec> = {}): ExecutionSpec {
   return {
     fleetId: "fleet-1",
@@ -57,7 +70,8 @@ test("runtime registry keeps OpenCode as the internal default", () => {
   assert.throws(() => registry.register(registry.require("opencode-cli")), /already registered/);
 });
 
-test("local process adapter normalizes success, failure, empty output, and signal termination", async () => {
+// Split from the signal case below so the portable half keeps running on Windows.
+test("local process adapter normalizes success, failure, and empty output", async () => {
   assert.equal((await execute(local("success"))).status, "success");
   const failed = await execute(local("failure"));
   assert.equal(failed.status, "failure");
@@ -65,6 +79,9 @@ test("local process adapter normalizes success, failure, empty output, and signa
   assert.equal(failed.stdout, "partial:plain prompt");
   assert.equal(failed.stderr, "fixture failure");
   assert.equal((await execute(local("empty"))).status, "success");
+});
+
+test("local process adapter normalizes signal termination", { skip: POSIX_SIGNALS_ONLY }, async () => {
   const signalled = await execute(local("signal"));
   assert.equal(signalled.status, "failure");
   assert.equal(signalled.signal, "SIGTERM");
@@ -83,14 +100,14 @@ test("local process adapter owns timeout and AbortSignal cancellation", async ()
   assert.equal(cancelled.status, "cancelled");
 });
 
-test("timeout waits for cooperative SIGTERM exit and captures trailing output", async () => {
+test("timeout waits for cooperative SIGTERM exit and captures trailing output", { skip: POSIX_SIGNALS_ONLY }, async () => {
   const result = await execute(local("term-exit"), spec({ timeoutMs: CHILD_BOOT_BUDGET_MS }));
   assert.equal(result.status, "timeout");
   assert.equal(result.stdout, "before-termterm-exit");
   assert.equal(result.signal, null);
 });
 
-test("timeout escalates SIGTERM-resistant children and leaves no live child", async () => {
+test("timeout escalates SIGTERM-resistant children and leaves no live child", { skip: POSIX_SIGNALS_ONLY }, async () => {
   const adapter = local("term-ignore");
   const handle = await adapter.start(spec({ timeoutMs: CHILD_BOOT_BUDGET_MS }));
   const result = await adapter.wait(handle);
@@ -102,7 +119,7 @@ test("timeout escalates SIGTERM-resistant children and leaves no live child", as
   assert.throws(() => process.kill(handle.pid!, 0));
 });
 
-test("cancellation wins the timeout race and settles exactly once after forced kill", async () => {
+test("cancellation wins the timeout race and settles exactly once after forced kill", { skip: POSIX_SIGNALS_ONLY }, async () => {
   let closeNormalizations = 0;
   let cancellationNormalizations = 0;
   const normalized = (raw: RawProcessResult, status: RuntimeResult["status"], error?: string): RuntimeResult => ({

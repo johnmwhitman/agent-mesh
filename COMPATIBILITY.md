@@ -87,6 +87,30 @@ Future versions will increment `CURRENT_SCHEMA_VERSION` and add a migration step
 
 **Promise so far**: every minor release has been additive. No tool has been removed or had its signature narrowed. Tool inputs default to safe values when omitted.
 
+## Runtime adapter platform support
+
+`LocalProcessRuntimeAdapter` spawns and terminates child processes. Its
+**cooperative-termination semantics are POSIX-only**, and this is a platform
+limit, not a defect:
+
+| Behaviour | POSIX (Linux, macOS) | Windows |
+|---|---|---|
+| Timeout sends a catchable `SIGTERM` first | yes | **no** |
+| Child may trap the signal, flush trailing output, exit on its own terms | yes | **no** |
+| Unresponsive child escalated to `SIGKILL` after the grace window | yes | n/a — the first kill is already unconditional |
+| Timeout and cancellation still settle exactly once, child never left alive | yes | yes |
+
+On Windows, `process.kill(pid, "SIGTERM")` maps onto `TerminateProcess`, which
+is immediate and cannot be handled, so the grace window has no meaning there. A
+timeout or cancellation on Windows terminates the child at once; the resulting
+`RuntimeResult` status is still correct, but trailing output written after the
+kill request is lost and `result.signal` does not report `SIGTERM`.
+
+The tests asserting the cooperative path are skipped on `win32` with that
+reason in the skip message. Portable behaviour — exit-code normalisation,
+stdout/stderr capture, timeout and cancellation status, argv/cwd/env isolation
+— is exercised on all three CI platforms.
+
 ## When v1.0 lands
 
 - **API freeze**: tool names, input shapes, and return shapes become stable. New tools can be added; existing ones cannot be renamed or changed incompatibly.
