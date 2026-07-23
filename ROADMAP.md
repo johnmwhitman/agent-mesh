@@ -120,7 +120,7 @@ API freeze. Production-ready. Backward-compatible.
 - [x] **Backward compatibility matrix** — `COMPATIBILITY.md` documents the API + ledger schema guarantees per version; per-version fixture tests are a v1.0 follow-up
 - [x] **Performance benchmarks** — sub-100ms overhead per agent spawn, 10k messages per fleet
 - [x] **Single-host SQLite ledger** — resolved differently and better in 0.12.0: SQLite (better-sqlite3, WAL + `BEGIN IMMEDIATE`) became THE ledger, not a flagged option, because the JSON store provably lost concurrent writes. This provides same-host process write exclusion only; it is not multi-host readiness. Cross-machine coordination (the libSQL idea) folds into the post-1.0 cloud relay.
-- [x] **npm publish** — CURRENT RELEASE: `meshfleet@0.14.0` is live on npm. The prior `0.13.0` release was published 2026-07-16 and its tarball was verified end-to-end (fresh install, bins run, `inspect --verify` audits a real ledger clean). Released `0.14.0` does **not** contain the unmerged Slice 4B durable-acceptance work (`acc4090..f1f98fb`) or Slice 4C-0 capability-profile work (`234cd55..ea69cb9`).
+- [x] **npm publish** — CURRENT RELEASE: `meshfleet@0.13.0`, published 2026-07-16 and verified end-to-end (fresh install, bins run, `inspect --verify` audits a real ledger clean). `0.14.0` is staged in this repo (version bumped, CHANGELOG rolled, release CI in place) but **not yet published to npm**. The staged `0.14.0` does **not** contain the unmerged Slice 4B durable-acceptance work (`acc4090..f1f98fb`) or Slice 4C-0 capability-profile work (`234cd55..ea69cb9`).
 - [x] **Auth token for MCP** — DONE (2026-07-16). Optional `MESHFLEET_AUTH_TOKEN` (legacy `AGENT_MESH_AUTH_TOKEN`): when set, the SSE listener requires `Authorization: Bearer <token>` (or `?token=` for EventSource) on every endpoint except `/healthz`; constant-time comparison; unset keeps the historical open local-trust default. The stdio MCP transport stays process-local (auth is the OS process boundary there by design).
 
 ## v0.13 (released / historical)
@@ -197,10 +197,10 @@ observable, not a daemon, dashboard, or service claim.
   raw `request_json` and unchanged 4A `envelope_json`, no wrapper/object-input
   path, and no
   public intermediate-success APIs; its admission plan is not acceptance,
-  persistence, receipt, delivery, execution, or reusable authority. Released
-  `meshfleet@0.14.0` does not contain Slice 4B, Slice 4C-0, or Slice 4C-1 branch
-  work.
-  proposed next, still offline and separately gated; do not treat it as active
+  persistence, receipt, delivery, execution, or reusable authority. Neither the
+  released `meshfleet@0.13.0` nor the staged `0.14.0` contains Slice 4B, Slice
+  4C-0, or Slice 4C-1 branch work.
+  Proposed next, still offline and separately gated; do not treat it as active
   or approved beyond proposal.
 - [ ] **Slice 4D: offline delivery-attempt and transport conformance** — compare
   stdio, mailbox, HTTP/SSE, and WebSocket semantic traces without live peers.
