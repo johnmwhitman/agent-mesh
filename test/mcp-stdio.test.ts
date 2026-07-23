@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -42,9 +42,23 @@ test("packaged meshfleet executable completes an MCP stdio handshake", async () 
       },
     );
 
+    // The install above must have produced a runnable bin from THIS repo. Assert
+    // it before launching: if the pack shipped no dist (e.g. tests running
+    // before the build), a bare `npx -y meshfleet` silently falls back to the
+    // published package in the npm cache and this test goes green without ever
+    // exercising the local artifact. --no-install forbids that fallback, and
+    // these assertions fail loudly instead of passing for the wrong reason.
+    const installedPkg = join(tempProject, "node_modules", "meshfleet", "package.json");
+    assert.ok(existsSync(installedPkg), "local meshfleet was not installed into the fixture project");
+    const installedEntry = join(tempProject, "node_modules", "meshfleet", "dist", "index.js");
+    assert.ok(
+      existsSync(installedEntry),
+      `packed meshfleet has no dist/index.js — build before test (looked in ${installedEntry})`,
+    );
+
     const transport = new StdioClientTransport({
       command: "npx",
-      args: ["-y", "meshfleet"],
+      args: ["--no-install", "meshfleet"],
       cwd: tempProject,
       stderr: "pipe",
       env: {
