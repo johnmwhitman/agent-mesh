@@ -22,7 +22,7 @@
  * Read-only by design: verification never mutates the ledger it audits.
  */
 import { existsSync } from "fs";
-import { BROADCAST, messageRecipients, type MeshData, type Message, type Receipt } from "./core.js";
+import { BROADCAST, isRoutableCapability, isUsableAgentId, messageRecipients, type MeshData, type Message, type Receipt } from "./core.js";
 import { MAX_TOTAL_WEIGHT, MAX_VOTE_WEIGHT, computeTally, parseVoteAction } from "./ratify.js";
 import { readLedger } from "./db.js";
 import { readLifecycleSnapshot, readLifecycleSnapshotFile, verifyLifecycleSnapshot } from "./lifecycle-visibility.js";
@@ -93,11 +93,23 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
     // registered for undefined", which diagnoses nothing. This is the shape a
     // pre-fix `register_capability` wrote when the snake_case wire payload was
     // passed to a camelCase input (key coerces to the string "undefined").
-    if (typeof c?.agent_id !== "string" || c.agent_id.length === 0 || c.agent_id === "undefined") {
+    if (!isUsableAgentId(c?.agent_id)) {
       error(
         "capability.missing_agent_id",
         key,
         `capability row "${key}" has no usable agent_id (${JSON.stringify(c?.agent_id)}) — it names no agent, so it cannot be routed to or acted on`
+      );
+      continue;
+    }
+    // Same predicate routing applies. Without this, a row could be stored,
+    // silently dropped by routeWork, and still reported ok — the three-way
+    // disagreement between write, route and verify that an adversarial pass
+    // found.
+    if (!isRoutableCapability(c)) {
+      error(
+        "capability.unroutable",
+        key,
+        `capability "${c.agent_id}" is missing a usable role or skills (role=${JSON.stringify(c.role)}, skills=${JSON.stringify(c.skills)}) — routing will never offer it`
       );
       continue;
     }

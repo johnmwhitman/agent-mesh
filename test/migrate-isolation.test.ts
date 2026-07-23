@@ -5,26 +5,27 @@
  * Found the hard way on 2026-07-23: running a probe with only
  * `MESHFLEET_DB_FILE=$(mktemp -d)/x.db` set — the obvious way to sandbox a run —
  * imported the REAL `~/.config/opencode/agent-mesh.json` into the throwaway db
- * and then RENAMED the real file to `.migrated.<ts>`. The two paths resolve
- * from independent env vars (`MESHFLEET_DB_FILE` vs `MESHFLEET_DATA_FILE`), and
- * `migrateJsonToSqlite` paired a redirected destination with a defaulted source
- * without noticing they disagreed.
+ * and then RENAMED the real file to `.migrated.<ts>`. The two paths resolve from
+ * independent overrides, and the migrator paired a redirected destination with a
+ * defaulted source without noticing they disagreed.
  *
- * ⚠️ NOTE ON RED-ON-REVERT: this suite deliberately does NOT execute the
- * unguarded path to prove it fails. Doing so on any machine with a real ledger
- * would perform the exact destructive migration the guard exists to prevent —
- * the failure mode IS the bug. The assertions below pin the guard's specific
- * refusal, which is produced by no other code path in the function, so removing
- * the guard fails them by construction.
+ * ⚠️ WHY THE POLICY IS TESTED AS A PURE FUNCTION. An earlier version of this
+ * file tested only through `migrateJsonToSqlite()`, which cannot express
+ * "undeclared JSON at the default path" without actually naming the developer's
+ * real ledger — and so one of those tests consumed and renamed it, committing
+ * the exact bug the guard exists to prevent. A test for an isolation guard must
+ * not have to break isolation to check it. The decision now lives in
+ * `shouldRefuseMigration`, covered exhaustively below with no filesystem and no
+ * environment; the integration tests that remain exercise only directions that
+ * are safe by construction.
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { migrateJsonToSqlite } from '../src/migrate.js'
-import { defaultDbFile } from '../src/db.js'
-import { defaultDataFile } from '../src/core.js'
+import { migrateJsonToSqlite, shouldRefuseMigration } from '../src/migrate.js'
+import { defaultDbFile, setDbPath, isLedgerFileEmpty, readLedger, withLedger, closeDb } from '../src/db.js'
 
 /** Run `fn` with the given env vars applied, restoring the previous values after. */
 function withEnv(vars: Record<string, string | undefined>, fn: () => void): void {
@@ -44,66 +45,47 @@ function withEnv(vars: Record<string, string | undefined>, fn: () => void): void
   }
 }
 
-test('a redirected db with a defaulted JSON path refuses to migrate', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'meshfleet-migrate-iso-'))
-  withEnv(
-    {
-      MESHFLEET_DB_FILE: join(dir, 'sandbox.db'),
-      MESHFLEET_DATA_FILE: undefined,
-      AGENT_MESH_DATA_FILE: undefined,
-    },
-    () => {
-      const result = migrateJsonToSqlite()
-      assert.equal(result.migrated, false, 'must not migrate into a sandboxed db')
-      assert.match(
-        result.reason ?? '',
-        /refusing to consume the default-path JSON/,
-        'must refuse for the isolation reason specifically — not merely happen to no-op'
-      )
-      assert.equal(
-        result.refused,
-        true,
-        'the refusal must be flagged so startup can SAY it was skipped — a silent skip ' +
-          'leaves a user who legitimately relocated their db staring at an empty ledger'
-      )
-    }
+// --- the policy, exhaustively (no filesystem, no env) ------------------------
+
+test('policy: relocated db + existing JSON + undeclared source = REFUSE', () => {
+  assert.equal(
+    shouldRefuseMigration({ dbRelocated: true, jsonExists: true, dataDeclared: false }),
+    true,
+    'this is the accident the guard exists for'
   )
 })
 
-test('redirecting BOTH paths still migrates normally', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'meshfleet-migrate-both-'))
-  withEnv(
-    {
-      MESHFLEET_DB_FILE: join(dir, 'sandbox.db'),
-      MESHFLEET_DATA_FILE: join(dir, 'ledger.json'),
-      AGENT_MESH_DATA_FILE: undefined,
-    },
-    () => {
-      const result = migrateJsonToSqlite()
-      // No JSON exists at that temp path, so it no-ops for the ORDINARY reason.
-      // The point is that it got past the isolation guard: a deliberate
-      // relocation of both paths is still a supported migration.
-      assert.equal(result.migrated, false)
-      assert.match(
-        result.reason ?? '',
-        /no json ledger to migrate/,
-        'setting both paths must not trip the isolation refusal'
-      )
-      assert.notEqual(result.refused, true, 'an ordinary no-op must not be flagged as a refusal')
-    }
+test('policy: declaring the source authorizes the migration', () => {
+  assert.equal(
+    shouldRefuseMigration({ dbRelocated: true, jsonExists: true, dataDeclared: true }),
+    false,
+    'the guard must not refuse the very remedy its message prescribes'
   )
 })
+
+test('policy: nothing to consume is never a refusal', () => {
+  // A clean install with a relocated db must get a quiet no-op, not a warning
+  // about consuming a ledger that does not exist.
+  assert.equal(shouldRefuseMigration({ dbRelocated: true, jsonExists: false, dataDeclared: false }), false)
+  assert.equal(shouldRefuseMigration({ dbRelocated: true, jsonExists: false, dataDeclared: true }), false)
+})
+
+test('policy: a db at its default location is an ordinary upgrade, never a refusal', () => {
+  // The db side tests PATH INEQUALITY, not env presence: exporting
+  // MESHFLEET_DB_FILE=<the default path> is something shell profiles and docs
+  // do, and reading that as isolation would disable first-boot migration forever.
+  assert.equal(shouldRefuseMigration({ dbRelocated: false, jsonExists: true, dataDeclared: false }), false)
+  assert.equal(shouldRefuseMigration({ dbRelocated: false, jsonExists: true, dataDeclared: true }), false)
+})
+
+// --- integration: safe directions only ---------------------------------------
 
 test('MESHFLEET_DB_FILE set to the literal DEFAULT path is not a relocation', () => {
-  // A shell profile or doc that exports the default path must not disable
-  // first-boot migration forever. This is why the db side tests path
-  // inequality rather than mere presence.
   withEnv(
     { MESHFLEET_DB_FILE: defaultDbFile(), MESHFLEET_DATA_FILE: undefined, AGENT_MESH_DATA_FILE: undefined },
     () => {
-      const result = migrateJsonToSqlite()
       assert.notEqual(
-        result.refused,
+        migrateJsonToSqlite().refused,
         true,
         'exporting the default db path is not isolation and must not trip the guard'
       )
@@ -111,28 +93,7 @@ test('MESHFLEET_DB_FILE set to the literal DEFAULT path is not a relocation', ()
   )
 })
 
-test('declaring MESHFLEET_DATA_FILE as the literal DEFAULT path authorizes migration', () => {
-  // The guard's own remedy. If this tripped the refusal, the advice the message
-  // gives would be impossible to follow — the failure mode cdx flagged.
-  const dir = mkdtempSync(join(tmpdir(), 'meshfleet-migrate-declared-'))
-  withEnv(
-    {
-      MESHFLEET_DB_FILE: join(dir, 'sandbox.db'),
-      MESHFLEET_DATA_FILE: defaultDataFile(),
-      AGENT_MESH_DATA_FILE: undefined,
-    },
-    () => {
-      const result = migrateJsonToSqlite()
-      assert.notEqual(
-        result.refused,
-        true,
-        'explicitly naming the default JSON path IS a declaration and must authorize migration'
-      )
-    }
-  )
-})
-
-test('the legacy AGENT_MESH_DATA_FILE alias also counts as a declaration', () => {
+test('the legacy AGENT_MESH_DATA_FILE alias counts as a declaration', () => {
   const dir = mkdtempSync(join(tmpdir(), 'meshfleet-migrate-legacy-'))
   withEnv(
     {
@@ -142,18 +103,76 @@ test('the legacy AGENT_MESH_DATA_FILE alias also counts as a declaration', () =>
     },
     () => {
       const result = migrateJsonToSqlite()
-      assert.notEqual(result.refused, true, 'an existing install using the legacy alias must keep working')
+      assert.notEqual(result.refused, true, 'an install using the legacy alias must keep working')
       assert.match(result.reason ?? '', /no json ledger to migrate/)
     }
   )
 })
 
-test('only MESHFLEET_DATA_FILE set (db at default) does not trip the guard', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'meshfleet-migrate-dataonly-'))
-  withEnv(
-    { MESHFLEET_DB_FILE: undefined, MESHFLEET_DATA_FILE: join(dir, 'ledger.json'), AGENT_MESH_DATA_FILE: undefined },
-    () => {
-      assert.notEqual(migrateJsonToSqlite().refused, true, 'the db is not relocated, so there is nothing to guard')
-    }
-  )
+const LEDGER_FIXTURE = JSON.stringify({
+  version: 2,
+  fleets: { f1: { id: 'f1', status: 'complete', created_at: 1 } },
+  agents: {}, messages: {}, inboxes: {}, capabilities: {},
+  receipts: {}, ratifications: {}, templates: {},
+})
+
+test('the printed remedy still works after a boot has created an empty db', () => {
+  // The trap an adversarial second pass found: refuse -> ordinary startup
+  // recovery materializes the relocated db (mkdir + CREATE TABLE) -> operator
+  // follows the printed remedy -> next boot sees a file, short-circuits on
+  // "already present", and the remedy silently does nothing while the JSON stays
+  // stranded. Both paths are declared throughout, so this never touches a real
+  // ledger.
+  const dir = mkdtempSync(join(tmpdir(), 'meshfleet-migrate-retry-'))
+  const dbPath = join(dir, 'relocated.db')
+  const jsonPath = join(dir, 'ledger.json')
+  writeFileSync(jsonPath, LEDGER_FIXTURE)
+
+  // A boot happens first and materializes an EMPTY db at the relocated path.
+  setDbPath(dbPath)
+  try {
+    readLedger()
+  } finally {
+    closeDb()
+    setDbPath(null)
+  }
+  assert.ok(existsSync(dbPath), 'precondition: the boot created the db file')
+  assert.equal(isLedgerFileEmpty(dbPath), true, 'precondition: and it holds no rows')
+
+  withEnv({ MESHFLEET_DB_FILE: dbPath, MESHFLEET_DATA_FILE: jsonPath, AGENT_MESH_DATA_FILE: undefined }, () => {
+    const result = migrateJsonToSqlite()
+    assert.equal(
+      result.migrated,
+      true,
+      'an empty db from a prior boot must be migrated into, not treated as already-migrated'
+    )
+    assert.equal(result.rowCount, 1)
+  })
+  closeDb()
+})
+
+test('a POPULATED db is still treated as already migrated', () => {
+  // The empty-db allowance must not widen into "re-migrate over real data".
+  const dir = mkdtempSync(join(tmpdir(), 'meshfleet-migrate-populated-'))
+  const dbPath = join(dir, 'populated.db')
+  const jsonPath = join(dir, 'ledger.json')
+  writeFileSync(jsonPath, LEDGER_FIXTURE)
+
+  setDbPath(dbPath)
+  try {
+    withLedger((d) => {
+      d.fleets['already-here'] = { id: 'already-here', status: 'running', created_at: 2 }
+    })
+  } finally {
+    closeDb()
+    setDbPath(null)
+  }
+  assert.equal(isLedgerFileEmpty(dbPath), false, 'precondition: the db has rows')
+
+  withEnv({ MESHFLEET_DB_FILE: dbPath, MESHFLEET_DATA_FILE: jsonPath, AGENT_MESH_DATA_FILE: undefined }, () => {
+    const result = migrateJsonToSqlite()
+    assert.equal(result.migrated, false, 'a populated db must never be migrated over')
+    assert.match(result.reason ?? '', /already present/)
+  })
+  closeDb()
 })

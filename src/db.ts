@@ -60,6 +60,41 @@ export function defaultDbFile(): string {
   return DEFAULT_DB_FILE;
 }
 
+/**
+ * Does this ledger file exist but hold no rows?
+ *
+ * Ordinary startup recovery materializes the db (mkdir + CREATE TABLE) even when
+ * nothing was ever written to it, so "the file exists" does not mean "there is a
+ * ledger here". The migrator needs the distinction: importing into an empty db
+ * overwrites nothing, while treating it as populated strands the JSON ledger
+ * forever.
+ *
+ * Opens its own read-only connection and never touches the global handle or the
+ * configured path. Unreadable or schema-less files answer `false` — the
+ * conservative direction, since claiming "empty" would authorize an import.
+ */
+export function isLedgerFileEmpty(file: string): boolean {
+  if (!existsSync(file)) return false;
+  let db: Database.Database | null = null;
+  try {
+    db = new Database(file, { readonly: true, fileMustExist: true });
+    const tables = new Set(
+      (db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as { name: string }[])
+        .map((r) => r.name)
+    );
+    for (const t of ["fleets", "agents", "messages", "inboxes", "capabilities", "receipts", "ratifications", "templates"]) {
+      if (!tables.has(t)) continue;
+      const row = db.prepare(`SELECT 1 FROM ${t} LIMIT 1`).get();
+      if (row !== undefined) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  } finally {
+    try { db?.close(); } catch { /* best-effort */ }
+  }
+}
+
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS meta          (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS fleets        (id TEXT PRIMARY KEY, data TEXT NOT NULL);

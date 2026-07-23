@@ -830,6 +830,34 @@ interface CapabilityInput {
   contextWindow?: number;
 }
 
+/**
+ * Ids that are never dispatchable. `capabilities[undefined]` coerces its key to
+ * the string "undefined", so these are the shapes a malformed write produces —
+ * not hypothetical values.
+ *
+ * Exported because the WRITE path, `routeWork`, and `verify_ledger` must agree
+ * on what a usable capability is. They previously did not: registration accepted
+ * rows that routing silently dropped and verification reported as `ok: true`,
+ * so a capability could be "successfully registered", never routable, and never
+ * flagged. One predicate, three callers.
+ */
+export const UNUSABLE_AGENT_IDS: ReadonlySet<string> = new Set(["undefined", "null", ""]);
+
+export function isUsableAgentId(v: unknown): v is string {
+  return typeof v === "string" && v.length > 0 && !UNUSABLE_AGENT_IDS.has(v);
+}
+
+/** Is this capability complete enough to score and dispatch? */
+export function isRoutableCapability(c: Partial<Capability> | undefined): boolean {
+  return (
+    isUsableAgentId(c?.agent_id) &&
+    typeof c?.role === "string" &&
+    c.role.length > 0 &&
+    Array.isArray(c.skills) &&
+    c.skills.every((s) => typeof s === "string")
+  );
+}
+
 /** In-transaction helper. */
 export function _registerCapability(data: MeshData, input: CapabilityInput): void {
   // Refuse to key a row on a missing id. Without this, a caller that passes the
@@ -838,9 +866,9 @@ export function _registerCapability(data: MeshData, input: CapabilityInput): voi
   // every such call overwrites the last, and the row later crashes routeWork's
   // tie-breaker. Observed on a real ledger, so this guard is load-bearing, not
   // defensive decoration.
-  if (typeof input?.agentId !== "string" || input.agentId.length === 0) {
+  if (!isUsableAgentId(input?.agentId)) {
     throw new Error(
-      `register_capability: agentId is required and must be a non-empty string (got ${JSON.stringify(input?.agentId)}). ` +
+      `register_capability: agentId is required and must be a usable non-empty string (got ${JSON.stringify(input?.agentId)}). ` +
         `Note the MCP wire field is 'agent_id'; it must be mapped to 'agentId'.`
     );
   }
@@ -848,6 +876,19 @@ export function _registerCapability(data: MeshData, input: CapabilityInput): voi
     throw new Error(
       `register_capability: fleetId is required and must be a non-empty string (got ${JSON.stringify(input.fleetId)}). ` +
         `Note the MCP wire field is 'fleet_id'; it must be mapped to 'fleetId'.`
+    );
+  }
+  // Accepting a row that routeWork will silently refuse to offer is how a
+  // capability ends up "registered" but permanently unroutable. Reject at the
+  // write instead, using the same shape check routing applies.
+  if (typeof input.role !== "string" || input.role.length === 0) {
+    throw new Error(
+      `register_capability: role is required and must be a non-empty string (got ${JSON.stringify(input.role)})`
+    );
+  }
+  if (!Array.isArray(input.skills) || !input.skills.every((sk) => typeof sk === "string")) {
+    throw new Error(
+      `register_capability: skills is required and must be an array of strings (got ${JSON.stringify(input.skills)})`
     );
   }
   data.capabilities[input.agentId] = {
@@ -889,22 +930,12 @@ export function routeWork(description: string, topN: number = 1): RouteMatch[] {
   // falling back to that key would resurrect the exact bug this guards against
   // and offer a route target no dispatcher can use. No real agent is named
   // either, so refusing them costs nothing.
-  const UNUSABLE_IDS = new Set(["undefined", "null", ""]);
-  const usableId = (v: unknown): v is string =>
-    typeof v === "string" && v.length > 0 && !UNUSABLE_IDS.has(v);
-
   const caps = Object.entries(data.capabilities)
     .map(([key, cap]) => {
-      const id = usableId(cap?.agent_id) ? cap.agent_id : key;
+      const id = isUsableAgentId(cap?.agent_id) ? cap.agent_id : key;
       return { ...cap, agent_id: id } as Capability;
     })
-    .filter(
-      (c) =>
-        usableId(c.agent_id) &&
-        typeof c.role === "string" &&
-        Array.isArray(c.skills) &&
-        c.skills.every((s) => typeof s === "string")
-    );
+    .filter((c) => isRoutableCapability(c));
   if (caps.length === 0 || topN <= 0) return [];
 
   const tokenize = (s: string) =>

@@ -205,3 +205,41 @@ test('the poisoned key "undefined" is NOT resurrected by the key fallback', () =
     ledger.cleanup()
   }
 })
+
+test('registerCapability rejects the literal ids "undefined" and "null"', () => {
+  const ledger = freshLedger()
+  try {
+    for (const bad of ['undefined', 'null', '']) {
+      assert.throws(
+        () => registerCapability({ agentId: bad, fleetId: 'f', role: 'r', skills: ['s'] }),
+        /agentId/,
+        `"${bad}" must be refused at the write — routing already refuses to offer it`
+      )
+    }
+  } finally {
+    ledger.cleanup()
+  }
+})
+
+test('registerCapability rejects a row routing would silently drop', () => {
+  const ledger = freshLedger()
+  try {
+    // Accepting these produced a capability that was "registered", never
+    // routable, and reported ok by verify — write/route/verify disagreeing.
+    assert.throws(
+      () => registerCapability({ agentId: 'a', fleetId: 'f', role: '', skills: ['s'] }),
+      /role/
+    )
+    assert.throws(
+      () => registerCapability({ agentId: 'a', fleetId: 'f', role: 'r', skills: undefined as unknown as string[] }),
+      /skills/
+    )
+    assert.throws(
+      () => registerCapability({ agentId: 'a', fleetId: 'f', role: 'r', skills: [1 as unknown as string] }),
+      /skills/
+    )
+    assert.equal(Object.keys(loadData().capabilities).length, 0, 'none of them may be stored')
+  } finally {
+    ledger.cleanup()
+  }
+})
