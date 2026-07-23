@@ -4,6 +4,7 @@ import { dirname } from "path";
 import { join, basename, extname } from "path";
 import { homedir } from "os";
 import { getRoutingAdjustment } from "./routing-feedback.js";
+import { getBudgetAdjustment } from "./budget-awareness.js";
 import { expandKeywordsWithSynonyms } from "./synonyms.js";
 import { getSkillTaxonomy, scoreSkillsAgainstKeywords } from "./skill-taxonomy.js";
 import { resolveEnv } from "./env.js";
@@ -910,14 +911,22 @@ export function routeWork(description: string, topN: number = 1): RouteMatch[] {
     return a.agent_id.localeCompare(b.agent_id);
   });
 
-  const matches = scored.filter((s) => s.score > 0).slice(0, topN);
-
-  return matches
-    .map((m) => ({ ...m, weight: m.score * getRoutingAdjustment(m.agent_id) }))
+  // Weight BEFORE truncating. A provider that is out of budget scores 0 and must
+  // drop out entirely, letting the next candidate take its place — if we sliced
+  // first, an exhausted agent would occupy a top-N slot with weight 0 and the
+  // caller would route to a lane that cannot run.
+  return scored
+    .filter((s) => s.score > 0)
+    .map((m) => ({
+      ...m,
+      weight: m.score * getRoutingAdjustment(m.agent_id) * getBudgetAdjustment(m.agent_id),
+    }))
+    .filter((m) => m.weight > 0)
     .sort((a, b) => {
       if (b.weight !== a.weight) return b.weight - a.weight;
       return a.agent_id.localeCompare(b.agent_id);
-    });
+    })
+    .slice(0, topN);
 }
 
 // ---------------------------------------------------------------------------

@@ -4,6 +4,26 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 
 ## [Unreleased]
 
+### Fixed
+- **`route_work` ranking: candidates below the top-N cut were unreachable by routing feedback.**
+  Matches were truncated to `top_n` by *raw* score and only then re-weighted, so an agent's
+  feedback adjustment — range `[0.5, 1.5]` — could reorder the survivors but never change who
+  survived. A strong agent with a recent failure record kept its slot while a slightly
+  lower-scoring, more reliable one could not be reached at all. Weighting now happens before
+  truncation, so feedback influences *which* agents make the cut, not merely their order. This
+  changes routing results for any fleet that has recorded outcomes via `record_routing_outcome`.
+
+### Added
+- **Budget-aware routing.** `route_work` can now account for whether an agent's provider can
+  still afford to run. `budget-awareness.ts` mirrors `routing-feedback.ts`: a bounded multiplier
+  folded into the match weight, deliberately asymmetric at `[0, 1.0]` — budget can only ever
+  *demote* a lane, never promote one, so judgment work is never quietly re-routed to whichever
+  provider happens to be idle. Neutral to 60% utilization, linear taper to a 0.5 floor at 80%,
+  excluded at 100%. Providers with no quota API report `measured: false` and stay **neutral** —
+  unknown is not exhausted. Ships dormant: nothing calls `setProviderBudget` /
+  `setAgentProvider` yet, so behaviour is unchanged until a caller wires it. See
+  `docs/BUDGET-AWARE-ROUTING.md`.
+
 ### Planned
 - normalized per-row inbox storage (schema v3) — design written and PARKED (batch sends beat the
   scale target ~100x; unpark only if per-call bulk matters)
