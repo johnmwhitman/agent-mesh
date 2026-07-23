@@ -55,6 +55,11 @@ export function resolveDbFile(): string {
   return process.env.MESHFLEET_DB_FILE || dbFile || DEFAULT_DB_FILE;
 }
 
+/** The compiled-in default db path, ignoring every override. */
+export function defaultDbFile(): string {
+  return DEFAULT_DB_FILE;
+}
+
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS meta          (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS fleets        (id TEXT PRIMARY KEY, data TEXT NOT NULL);

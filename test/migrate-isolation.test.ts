@@ -23,6 +23,8 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { migrateJsonToSqlite } from '../src/migrate.js'
+import { defaultDbFile } from '../src/db.js'
+import { defaultDataFile } from '../src/core.js'
 
 /** Run `fn` with the given env vars applied, restoring the previous values after. */
 function withEnv(vars: Record<string, string | undefined>, fn: () => void): void {
@@ -88,6 +90,70 @@ test('redirecting BOTH paths still migrates normally', () => {
         'setting both paths must not trip the isolation refusal'
       )
       assert.notEqual(result.refused, true, 'an ordinary no-op must not be flagged as a refusal')
+    }
+  )
+})
+
+test('MESHFLEET_DB_FILE set to the literal DEFAULT path is not a relocation', () => {
+  // A shell profile or doc that exports the default path must not disable
+  // first-boot migration forever. This is why the db side tests path
+  // inequality rather than mere presence.
+  withEnv(
+    { MESHFLEET_DB_FILE: defaultDbFile(), MESHFLEET_DATA_FILE: undefined, AGENT_MESH_DATA_FILE: undefined },
+    () => {
+      const result = migrateJsonToSqlite()
+      assert.notEqual(
+        result.refused,
+        true,
+        'exporting the default db path is not isolation and must not trip the guard'
+      )
+    }
+  )
+})
+
+test('declaring MESHFLEET_DATA_FILE as the literal DEFAULT path authorizes migration', () => {
+  // The guard's own remedy. If this tripped the refusal, the advice the message
+  // gives would be impossible to follow — the failure mode cdx flagged.
+  const dir = mkdtempSync(join(tmpdir(), 'meshfleet-migrate-declared-'))
+  withEnv(
+    {
+      MESHFLEET_DB_FILE: join(dir, 'sandbox.db'),
+      MESHFLEET_DATA_FILE: defaultDataFile(),
+      AGENT_MESH_DATA_FILE: undefined,
+    },
+    () => {
+      const result = migrateJsonToSqlite()
+      assert.notEqual(
+        result.refused,
+        true,
+        'explicitly naming the default JSON path IS a declaration and must authorize migration'
+      )
+    }
+  )
+})
+
+test('the legacy AGENT_MESH_DATA_FILE alias also counts as a declaration', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'meshfleet-migrate-legacy-'))
+  withEnv(
+    {
+      MESHFLEET_DB_FILE: join(dir, 'sandbox.db'),
+      MESHFLEET_DATA_FILE: undefined,
+      AGENT_MESH_DATA_FILE: join(dir, 'legacy.json'),
+    },
+    () => {
+      const result = migrateJsonToSqlite()
+      assert.notEqual(result.refused, true, 'an existing install using the legacy alias must keep working')
+      assert.match(result.reason ?? '', /no json ledger to migrate/)
+    }
+  )
+})
+
+test('only MESHFLEET_DATA_FILE set (db at default) does not trip the guard', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'meshfleet-migrate-dataonly-'))
+  withEnv(
+    { MESHFLEET_DB_FILE: undefined, MESHFLEET_DATA_FILE: join(dir, 'ledger.json'), AGENT_MESH_DATA_FILE: undefined },
+    () => {
+      assert.notEqual(migrateJsonToSqlite().refused, true, 'the db is not relocated, so there is nothing to guard')
     }
   )
 })

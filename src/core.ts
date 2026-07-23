@@ -222,6 +222,22 @@ export function defaultDataFile(): string {
   return DEFAULT_DATA_FILE;
 }
 
+/**
+ * Did the caller state where the JSON ledger lives, as opposed to us falling
+ * back to the default?
+ *
+ * Deliberately tests PRESENCE, not path inequality: someone who explicitly sets
+ * `MESHFLEET_DATA_FILE` to the default path has still consciously named the
+ * source, which is exactly the acknowledgement the migrator's isolation guard
+ * is looking for. Comparing paths instead would silently reject that as "not
+ * redirected" and refuse a migration the caller explicitly asked for.
+ */
+export function isDataFileDeclared(): boolean {
+  if (resolveEnv(process.env, "MESHFLEET_DATA_FILE", "AGENT_MESH_DATA_FILE") != null) return true;
+  // setLedgerPath() moved it off the compiled default.
+  return dataFile !== DEFAULT_DATA_FILE;
+}
+
 export function resolveDataDir(): string {
   return resolveEnv(process.env, "MESHFLEET_DATA_DIR", "AGENT_MESH_DATA_DIR") ?? dataDir;
 }
@@ -851,15 +867,44 @@ export function registerCapability(input: CapabilityInput): void {
 
 export function routeWork(description: string, topN: number = 1): RouteMatch[] {
   const data = loadData();
-  // Drop rows with no usable agent id before scoring. Ledgers written before
-  // the register_capability guard above can contain one (the wire-format bug),
-  // and such a row is unroutable by definition — you cannot dispatch to an
-  // agent with no id. Left in, it also throws in the `localeCompare`
+  // Skip unusable rows before scoring. A ledger written before the
+  // register_capability guard above can hold a row with no agent id (the
+  // wire-format bug), and such a row is unroutable by definition — you cannot
+  // dispatch to an agent with no id. Left in, it throws in the `localeCompare`
   // tie-breaker below and takes routing down for every healthy agent with it.
-  // `verify_ledger` reports these rows; routing simply refuses to offer them.
-  const caps = Object.values(data.capabilities).filter(
-    (c) => typeof c?.agent_id === "string" && c.agent_id.length > 0
-  );
+  //
+  // `role` and `skills` are validated for the SAME reason, not for tidiness:
+  // the scorer calls `cap.role.toLowerCase()` and `cap.skills.map(...)`
+  // unconditionally, so a row missing either has exactly the blast radius the
+  // id bug had. Guarding only the id would have fixed one corrupt shape and
+  // left its siblings live.
+  //
+  // The id falls back to the record KEY: the ledger stores capabilities keyed by
+  // agent id, so a row whose key is sound but whose body lost its `agent_id`
+  // (hand-edited or partially imported) is still dispatchable, and the key is
+  // the authoritative half of that pair.
+  //
+  // But NOT the literal strings "undefined"/"null": `capabilities[undefined]`
+  // coerces its key to "undefined", so those are precisely the poisoned rows —
+  // falling back to that key would resurrect the exact bug this guards against
+  // and offer a route target no dispatcher can use. No real agent is named
+  // either, so refusing them costs nothing.
+  const UNUSABLE_IDS = new Set(["undefined", "null", ""]);
+  const usableId = (v: unknown): v is string =>
+    typeof v === "string" && v.length > 0 && !UNUSABLE_IDS.has(v);
+
+  const caps = Object.entries(data.capabilities)
+    .map(([key, cap]) => {
+      const id = usableId(cap?.agent_id) ? cap.agent_id : key;
+      return { ...cap, agent_id: id } as Capability;
+    })
+    .filter(
+      (c) =>
+        usableId(c.agent_id) &&
+        typeof c.role === "string" &&
+        Array.isArray(c.skills) &&
+        c.skills.every((s) => typeof s === "string")
+    );
   if (caps.length === 0 || topN <= 0) return [];
 
   const tokenize = (s: string) =>

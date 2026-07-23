@@ -132,3 +132,76 @@ test('routeWork survives a ledger already poisoned by the old handler', () => {
     ledger.cleanup()
   }
 })
+
+test('routeWork skips rows whose role or skills are unusable, not just the id', () => {
+  const ledger = freshLedger()
+  try {
+    const data = loadData()
+    data.capabilities['grk'] = {
+      agent_id: 'grk', fleet_id: 'standing', role: 'reviewer',
+      skills: ['review'], registered_at: Date.now(),
+    }
+    // The scorer calls cap.role.toLowerCase() and cap.skills.map() with no
+    // guard, so each of these has the same blast radius the missing id had.
+    data.capabilities['no-role'] = {
+      agent_id: 'no-role', fleet_id: 'standing',
+      role: undefined as unknown as string, skills: ['review'], registered_at: Date.now(),
+    }
+    data.capabilities['no-skills'] = {
+      agent_id: 'no-skills', fleet_id: 'standing', role: 'reviewer',
+      skills: undefined as unknown as string[], registered_at: Date.now(),
+    }
+    data.capabilities['bad-skill-type'] = {
+      agent_id: 'bad-skill-type', fleet_id: 'standing', role: 'reviewer',
+      skills: [42 as unknown as string], registered_at: Date.now(),
+    }
+    saveData(data)
+
+    let matches: ReturnType<typeof routeWork>
+    assert.doesNotThrow(() => {
+      matches = routeWork('review', 10)
+    }, 'a corrupt role/skills row must not take down routing for everyone else')
+    assert.deepEqual(matches!.map((m) => m.agent_id), ['grk'], 'only the healthy row is offered')
+  } finally {
+    ledger.cleanup()
+  }
+})
+
+test('a capability whose body lost its agent_id still routes via its key', () => {
+  const ledger = freshLedger()
+  try {
+    const data = loadData()
+    data.capabilities['grk'] = {
+      agent_id: undefined as unknown as string, fleet_id: 'standing',
+      role: 'reviewer', skills: ['review'], registered_at: Date.now(),
+    }
+    saveData(data)
+
+    const matches = routeWork('review', 5)
+    assert.deepEqual(
+      matches.map((m) => m.agent_id),
+      ['grk'],
+      'the record key is the authoritative half of the pair and is dispatchable'
+    )
+  } finally {
+    ledger.cleanup()
+  }
+})
+
+test('the poisoned key "undefined" is NOT resurrected by the key fallback', () => {
+  const ledger = freshLedger()
+  try {
+    const data = loadData()
+    // capabilities[undefined] coerces its key to the string "undefined" — the
+    // exact production shape. The key fallback must not make it routable.
+    data.capabilities['undefined'] = {
+      agent_id: undefined as unknown as string, fleet_id: undefined as unknown as string,
+      role: 'breadth-specialist', skills: ['review'], registered_at: Date.now(),
+    }
+    saveData(data)
+
+    assert.deepEqual(routeWork('review', 5), [], 'a poisoned row is never a route target')
+  } finally {
+    ledger.cleanup()
+  }
+})

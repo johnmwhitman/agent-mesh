@@ -907,14 +907,23 @@ toolHandlers["register_capability"] = async (args) => {
       model?: string;
       context_window?: number;
     };
-    registerCapability({
-      agentId: agent_id,
-      fleetId: fleet_id,
-      role,
-      skills,
-      model,
-      contextWindow: context_window,
-    });
+    // Siblings (set_fleet_timeout, open_ratification, ...) return a jsonError
+    // envelope rather than letting a throw escape as a protocol-level error.
+    // registerCapability now rejects malformed ids, so this handler needs the
+    // same treatment or a sloppy client gets a transport fault instead of a
+    // readable tool result.
+    try {
+      registerCapability({
+        agentId: agent_id,
+        fleetId: fleet_id,
+        role,
+        skills,
+        model,
+        contextWindow: context_window,
+      });
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : String(err));
+    }
     return jsonResult({ ok: true, agent_id, fleet_id });
 };
 

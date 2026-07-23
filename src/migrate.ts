@@ -18,8 +18,8 @@
  */
 import { existsSync, renameSync, rmSync } from "fs";
 import { createHash } from "crypto";
-import { loadDataFromFile, resolveDataFile, defaultDataFile, type MeshData } from "./core.js";
-import { readLedger, importSnapshot, resolveDbFile, closeDb, getDbPathOverride } from "./db.js";
+import { loadDataFromFile, resolveDataFile, isDataFileDeclared, type MeshData } from "./core.js";
+import { readLedger, importSnapshot, resolveDbFile, defaultDbFile, closeDb } from "./db.js";
 
 const COLLECTIONS: (keyof MeshData)[] = [
   "fleets",
@@ -91,19 +91,30 @@ export function migrateJsonToSqlite(): MigrationResult {
   // `MESHFLEET_DB_FILE=$(mktemp -d)/x.db` therefore mutated production state
   // while believing they were sandboxed. (Observed 2026-07-23.)
   //
-  // An explicit db override is a deliberate isolation signal, so honour it as
-  // one: never reach across to the default-path JSON. Setting both paths — the
-  // way a real relocation does — still migrates normally.
-  const dbRedirected = Boolean(process.env.MESHFLEET_DB_FILE) || getDbPathOverride() !== null;
-  const jsonRedirected = resolveDataFile() !== defaultDataFile();
-  if (dbRedirected && !jsonRedirected) {
+  // The two sides are tested DIFFERENTLY, on purpose — an adversarial review
+  // proposed each rule for both sides and each is wrong on the other:
+  //
+  //   db side  -> PATH INEQUALITY. What matters is whether the destination is
+  //     genuinely somewhere other than the real ledger. Testing mere presence
+  //     would treat `MESHFLEET_DB_FILE=<the default path>` — which shell
+  //     profiles and docs do export — as isolation and refuse first-boot
+  //     migration forever.
+  //
+  //   json side -> DECLARATION (presence). What matters is whether the caller
+  //     consciously named the source. Testing path inequality would reject an
+  //     explicit `MESHFLEET_DATA_FILE=<default path>` as "not redirected" and
+  //     refuse the very migration that setting it was meant to authorize —
+  //     making the remedy this guard recommends fail.
+  const dbRelocated = resolveDbFile() !== defaultDbFile();
+  if (dbRelocated && !isDataFileDeclared()) {
     return {
       migrated: false,
       refused: true,
       reason:
-        "db path is redirected but the JSON ledger path is not — refusing to consume the " +
-        "default-path JSON ledger into a relocated db. Set MESHFLEET_DATA_FILE too if this " +
-        "migration is intended.",
+        `the ledger db is relocated (${resolveDbFile()}) but no JSON ledger path was declared — ` +
+        "refusing to consume the default-path JSON ledger into a relocated db. To migrate " +
+        "deliberately, also set MESHFLEET_DATA_FILE (naming the default path explicitly is " +
+        "enough).",
     };
   }
 
