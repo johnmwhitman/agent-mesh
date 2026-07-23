@@ -4,6 +4,16 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 
 ## [Unreleased]
 
+### Changed
+- ⚠️ **`verify_ledger` now reports unusable capability rows as ERRORS, so a ledger holding one
+  goes from `ok: true` to `ok: false` and `inspect --verify` exits 1.** This is a compatibility
+  event for anyone using that exit code as a scripted audit gate. It is deliberate: such a row
+  names no agent, can never be routed to, and an audit that called it "ok" was not telling the
+  truth. The row is inert — routing skips it — so this is a reporting change, not a behaviour
+  change. `inspect --explain` names the cause and gives the export/edit/re-import steps to clear
+  it; the checks are `capability.missing_agent_id`, `capability.unroutable`, and
+  `capability.key_mismatch`.
+
 ### Fixed
 - **`register_capability` silently discarded `agent_id` and `fleet_id` over MCP.** The tool's
   schema is snake_case and `CapabilityInput` is camelCase, and the handler cast one to the other

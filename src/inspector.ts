@@ -503,6 +503,21 @@ const CHECK_EXPLANATIONS: Record<string, CheckExplanation> = {
     benign: "a hand-edited or partially-corrupted export",
     investigate: "agent-mesh inspect --export | jq '.messages'",
   },
+  "capability.missing_agent_id": {
+    what: "a capability row names no agent at all — its agent_id is missing, empty, or the literal string \"undefined\"/\"null\", so nothing can ever be routed to it",
+    benign: "written by meshfleet < 0.15, whose register_capability tool dropped the wire's agent_id (snake_case payload into a camelCase input) and stored one row keyed \"undefined\"",
+    investigate: "agent-mesh inspect --export | jq '.capabilities | to_entries | map(select(.value.agent_id == null or .value.agent_id == \"undefined\"))' — the row is inert (routing skips it); to clear it, re-export, delete the entry, and re-import",
+  },
+  "capability.unroutable": {
+    what: "a capability has a usable agent_id but no usable role or skills, so the router can never score it",
+    benign: "a partial hand-edit or an import that dropped fields; registration rejects this shape since 0.15",
+    investigate: "agent-mesh inspect --export | jq '.capabilities | map(select(.role == null or .skills == null))'",
+  },
+  "capability.key_mismatch": {
+    what: "a capability is stored under one key but claims a different agent_id — one of the two is wrong",
+    benign: "a hand-edited export re-imported after renaming an agent in only one place",
+    investigate: "agent-mesh inspect --export | jq '.capabilities | to_entries | map(select(.key != .value.agent_id))'",
+  },
   "capability.unknown_agent": {
     what: "a capability is registered for an agent this ledger never registered",
     benign: "a cross-attached fleet advertising capabilities before its agent rows synced",
