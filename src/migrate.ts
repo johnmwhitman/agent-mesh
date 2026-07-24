@@ -46,12 +46,16 @@
  *  - The crash window between commit and rename is irreducible for a
  *    cross-filesystem sequence. Its residue — populated db + live JSON — is made
  *    LOUD on every later boot rather than silently ignored.
- *  - Non-migrator startup statements waiting on a peer's long import are still
- *    bound by the connection's 5s busy_timeout and can fail loudly; a restart
- *    recovers, and no data is lost either way.
+ *  - Startup statements OUTSIDE this migrator (recovery, sweepers) waiting on a
+ *    peer's long import are still bound by the connection's 5s busy_timeout and
+ *    can fail loudly; a restart recovers, and no data is lost either way. The
+ *    migrator itself — including its getDb() cold initialization — retries the
+ *    busy family for up to 60s, so a losing migrator serializes instead of
+ *    crashing (an earlier revision misclassified the losing migrator as part of
+ *    this residual; its getDb() ran outside the retry window).
  */
 import { existsSync, renameSync, readdirSync } from "fs";
-import { basename, dirname, join } from "path";
+import { basename, dirname } from "path";
 import { createHash } from "crypto";
 import {
   loadDataFromFile,
@@ -69,6 +73,7 @@ import {
   isOpenLedgerEmpty,
   withImmediateTransaction,
   getMetaValue,
+  setMetaValue,
 } from "./db.js";
 
 const COLLECTIONS: (keyof MeshData)[] = [
@@ -185,7 +190,9 @@ function warnDualAuthority(dbFile: string, jsonFile: string): string {
     `a populated sqlite ledger (${dbFile}) AND a json ledger (${jsonFile}) both exist. ` +
     "The sqlite ledger is authoritative; the json was NOT imported this boot and is likely " +
     "left over from an interrupted migration. Rename it aside (any name) to silence this " +
-    "warning — if it lingers, deleting the db would silently resurrect this stale snapshot.";
+    "warning — if it lingers, deleting the db would silently resurrect this stale snapshot. " +
+    "(If another process is migrating right now, this can be a transient race window — " +
+    "check whether it persists on the next boot.)";
   console.error(`meshfleet migration WARNING: ${msg}`);
   return msg;
 }
@@ -203,11 +210,27 @@ export function migrateJsonToSqlite(): MigrationResult {
   // through to the transaction, where a lock serializes properly and garbage
   // fails LOUDLY in getDb() — the boolean predecessor mapped those cases to
   // "already present", silently stranding the JSON with a false reason.
-  if (probeLedgerFile(dbFile) === "populated") {
+  const probe = probeLedgerFile(dbFile);
+  if (probe === "populated") {
     // The JSON exists (checked above) alongside a populated db: say so, loudly,
     // every boot — this is the crash-between-commit-and-rename residue.
     const warning = warnDualAuthority(dbFile, jsonFile);
     return { migrated: false, reason: `sqlite ledger already present; ${warning}` };
+  }
+  if (probe === "foreign") {
+    // A valid SQLite db with rows but no meshfleet identity. Calling it "the
+    // ledger already present" would declare an unrelated database authoritative
+    // and advise retiring the real JSON against it; proceeding would let
+    // getDb() stamp meshfleet schema into a file that belongs to something
+    // else. Refuse before touching it — this must throw (fail the boot), not
+    // return, because every non-throwing path here implies the ledger question
+    // was answered and this one cannot be.
+    throw new Error(
+      `the file at ${dbFile} is a valid SQLite database but does not look like a meshfleet ` +
+        `ledger (rows present, no schema marker) — refusing to adopt or migrate into it. ` +
+        `If MESHFLEET_DB_FILE points at the wrong file, fix it; if this really is the intended ` +
+        `destination, move the existing database aside first. ${jsonFile} was not touched.`
+    );
   }
 
   // Redirecting the db WITHOUT redirecting the JSON source used to pair a
@@ -296,11 +319,32 @@ export function migrateJsonToSqlite(): MigrationResult {
         };
       }
 
+      // The logical schema marker must be one this build can own — checked
+      // BEFORE the source is loaded, because loadDataFromFile's corrupt-path
+      // quarantine is a filesystem rename a rollback cannot undo: refusing
+      // AFTER it would leave "no live source and no import" while the error
+      // claimed the source was left authoritative. An empty db left behind by
+      // a NEWER meshfleet (downgrade scenario) carries its higher
+      // schema_version through getDb's INSERT OR IGNORE — importing v2-shaped
+      // data under that marker would hand every future reader a false version
+      // claim. An OLDER marker is fine: the import below is CURRENT-shaped
+      // (loadDataFromFile backfills), so the marker is bumped with it.
+      const metaVersion = Number(getMetaValue("schema_version"));
+      if (!Number.isInteger(metaVersion) || metaVersion > CURRENT_SCHEMA_VERSION) {
+        throw new Error(
+          `JSON→SQLite migration refused: the db at ${dbFile} carries schema_version=` +
+            `${getMetaValue("schema_version")} but this build writes ${CURRENT_SCHEMA_VERSION} — ` +
+            `it was likely created by a newer meshfleet version. Import rolled back; ` +
+            `${jsonFile} left authoritative and untouched. No data lost.`
+        );
+      }
+
       // loadDataFromFile backfills v1→v2 and quarantines a corrupt file
-      // (returning empty + logging loudly). The quarantine rename is a
-      // filesystem side effect a rollback cannot undo — bounded harm, because
-      // an empty source always validates, so quarantine-then-rollback cannot
-      // strand "no source and no import".
+      // (returning empty + logging loudly). The quarantine rename is the one
+      // filesystem side effect inside this transaction — bounded harm, because
+      // every check that can refuse the migration runs BEFORE it, and an empty
+      // source always validates, so quarantine-then-rollback cannot strand
+      // "no source and no import".
       const source = loadDataFromFile(jsonFile);
       const expectedCount = rowCount(source);
       const expectedPrint = fingerprint(source);
@@ -308,18 +352,11 @@ export function migrateJsonToSqlite(): MigrationResult {
       // A nested transaction seam becomes a savepoint inside this transaction.
       importSnapshot(source);
 
-      // The logical schema marker must be the one this build wrote. An empty
-      // db left behind by a NEWER meshfleet (downgrade scenario) carries its
-      // higher schema_version through getDb's INSERT OR IGNORE — importing
-      // v2-shaped data under that marker would hand every future reader a
-      // false version claim. Refuse (rollback) instead.
-      const metaVersion = getMetaValue("schema_version");
-      if (metaVersion !== String(CURRENT_SCHEMA_VERSION)) {
-        throw new Error(
-          `JSON→SQLite migration refused: the db at ${dbFile} carries schema_version=${metaVersion} ` +
-            `but this build writes ${CURRENT_SCHEMA_VERSION} — it was likely created by a different ` +
-            `meshfleet version. Import rolled back; ${jsonFile} left authoritative. No data lost.`
-        );
+      if (metaVersion < CURRENT_SCHEMA_VERSION) {
+        // The imported data is CURRENT-shaped (backfilled above); the stale
+        // marker must move with it or the db lies about its own contents.
+        // Same transaction, so a rollback reverts the marker too.
+        setMetaValue("schema_version", String(CURRENT_SCHEMA_VERSION));
       }
 
       // Validate the round-trip INSIDE the transaction — same handle, so the
@@ -372,9 +409,19 @@ export function migrateJsonToSqlite(): MigrationResult {
       }
     } else {
       const quarantined = [...corruptSiblings(jsonFile)].some((f) => !corruptBefore.has(f));
-      txn.result.reason = quarantined
-        ? "source was quarantined as corrupt"
-        : "json source disappeared during import; nothing was imported from it";
+      if (quarantined) {
+        txn.result.reason = "source was quarantined as corrupt";
+      } else if ((txn.result.rowCount ?? 0) > 0) {
+        // The read succeeded and the rows ARE committed — the source was moved
+        // or removed by something else before retirement. Saying "nothing was
+        // imported" here would contradict the committed rowCount.
+        txn.result.reason =
+          "imported, but the json source was moved or removed externally before it could be " +
+          "retired — no backup was created by this process";
+        console.error(`meshfleet migration WARNING: ${txn.result.reason}`);
+      } else {
+        txn.result.reason = "json source disappeared during import; nothing was imported from it";
+      }
     }
   }
 

@@ -36,6 +36,7 @@ import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawn } from 'node:child_process'
+import DatabaseCtor from 'better-sqlite3'
 import { migrateJsonToSqlite, shouldRefuseMigration, setMigrationValidationFaultForTest } from '../src/migrate.js'
 import {
   defaultDbFile,
@@ -48,6 +49,7 @@ import {
   withLedger,
   withStorageTransaction,
   closeDb,
+  getMetaValue,
 } from '../src/db.js'
 
 /** Run `fn` with the given env vars applied, restoring the previous values after. */
@@ -544,4 +546,203 @@ test('legacy alias declaration actually migrates a real fixture (not just the em
   )
   closeDb()
   rmSync(dir, { recursive: true, force: true })
+})
+
+// --- round-3 pins: init-under-contention, no-replay, ordering, identity ------
+
+test('withImmediateTransaction never replays a callback that already started', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'meshfleet-txn-noreplay-'))
+  setDbPath(join(dir, 'ledger.db'))
+  try {
+    readLedger()
+    let runs = 0
+    const busy = Object.assign(new Error('injected busy'), { code: 'SQLITE_BUSY_TEST' })
+    assert.throws(
+      () =>
+        withImmediateTransaction(
+          () => {
+            runs += 1
+            throw busy
+          },
+          { acquireMs: 5_000 }
+        ),
+      /injected busy/
+    )
+    assert.equal(runs, 1, 'a busy error thrown AFTER the callback started must propagate, never replay the callback')
+  } finally {
+    closeDb()
+    setDbPath(null)
+  }
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('durable runs FULL inside the transaction and restores the PRIOR setting, not a hardcoded one', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'meshfleet-txn-pragma-'))
+  setDbPath(join(dir, 'ledger.db'))
+  const readSync = (): number => withStorageTransaction((db) => db.pragma('synchronous', { simple: true }) as number)
+  try {
+    readLedger()
+    assert.equal(readSync(), 1, 'precondition: getDb establishes NORMAL (1)')
+
+    // Baseline NORMAL: FULL (2) must be active INSIDE the durable txn…
+    let seenInside = -1
+    withImmediateTransaction(
+      () => {
+        seenInside = withStorageTransaction((db) => db.pragma('synchronous', { simple: true }) as number)
+      },
+      { durable: true }
+    )
+    assert.equal(seenInside, 2, 'the durable transaction must actually run under synchronous=FULL')
+    assert.equal(readSync(), 1, '…and the PRIOR setting (NORMAL) restored after')
+    // The restore-to-a-non-NORMAL-prior direction is not constructible here:
+    // SQLite forbids changing the safety level inside a transaction ("Safety
+    // level may not be changed inside a transaction" — probed empirically),
+    // and every exported seam that reaches the shared handle is transactional.
+    // The implementation reads the prior dynamically rather than hardcoding
+    // NORMAL; this test pins activation + restoration for the only prior the
+    // production connection ever establishes.
+  } finally {
+    closeDb()
+    setDbPath(null)
+  }
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('corrupt JSON + incompatible schema marker: refusal happens BEFORE quarantine', () => {
+  // cdx round-2: the schema assert used to run AFTER loadDataFromFile, so a
+  // corrupt source was quarantined and THEN the refusal claimed the source was
+  // "left authoritative" — false, and the next boot bypassed the assertion
+  // entirely because no live JSON remained. The check now precedes the load:
+  // the corrupt file must still be at its live path after the refusal.
+  const dir = mkdtempSync(join(tmpdir(), 'meshfleet-migrate-corrupt99-'))
+  const dbPath = join(dir, 'ledger.db')
+  const jsonPath = join(dir, 'ledger.json')
+  writeFileSync(jsonPath, 'this is { not valid json')
+
+  setDbPath(dbPath)
+  try {
+    readLedger()
+    withStorageTransaction((db) => {
+      db.prepare("UPDATE meta SET value = '99' WHERE key = 'schema_version'").run()
+    })
+  } finally {
+    closeDb()
+    setDbPath(null)
+  }
+
+  withEnv({ MESHFLEET_DB_FILE: dbPath, MESHFLEET_DATA_FILE: jsonPath, AGENT_MESH_DATA_FILE: undefined }, () => {
+    assert.throws(() => migrateJsonToSqlite(), /schema_version=99/)
+    assert.ok(existsSync(jsonPath), 'the corrupt source must remain at its live path, NOT quarantined')
+    const corrupt = readdirSync(dir).filter((f) => f.includes('.corrupt-'))
+    assert.equal(corrupt.length, 0, 'no quarantine artifact may exist after a pre-load refusal')
+  })
+  closeDb()
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('an OLDER schema marker on an empty db migrates and bumps the marker with the data', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'meshfleet-migrate-oldmark-'))
+  const dbPath = join(dir, 'ledger.db')
+  const jsonPath = join(dir, 'ledger.json')
+  writeFileSync(jsonPath, LEDGER_FIXTURE)
+
+  setDbPath(dbPath)
+  try {
+    readLedger()
+    withStorageTransaction((db) => {
+      db.prepare("UPDATE meta SET value = '1' WHERE key = 'schema_version'").run()
+    })
+  } finally {
+    closeDb()
+    setDbPath(null)
+  }
+
+  withEnv({ MESHFLEET_DB_FILE: dbPath, MESHFLEET_DATA_FILE: jsonPath, AGENT_MESH_DATA_FILE: undefined }, () => {
+    const result = migrateJsonToSqlite()
+    assert.equal(result.migrated, true, 'an older marker is upgradable, not a refusal')
+    assert.equal(result.rowCount, 1)
+  })
+  setDbPath(dbPath)
+  try {
+    readLedger()
+    assert.equal(
+      getMetaValue('schema_version'),
+      '2',
+      'the marker must move with the CURRENT-shaped import, or the db lies about its contents'
+    )
+  } finally {
+    closeDb()
+    setDbPath(null)
+  }
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('a valid FOREIGN SQLite db is refused loudly, never declared "the ledger"', () => {
+  // cdx round-2: rows in any table used to read as `populated`, so an
+  // unrelated database was declared authoritative and the operator advised to
+  // retire their real JSON against it.
+  const dir = mkdtempSync(join(tmpdir(), 'meshfleet-migrate-foreign-'))
+  const dbPath = join(dir, 'foreign.db')
+  const jsonPath = join(dir, 'ledger.json')
+  writeFileSync(jsonPath, LEDGER_FIXTURE)
+
+  const foreign = new DatabaseCtor(dbPath)
+  foreign.exec("CREATE TABLE somebody_elses (id INTEGER PRIMARY KEY, x TEXT); INSERT INTO somebody_elses (x) VALUES ('data')")
+  foreign.close()
+
+  withEnv({ MESHFLEET_DB_FILE: dbPath, MESHFLEET_DATA_FILE: jsonPath, AGENT_MESH_DATA_FILE: undefined }, () => {
+    assert.throws(() => migrateJsonToSqlite(), /does not look like a meshfleet ledger/)
+    assert.ok(existsSync(jsonPath), 'the JSON must be untouched')
+    const check = new DatabaseCtor(dbPath, { readonly: true })
+    const tables = check.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as { name: string }[]
+    check.close()
+    assert.deepEqual(
+      tables.map((t) => t.name),
+      ['somebody_elses'],
+      'the foreign db must not have meshfleet schema stamped into it'
+    )
+  })
+  closeDb()
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('a migrator whose peer holds the lock past the 5s busy_timeout serializes instead of crashing', async () => {
+  // cdx round-2 P1: the 60s acquire window started AFTER getDb(), whose cold
+  // initialization runs under the plain 5s busy_timeout — so a losing migrator
+  // FATALed anyway. getDb() now sits inside the retry loop. The peer here
+  // holds BEGIN IMMEDIATE for 6.5s (past the busy_timeout) while a fresh
+  // migrator process must initialize AND migrate against the same db.
+  const dir = mkdtempSync(join(tmpdir(), 'meshfleet-migrate-contend-'))
+  const dbPath = join(dir, 'ledger.db')
+  const jsonPath = join(dir, 'ledger.json')
+  const goFile = join(dir, 'go')
+  writeFileSync(jsonPath, LEDGER_FIXTURE)
+
+  const HOLDER = join(here, 'helpers', 'lock-holder.mjs')
+  const signalFile = join(dir, 'holding')
+  try {
+    const holder = spawn(process.execPath, ['--import', 'tsx', HOLDER, dbPath, signalFile, '6500'], {
+      stdio: ['ignore', 'ignore', 'inherit'],
+    })
+    // Wait until the lock is genuinely held — via the signal FILE (a stdout
+    // signal cannot flush while the holder's Atomics.wait blocks its loop).
+    const lockDeadline = Date.now() + 10_000
+    while (!existsSync(signalFile)) {
+      if (holder.exitCode !== null) throw new Error('holder exited before taking the lock')
+      if (Date.now() > lockDeadline) throw new Error('holder never reported the lock')
+      await new Promise((r) => setTimeout(r, 10))
+    }
+
+    const migrator = spawnMigrator({ MESHFLEET_DB_FILE: dbPath, MESHFLEET_DATA_FILE: jsonPath }, goFile)
+    writeFileSync(goFile, 'go')
+    const result = await migrator
+    assert.equal(result.migrated, true, 'the migrator must outwait the contender, not crash at 5s')
+    assert.equal(result.rowCount, 1)
+    // Guard the already-exited case — awaiting an 'exit' event that has fired
+    // never resolves.
+    if (holder.exitCode === null) await new Promise((r) => holder.on('exit', r))
+  } finally {
+    closeDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
 })

@@ -88,6 +88,12 @@ export function getMetaValue(key: string): string | undefined {
   return row?.value;
 }
 
+/** Write one `meta` row on the shared handle (in-transaction safe). */
+export function setMetaValue(key: string, value: string): void {
+  const db = getDb();
+  db.prepare("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(key, value);
+}
+
 function ledgerHasRows(db: Database.Database): boolean {
   const tables = db
     .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name <> 'meta'")
@@ -114,7 +120,8 @@ export function isLedgerFileEmpty(file: string): boolean {
 
 /**
  * Advisory classification of a ledger file. The distinction that matters:
- * `populated` is the ONLY answer that may short-circuit a migration decision.
+ * `populated` is the ONLY answer that may short-circuit a migration decision,
+ * and it additionally requires meshfleet IDENTITY — rows alone are not enough.
  *
  * The boolean predecessor collapsed "unreadable / locked / not-SQLite" into
  * "not empty", which the migrator's fast-path then read as "a ledger is already
@@ -123,16 +130,28 @@ export function isLedgerFileEmpty(file: string): boolean {
  * JSON source with a FALSE reason. `unknown` forces those cases down to the
  * authoritative in-transaction check, where a lock wait serializes properly and
  * a genuinely broken file fails loudly instead of quietly.
+ *
+ * `foreign` = a valid SQLite db holding rows but NO meshfleet schema marker.
+ * Answering `populated` for one would declare an unrelated database "the
+ * ledger" and advise the operator to retire their real JSON against it. The
+ * identity check must run HERE, on the read-only probe: once getDb() touches
+ * the file it stamps a schema_version marker into it, spoiling the question.
  */
-export function probeLedgerFile(file: string): "absent" | "empty" | "populated" | "unknown" {
+export function probeLedgerFile(file: string): "absent" | "empty" | "populated" | "foreign" | "unknown" {
   if (!existsSync(file)) return "absent";
   let db: Database.Database | null = null;
   try {
     db = new Database(file, { readonly: true, fileMustExist: true });
     // A locked db answers SQLITE_BUSY on the query, not on open — the catch
     // below maps it to `unknown` like every other non-definitive outcome.
-    return ledgerHasRows(db) ? "populated" : "empty";
-  } catch {
+    if (!ledgerHasRows(db)) return "empty";
+    const marker = db
+      .prepare("SELECT value FROM meta WHERE key = 'schema_version'")
+      .get() as { value: string } | undefined;
+    return marker ? "populated" : "foreign";
+  } catch (err) {
+    // No `meta` table at all is a definitive foreign answer, not an unknown.
+    if (err instanceof Error && /no such table: meta/.test(err.message)) return "foreign";
     return "unknown";
   } finally {
     try { db?.close(); } catch { /* best-effort */ }
@@ -149,37 +168,63 @@ export function probeLedgerFile(file: string): "absent" | "empty" | "populated" 
  * inside it, and a throw rolls the WHOLE unit back.
  *
  * Options — each exists for a reviewed failure mode, not for generality:
- *  - `durable`: run the transaction under `synchronous = FULL` (restored
- *    after). WAL + synchronous=NORMAL explicitly allows the last commit to be
+ *  - `durable`: run the transaction under `synchronous = FULL`, restoring the
+ *    connection's PRIOR setting after (whatever it was — not a hardcoded
+ *    NORMAL). WAL + synchronous=NORMAL explicitly allows the last commit to be
  *    lost on power failure; a caller that performs an IRREVERSIBLE filesystem
  *    action conditioned on the commit (the migrator renames the JSON source
  *    away) must not act on a commit the disk has not yet seen.
- *  - `acquireMs`: bounded retry on the busy family when taking the lock. A
- *    peer's long-held import can legitimately exceed the connection's 5s
- *    busy_timeout; for a startup-critical caller, crashing the whole server
- *    because a sibling was slow is worse than waiting out one more attempt.
+ *  - `acquireMs`: bounded retry on the busy family for everything UP TO the
+ *    callback: `getDb()` cold initialization (schema exec + storage migration,
+ *    which take their own write locks under the 5s busy_timeout) AND the
+ *    `BEGIN IMMEDIATE` acquisition. A peer's long-held import can legitimately
+ *    exceed 5s at either point; for a startup-critical caller, crashing the
+ *    whole server because a sibling was slow is worse than waiting.
+ *
+ *    The callback itself is NEVER replayed: a busy error thrown after `fn` has
+ *    started (post-BEGIN) propagates instead of retrying. Retrying it would
+ *    re-run side effects — the migrator's callback quarantine-renames a corrupt
+ *    source, which must happen at most once. An `entered` sentinel
+ *    distinguishes "BEGIN failed" (fn never ran → safe to retry) from "fn
+ *    threw" (never retry); this was verified to matter empirically — the
+ *    previous shape replayed a counter callback twice under an injected busy.
  */
 export function withImmediateTransaction<T>(fn: () => T, opts?: { durable?: boolean; acquireMs?: number }): T {
-  const db = getDb();
-  const run = (): T => db.transaction(fn).immediate();
-  const attempt = (): T => {
-    if (!opts?.durable) return run();
-    db.pragma("synchronous = FULL");
-    try {
-      return run();
-    } finally {
-      db.pragma("synchronous = NORMAL");
-    }
+  const deadline = Date.now() + (opts?.acquireMs ?? 0);
+  const retryable = (err: unknown): boolean => {
+    const code = (err as { code?: string }).code ?? "";
+    return Boolean(opts?.acquireMs) && code.startsWith("SQLITE_BUSY") && Date.now() <= deadline;
   };
-  if (!opts?.acquireMs) return attempt();
-  const deadline = Date.now() + opts.acquireMs;
   for (;;) {
+    let db: Database.Database;
     try {
-      return attempt();
+      // Inside the retry loop on purpose: cold initialization takes write
+      // locks of its own, and getDb() closes its half-initialized connection
+      // on failure, so re-attempting is safe.
+      db = getDb();
     } catch (err) {
-      const code = (err as { code?: string }).code ?? "";
-      if (!code.startsWith("SQLITE_BUSY") || Date.now() > deadline) throw err;
+      if (!retryable(err)) throw err;
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50); // synchronous 50ms backoff
+      continue;
+    }
+    let entered = false;
+    const run = (): T =>
+      db.transaction(() => {
+        entered = true;
+        return fn();
+      }).immediate();
+    try {
+      if (!opts?.durable) return run();
+      const prior = db.pragma("synchronous", { simple: true });
+      db.pragma("synchronous = FULL");
+      try {
+        return run();
+      } finally {
+        db.pragma(`synchronous = ${prior}`);
+      }
+    } catch (err) {
+      if (entered || !retryable(err)) throw err; // fn ran (or not ours to retry): never replay it
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
     }
   }
 }
