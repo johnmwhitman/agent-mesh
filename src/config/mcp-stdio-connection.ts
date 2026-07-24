@@ -68,6 +68,13 @@ export const MESH_FLEET_STDIO: CanonicalMcpStdioConnection = Object.freeze({
   command: Object.freeze(["npx", "-y", "meshfleet"]),
   envAllowlist: Object.freeze([
     "MESHFLEET_DB_FILE",
+    // The migrator refuses to consume the default-path JSON ledger into a
+    // relocated db, and tells the operator to declare the JSON path to migrate
+    // deliberately. That remedy has to be reachable through this allowlist, or
+    // the advice is unfollowable for exactly the packaged stdio deployment this
+    // config describes. Legacy alias included so an existing install keeps working.
+    "MESHFLEET_DATA_FILE",
+    "AGENT_MESH_DATA_FILE",
     "AGENT_MESH_CHILD",
     "MESHFLEET_RATIFY_SWEEP_MS",
     "npm_config_offline",

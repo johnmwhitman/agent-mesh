@@ -4,6 +4,36 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 
 ## [Unreleased]
 
+### Fixed
+- **The JSON→SQLite migrator now owns its decide→import→validate sequence as ONE `BEGIN IMMEDIATE`
+  transaction.** The emptiness check that authorizes the wholesale import runs under the same
+  exclusive write lock as the import, so a writer — or a second migrator — committing between the
+  decision and the replace can no longer be erased. Previously, two migrators racing a cold first
+  boot could BOTH report `migrated: true`, with the losers wholesale-importing over the winner's
+  committed rows and mislabeling the retired source as "quarantined as corrupt" (reproduced by the
+  new 4-process race test, which fails reliably against the old shape).
+- **A failed migration validation no longer deletes the db file.** The process cannot know it owns
+  that file — ordinary startup materializes it, and another process may be live on it. Rollback of
+  the import transaction now restores the pre-import state instead; nothing is ever unlinked.
+- **The JSON source is retired only AFTER the import commits, and only by the process whose
+  transaction performed the import** — renaming earlier lost the source if the commit then failed,
+  and renaming from a non-importing process was the double-migrator erasure.
+- **The migrator refuses to consume a default-path JSON ledger into a relocated db.**
+  `MESHFLEET_DB_FILE` alone is not isolation: it used to pair a throwaway destination with the REAL
+  ledger, import it, and rename the live file. Declaring `MESHFLEET_DATA_FILE` (the default path is
+  fine) authorizes the migration; the refusal is surfaced loudly at startup, and
+  `MESHFLEET_DATA_FILE`/`AGENT_MESH_DATA_FILE` are now in the packaged stdio env allowlist so the
+  printed remedy is actually reachable.
+- **Ledger emptiness is decided by enumerating every table from `sqlite_master`** (excluding
+  bookkeeping), not a hardcoded list of the eight mesh collections — a db holding only lifecycle or
+  A2A rows no longer reads as "empty" and can no longer authorize an import over real scheduling
+  state. An EMPTY db materialized by an earlier boot is still migrated into, so the refusal's
+  printed remedy keeps working.
+- **A cold multi-process first boot no longer crashes on `SQLITE_BUSY`.** SQLite skips the busy
+  handler on the lock upgrade that journal-mode conversion needs, so N processes racing to
+  initialize a fresh db file got an instant "database is locked" regardless of `busy_timeout`. The
+  WAL conversion now retries with bounded backoff. Found by the race test above.
+
 ## [0.15.0] — 2026-07-23
 
 **The contract release.** `register_capability` was broken over MCP for a month — the published

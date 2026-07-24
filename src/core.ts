@@ -213,6 +213,31 @@ export function resolveDataFile(): string {
   return resolveEnv(process.env, "MESHFLEET_DATA_FILE", "AGENT_MESH_DATA_FILE") ?? dataFile;
 }
 
+/**
+ * The compiled-in default JSON ledger path, ignoring every override. Used by the
+ * migrator to tell "the caller pointed us somewhere deliberately" apart from
+ * "we fell back to the real user ledger".
+ */
+export function defaultDataFile(): string {
+  return DEFAULT_DATA_FILE;
+}
+
+/**
+ * Did the caller state where the JSON ledger lives, as opposed to us falling
+ * back to the default?
+ *
+ * Deliberately tests PRESENCE, not path inequality: someone who explicitly sets
+ * `MESHFLEET_DATA_FILE` to the default path has still consciously named the
+ * source, which is exactly the acknowledgement the migrator's isolation guard
+ * is looking for. Comparing paths instead would silently reject that as "not
+ * redirected" and refuse a migration the caller explicitly asked for.
+ */
+export function isDataFileDeclared(): boolean {
+  if (resolveEnv(process.env, "MESHFLEET_DATA_FILE", "AGENT_MESH_DATA_FILE") != null) return true;
+  // setLedgerPath() moved it off the compiled default.
+  return dataFile !== DEFAULT_DATA_FILE;
+}
+
 export function resolveDataDir(): string {
   return resolveEnv(process.env, "MESHFLEET_DATA_DIR", "AGENT_MESH_DATA_DIR") ?? dataDir;
 }

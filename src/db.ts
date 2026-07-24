@@ -55,6 +55,79 @@ export function resolveDbFile(): string {
   return process.env.MESHFLEET_DB_FILE || dbFile || DEFAULT_DB_FILE;
 }
 
+/** The compiled-in default db path, ignoring every override. */
+export function defaultDbFile(): string {
+  return DEFAULT_DB_FILE;
+}
+
+/**
+ * Does this open handle's ledger hold any rows outside bookkeeping?
+ *
+ * Empty iff EVERY table except `meta` (schema/storage version markers, written
+ * by ordinary first-open) and `sqlite_*` internals has zero rows. The tables
+ * are enumerated from `sqlite_master`, not from a hardcoded list, so lifecycle,
+ * A2A, and any future table are covered by construction — a hardcoded list
+ * silently under-covered once already (it skipped lifecycle rows, so a
+ * lifecycle-only ledger read as "empty" and authorized a wholesale import over
+ * it). Verified empirically: a freshly materialized db holds rows only in
+ * `meta`.
+ *
+ * Runs on the shared handle, so inside an open transaction it sees that
+ * transaction's view — which is what makes it usable as the migrator's
+ * AUTHORIZING check rather than an advisory one.
+ */
+export function isOpenLedgerEmpty(): boolean {
+  const db = getDb();
+  return !ledgerHasRows(db);
+}
+
+function ledgerHasRows(db: Database.Database): boolean {
+  const tables = db
+    .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name <> 'meta'")
+    .all() as { name: string }[];
+  for (const { name } of tables) {
+    if (db.prepare(`SELECT 1 FROM "${name.replace(/"/g, '""')}" LIMIT 1`).get() !== undefined) return true;
+  }
+  return false;
+}
+
+/**
+ * Does this ledger FILE exist but hold no rows?
+ *
+ * Same predicate as `isOpenLedgerEmpty`, on a private read-only connection that
+ * never touches the global handle or the configured path. Advisory only — the
+ * migrator re-checks under its import transaction before writing anything.
+ *
+ * Unreadable or non-SQLite files answer `false` (not empty) — the conservative
+ * direction, since claiming "empty" would authorize an import over the file.
+ */
+export function isLedgerFileEmpty(file: string): boolean {
+  if (!existsSync(file)) return false;
+  let db: Database.Database | null = null;
+  try {
+    db = new Database(file, { readonly: true, fileMustExist: true });
+    return !ledgerHasRows(db);
+  } catch {
+    return false;
+  } finally {
+    try { db?.close(); } catch { /* best-effort */ }
+  }
+}
+
+/**
+ * Run `fn` inside ONE `BEGIN IMMEDIATE` transaction on the ledger handle.
+ * Exists for the migrator, whose decide→import→validate sequence must be a
+ * single unit of exclusive ownership: any check performed outside the
+ * transaction can be invalidated by a writer committing before the import's
+ * wholesale replace, which is how a "checked empty" db lost committed rows.
+ * Nested transaction seams (`importSnapshot`, `readLedger`) become savepoints
+ * inside it, and a throw rolls the WHOLE unit back.
+ */
+export function withImmediateTransaction<T>(fn: () => T): T {
+  const db = getDb();
+  return db.transaction(fn).immediate();
+}
+
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS meta          (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS fleets        (id TEXT PRIMARY KEY, data TEXT NOT NULL);
@@ -528,7 +601,25 @@ function getDb(): Database.Database {
     db.pragma("foreign_keys = ON"); // enforce relational lifecycle invariants on every handle
     if ((db.pragma("foreign_keys", { simple: true }) as number) !== 1) throw new Error("SQLite foreign_keys could not be enabled");
     db.pragma("busy_timeout = 5000"); // wait for a concurrent writer instead of erroring
-    db.pragma("journal_mode = WAL"); // local-disk only; the ledger lives under ~/.config
+    // The WAL conversion is the one statement busy_timeout does NOT cover:
+    // SQLite skips the busy handler on the lock upgrade journal-mode changes
+    // need (its deadlock-avoidance path), so N processes racing to initialize
+    // a COLD file — a real multi-session first boot — get an instant
+    // SQLITE_BUSY however long the timeout is. Found by the concurrent-migrator
+    // race test. Bounded retry is the documented remedy; once any process has
+    // converted the file, this succeeds immediately for everyone after.
+    {
+      const deadline = Date.now() + 5000;
+      for (;;) {
+        try {
+          db.pragma("journal_mode = WAL"); // local-disk only; the ledger lives under ~/.config
+          break;
+        } catch (err) {
+          if ((err as { code?: string }).code !== "SQLITE_BUSY" || Date.now() > deadline) throw err;
+          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5); // synchronous 5ms backoff
+        }
+      }
+    }
     db.pragma("synchronous = NORMAL"); // WAL-recommended; durable except last txn on OS crash
     db.exec(SCHEMA);
     db.prepare("INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', ?)").run(
