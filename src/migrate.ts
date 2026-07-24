@@ -57,7 +57,8 @@
  *    crashing (an earlier revision misclassified the losing migrator as part of
  *    this residual; its getDb() ran outside the retry window).
  */
-import { existsSync, renameSync, readFileSync } from "fs";
+import { existsSync, renameSync, readFileSync, readdirSync } from "fs";
+import { basename, dirname } from "path";
 import { createHash } from "crypto";
 import {
   ledgerFromRaw,
@@ -169,6 +170,16 @@ export function setMigrationValidationFaultForTest(enabled: boolean): void {
   validationFaultForTest = enabled;
 }
 
+/** The `.corrupt-*` quarantine artifacts beside a ledger path, if listable. */
+function corruptArtifacts(jsonFile: string): string[] {
+  try {
+    const base = basename(jsonFile) + ".corrupt-";
+    return readdirSync(dirname(jsonFile)).filter((f) => f.startsWith(base));
+  } catch {
+    return [];
+  }
+}
+
 /**
  * A populated db and a live JSON source coexisting is the residue of an
  * interrupted migration (crash between commit and rename) or of an operator
@@ -194,7 +205,26 @@ export function migrateJsonToSqlite(): MigrationResult {
   const dbFile = resolveDbFile();
   const jsonFile = resolveDataFile();
 
-  if (!existsSync(jsonFile)) return { migrated: false, reason: "no json ledger to migrate" };
+  if (!existsSync(jsonFile)) {
+    // No live JSON — but a `.corrupt-*` quarantine artifact beside an
+    // empty/absent db means a previous boot quarantined the source and then
+    // never migrated anything (crash, refusal, or IOERR after the
+    // quarantine). Without this, that history collapsed into a quiet
+    // "no json ledger" and the empty db became active as if nothing happened.
+    // Loud on every boot until the operator disposes of the artifact; goes
+    // quiet on its own once the db holds rows (the server is in real use).
+    const artifacts = corruptArtifacts(jsonFile);
+    const dbState = probeLedgerFile(dbFile);
+    if (artifacts.length > 0 && (dbState === "empty" || dbState === "absent")) {
+      const msg =
+        `no live json ledger, but quarantined corrupt artifact(s) exist (${artifacts.join(", ")}) ` +
+        `beside an empty ledger db — a previous boot quarantined the source without completing a ` +
+        `migration. Inspect the artifact(s) to recover, or move them aside to silence this.`;
+      console.error(`meshfleet migration WARNING: ${msg}`);
+      return { migrated: false, reason: `no json ledger to migrate; ${msg}` };
+    }
+    return { migrated: false, reason: "no json ledger to migrate" };
+  }
 
   // Advisory fast-path: a POPULATED db means the migration already happened.
   // This early-out authorizes NOTHING — the binding emptiness check runs again
@@ -319,7 +349,15 @@ export function migrateJsonToSqlite(): MigrationResult {
   let sourceData: MeshData;
   let quarantinedByUs = false;
   try {
-    const raw = JSON.parse(readFileSync(jsonFile, "utf-8")) as Record<string, unknown>;
+    const parsed: unknown = JSON.parse(readFileSync(jsonFile, "utf-8"));
+    // A non-object root (array, string, number, null) is valid JSON but is not
+    // a ledger. Without this check an array root sailed past the version guard
+    // (no schema_version property), imported as ZERO rows, and got RETIRED as
+    // if migrated — the corrupt path (quarantine, loud) is the truthful one.
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error(`ledger root must be a JSON object, got ${Array.isArray(parsed) ? "array" : typeof parsed}`);
+    }
+    const raw = parsed as Record<string, unknown>;
     const srcVersion = raw.schema_version;
     if (srcVersion !== undefined) {
       if (typeof srcVersion !== "number" || !Number.isInteger(srcVersion) || srcVersion < 0 || srcVersion > CURRENT_SCHEMA_VERSION) {

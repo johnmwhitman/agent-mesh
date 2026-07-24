@@ -854,3 +854,64 @@ test('malformed destination markers are refused, not blessed by Number() coercio
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+// --- round-5 pins ------------------------------------------------------------
+
+test('a valid-JSON non-object root is quarantined as corrupt, never migrated-and-retired', () => {
+  // An array root sailed past the version guard (no schema_version property),
+  // imported as ZERO rows, and got RETIRED as if migrated. Not-a-ledger must
+  // take the corrupt path: loud, artifact preserved, nothing "migrated".
+  const dir = mkdtempSync(join(tmpdir(), 'meshfleet-migrate-arrayroot-'))
+  const dbPath = join(dir, 'ledger.db')
+  const jsonPath = join(dir, 'ledger.json')
+  writeFileSync(jsonPath, '[1, 2, 3]')
+
+  withEnv({ MESHFLEET_DB_FILE: dbPath, MESHFLEET_DATA_FILE: jsonPath, AGENT_MESH_DATA_FILE: undefined }, () => {
+    const result = migrateJsonToSqlite()
+    assert.equal(result.migrated, true, 'the (empty) migration itself proceeds')
+    assert.equal(result.rowCount, 0)
+    assert.match(result.reason ?? '', /quarantined as corrupt/)
+    assert.equal(result.backupPath, undefined, 'a quarantined root must never be presented as a backup')
+    const corrupt = readdirSync(dir).filter((f) => f.startsWith('ledger.json.corrupt-'))
+    assert.equal(corrupt.length, 1, 'the artifact must be preserved under a quarantine name, not .migrated')
+    const migratedNames = readdirSync(dir).filter((f) => f.includes('.migrated.'))
+    assert.equal(migratedNames.length, 0)
+  })
+  closeDb()
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('a quarantine artifact beside an empty db is LOUD on later boots, not a quiet no-json no-op', () => {
+  // cdx round-4 (recovered from its truncated verdict): quarantine followed by
+  // a failed/never-completed migration used to collapse into a quiet "no json
+  // ledger to migrate" on every later boot, with the empty db silently active.
+  const dir = mkdtempSync(join(tmpdir(), 'meshfleet-migrate-artifactnotice-'))
+  const dbPath = join(dir, 'ledger.db')
+  const jsonPath = join(dir, 'ledger.json')
+  writeFileSync(join(dir, 'ledger.json.corrupt-1234567890-99'), 'the quarantined bytes')
+
+  withEnv({ MESHFLEET_DB_FILE: dbPath, MESHFLEET_DATA_FILE: jsonPath, AGENT_MESH_DATA_FILE: undefined }, () => {
+    const result = migrateJsonToSqlite()
+    assert.equal(result.migrated, false)
+    assert.match(result.reason ?? '', /quarantined corrupt artifact/, 'the artifact must be named, not ignored')
+    assert.match(result.reason ?? '', /ledger.json.corrupt-1234567890-99/)
+  })
+
+  // Once the db holds real rows the notice goes quiet — the server is in use.
+  setDbPath(dbPath)
+  try {
+    withLedger((d) => {
+      d.fleets['live'] = { id: 'live', status: 'running', created_at: 1 } as never
+    })
+  } finally {
+    closeDb()
+    setDbPath(null)
+  }
+  withEnv({ MESHFLEET_DB_FILE: dbPath, MESHFLEET_DATA_FILE: jsonPath, AGENT_MESH_DATA_FILE: undefined }, () => {
+    const result = migrateJsonToSqlite()
+    assert.equal(result.migrated, false)
+    assert.doesNotMatch(result.reason ?? '', /quarantined corrupt artifact/, 'a populated db silences the notice')
+  })
+  closeDb()
+  rmSync(dir, { recursive: true, force: true })
+})
