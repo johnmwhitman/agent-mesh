@@ -819,6 +819,20 @@ toolHandlers["receipt"] = async (args) => {
       action: string;
       note?: string;
     };
+    // Receipts are keyed `${message_id}:${agent_id}:${action}` — the key IS the
+    // idempotency guarantee. An omitted action was accepted and wrote a row keyed
+    // "...:undefined" with no `action` property at all, and verify_ledger did not
+    // flag it: the register_capability defect reproduced through `required`
+    // rather than through spelling.
+    if (typeof action !== "string" || action.trim().length === 0) {
+      return jsonError(
+        `receipt: 'action' is required and must be a non-empty string (got ${JSON.stringify(action)}). ` +
+          `The receipt key is message_id:agent_id:action, so a missing action corrupts the idempotency key.`
+      );
+    }
+    if (typeof agent_id !== "string" || agent_id.trim().length === 0) {
+      return jsonError(`receipt: 'agent_id' is required and must be a non-empty string (got ${JSON.stringify(agent_id)})`);
+    }
     if (action === "ack") {
       return jsonError("Use ack_message to consume a message; receipt is for non-consuming actions");
     }
@@ -875,6 +889,22 @@ toolHandlers["cast_vote"] = async (args) => {
       approve: boolean;
       note?: string;
     };
+    // `approve` is declared boolean and REQUIRED, but the MCP SDK enforces
+    // neither, and castVote only ever tested it for truthiness. Two observed
+    // consequences, both reported as success:
+    //   - omitting `approve` recorded a binding DECLINE (undefined is falsy), so
+    //     a client bug became a NO vote
+    //   - `approve: "false"` recorded an APPROVAL (a non-empty string is truthy),
+    //     so any client that stringifies its booleans inverted its own vote
+    // In a voting system that is the worst possible failure: silent, binding, and
+    // backwards. Reject anything that is not an actual boolean.
+    if (typeof approve !== "boolean") {
+      return jsonError(
+        `cast_vote: 'approve' is required and must be a boolean, not ${JSON.stringify(approve)} ` +
+          `(${typeof approve}). Refusing to guess a vote — a truthiness reading would record ` +
+          `"false" as an APPROVAL and an omitted value as a DECLINE.`
+      );
+    }
     try {
       const ok = castVote(agent_id, message_id, approve, note);
       if (!ok) return jsonError(`No such ratification: ${message_id}`);
