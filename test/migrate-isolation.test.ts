@@ -36,7 +36,7 @@ import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawn } from 'node:child_process'
-import { migrateJsonToSqlite, shouldRefuseMigration } from '../src/migrate.js'
+import { migrateJsonToSqlite, shouldRefuseMigration, setMigrationValidationFaultForTest } from '../src/migrate.js'
 import {
   defaultDbFile,
   setDbPath,
@@ -364,8 +364,16 @@ test('race: N simultaneous migrators — exactly one imports, nothing is erased'
     const children = Array.from({ length: N }, () =>
       spawnMigrator({ MESHFLEET_DB_FILE: dbPath, MESHFLEET_DATA_FILE: jsonPath }, goFile)
     )
-    // Give every child a moment to reach the barrier, then release them together.
-    await new Promise((r) => setTimeout(r, 300))
+    // Release the barrier only after EVERY child has acked readiness — a fixed
+    // sleep here let a slow child arrive after the winner finished, running the
+    // "race" serially and passing without testing anything.
+    const ackDeadline = Date.now() + 10_000
+    for (;;) {
+      const ready = readdirSync(dir).filter((f) => f.startsWith('go.ready.')).length
+      if (ready === N) break
+      if (Date.now() > ackDeadline) throw new Error(`only ${ready}/${N} children ready before deadline`)
+      await new Promise((r) => setTimeout(r, 5))
+    }
     writeFileSync(goFile, 'go')
     const results = await Promise.all(children)
 
@@ -388,4 +396,152 @@ test('race: N simultaneous migrators — exactly one imports, nothing is erased'
     setDbPath(null)
     rmSync(dir, { recursive: true, force: true })
   }
+})
+
+// --- honesty of reporting and the loud dual-authority residue ----------------
+
+test('a corrupt source is reported as quarantined — with the artifact to prove it', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'meshfleet-migrate-corrupt-'))
+  const dbPath = join(dir, 'ledger.db')
+  const jsonPath = join(dir, 'ledger.json')
+  writeFileSync(jsonPath, 'this is { not valid json')
+
+  withEnv({ MESHFLEET_DB_FILE: dbPath, MESHFLEET_DATA_FILE: jsonPath, AGENT_MESH_DATA_FILE: undefined }, () => {
+    const result = migrateJsonToSqlite()
+    assert.equal(result.migrated, true)
+    assert.equal(result.rowCount, 0)
+    assert.match(result.reason ?? '', /quarantined as corrupt/)
+    assert.equal(result.backupPath, undefined, 'no backup claim for a source that was quarantined, not retired')
+    const corrupt = readdirSync(dir).filter((f) => f.startsWith('ledger.json.corrupt-'))
+    assert.equal(corrupt.length, 1, 'the quarantine artifact must exist — the reason is detected, not inferred')
+  })
+  closeDb()
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('validation failure (fault-injected) rolls back the FULL migrator path: db intact, JSON authoritative, nothing deleted', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'meshfleet-migrate-valfail-'))
+  const dbPath = join(dir, 'ledger.db')
+  const jsonPath = join(dir, 'ledger.json')
+  writeFileSync(jsonPath, LEDGER_FIXTURE)
+
+  withEnv({ MESHFLEET_DB_FILE: dbPath, MESHFLEET_DATA_FILE: jsonPath, AGENT_MESH_DATA_FILE: undefined }, () => {
+    setMigrationValidationFaultForTest(true)
+    try {
+      assert.throws(() => migrateJsonToSqlite(), /validation FAILED/)
+    } finally {
+      setMigrationValidationFaultForTest(false)
+    }
+    assert.ok(existsSync(jsonPath), 'the JSON must remain authoritative')
+    assert.ok(existsSync(dbPath), 'the db file must never be deleted')
+    assert.equal(isLedgerFileEmpty(dbPath), true, 'the rollback must leave the db exactly as found (empty)')
+
+    // And the same boot can retry successfully once the fault clears.
+    const retry = migrateJsonToSqlite()
+    assert.equal(retry.migrated, true)
+    assert.equal(retry.rowCount, 1)
+  })
+  closeDb()
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('a db carrying a different schema_version marker refuses the import (rollback, loud)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'meshfleet-migrate-schemaver-'))
+  const dbPath = join(dir, 'ledger.db')
+  const jsonPath = join(dir, 'ledger.json')
+  writeFileSync(jsonPath, LEDGER_FIXTURE)
+
+  // An empty db left behind by a DIFFERENT meshfleet version: same tables, but
+  // a schema_version marker this build did not write. getDb's INSERT OR IGNORE
+  // preserves it, so without the in-txn check the import would advertise a
+  // false version over v2-shaped data.
+  setDbPath(dbPath)
+  try {
+    readLedger()
+    withStorageTransaction((db) => {
+      db.prepare("UPDATE meta SET value = '99' WHERE key = 'schema_version'").run()
+    })
+  } finally {
+    closeDb()
+    setDbPath(null)
+  }
+
+  withEnv({ MESHFLEET_DB_FILE: dbPath, MESHFLEET_DATA_FILE: jsonPath, AGENT_MESH_DATA_FILE: undefined }, () => {
+    assert.throws(() => migrateJsonToSqlite(), /schema_version=99/)
+    assert.ok(existsSync(jsonPath), 'the JSON must remain authoritative')
+    assert.equal(isLedgerFileEmpty(dbPath), true, 'the rollback must leave the db empty, marker intact')
+  })
+  closeDb()
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('a populated db coexisting with a live JSON source is LOUD, not a quiet no-op', () => {
+  // The crash-between-commit-and-rename residue (and the refuse→write→remedy
+  // sequence) both end here: db populated, JSON still at the live path. The
+  // old behavior returned a quiet "already present" forever; deleting the db
+  // later would resurrect the stale JSON. The migrator must never rename the
+  // source from a non-importing process — but it must SAY what it found.
+  const dir = mkdtempSync(join(tmpdir(), 'meshfleet-migrate-dual-'))
+  const dbPath = join(dir, 'ledger.db')
+  const jsonPath = join(dir, 'ledger.json')
+  writeFileSync(jsonPath, LEDGER_FIXTURE)
+
+  setDbPath(dbPath)
+  try {
+    withLedger((d) => {
+      d.fleets['live'] = { id: 'live', status: 'running', created_at: 3 } as never
+    })
+  } finally {
+    closeDb()
+    setDbPath(null)
+  }
+
+  withEnv({ MESHFLEET_DB_FILE: dbPath, MESHFLEET_DATA_FILE: jsonPath, AGENT_MESH_DATA_FILE: undefined }, () => {
+    const result = migrateJsonToSqlite()
+    assert.equal(result.migrated, false)
+    assert.match(result.reason ?? '', /both exist/, 'the dual-authority state must be named in the result')
+    assert.match(result.reason ?? '', /resurrect/, 'and the stale-resurrection hazard spelled out')
+    assert.ok(existsSync(jsonPath), 'the non-importing process must never rename the source')
+  })
+  closeDb()
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('garbage at the db path fails LOUDLY instead of a false "already present"', () => {
+  // The old advisory probe answered "not empty" for a non-SQLite file, and the
+  // migrator converted that into "sqlite ledger already present" — a false
+  // reason that silently stranded the JSON. Unknown now proceeds to the
+  // transaction, where opening the garbage fails with the real error.
+  const dir = mkdtempSync(join(tmpdir(), 'meshfleet-migrate-garbage-'))
+  const dbPath = join(dir, 'garbage.db')
+  const jsonPath = join(dir, 'ledger.json')
+  writeFileSync(dbPath, 'this is not a sqlite database')
+  writeFileSync(jsonPath, LEDGER_FIXTURE)
+
+  withEnv({ MESHFLEET_DB_FILE: dbPath, MESHFLEET_DATA_FILE: jsonPath, AGENT_MESH_DATA_FILE: undefined }, () => {
+    assert.throws(() => migrateJsonToSqlite(), /SQLITE|file is not a database|not a database/i)
+    assert.ok(existsSync(jsonPath), 'the JSON must be untouched by the failure')
+  })
+  closeDb()
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('legacy alias declaration actually migrates a real fixture (not just the empty path)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'meshfleet-migrate-legacyfix-'))
+  const dbPath = join(dir, 'sandbox.db')
+  const jsonPath = join(dir, 'legacy.json')
+  writeFileSync(jsonPath, LEDGER_FIXTURE)
+
+  withEnv(
+    { MESHFLEET_DB_FILE: dbPath, MESHFLEET_DATA_FILE: undefined, AGENT_MESH_DATA_FILE: jsonPath },
+    () => {
+      const result = migrateJsonToSqlite()
+      assert.equal(result.migrated, true, 'the legacy alias must authorize a full migration')
+      assert.equal(result.rowCount, 1)
+      assert.ok(result.backupPath, 'and retire the source to a backup')
+      assert.equal(existsSync(jsonPath), false)
+    }
+  )
+  closeDb()
+  rmSync(dir, { recursive: true, force: true })
 })

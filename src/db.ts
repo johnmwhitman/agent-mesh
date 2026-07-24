@@ -81,6 +81,13 @@ export function isOpenLedgerEmpty(): boolean {
   return !ledgerHasRows(db);
 }
 
+/** Read one `meta` row on the shared handle (in-transaction safe). */
+export function getMetaValue(key: string): string | undefined {
+  const db = getDb();
+  const row = db.prepare("SELECT value FROM meta WHERE key = ?").get(key) as { value: string } | undefined;
+  return row?.value;
+}
+
 function ledgerHasRows(db: Database.Database): boolean {
   const tables = db
     .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name <> 'meta'")
@@ -102,13 +109,31 @@ function ledgerHasRows(db: Database.Database): boolean {
  * direction, since claiming "empty" would authorize an import over the file.
  */
 export function isLedgerFileEmpty(file: string): boolean {
-  if (!existsSync(file)) return false;
+  return probeLedgerFile(file) === "empty";
+}
+
+/**
+ * Advisory classification of a ledger file. The distinction that matters:
+ * `populated` is the ONLY answer that may short-circuit a migration decision.
+ *
+ * The boolean predecessor collapsed "unreadable / locked / not-SQLite" into
+ * "not empty", which the migrator's fast-path then read as "a ledger is already
+ * present" — so a transient SQLITE_BUSY from a peer's cold initialization (or
+ * plain garbage at the path) silently skipped the migration and stranded the
+ * JSON source with a FALSE reason. `unknown` forces those cases down to the
+ * authoritative in-transaction check, where a lock wait serializes properly and
+ * a genuinely broken file fails loudly instead of quietly.
+ */
+export function probeLedgerFile(file: string): "absent" | "empty" | "populated" | "unknown" {
+  if (!existsSync(file)) return "absent";
   let db: Database.Database | null = null;
   try {
     db = new Database(file, { readonly: true, fileMustExist: true });
-    return !ledgerHasRows(db);
+    // A locked db answers SQLITE_BUSY on the query, not on open — the catch
+    // below maps it to `unknown` like every other non-definitive outcome.
+    return ledgerHasRows(db) ? "populated" : "empty";
   } catch {
-    return false;
+    return "unknown";
   } finally {
     try { db?.close(); } catch { /* best-effort */ }
   }
@@ -122,10 +147,41 @@ export function isLedgerFileEmpty(file: string): boolean {
  * wholesale replace, which is how a "checked empty" db lost committed rows.
  * Nested transaction seams (`importSnapshot`, `readLedger`) become savepoints
  * inside it, and a throw rolls the WHOLE unit back.
+ *
+ * Options — each exists for a reviewed failure mode, not for generality:
+ *  - `durable`: run the transaction under `synchronous = FULL` (restored
+ *    after). WAL + synchronous=NORMAL explicitly allows the last commit to be
+ *    lost on power failure; a caller that performs an IRREVERSIBLE filesystem
+ *    action conditioned on the commit (the migrator renames the JSON source
+ *    away) must not act on a commit the disk has not yet seen.
+ *  - `acquireMs`: bounded retry on the busy family when taking the lock. A
+ *    peer's long-held import can legitimately exceed the connection's 5s
+ *    busy_timeout; for a startup-critical caller, crashing the whole server
+ *    because a sibling was slow is worse than waiting out one more attempt.
  */
-export function withImmediateTransaction<T>(fn: () => T): T {
+export function withImmediateTransaction<T>(fn: () => T, opts?: { durable?: boolean; acquireMs?: number }): T {
   const db = getDb();
-  return db.transaction(fn).immediate();
+  const run = (): T => db.transaction(fn).immediate();
+  const attempt = (): T => {
+    if (!opts?.durable) return run();
+    db.pragma("synchronous = FULL");
+    try {
+      return run();
+    } finally {
+      db.pragma("synchronous = NORMAL");
+    }
+  };
+  if (!opts?.acquireMs) return attempt();
+  const deadline = Date.now() + opts.acquireMs;
+  for (;;) {
+    try {
+      return attempt();
+    } catch (err) {
+      const code = (err as { code?: string }).code ?? "";
+      if (!code.startsWith("SQLITE_BUSY") || Date.now() > deadline) throw err;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50); // synchronous 50ms backoff
+    }
+  }
 }
 
 const SCHEMA = `
@@ -615,7 +671,11 @@ function getDb(): Database.Database {
           db.pragma("journal_mode = WAL"); // local-disk only; the ledger lives under ~/.config
           break;
         } catch (err) {
-          if ((err as { code?: string }).code !== "SQLITE_BUSY" || Date.now() > deadline) throw err;
+          // Prefix match: better-sqlite3 surfaces extended result codes, so the
+          // busy family arrives as SQLITE_BUSY_RECOVERY / SQLITE_BUSY_TIMEOUT /
+          // SQLITE_BUSY_SNAPSHOT as well as plain SQLITE_BUSY.
+          const code = (err as { code?: string }).code ?? "";
+          if (!code.startsWith("SQLITE_BUSY") || Date.now() > deadline) throw err;
           Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5); // synchronous 5ms backoff
         }
       }

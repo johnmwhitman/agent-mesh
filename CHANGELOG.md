@@ -21,18 +21,46 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 - **The migrator refuses to consume a default-path JSON ledger into a relocated db.**
   `MESHFLEET_DB_FILE` alone is not isolation: it used to pair a throwaway destination with the REAL
   ledger, import it, and rename the live file. Declaring `MESHFLEET_DATA_FILE` (the default path is
-  fine) authorizes the migration; the refusal is surfaced loudly at startup, and
-  `MESHFLEET_DATA_FILE`/`AGENT_MESH_DATA_FILE` are now in the packaged stdio env allowlist so the
-  printed remedy is actually reachable.
+  fine) authorizes the migration; the refusal is surfaced loudly at startup.
+  `MESHFLEET_DATA_FILE`/`AGENT_MESH_DATA_FILE` are recorded in the canonical stdio spec's
+  `envAllowlist` (today's config renderers report that field unsupported and omit it, so this is a
+  spec-level record for renderers that gain env passthrough — not a claim that any current rendered
+  config passes it through).
 - **Ledger emptiness is decided by enumerating every table from `sqlite_master`** (excluding
   bookkeeping), not a hardcoded list of the eight mesh collections — a db holding only lifecycle or
   A2A rows no longer reads as "empty" and can no longer authorize an import over real scheduling
   state. An EMPTY db materialized by an earlier boot is still migrated into, so the refusal's
   printed remedy keeps working.
-- **A cold multi-process first boot no longer crashes on `SQLITE_BUSY`.** SQLite skips the busy
-  handler on the lock upgrade that journal-mode conversion needs, so N processes racing to
-  initialize a fresh db file got an instant "database is locked" regardless of `busy_timeout`. The
-  WAL conversion now retries with bounded backoff. Found by the race test above.
+- **A cold multi-process first boot no longer instantly crashes on the WAL conversion.** SQLite
+  skips the busy handler on the lock upgrade that journal-mode conversion needs, so N processes
+  racing to initialize a fresh db file got an instant "database is locked" regardless of
+  `busy_timeout`. The conversion now retries the whole `SQLITE_BUSY*` family (extended result
+  codes included) with bounded backoff, and the migrator's own lock acquisition retries for up to
+  60s. Residual, stated honestly: a non-migrator startup statement waiting on a peer's import
+  longer than the 5s `busy_timeout` can still fail loudly — a restart recovers it, and no data is
+  lost either way. Found by the race test below.
+- **The advisory "already migrated" check can no longer strand the JSON on a false answer.** The
+  old probe answered "not empty" for a locked, unreadable, or non-SQLite db file, and the migrator
+  read that as "a ledger is already present" — silently skipping the migration with a false
+  reason. The probe now distinguishes `populated` (the only answer that short-circuits) from
+  `unknown`, which proceeds to the authoritative in-transaction check where locks serialize and
+  garbage fails loudly.
+- **The import commit is made durable (`synchronous = FULL` for the migration transaction) before
+  the JSON source is renamed away.** Under WAL + `synchronous=NORMAL` a power cut may drop the
+  last commit; dropping a commit whose source was already retired would have been silent data
+  loss.
+- **A populated db coexisting with a live JSON source is now LOUD on every boot** (the residue of
+  a crash between commit and rename, or of following the refusal remedy after rows already
+  landed). Previously this was a quiet no-op forever, and deleting the db later would silently
+  resurrect the stale JSON snapshot. The migrator never renames the source from a non-importing
+  process — it warns instead, with the exact hazard spelled out.
+- **Migration reporting is honest in every disposition.** The startup line no longer prints
+  "backed up to undefined" when the rename failed or the source was quarantined; a source that
+  vanished mid-import is no longer misreported as "quarantined as corrupt" (the quarantine is now
+  detected by its `.corrupt-<ts>` artifact, not inferred from absence); backup names carry a pid
+  suffix so a timestamp collision cannot overwrite an existing backup; and migrating into an
+  empty db whose `meta.schema_version` was written by a different meshfleet version is refused
+  (rolled back) instead of advertising a false version over imported data.
 
 ## [0.15.0] — 2026-07-23
 
