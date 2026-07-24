@@ -138,6 +138,24 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
     }
   }
 
+  // --- inboxes owned by nobody -------------------------------------------------
+  // A message sent to a mistyped recipient is written into a phantom inbox for
+  // an agent that does not exist: the send returns success with
+  // `recipients: ["beta-typo"]`, the intended agent's inbox stays empty, and
+  // nothing ever flagged it. A warning rather than an error, because a
+  // cross-attached fleet can legitimately hold receipts for agents this ledger
+  // never registered — but a queued, undeliverable message is worth seeing.
+  for (const [ownerId, ids] of Object.entries(data.inboxes)) {
+    if ((ids?.length ?? 0) === 0) continue;
+    if (!data.agents[ownerId]) {
+      warning(
+        "inbox.unknown_agent",
+        ownerId,
+        `${ids.length} message(s) are queued for "${ownerId}", which this ledger has not registered as an agent — nothing will ever collect them (a mistyped recipient produces exactly this)`
+      );
+    }
+  }
+
   const invalidMessageTimestamps = new Set<string>();
   for (const msg of Object.values(data.messages)) {
     if (!Number.isFinite(msg.timestamp)) {

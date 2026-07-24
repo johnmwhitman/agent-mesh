@@ -54,7 +54,7 @@ import {
 } from "./ratify.js";
 import { verifyLedger } from "./verify.js";
 import { notifySubscribers } from "./realtime.js";
-import { startSseServer, stopSseServer, subscribeInboxUrl } from "./sse-server.js";
+import { isSseServerRunning, startSseServer, stopSseServer, subscribeInboxUrl } from "./sse-server.js";
 import { createHeartbeat } from "./heartbeat.js";
 import {
   computeBackoff,
@@ -1112,12 +1112,32 @@ toolHandlers["subscribe_inbox"] = async (args) => {
     if (!data.agents[agent_id]) {
       return jsonError(`Agent "${agent_id}" not found`);
     }
+    // Do not hand back a stream URL this process cannot serve. startSseServer()
+    // failure is caught and logged to stderr only, so when the port is already
+    // taken — by another meshfleet instance, or anything else — this tool used
+    // to return a normal-looking stream_url and the client would connect to a
+    // stranger's server (or nothing) and wait forever for events that could
+    // never arrive, while the messages sat correctly in the durable inbox.
+    // Observed live: a squatter on the port produced 0 events, indefinitely.
+    if (!isSseServerRunning()) {
+      return jsonError(
+        `subscribe_inbox: this server has no live SSE endpoint, so it cannot push to you — ` +
+          `the listener failed to start (most often the port is already in use by another ` +
+          `meshfleet instance). Poll get_inbox instead; the durable inbox is unaffected and is ` +
+          `the source of truth. SSE is advisory acceleration, never correctness.`
+      );
+    }
     const streamUrl = subscribeInboxUrl(agent_id);
     return jsonResult({
       agent_id,
       stream_url: streamUrl,
+      // Honest about scope: this process pushes only what IT writes. A sibling
+      // instance sharing the same ledger has its own in-memory subscriber
+      // registry and cannot reach this stream, so get_inbox remains the only
+      // complete view.
+      served_by_this_process_only: true,
       instructions:
-        "Open an HTTP GET to the stream_url. Each event is SSE-formatted: `event: <type>\\ndata: <json>\\n\\n`. Use polling get_inbox as a fallback if SSE is unreachable.",
+        "Open an HTTP GET to the stream_url. Each event is SSE-formatted: `event: <type>\\ndata: <json>\\n\\n`. Push covers messages written by THIS server process; poll get_inbox for the complete, durable view — it is the source of truth and SSE is advisory only.",
     });
 };
 

@@ -523,6 +523,11 @@ const CHECK_EXPLANATIONS: Record<string, CheckExplanation> = {
     benign: "a cross-attached fleet advertising capabilities before its agent rows synced",
     investigate: "agent-mesh inspect --export | jq '.capabilities'",
   },
+  "inbox.unknown_agent": {
+    what: "messages are queued for an agent this ledger never registered — nothing will ever collect them",
+    benign: "a cross-attached fleet whose agent rows have not synced yet; otherwise it is a mistyped recipient in a send_message call",
+    investigate: "agent-mesh inspect --export | jq '.inboxes | to_entries | map(select(.value | length > 0))' and compare the keys against .agents",
+  },
   "receipt.missing_agent_id": {
     what: "a receipt records an action by nobody — its agent_id is missing, blank, or the literal \"undefined\"",
     benign: "written by a pre-0.15.1 ack_message/receipt call that accepted an omitted agent_id and keyed the row <msg>:undefined:<action>",

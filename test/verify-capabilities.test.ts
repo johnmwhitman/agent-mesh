@@ -191,3 +191,25 @@ test('the legacy "*" broadcast backfill is still exempt', () => {
     'the v1->v2 migration backfill must not be flagged'
   )
 })
+
+test('a message queued for a non-existent agent is surfaced, not silently lost', () => {
+  // A mistyped recipient produces exactly this: send_message returns success
+  // with recipients:["beta-typo"], the message lands in a phantom inbox, and the
+  // intended agent's inbox stays empty. Found on a real production ledger the
+  // moment this check existed.
+  const d = msgLedger()
+  d.inboxes['beta-typo'] = ['m1']
+  const r = verifyMeshData(d, 1000)
+  assert.ok(
+    r.findings.some((f) => f.check === 'inbox.unknown_agent' && f.severity === 'warning'),
+    `expected inbox.unknown_agent, got ${JSON.stringify(r.findings)}`
+  )
+})
+
+test('an EMPTY inbox for an unknown agent is not flagged', () => {
+  // Only undeliverable QUEUED messages matter; an empty leftover key is noise.
+  const d = msgLedger()
+  d.inboxes['departed'] = []
+  const r = verifyMeshData(d, 1000)
+  assert.ok(!r.findings.some((f) => f.check === 'inbox.unknown_agent'))
+})
