@@ -34,6 +34,12 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
       - run: npm ci
+      # Build BEFORE test: mcp-stdio.test.ts packs this package and asserts the
+      # tarball contains dist/index.js, so without a build it fails on every
+      # runner. ci.yml was fixed for exactly this (77d3fa3) and release.yml was
+      # not — which meant the release path could never publish. It went unnoticed
+      # because no release had ever actually been cut through this workflow.
+      - run: npm run build
       - run: npm test
       - run: npm run typecheck
 
