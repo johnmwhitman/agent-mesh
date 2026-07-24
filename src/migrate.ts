@@ -36,6 +36,19 @@
  *  - Idempotent: a no-op when a POPULATED db already exists, or when there is no
  *    JSON. An empty db (materialized by ordinary startup recovery) is still
  *    migrated into, so a boot that created one does not strand the JSON ledger.
+ *
+ * Accepted residuals (reviewed, deliberately not "fixed"):
+ *  - A concurrent LEGACY-VERSION writer mutating the JSON mid-migration can have
+ *    its newest write renamed into the backup un-imported (TOCTOU between read
+ *    and retire). Mixed-version concurrent writers are unsupported by design;
+ *    the rename preserves the newer data (recoverable from the backup), it does
+ *    not destroy it.
+ *  - The crash window between commit and rename is irreducible for a
+ *    cross-filesystem sequence. Its residue — populated db + live JSON — is made
+ *    LOUD on every later boot rather than silently ignored.
+ *  - Non-migrator startup statements waiting on a peer's long import are still
+ *    bound by the connection's 5s busy_timeout and can fail loudly; a restart
+ *    recovers, and no data is lost either way.
  */
 import { existsSync, renameSync, readdirSync } from "fs";
 import { basename, dirname, join } from "path";
