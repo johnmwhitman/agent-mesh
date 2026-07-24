@@ -177,6 +177,191 @@ const MESH_IDENTITY_TABLES = [
   "templates",
 ] as const;
 
+/**
+ * The columns getDb's base SCHEMA declares per table. Used to validate a
+ * marker-less partial initialization: an empty table named like ours but with
+ * a DIFFERENT column layout is somebody else's — adopting it would no-op
+ * through CREATE TABLE IF NOT EXISTS and lock the wrong schema in place,
+ * failing at first read instead of at the door.
+ */
+interface ColumnSpec {
+  readonly name: string;
+  readonly notnull: 0 | 1;
+  readonly pk: 0 | 1;
+}
+const col = (name: string, notnull: 0 | 1, pk: 0 | 1): ColumnSpec => ({ name, notnull, pk });
+const DATA = col("data", 1, 0);
+const BASE_SCHEMA_COLUMNS: Readonly<Record<string, readonly ColumnSpec[]>> = {
+  meta: [col("key", 0, 1), col("value", 1, 0)],
+  fleets: [col("id", 0, 1), DATA],
+  agents: [col("id", 0, 1), col("fleet_id", 0, 0), DATA],
+  messages: [col("id", 0, 1), col("fleet_id", 0, 0), DATA],
+  inboxes: [col("agent_id", 0, 1), DATA],
+  capabilities: [col("agent_id", 0, 1), DATA],
+  receipts: [col("key", 0, 1), col("message_id", 0, 0), DATA],
+  ratifications: [col("message_id", 0, 1), col("fleet_id", 0, 0), DATA],
+  templates: [col("key", 0, 1), DATA],
+};
+
+/**
+ * Every trigger any meshfleet build creates. All of them are installed by the
+ * STORAGE migrations, which run only after the schema marker is committed — so
+ * a trigger in a marker-less file is never ours, and a trigger on the identity
+ * path that is not in this set is not ours either. The latter matters more than
+ * it looks: `INSERT OR IGNORE` fires a `BEFORE INSERT` trigger even when the
+ * insert loses its conflict and writes nothing (verified empirically), so a
+ * planted trigger on `meta` would execute foreign SQL on every single boot.
+ */
+const MESHFLEET_TRIGGERS: ReadonlySet<string> = new Set([
+  "lifecycle_work_retry_policy_insert",
+  "lifecycle_work_retry_policy_update",
+  "lifecycle_attempt_schedule_insert",
+  "lifecycle_attempt_schedule_update",
+  "a2a_acceptance_records_no_update",
+  "a2a_acceptance_records_no_delete",
+  "a2a_request_mappings_no_update",
+  "a2a_request_mappings_no_delete",
+  "a2a_decision_receipts_no_update",
+  "a2a_decision_receipts_no_delete",
+]);
+
+export type LedgerSchemaClass = "fresh" | "meshfleet" | "init-in-flight" | "foreign";
+
+/**
+ * ONE classification of a database's schema, consumed by BOTH the adoption
+ * gate (assertAdoptable) and the migrator's probe (probeLedgerFile). An
+ * earlier revision let the two answer differently, so the real boot path —
+ * migrator first — refused meshfleet's own interrupted cold init as "foreign"
+ * while the gate would have adopted it, and no restart healed it.
+ *
+ *  - `fresh`          — no user objects at all: a brand-new file.
+ *  - `meshfleet`      — the schema marker plus every collection table. Extra
+ *    tables are tolerated ON PURPOSE: a newer meshfleet's db must open here
+ *    (its storage version check rejects downgrades loudly later). Residual:
+ *    a file that is BOTH a real ledger and something else's tables adopts.
+ *  - `init-in-flight` — NO marker, a subset of the base schema tables each
+ *    matching our layout EXACTLY (column name set, nullability, primary key),
+ *    ZERO rows in any of them, and no views or triggers. This is what a crash
+ *    or a racing peer's half-finished first `exec(SCHEMA)` leaves behind — it
+ *    holds nothing, and refusing it would make a healthy cold-boot race fatal.
+ *    Every clause is load-bearing:
+ *      · marker-less, because the marker is written only AFTER the complete
+ *        base schema — a marker with missing collection tables is damage or a
+ *        foreign file, never our in-flight state (adopting one used to
+ *        preserve a `schema_version` this build never wrote);
+ *      · exact layout, because `CREATE TABLE IF NOT EXISTS` cannot repair an
+ *        existing table, so any divergence adopted here is locked in and
+ *        surfaces as a failed write later instead of a refusal now (storage
+ *        migrations DO add columns to base tables, but only post-marker, so
+ *        exact equality cannot false-refuse on this path);
+ *      · zero rows anywhere, because we wrote none;
+ *      · no lifecycle/A2A tables, views, or triggers — all arrive only after
+ *        the marker exists.
+ *  - `foreign`        — everything else. On the IDENTITY path that includes
+ *    any view (meshfleet creates none) and any trigger outside the ten our
+ *    storage migrations install: `INSERT OR IGNORE` fires a `BEFORE INSERT`
+ *    trigger even when the insert loses its conflict and writes nothing
+ *    (verified empirically), so a planted trigger on `meta` would execute
+ *    foreign SQL on every boot. Extra TABLES stay tolerated on the identity
+ *    path for forward-compatibility — a table cannot execute; a trigger can.
+ *    Note the constraint that shaped this: real ledgers carry those ten
+ *    triggers, so an earlier refuse-all-triggers draft refused every genuine
+ *    reopen (caught by the reopen test on its first run).
+ */
+export function classifyLedgerSchema(db: Database.Database): LedgerSchemaClass {
+  const objects = db
+    .prepare("SELECT name, type FROM sqlite_master WHERE type IN ('table','view','trigger') AND name NOT LIKE 'sqlite_%'")
+    .all() as { name: string; type: string }[];
+  if (objects.length === 0) return "fresh";
+  const tables = objects.filter((o) => o.type === "table").map((o) => o.name);
+
+  let hasMarker = false;
+  if (tables.includes("meta")) {
+    try {
+      hasMarker = db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() !== undefined;
+    } catch {
+      // Unreadable meta (wrong columns) is not OUR meta — fall through to the
+      // in-flight/foreign classification, whose column check answers cleanly.
+      hasMarker = false;
+    }
+  }
+  if (hasMarker && MESH_IDENTITY_TABLES.every((t) => tables.includes(t))) {
+    // Identity holds — but only OUR objects may ride along. A view is never
+    // ours; a trigger is ours only if a storage migration created it. An
+    // unknown trigger here is either a planted one (which `INSERT OR IGNORE`
+    // fires on every boot, conflict or not) or a newer meshfleet's, and both
+    // must be loud rather than silently executed.
+    for (const o of objects) {
+      if (o.type === "view") return "foreign";
+      if (o.type === "trigger" && !MESHFLEET_TRIGGERS.has(o.name)) return "foreign";
+    }
+    return "meshfleet";
+  }
+
+  // Past this point the file has no meshfleet identity, so it can only be our
+  // own INTERRUPTED first initialization — which is a strictly-defined shape:
+  //   * the marker is written only AFTER the full base schema, so a file that
+  //     HAS a marker but is missing identity tables is damaged or foreign, not
+  //     in-flight (this branch used to accept `meta(schema_version='99') +
+  //     fleets` and adopt it, preserving a marker this build never wrote);
+  //   * for the same reason a genuine in-flight file has NO meta rows at all;
+  //   * and it carries no views or triggers, which arrive only post-marker.
+  if (hasMarker) return "foreign";
+  if (objects.some((o) => o.type !== "table")) return "foreign";
+
+  // Marker-less partial initialization — every condition below is load-bearing.
+  const quote = (t: string): string => `"${t.replace(/"/g, '""')}"`;
+  for (const t of tables) {
+    const expected = BASE_SCHEMA_COLUMNS[t];
+    if (!expected) return "foreign"; // a table the base schema never creates
+    let cols: { name: string; notnull: number; pk: number }[];
+    try {
+      cols = db.pragma(`table_info(${quote(t)})`) as { name: string; notnull: number; pk: number }[];
+    } catch {
+      return "foreign";
+    }
+    // EXACT layout, not a name superset. `CREATE TABLE IF NOT EXISTS` cannot
+    // repair a table that already exists, so any divergence we adopt is locked
+    // in permanently and surfaces as a failed write later instead of a refusal
+    // now. Storage migrations DO add columns to base tables (fleets gains
+    // `lifecycle_mode`), but only after the marker — so on this marker-less
+    // path exact equality is correct and cannot false-refuse.
+    if (cols.length !== expected.length) return "foreign";
+    for (const want of expected) {
+      const got = cols.find((c) => c.name === want.name);
+      if (!got || got.notnull !== want.notnull || got.pk !== want.pk) return "foreign";
+    }
+  }
+  for (const t of tables) {
+    if (db.prepare(`SELECT 1 FROM ${quote(t)} LIMIT 1`).get() !== undefined) return "foreign"; // any row (incl. meta) is data we did not write
+  }
+  return "init-in-flight";
+}
+
+/**
+ * The adoption gate: getDb() must not write into a file that belongs to
+ * something else. Called twice on purpose — once BEFORE the journal-mode
+ * conversion (advisory: the WAL conversion already rewrites the file header,
+ * a mutation we must not perform on a foreign file), and once more INSIDE the
+ * `BEGIN IMMEDIATE` that creates schema and marker (binding: the advisory
+ * read runs under a shared lock, so a foreign writer's uncommitted rows are
+ * invisible to it — the same advisory/binding split the migrator uses).
+ * Residual: a foreign file that only the binding check catches has already
+ * had its journal header converted; nothing else is written.
+ */
+function assertAdoptable(db: Database.Database, file: string): void {
+  if (classifyLedgerSchema(db) !== "foreign") return;
+  throw new Error(
+    `the file at ${file} is not a meshfleet ledger (it holds schema, rows, or SQL objects this ` +
+      `build does not recognize as its own) — refusing to adopt it or write into it. If ` +
+      `MESHFLEET_DB_FILE points at the wrong file, fix the path. If this really is the intended ` +
+      `ledger location, move the existing database aside first. If this WAS a meshfleet ledger ` +
+      `and a collection table has been dropped or altered, restore it from backup rather than ` +
+      `reopening it here. No schema, marker, or row was written (a refusal detected only after ` +
+      `the journal-mode conversion may have left the file in WAL mode — no content change).`
+  );
+}
+
 export function probeLedgerFile(file: string): "absent" | "empty" | "populated" | "foreign" | "unknown" {
   if (!existsSync(file)) return "absent";
   let db: Database.Database | null = null;
@@ -184,17 +369,23 @@ export function probeLedgerFile(file: string): "absent" | "empty" | "populated" 
     db = new Database(file, { readonly: true, fileMustExist: true });
     // A locked db answers SQLITE_BUSY on the query, not on open — the catch
     // below maps it to `unknown` like every other non-definitive outcome.
-    const tables = new Set(
-      (db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all() as { name: string }[])
-        .map((r) => r.name)
-    );
-    if (tables.size === 0) return "empty";
-    const hasMarker =
-      tables.has("meta") &&
-      db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() !== undefined;
-    const isMeshfleet = hasMarker && MESH_IDENTITY_TABLES.every((t) => tables.has(t));
-    if (!isMeshfleet) return "foreign";
-    return ledgerHasRows(db) ? "populated" : "empty";
+    // ONE classifier, shared with the adoption gate: an earlier revision let
+    // this probe call an in-flight initialization "foreign" while the gate
+    // adopted it, and the migrator-first boot path failed on meshfleet's own
+    // half-finished cold init with no restart able to heal it.
+    switch (classifyLedgerSchema(db)) {
+      case "fresh":
+        return "empty";
+      case "init-in-flight":
+        // Holds nothing; the migrator may proceed and getDb completes it.
+        return "empty";
+      case "foreign":
+        return "foreign";
+      case "meshfleet":
+        return ledgerHasRows(db) ? "populated" : "empty";
+      default:
+        return "unknown"; // unreachable: the switch is exhaustive over LedgerSchemaClass
+    }
   } catch {
     return "unknown";
   } finally {
@@ -746,6 +937,13 @@ function getDb(): Database.Database {
     db.pragma("foreign_keys = ON"); // enforce relational lifecycle invariants on every handle
     if ((db.pragma("foreign_keys", { simple: true }) as number) !== 1) throw new Error("SQLite foreign_keys could not be enabled");
     db.pragma("busy_timeout = 5000"); // wait for a concurrent writer instead of erroring
+    // Adoption gate: refuse a file that belongs to something else BEFORE any
+    // write — including the journal-mode conversion below, which already
+    // rewrites the file header. Without this, getDb() stamped meshfleet
+    // schema + marker into whatever file MESHFLEET_DB_FILE happened to name
+    // and the server silently operated inside an unrelated database. (The
+    // migrator's read-only probe guarded only the migration path.)
+    assertAdoptable(db, file);
     // The WAL conversion is the one statement busy_timeout does NOT cover:
     // SQLite skips the busy handler on the lock upgrade journal-mode changes
     // need (its deadlock-avoidance path), so N processes racing to initialize
@@ -770,10 +968,20 @@ function getDb(): Database.Database {
       }
     }
     db.pragma("synchronous = NORMAL"); // WAL-recommended; durable except last txn on OS crash
-    db.exec(SCHEMA);
-    db.prepare("INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', ?)").run(
-      String(CURRENT_SCHEMA_VERSION)
-    );
+    // BINDING adoption re-check, under the same write lock as the writes it
+    // authorizes. The advisory check above ran under a shared lock, so a
+    // foreign writer's uncommitted rows were invisible to it: it could pass
+    // on a pre-commit-empty impostor, wait out the foreign commit, and stamp
+    // schema anyway. Same advisory/binding split as the migrator; a refusal
+    // here rolls back having written nothing (the journal-header conversion
+    // above is the documented residual).
+    db.transaction(() => {
+      assertAdoptable(db, file);
+      db.exec(SCHEMA);
+      db.prepare("INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', ?)").run(
+        String(CURRENT_SCHEMA_VERSION)
+      );
+    }).immediate();
     migrateStorage(db);
   } catch (err) {
     // Never leak a half-initialized connection (its locks/sidecars linger,

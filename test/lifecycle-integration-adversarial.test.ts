@@ -106,11 +106,30 @@ test("v2 retry histories receive deterministic attempt numbers before unique ind
   const file = join(dir, "ledger.db");
   try {
     const raw = new Database(file);
+    // The fixture mirrors what a REAL v2-storage-era file contains: getDb()
+    // has always created the logical marker and the eight collection tables
+    // BEFORE migrateStorage ran, so no genuine ledger ever existed without
+    // them — and the adoption gate (assertAdoptable) rightly refuses a
+    // rows-bearing file that lacks the identity signature. The earlier
+    // minimal fixture (meta + lifecycle tables only) was a shape no build
+    // ever wrote.
     raw.exec(`
       CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+      INSERT INTO meta VALUES ('schema_version', '2');
       INSERT INTO meta VALUES ('storage_schema_version', '2');
+      CREATE TABLE fleets        (id TEXT PRIMARY KEY, data TEXT NOT NULL);
+      CREATE TABLE agents        (id TEXT PRIMARY KEY, fleet_id TEXT, data TEXT NOT NULL);
+      CREATE TABLE messages      (id TEXT PRIMARY KEY, fleet_id TEXT, data TEXT NOT NULL);
+      CREATE TABLE inboxes       (agent_id TEXT PRIMARY KEY, data TEXT NOT NULL);
+      CREATE TABLE capabilities  (agent_id TEXT PRIMARY KEY, data TEXT NOT NULL);
+      CREATE TABLE receipts      (key TEXT PRIMARY KEY, message_id TEXT, data TEXT NOT NULL);
+      CREATE TABLE ratifications (message_id TEXT PRIMARY KEY, fleet_id TEXT, data TEXT NOT NULL);
+      CREATE TABLE templates     (key TEXT PRIMARY KEY, data TEXT NOT NULL);
       CREATE TABLE work_items (work_id TEXT PRIMARY KEY, fleet_id TEXT, status TEXT, current_attempt_id TEXT, owner_epoch INTEGER, cancelled_at INTEGER, terminal_at INTEGER, result_json TEXT, error_json TEXT, created_at INTEGER, updated_at INTEGER);
       CREATE TABLE attempts (attempt_id TEXT PRIMARY KEY, work_id TEXT, owner_id TEXT, owner_epoch INTEGER, status TEXT, lease_until INTEGER, created_at INTEGER, updated_at INTEGER, terminal_at INTEGER, result_json TEXT, error_json TEXT);
+      CREATE TABLE attempt_events (seq INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT NOT NULL UNIQUE, work_id TEXT NOT NULL, attempt_id TEXT, owner_epoch INTEGER, kind TEXT NOT NULL, occurred_at INTEGER NOT NULL, payload TEXT NOT NULL);
+      CREATE INDEX idx_attempts_work ON attempts(work_id);
+      CREATE INDEX idx_attempt_events_work_seq ON attempt_events(work_id, seq);
       INSERT INTO work_items VALUES ('w', 'f', 'pending', 'a2', 1, NULL, NULL, NULL, NULL, 1, 2);
       INSERT INTO attempts VALUES ('a1', 'w', NULL, 0, 'expired', NULL, 10, 10, NULL, NULL, NULL);
       INSERT INTO attempts VALUES ('a2', 'w', NULL, 1, 'pending', NULL, 20, 20, NULL, NULL, NULL);
