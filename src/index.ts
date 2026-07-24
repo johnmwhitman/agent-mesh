@@ -62,6 +62,15 @@ import {
   shouldRetry as shouldAgentRetry,
 } from "./retry.js";
 import { recordRoutingOutcome } from "./routing-feedback.js";
+import {
+  firstError,
+  requireString,
+  requireBoolean,
+  requireNumber,
+  optionalNumber,
+  requireStringArray,
+  requireEnum,
+} from "./tool-args.js";
 import { buildFailureDetail } from "./spawn-attempt.js";
 import { getDefaultRuntimeAdapter } from "./runtime/registry.js";
 import { defaultLifecycleMode, LifecycleExecutionCoordinator, repairLifecycleOutbox } from "./lifecycle-execution.js";
@@ -469,7 +478,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "record_routing_outcome",
       description:
-        "Record whether a routed task succeeded or failed. Future route_work calls for the same agent weight their score by accumulated outcomes (Wilson-style). capability_key is a free-form identifier (e.g. 'react', 'sql') so an agent can be penalized for one failure mode without losing other capabilities.",
+        "Record whether a routed task succeeded or failed. Future route_work calls for the same agent weight their score by accumulated outcomes (Wilson-style). NOTE: outcomes are currently accumulated PER AGENT, not per capability — capability_key is recorded for forward compatibility but does not yet scope the penalty, so a failure at one capability lowers the agent's score for all of them. Feedback is in-process and resets when the server restarts.",
       inputSchema: {
         type: "object",
         properties: {
@@ -678,6 +687,13 @@ toolHandlers["list_fleets"] = async (args) => {
 
 toolHandlers["set_fleet_timeout"] = async (args) => {
     const { fleet_id, timeout_ms } = args as { fleet_id: string; timeout_ms: number };
+    // The env path for this same value demands > 0; the tool path accepted 0,
+    // which stores a timeout that fails every agent the instant it starts.
+    const badTimeout = firstError(
+      requireString("set_fleet_timeout", "fleet_id", fleet_id),
+      requireNumber("set_fleet_timeout", "timeout_ms", timeout_ms, { min: 1, integer: true }),
+    );
+    if (badTimeout) return jsonError(badTimeout);
     try {
       setFleetTimeout(fleet_id, timeout_ms);
       appendEvent("fleet_timeout_set", { fleet_id, timeout_ms });
@@ -801,6 +817,14 @@ toolHandlers["get_inbox"] = async (args) => {
       agent_id: string;
       since?: number;
     };
+    // A non-numeric `since` compares as NaN and returns an empty inbox with
+    // success — and this is the documented polling fallback when SSE is not
+    // used, so it is a message-loss path, not a cosmetic one.
+    const bad = firstError(
+      requireString("get_inbox", "agent_id", agent_id),
+      optionalNumber("get_inbox", "since", since),
+    );
+    if (bad) return jsonError(bad);
     return jsonResult({ messages: getInbox(agent_id, since) });
 };
 
@@ -809,6 +833,15 @@ toolHandlers["ack_message"] = async (args) => {
       agent_id: string;
       message_id: string;
     };
+    // A missing agent_id wrote a receipt keyed `<msg>:undefined:ack`, consumed
+    // no inbox, and returned {ok:true}. verify_ledger passed it: its key-mismatch
+    // check builds the comparison key with the same coercion, so the strings
+    // matched, and it fell through to a warning — a false green.
+    const bad = firstError(
+      requireString("ack_message", "agent_id", agent_id),
+      requireString("ack_message", "message_id", message_id),
+    );
+    if (bad) return jsonError(bad);
     return jsonResult({ ok: ackMessage(agent_id, message_id) });
 };
 
@@ -863,6 +896,25 @@ toolHandlers["open_ratification"] = async (args) => {
       silence_policy?: "abstain" | "approve";
       weights?: Record<string, number>;
     };
+    // Four governance defects lived here, all returning success:
+    //   - `subject` omitted wrote `undefined` as the proposal's subject
+    //   - `voters: "alice"` was spread into five single-character voters,
+    //     locking every real voter out of their own council
+    //   - `deadline` as an ISO string made `now >= deadline` compare false
+    //     forever, so the ratification could NEVER expire
+    //   - `silence_policy: "APPROVE"` silently degraded to abstain, inverting
+    //     the meaning of silence
+    const bad = firstError(
+      requireString("open_ratification", "proposer", a.proposer),
+      requireString("open_ratification", "fleet_id", a.fleet_id),
+      requireString("open_ratification", "subject", a.subject),
+      requireNumber("open_ratification", "quorum", a.quorum, { min: 1, integer: true }),
+      requireStringArray("open_ratification", "voters", a.voters, { optional: true }),
+      requireStringArray("open_ratification", "required_signoffs", a.required_signoffs, { optional: true }),
+      optionalNumber("open_ratification", "deadline", a.deadline),
+      requireEnum("open_ratification", "silence_policy", a.silence_policy, ["abstain", "approve"], { optional: true }),
+    );
+    if (bad) return jsonError(bad);
     try {
       const messageId = openRatification({
         proposer: a.proposer,
@@ -971,6 +1023,16 @@ toolHandlers["record_routing_outcome"] = async (args) => {
       capability_key: string;
       success: boolean;
     };
+    // `success` was read for truthiness exactly as cast_vote's `approve` was:
+    // omitted recorded a FAILURE, "false" recorded a SUCCESS. It multiplies
+    // every later route_work score, and the state is an in-process Map that
+    // verify_ledger cannot see — so a wrong value is invisible AND persistent.
+    const bad = firstError(
+      requireString("record_routing_outcome", "agent_id", agent_id),
+      requireString("record_routing_outcome", "capability_key", capability_key),
+      requireBoolean("record_routing_outcome", "success", success),
+    );
+    if (bad) return jsonError(bad);
     recordRoutingOutcome(agent_id, capability_key, success);
     return jsonResult({ ok: true, agent_id, capability_key, success });
 };

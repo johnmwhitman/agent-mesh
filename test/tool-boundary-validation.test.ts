@@ -92,3 +92,70 @@ test('receipt refuses a missing or blank action rather than corrupting its key',
     }
   })
 })
+
+test('record_routing_outcome refuses a non-boolean success (cast_vote\'s twin)', async () => {
+  await withServer(async (client) => {
+    for (const success of ['false', 1, undefined]) {
+      const res = await client.callTool({
+        name: 'record_routing_outcome',
+        arguments: { agent_id: 'a', capability_key: 'react', ...(success === undefined ? {} : { success }) } as Record<string, unknown>,
+      })
+      assert.match(textOf(res), /must be a boolean/,
+        `success=${JSON.stringify(success)} must be refused — it multiplies every later route_work score ` +
+        `and lives in an in-process map verify_ledger cannot see`)
+    }
+  })
+})
+
+test('ack_message refuses a missing agent_id instead of writing a keyless receipt', async () => {
+  await withServer(async (client) => {
+    const res = await client.callTool({ name: 'ack_message', arguments: { message_id: 'm' } })
+    assert.match(textOf(res), /'agent_id' is required/)
+  })
+})
+
+test('open_ratification refuses a bare-string voters list', async () => {
+  await withServer(async (client) => {
+    const res = await client.callTool({
+      name: 'open_ratification',
+      arguments: { proposer: 'p', fleet_id: 'f', subject: 's', quorum: 1, voters: 'alice' } as Record<string, unknown>,
+    })
+    assert.match(textOf(res), /must be an ARRAY/,
+      '"alice" would be spread into 5 single-character voters, locking out every real voter')
+  })
+})
+
+test('open_ratification refuses a non-numeric deadline that could never expire', async () => {
+  await withServer(async (client) => {
+    const res = await client.callTool({
+      name: 'open_ratification',
+      arguments: { proposer: 'p', fleet_id: 'f', subject: 's', quorum: 1, deadline: '2026-01-01' } as Record<string, unknown>,
+    })
+    assert.match(textOf(res), /finite number/, 'now >= "2026-01-01" is false forever — the council never expires')
+  })
+})
+
+test('open_ratification refuses a silence_policy outside its declared enum', async () => {
+  await withServer(async (client) => {
+    const res = await client.callTool({
+      name: 'open_ratification',
+      arguments: { proposer: 'p', fleet_id: 'f', subject: 's', quorum: 1, silence_policy: 'APPROVE' } as Record<string, unknown>,
+    })
+    assert.match(textOf(res), /exactly one of/, '"APPROVE" silently degraded to abstain, inverting what silence means')
+  })
+})
+
+test('set_fleet_timeout refuses 0, which would fail every agent instantly', async () => {
+  await withServer(async (client) => {
+    const res = await client.callTool({ name: 'set_fleet_timeout', arguments: { fleet_id: 'f', timeout_ms: 0 } })
+    assert.match(textOf(res), /must be >= 1/)
+  })
+})
+
+test('get_inbox refuses a non-numeric since instead of reporting an empty inbox', async () => {
+  await withServer(async (client) => {
+    const res = await client.callTool({ name: 'get_inbox', arguments: { agent_id: 'a', since: 'abc' } as Record<string, unknown> })
+    assert.match(textOf(res), /finite number/,
+      'NaN comparison returns [] with success — and this is the documented polling fallback for SSE')
+  })
+})

@@ -717,7 +717,28 @@ export function getInbox(agentId: string, since?: number): Message[] {
   return messages;
 }
 
+/**
+ * Acknowledge a message addressed to this agent.
+ *
+ * An ack is only meaningful from an ADDRESSED RECIPIENT. Without that check any
+ * registered agent could ack a message it was never sent: the call returned
+ * `{ok: true}` and wrote `{agent_id: A, action: "ack"}` into the trail, and
+ * `verify_ledger` emitted no finding because A is a real agent. The derived
+ * `acknowledged` flag was never fooled (it gates on `messageRecipients`), so
+ * ledger semantics survived — but `get_receipts` would report that A
+ * acknowledged a message it never received. In a product whose pitch is
+ * auditable coordination, a forgeable audit entry is the defect, whether or not
+ * it moves a downstream flag.
+ *
+ * Non-consuming annotations (`seen`, votes, ...) deliberately keep their open
+ * policy — third parties legitimately annotate; only the CONSUMING ack is
+ * restricted.
+ */
 export function ackMessage(agentId: string, messageId: string): boolean {
+  const data = loadData();
+  const msg = data.messages[messageId];
+  if (!msg) return false;
+  if (!messageRecipients(msg).includes(agentId)) return false;
   return writeReceipt(agentId, messageId, "ack") !== null;
 }
 

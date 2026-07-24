@@ -21,6 +21,16 @@ const PRIOR = 4;
 const SCALE = 0.5;
 const NEUTRAL = 1.0;
 
+/**
+ * NOTE ON `_capabilityKey`: it is deliberately unused. The tool description
+ * previously claimed it scoped the penalty — "an agent can be penalized for one
+ * failure mode without losing other capabilities" — which was never true: state
+ * is keyed by agentId alone, so a failure at 'react' lowers the agent's score
+ * for 'sql' too. The description now says so. Scoping it properly means keying
+ * this map by (agentId, capabilityKey) AND teaching routeWork which capability
+ * it is scoring, which is a real change, not a rename. Kept in the signature so
+ * callers do not have to change when that lands.
+ */
 export function recordRoutingOutcome(
   agentId: string,
   _capabilityKey: string,

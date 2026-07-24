@@ -255,3 +255,30 @@ test('whitespace-only ids, fleets and roles are rejected at the write', () => {
     ledger.cleanup()
   }
 })
+
+test('ack from a non-recipient is refused — an ack is not forgeable', async () => {
+  const ledger = freshLedger()
+  try {
+    const { sendMessage, ackMessage, registerAgentInLedger, createFleet, getReceipts } =
+      await import('../src/core.js')
+    createFleet('f1')
+    for (const id of ['alice', 'bob', 'mallory']) {
+      registerAgentInLedger({ id, fleet_id: 'f1', role: 'r', prompt: 'p', status: 'running', started_at: 1 })
+    }
+    const { messageId } = sendMessage('alice', 'bob', 'f1', 'question', 'hello')
+
+    // Mallory was never addressed. Before the fix this returned true and wrote
+    // {agent_id:'mallory', action:'ack'} into the audit trail, and verify_ledger
+    // reported nothing because mallory is a registered agent.
+    assert.equal(ackMessage('mallory', messageId), false, 'a non-recipient cannot ack')
+    assert.equal(
+      getReceipts(messageId).filter((r) => r.agent_id === 'mallory').length,
+      0,
+      'and must leave no trace in the receipt trail'
+    )
+
+    assert.equal(ackMessage('bob', messageId), true, 'the real recipient still acks normally')
+  } finally {
+    ledger.cleanup()
+  }
+})
