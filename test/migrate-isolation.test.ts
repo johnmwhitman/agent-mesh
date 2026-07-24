@@ -31,7 +31,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, writeFileSync, existsSync, readdirSync, rmSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, readFileSync, existsSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -469,7 +469,7 @@ test('a db carrying a different schema_version marker refuses the import (rollba
   }
 
   withEnv({ MESHFLEET_DB_FILE: dbPath, MESHFLEET_DATA_FILE: jsonPath, AGENT_MESH_DATA_FILE: undefined }, () => {
-    assert.throws(() => migrateJsonToSqlite(), /schema_version=99/)
+    assert.throws(() => migrateJsonToSqlite(), /schema_version="99"/)
     assert.ok(existsSync(jsonPath), 'the JSON must remain authoritative')
     assert.equal(isLedgerFileEmpty(dbPath), true, 'the rollback must leave the db empty, marker intact')
   })
@@ -631,7 +631,7 @@ test('corrupt JSON + incompatible schema marker: refusal happens BEFORE quaranti
   }
 
   withEnv({ MESHFLEET_DB_FILE: dbPath, MESHFLEET_DATA_FILE: jsonPath, AGENT_MESH_DATA_FILE: undefined }, () => {
-    assert.throws(() => migrateJsonToSqlite(), /schema_version=99/)
+    assert.throws(() => migrateJsonToSqlite(), /schema_version="99"/)
     assert.ok(existsSync(jsonPath), 'the corrupt source must remain at its live path, NOT quarantined')
     const corrupt = readdirSync(dir).filter((f) => f.includes('.corrupt-'))
     assert.equal(corrupt.length, 0, 'no quarantine artifact may exist after a pre-load refusal')
@@ -742,6 +742,114 @@ test('a migrator whose peer holds the lock past the 5s busy_timeout serializes i
     // never resolves.
     if (holder.exitCode === null) await new Promise((r) => holder.on('exit', r))
   } finally {
+    closeDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+// --- round-4 pins: source version bound, tightened identity ------------------
+
+test('a FUTURE-version source JSON is refused untouched, never silently downgraded', () => {
+  // cdx round-3 P1: migrateLedger accepts any schema_version >= 2 unchanged
+  // and the collection mapping keeps only known collections — so a v99 ledger
+  // imported partially, validated against its own filtered self, committed,
+  // and got retired. The version is now bounded BEFORE the load.
+  const dir = mkdtempSync(join(tmpdir(), 'meshfleet-migrate-futurever-'))
+  const dbPath = join(dir, 'ledger.db')
+  const jsonPath = join(dir, 'ledger.json')
+  const futureFixture = JSON.stringify({
+    schema_version: 99,
+    fleets: { f1: { id: 'f1', status: 'complete', created_at: 1 } },
+    future_tasks: { critical: { id: 'critical' } },
+  })
+  writeFileSync(jsonPath, futureFixture)
+
+  withEnv({ MESHFLEET_DB_FILE: dbPath, MESHFLEET_DATA_FILE: jsonPath, AGENT_MESH_DATA_FILE: undefined }, () => {
+    assert.throws(() => migrateJsonToSqlite(), /schema_version=99/)
+    assert.ok(existsSync(jsonPath), 'the source must be left exactly where it was')
+    assert.equal(readFileSync(jsonPath, 'utf-8'), futureFixture, 'and byte-identical')
+    const corrupt = readdirSync(dir).filter((f) => f.includes('.corrupt-'))
+    assert.equal(corrupt.length, 0, 'a version refusal is not a quarantine')
+  })
+  closeDb()
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('a foreign db with a GENERIC meta/schema_version table is still foreign', () => {
+  // cdx round-3: meta.schema_version is not meshfleet identity — plenty of
+  // applications keep exactly that table. Identity requires the mesh
+  // collection table set as well.
+  const dir = mkdtempSync(join(tmpdir(), 'meshfleet-migrate-genericmeta-'))
+  const dbPath = join(dir, 'generic.db')
+  const jsonPath = join(dir, 'ledger.json')
+  writeFileSync(jsonPath, LEDGER_FIXTURE)
+
+  const foreign = new DatabaseCtor(dbPath)
+  foreign.exec(
+    "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT); " +
+      "INSERT INTO meta VALUES ('schema_version', '1'); " +
+      "CREATE TABLE users (id INTEGER PRIMARY KEY); INSERT INTO users VALUES (1)"
+  )
+  foreign.close()
+
+  withEnv({ MESHFLEET_DB_FILE: dbPath, MESHFLEET_DATA_FILE: jsonPath, AGENT_MESH_DATA_FILE: undefined }, () => {
+    assert.throws(() => migrateJsonToSqlite(), /does not look like a meshfleet ledger/)
+    assert.ok(existsSync(jsonPath), 'the JSON must be untouched')
+  })
+  closeDb()
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('an EMPTY foreign db is refused BEFORE any meshfleet schema is stamped into it', () => {
+  // cdx round-3: zero rows used to read as `empty`, so the migrator proceeded
+  // and getDb() created meshfleet tables + marker inside someone else's
+  // database — contaminating it even when the import then failed.
+  const dir = mkdtempSync(join(tmpdir(), 'meshfleet-migrate-emptyforeign-'))
+  const dbPath = join(dir, 'foreign-empty.db')
+  const jsonPath = join(dir, 'ledger.json')
+  writeFileSync(jsonPath, LEDGER_FIXTURE)
+
+  const foreign = new DatabaseCtor(dbPath)
+  foreign.exec('CREATE TABLE app_settings (k TEXT PRIMARY KEY, v TEXT)') // zero rows
+  foreign.close()
+
+  withEnv({ MESHFLEET_DB_FILE: dbPath, MESHFLEET_DATA_FILE: jsonPath, AGENT_MESH_DATA_FILE: undefined }, () => {
+    assert.throws(() => migrateJsonToSqlite(), /does not look like a meshfleet ledger/)
+    const check = new DatabaseCtor(dbPath, { readonly: true })
+    const tables = (check.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all() as { name: string }[]).map((t) => t.name)
+    check.close()
+    assert.deepEqual(tables, ['app_settings'], 'no meshfleet table or marker may be stamped into the foreign db')
+    assert.ok(existsSync(jsonPath), 'the JSON must be untouched')
+  })
+  closeDb()
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('malformed destination markers are refused, not blessed by Number() coercion', () => {
+  // `Number("")` is 0 and `Number("1e1")` is 10 — both would have been treated
+  // as valid old versions and silently rewritten. Only canonical nonnegative
+  // decimals are versions; anything else is corruption.
+  for (const bad of ['', '  ', '1e1', '-1', '0x2']) {
+    const dir = mkdtempSync(join(tmpdir(), 'meshfleet-migrate-badmark-'))
+    const dbPath = join(dir, 'ledger.db')
+    const jsonPath = join(dir, 'ledger.json')
+    writeFileSync(jsonPath, LEDGER_FIXTURE)
+
+    setDbPath(dbPath)
+    try {
+      readLedger()
+      withStorageTransaction((db) => {
+        db.prepare("UPDATE meta SET value = ? WHERE key = 'schema_version'").run(bad)
+      })
+    } finally {
+      closeDb()
+      setDbPath(null)
+    }
+
+    withEnv({ MESHFLEET_DB_FILE: dbPath, MESHFLEET_DATA_FILE: jsonPath, AGENT_MESH_DATA_FILE: undefined }, () => {
+      assert.throws(() => migrateJsonToSqlite(), /migration refused/, `marker ${JSON.stringify(bad)} must refuse`)
+      assert.ok(existsSync(jsonPath), `the JSON must be untouched for marker ${JSON.stringify(bad)}`)
+    })
     closeDb()
     rmSync(dir, { recursive: true, force: true })
   }

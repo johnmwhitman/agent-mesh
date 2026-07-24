@@ -88,6 +88,27 @@ export function getMetaValue(key: string): string | undefined {
   return row?.value;
 }
 
+/**
+ * Read the `schema_version` marker from a ledger FILE on a private read-only
+ * connection — `undefined` when the file, table, or row is absent or
+ * unreadable. Advisory: the migrator uses it to refuse a wrong-version
+ * destination BEFORE its irreversible corrupt-source quarantine; the binding
+ * check still runs inside the import transaction.
+ */
+export function readLedgerFileMarker(file: string): string | undefined {
+  if (!existsSync(file)) return undefined;
+  let db: Database.Database | null = null;
+  try {
+    db = new Database(file, { readonly: true, fileMustExist: true });
+    const row = db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string } | undefined;
+    return row?.value;
+  } catch {
+    return undefined;
+  } finally {
+    try { db?.close(); } catch { /* best-effort */ }
+  }
+}
+
 /** Write one `meta` row on the shared handle (in-transaction safe). */
 export function setMetaValue(key: string, value: string): void {
   const db = getDb();
@@ -131,12 +152,31 @@ export function isLedgerFileEmpty(file: string): boolean {
  * authoritative in-transaction check, where a lock wait serializes properly and
  * a genuinely broken file fails loudly instead of quietly.
  *
- * `foreign` = a valid SQLite db holding rows but NO meshfleet schema marker.
- * Answering `populated` for one would declare an unrelated database "the
- * ledger" and advise the operator to retire their real JSON against it. The
- * identity check must run HERE, on the read-only probe: once getDb() touches
- * the file it stamps a schema_version marker into it, spoiling the question.
+ * `foreign` = a valid SQLite db that is not a meshfleet ledger. Answering
+ * `populated` for one would declare an unrelated database "the ledger" and
+ * advise the operator to retire their real JSON against it; answering `empty`
+ * would let getDb() stamp meshfleet schema into a file that belongs to
+ * something else. Identity therefore requires BOTH the schema marker and the
+ * full mesh collection table set — a generic `meta(key,value)` table holding a
+ * `schema_version` row is not meshfleet identity (plenty of apps have one),
+ * and every meshfleet db has carried all eight collection tables plus the
+ * marker since the SQLite era began (getDb creates them together, atomically,
+ * on first open). A file with NO user tables at all is `empty` (a brand-new
+ * db, adoptable). The identity check must run HERE, on the read-only probe:
+ * once getDb() touches the file it stamps marker and schema into it, spoiling
+ * the question.
  */
+const MESH_IDENTITY_TABLES = [
+  "fleets",
+  "agents",
+  "messages",
+  "inboxes",
+  "capabilities",
+  "receipts",
+  "ratifications",
+  "templates",
+] as const;
+
 export function probeLedgerFile(file: string): "absent" | "empty" | "populated" | "foreign" | "unknown" {
   if (!existsSync(file)) return "absent";
   let db: Database.Database | null = null;
@@ -144,14 +184,18 @@ export function probeLedgerFile(file: string): "absent" | "empty" | "populated" 
     db = new Database(file, { readonly: true, fileMustExist: true });
     // A locked db answers SQLITE_BUSY on the query, not on open — the catch
     // below maps it to `unknown` like every other non-definitive outcome.
-    if (!ledgerHasRows(db)) return "empty";
-    const marker = db
-      .prepare("SELECT value FROM meta WHERE key = 'schema_version'")
-      .get() as { value: string } | undefined;
-    return marker ? "populated" : "foreign";
-  } catch (err) {
-    // No `meta` table at all is a definitive foreign answer, not an unknown.
-    if (err instanceof Error && /no such table: meta/.test(err.message)) return "foreign";
+    const tables = new Set(
+      (db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all() as { name: string }[])
+        .map((r) => r.name)
+    );
+    if (tables.size === 0) return "empty";
+    const hasMarker =
+      tables.has("meta") &&
+      db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() !== undefined;
+    const isMeshfleet = hasMarker && MESH_IDENTITY_TABLES.every((t) => tables.has(t));
+    if (!isMeshfleet) return "foreign";
+    return ledgerHasRows(db) ? "populated" : "empty";
+  } catch {
     return "unknown";
   } finally {
     try { db?.close(); } catch { /* best-effort */ }

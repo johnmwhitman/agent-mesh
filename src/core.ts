@@ -242,21 +242,33 @@ export function resolveDataDir(): string {
   return resolveEnv(process.env, "MESHFLEET_DATA_DIR", "AGENT_MESH_DATA_DIR") ?? dataDir;
 }
 
+/**
+ * Shape an already-parsed raw ledger object into MeshData (running the
+ * v0/v1→v2 backfill). Exported for the migrator, which must parse the source
+ * itself BEFORE its import transaction — both to bound the source's
+ * schema_version (a future-version ledger would otherwise be silently
+ * downgraded: unknown collections dropped, source retired) and so the
+ * corrupt-path quarantine rename never sits inside SQL rollback scope.
+ */
+export function ledgerFromRaw(raw: Record<string, unknown>): MeshData {
+  const migrated = migrateLedger(raw) as Record<string, unknown>;
+  return {
+    fleets: (migrated.fleets || {}) as Record<string, Fleet>,
+    agents: (migrated.agents || {}) as Record<string, Agent>,
+    messages: (migrated.messages || {}) as Record<string, Message>,
+    inboxes: (migrated.inboxes || {}) as Record<string, string[]>,
+    capabilities: (migrated.capabilities || {}) as Record<string, Capability>,
+    receipts: (migrated.receipts || {}) as Record<string, Receipt>,
+    ratifications: (migrated.ratifications || {}) as Record<string, Ratification>,
+    templates: (migrated.templates || {}) as Record<string, unknown>,
+  };
+}
+
 export function loadDataFromFile(file: string): MeshData {
   if (!existsSync(file)) return { ...EMPTY_DATA };
   try {
     const raw = JSON.parse(readFileSync(file, "utf-8"));
-    const migrated = migrateLedger(raw) as Record<string, unknown>;
-    return {
-      fleets: (migrated.fleets || {}) as Record<string, Fleet>,
-      agents: (migrated.agents || {}) as Record<string, Agent>,
-      messages: (migrated.messages || {}) as Record<string, Message>,
-      inboxes: (migrated.inboxes || {}) as Record<string, string[]>,
-      capabilities: (migrated.capabilities || {}) as Record<string, Capability>,
-      receipts: (migrated.receipts || {}) as Record<string, Receipt>,
-      ratifications: (migrated.ratifications || {}) as Record<string, Ratification>,
-      templates: (migrated.templates || {}) as Record<string, unknown>,
-    };
+    return ledgerFromRaw(raw as Record<string, unknown>);
   } catch (err) {
     // Corrupt ledger: QUARANTINE the bad file (preserve it for recovery) and fail
     // LOUDLY, then start empty — never silently overwrite unrecoverable data. The
