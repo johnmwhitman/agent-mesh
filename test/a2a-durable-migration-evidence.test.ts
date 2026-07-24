@@ -110,7 +110,12 @@ test("reserved table, index, trigger, view, and foreign dependency refuse migrat
       raw.close();
 
       setDbPath(temp.dbFile);
-      assert.throws(() => getStorageSchemaVersion(), /refusing v4 migration/, label);
+      // Either refusal is correct and both are fail-closed: the adoption gate
+      // (getDb) refuses a planted VIEW or unknown TRIGGER before any write,
+      // and the A2A preflight refuses reserved-namespace objects during the
+      // migration. The contract these cases pin — refuse WITHOUT mutation — is
+      // asserted below either way.
+      assert.throws(() => getStorageSchemaVersion(), /refusing v4 migration|not a meshfleet ledger/, label);
       closeDb();
       raw = new Database(temp.dbFile, { readonly: true });
       assert.equal((raw.prepare("SELECT value FROM meta WHERE key = 'storage_schema_version'").get() as { value: string }).value, "3");
@@ -152,7 +157,10 @@ test("partial, malformed, extra, and foreign-dependent v4 layouts fail closed wh
       raw.exec(ddl);
       raw.close();
       setDbPath(temp.dbFile);
-      assert.throws(() => getStorageSchemaVersion(), /invalid v4 a2a layout/, label);
+      // `foreign-view` is now caught earlier by the adoption gate (we never
+      // create views); the rest still reach the A2A layout validator. Both are
+      // fail-closed refusals of a layout this build will not operate on.
+      assert.throws(() => getStorageSchemaVersion(), /invalid v4 a2a layout|not a meshfleet ledger/, label);
     } finally { temp.cleanup(); }
   }
 });

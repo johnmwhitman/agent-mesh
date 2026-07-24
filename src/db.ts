@@ -184,20 +184,46 @@ const MESH_IDENTITY_TABLES = [
  * through CREATE TABLE IF NOT EXISTS and lock the wrong schema in place,
  * failing at first read instead of at the door.
  */
-const BASE_SCHEMA_COLUMNS: Readonly<Record<string, readonly string[]>> = {
-  meta: ["key", "value"],
-  fleets: ["id", "data"],
-  agents: ["id", "fleet_id", "data"],
-  messages: ["id", "fleet_id", "data"],
-  inboxes: ["agent_id", "data"],
-  capabilities: ["agent_id", "data"],
-  receipts: ["key", "message_id", "data"],
-  ratifications: ["message_id", "fleet_id", "data"],
-  templates: ["key", "data"],
+interface ColumnSpec {
+  readonly name: string;
+  readonly notnull: 0 | 1;
+  readonly pk: 0 | 1;
+}
+const col = (name: string, notnull: 0 | 1, pk: 0 | 1): ColumnSpec => ({ name, notnull, pk });
+const DATA = col("data", 1, 0);
+const BASE_SCHEMA_COLUMNS: Readonly<Record<string, readonly ColumnSpec[]>> = {
+  meta: [col("key", 0, 1), col("value", 1, 0)],
+  fleets: [col("id", 0, 1), DATA],
+  agents: [col("id", 0, 1), col("fleet_id", 0, 0), DATA],
+  messages: [col("id", 0, 1), col("fleet_id", 0, 0), DATA],
+  inboxes: [col("agent_id", 0, 1), DATA],
+  capabilities: [col("agent_id", 0, 1), DATA],
+  receipts: [col("key", 0, 1), col("message_id", 0, 0), DATA],
+  ratifications: [col("message_id", 0, 1), col("fleet_id", 0, 0), DATA],
+  templates: [col("key", 0, 1), DATA],
 };
 
-/** The `meta` keys meshfleet itself writes; anything else in `meta` is foreign data. */
-const MESHFLEET_META_KEYS: ReadonlySet<string> = new Set(["schema_version", "storage_schema_version"]);
+/**
+ * Every trigger any meshfleet build creates. All of them are installed by the
+ * STORAGE migrations, which run only after the schema marker is committed — so
+ * a trigger in a marker-less file is never ours, and a trigger on the identity
+ * path that is not in this set is not ours either. The latter matters more than
+ * it looks: `INSERT OR IGNORE` fires a `BEFORE INSERT` trigger even when the
+ * insert loses its conflict and writes nothing (verified empirically), so a
+ * planted trigger on `meta` would execute foreign SQL on every single boot.
+ */
+const MESHFLEET_TRIGGERS: ReadonlySet<string> = new Set([
+  "lifecycle_work_retry_policy_insert",
+  "lifecycle_work_retry_policy_update",
+  "lifecycle_attempt_schedule_insert",
+  "lifecycle_attempt_schedule_update",
+  "a2a_acceptance_records_no_update",
+  "a2a_acceptance_records_no_delete",
+  "a2a_request_mappings_no_update",
+  "a2a_request_mappings_no_delete",
+  "a2a_decision_receipts_no_update",
+  "a2a_decision_receipts_no_delete",
+]);
 
 export type LedgerSchemaClass = "fresh" | "meshfleet" | "init-in-flight" | "foreign";
 
@@ -249,32 +275,55 @@ export function classifyLedgerSchema(db: Database.Database): LedgerSchemaClass {
       hasMarker = false;
     }
   }
-  if (hasMarker && MESH_IDENTITY_TABLES.every((t) => tables.includes(t))) return "meshfleet";
+  if (hasMarker && MESH_IDENTITY_TABLES.every((t) => tables.includes(t))) {
+    // Identity holds — but only OUR objects may ride along. A view is never
+    // ours; a trigger is ours only if a storage migration created it. An
+    // unknown trigger here is either a planted one (which `INSERT OR IGNORE`
+    // fires on every boot, conflict or not) or a newer meshfleet's, and both
+    // must be loud rather than silently executed.
+    for (const o of objects) {
+      if (o.type === "view") return "foreign";
+      if (o.type === "trigger" && !MESHFLEET_TRIGGERS.has(o.name)) return "foreign";
+    }
+    return "meshfleet";
+  }
 
-  // No identity: views/triggers cannot belong to our in-flight init.
+  // Past this point the file has no meshfleet identity, so it can only be our
+  // own INTERRUPTED first initialization — which is a strictly-defined shape:
+  //   * the marker is written only AFTER the full base schema, so a file that
+  //     HAS a marker but is missing identity tables is damaged or foreign, not
+  //     in-flight (this branch used to accept `meta(schema_version='99') +
+  //     fleets` and adopt it, preserving a marker this build never wrote);
+  //   * for the same reason a genuine in-flight file has NO meta rows at all;
+  //   * and it carries no views or triggers, which arrive only post-marker.
+  if (hasMarker) return "foreign";
   if (objects.some((o) => o.type !== "table")) return "foreign";
-  if (tables.length === 0) return "fresh"; // unreachable (objects non-empty ⇒ tables non-empty here), kept for clarity
 
   // Marker-less partial initialization — every condition below is load-bearing.
   const quote = (t: string): string => `"${t.replace(/"/g, '""')}"`;
   for (const t of tables) {
     const expected = BASE_SCHEMA_COLUMNS[t];
     if (!expected) return "foreign"; // a table the base schema never creates
-    let cols: Set<string>;
+    let cols: { name: string; notnull: number; pk: number }[];
     try {
-      cols = new Set((db.pragma(`table_info(${quote(t)})`) as { name: string }[]).map((c) => c.name));
+      cols = db.pragma(`table_info(${quote(t)})`) as { name: string; notnull: number; pk: number }[];
     } catch {
       return "foreign";
     }
-    if (!expected.every((c) => cols.has(c))) return "foreign"; // wrong layout
+    // EXACT layout, not a name superset. `CREATE TABLE IF NOT EXISTS` cannot
+    // repair a table that already exists, so any divergence we adopt is locked
+    // in permanently and surfaces as a failed write later instead of a refusal
+    // now. Storage migrations DO add columns to base tables (fleets gains
+    // `lifecycle_mode`), but only after the marker — so on this marker-less
+    // path exact equality is correct and cannot false-refuse.
+    if (cols.length !== expected.length) return "foreign";
+    for (const want of expected) {
+      const got = cols.find((c) => c.name === want.name);
+      if (!got || got.notnull !== want.notnull || got.pk !== want.pk) return "foreign";
+    }
   }
   for (const t of tables) {
-    if (t === "meta") continue;
-    if (db.prepare(`SELECT 1 FROM ${quote(t)} LIMIT 1`).get() !== undefined) return "foreign"; // data of unknown provenance
-  }
-  if (tables.includes("meta")) {
-    const keys = db.prepare("SELECT key FROM meta").all() as { key: string }[];
-    if (!keys.every((r) => MESHFLEET_META_KEYS.has(r.key))) return "foreign"; // someone else's meta rows
+    if (db.prepare(`SELECT 1 FROM ${quote(t)} LIMIT 1`).get() !== undefined) return "foreign"; // any row (incl. meta) is data we did not write
   }
   return "init-in-flight";
 }
@@ -298,7 +347,8 @@ function assertAdoptable(db: Database.Database, file: string): void {
       `MESHFLEET_DB_FILE points at the wrong file, fix the path. If this really is the intended ` +
       `ledger location, move the existing database aside first. If this WAS a meshfleet ledger ` +
       `and a collection table has been dropped or altered, restore it from backup rather than ` +
-      `reopening it here. Nothing was written.`
+      `reopening it here. No schema, marker, or row was written (a refusal detected only after ` +
+      `the journal-mode conversion may have left the file in WAL mode — no content change).`
   );
 }
 

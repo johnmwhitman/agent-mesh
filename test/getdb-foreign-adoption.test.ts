@@ -25,7 +25,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import DatabaseCtor from 'better-sqlite3'
@@ -290,4 +290,139 @@ test('refusal names the offending path, and adoption completes the ledger fully'
     assert.ok(tables.has(t), `adoption must finish the interrupted init: ${t} present`)
   }
   rmSync(dir, { recursive: true, force: true })
+})
+
+// --- round-3 pins (cdx confirmation pass) ------------------------------------
+
+import { spawn } from 'node:child_process'
+import { dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { classifyLedgerSchema } from '../src/db.js'
+
+function classifyFile(dbPath: string): string {
+  const db = new DatabaseCtor(dbPath, { readonly: true })
+  try {
+    return classifyLedgerSchema(db)
+  } finally {
+    db.close()
+  }
+}
+
+test('a marker WITHOUT the full identity table set is foreign, never in-flight', () => {
+  // The marker is written only after the complete base schema, so this shape
+  // cannot come from our own interrupted init. The previous revision accepted
+  // it and adopted the file while PRESERVING a marker this build never wrote
+  // (e.g. schema_version=99) — verified against the classifier before the fix.
+  const dir = mkdtempSync(join(tmpdir(), 'meshfleet-adopt-markerless-'))
+  for (const [name, sql] of [
+    ['marker99', "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL); INSERT INTO meta VALUES ('schema_version','99'); CREATE TABLE fleets (id TEXT PRIMARY KEY, data TEXT NOT NULL)"],
+    ['storageonly', "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL); INSERT INTO meta VALUES ('storage_schema_version','4')"],
+  ] as const) {
+    const p = join(dir, `${name}.db`)
+    const d = new DatabaseCtor(p)
+    d.exec(sql)
+    d.close()
+    assert.equal(classifyFile(p), 'foreign', `${name} must not classify as an in-flight init`)
+    withDb(p, () => assert.throws(() => readLedger(), /not a meshfleet ledger/))
+  }
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('in-flight requires the EXACT base layout: missing PK or an extra column is foreign', () => {
+  // CREATE TABLE IF NOT EXISTS cannot repair an existing table, so any layout
+  // we adopt is locked in and fails at first write instead of at the door.
+  const dir = mkdtempSync(join(tmpdir(), 'meshfleet-adopt-ddl-'))
+  for (const [name, sql] of [
+    ['nopk', 'CREATE TABLE fleets (id TEXT, data TEXT NOT NULL)'],
+    ['extracol', 'CREATE TABLE fleets (id TEXT PRIMARY KEY, data TEXT NOT NULL, tenant TEXT NOT NULL)'],
+    ['nullable-data', 'CREATE TABLE fleets (id TEXT PRIMARY KEY, data TEXT)'],
+  ] as const) {
+    const p = join(dir, `${name}.db`)
+    const d = new DatabaseCtor(p)
+    d.exec(sql)
+    d.close()
+    assert.equal(classifyFile(p), 'foreign', `${name} must be refused`)
+  }
+  // …and the exact layout still adopts.
+  const okPath = join(dir, 'ok.db')
+  const ok = new DatabaseCtor(okPath)
+  ok.exec('CREATE TABLE fleets (id TEXT PRIMARY KEY, data TEXT NOT NULL)')
+  ok.close()
+  assert.equal(classifyFile(okPath), 'init-in-flight')
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('an unknown trigger is foreign even on the identity path', () => {
+  // INSERT OR IGNORE fires a BEFORE INSERT trigger even when the insert loses
+  // its conflict and writes nothing (verified empirically), so a planted
+  // trigger on meta would run foreign SQL on EVERY boot of a full-identity
+  // file. Our own storage-migration triggers must still be tolerated.
+  const dir = mkdtempSync(join(tmpdir(), 'meshfleet-adopt-idtrigger-'))
+  const dbPath = join(dir, 'ledger.db')
+  withDb(dbPath, () => {
+    withLedger((d) => {
+      d.fleets['f1'] = { id: 'f1', status: 'running', created_at: 1 } as never
+    })
+  })
+  assert.equal(classifyFile(dbPath), 'meshfleet', 'precondition: a real ledger with its own triggers is ours')
+
+  const planted = new DatabaseCtor(dbPath)
+  planted.exec("CREATE TRIGGER evil BEFORE INSERT ON meta BEGIN SELECT RAISE(ABORT, 'pwned'); END")
+  planted.close()
+  assert.equal(classifyFile(dbPath), 'foreign', 'a trigger we never created makes the file foreign')
+  withDb(dbPath, () => assert.throws(() => readLedger(), /not a meshfleet ledger/))
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('a view on an otherwise-genuine ledger is foreign (we never create views)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'meshfleet-adopt-idview-'))
+  const dbPath = join(dir, 'ledger.db')
+  withDb(dbPath, () => {
+    withLedger((d) => {
+      d.fleets['f1'] = { id: 'f1', status: 'running', created_at: 1 } as never
+    })
+  })
+  const planted = new DatabaseCtor(dbPath)
+  planted.exec('CREATE VIEW peek AS SELECT * FROM fleets')
+  planted.close()
+  assert.equal(classifyFile(dbPath), 'foreign')
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('BINDING re-check: rows committed after the advisory read still refuse', async () => {
+  // The advisory check reads under a shared lock, so a foreign writer's
+  // UNCOMMITTED rows are invisible to it: without the re-check inside
+  // BEGIN IMMEDIATE we would pass the advisory, wait out the commit, and stamp
+  // schema into a file that now holds foreign data.
+  const here = dirname(fileURLToPath(import.meta.url))
+  const WRITER = join(here, 'helpers', 'uncommitted-writer.mjs')
+  const dir = mkdtempSync(join(tmpdir(), 'meshfleet-adopt-binding-'))
+  const dbPath = join(dir, 'partial.db')
+  const signal = join(dir, 'holding')
+  const seed = new DatabaseCtor(dbPath)
+  seed.exec('CREATE TABLE fleets (id TEXT PRIMARY KEY, data TEXT NOT NULL)') // in-flight shape
+  seed.close()
+  assert.equal(classifyFile(dbPath), 'init-in-flight', 'precondition: the advisory view is adoptable')
+
+  const writer = spawn(process.execPath, [WRITER, dbPath, signal, '1200'], { stdio: ['ignore', 'ignore', 'inherit'] })
+  try {
+    const deadline = Date.now() + 10_000
+    while (!existsSync(signal)) {
+      if (writer.exitCode !== null) throw new Error('writer exited before taking the lock')
+      if (Date.now() > deadline) throw new Error('writer never signalled')
+      await new Promise((r) => setTimeout(r, 10))
+    }
+    withDb(dbPath, () => {
+      assert.throws(() => readLedger(), /not a meshfleet ledger/, 'the binding re-check must catch the committed rows')
+    })
+    const check = new DatabaseCtor(dbPath, { readonly: true })
+    const tables = (check.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as { name: string }[]).map((t) => t.name)
+    const marker = check.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='meta'").get()
+    check.close()
+    assert.deepEqual(tables, ['fleets'], 'no meshfleet schema may be stamped')
+    assert.equal(marker, undefined, 'and no marker table created')
+  } finally {
+    if (writer.exitCode === null) await new Promise((r) => writer.on('exit', r))
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
