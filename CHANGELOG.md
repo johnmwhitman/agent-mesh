@@ -5,6 +5,16 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 ## [Unreleased]
 
 ### Fixed
+- **The server no longer adopts a database file that belongs to something else.** `getDb()` used
+  to run its schema creation and stamp its version marker into WHATEVER file sat at the resolved
+  db path — a wrong `MESHFLEET_DB_FILE` meant meshfleet silently wrote its tables into an
+  unrelated application's database and operated there. Opening now checks adoption BEFORE any
+  write (including the journal-mode conversion, which already rewrites the file header): files
+  with zero tables and genuine meshfleet ledgers open as always; an interrupted or
+  concurrently-racing first initialization (all-known empty tables) completes safely; anything
+  else refuses loudly with the path named. One documented blind spot: an empty foreign db whose
+  tables are all exact meshfleet names is indistinguishable from our own interrupted
+  initialization — adopting it overwrites no rows, since there are none.
 - **The JSON→SQLite migrator now owns its decide→import→validate sequence as ONE `BEGIN IMMEDIATE`
   transaction.** The emptiness check that authorizes the wholesale import runs under the same
   exclusive write lock as the import, so a writer — or a second migrator — committing between the

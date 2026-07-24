@@ -177,6 +177,63 @@ const MESH_IDENTITY_TABLES = [
   "templates",
 ] as const;
 
+/**
+ * Every table any meshfleet build creates (base schema + storage migrations).
+ * Kept in one place so the adoption gate and the migrator's probe cannot
+ * drift; verified empirically against a fresh getDb() materialization.
+ */
+const KNOWN_MESHFLEET_TABLES: ReadonlySet<string> = new Set([
+  "meta",
+  ...MESH_IDENTITY_TABLES,
+  "work_items",
+  "attempts",
+  "attempt_events",
+  "lifecycle_event_outbox",
+  "a2a_acceptance_records",
+  "a2a_decision_receipts",
+  "a2a_request_mappings",
+]);
+
+/**
+ * The adoption contract for a db file getDb() is about to initialize:
+ *
+ *  - zero user tables               → adoptable (brand-new file)
+ *  - marker + all collection tables → adoptable (a meshfleet ledger)
+ *  - all-KNOWN tables, no rows
+ *    outside `meta`                 → adoptable (an interrupted or
+ *    concurrently-racing first initialization; it holds no data, and refusing
+ *    it would turn a healthy cold-boot race into a false refusal)
+ *  - anything else                  → THROW, before any write
+ *
+ * The residual this cannot see: a foreign db whose tables are all exact
+ * meshfleet names AND empty is indistinguishable from our own interrupted
+ * init — adopting it adds the missing tables and marker but overwrites no
+ * rows (there are none). Data-bearing impostors refuse.
+ */
+function assertAdoptable(db: Database.Database, file: string): void {
+  const tables = (
+    db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all() as { name: string }[]
+  ).map((r) => r.name);
+  if (tables.length === 0) return;
+  const hasMarker =
+    tables.includes("meta") &&
+    db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() !== undefined;
+  if (hasMarker && MESH_IDENTITY_TABLES.every((t) => tables.includes(t))) return;
+  const allKnown = tables.every((t) => KNOWN_MESHFLEET_TABLES.has(t));
+  if (allKnown) {
+    const anyRowsOutsideMeta = tables.some(
+      (t) => t !== "meta" && db.prepare(`SELECT 1 FROM "${t.replace(/"/g, '""')}" LIMIT 1`).get() !== undefined
+    );
+    if (!anyRowsOutsideMeta) return;
+  }
+  throw new Error(
+    `the file at ${file} is not a meshfleet ledger (it holds schema or rows this build does not ` +
+      `recognize as its own) — refusing to adopt it or write into it. If MESHFLEET_DB_FILE points ` +
+      `at the wrong file, fix the path; if this really is the intended ledger location, move the ` +
+      `existing database aside first. Nothing was written.`
+  );
+}
+
 export function probeLedgerFile(file: string): "absent" | "empty" | "populated" | "foreign" | "unknown" {
   if (!existsSync(file)) return "absent";
   let db: Database.Database | null = null;
@@ -746,6 +803,13 @@ function getDb(): Database.Database {
     db.pragma("foreign_keys = ON"); // enforce relational lifecycle invariants on every handle
     if ((db.pragma("foreign_keys", { simple: true }) as number) !== 1) throw new Error("SQLite foreign_keys could not be enabled");
     db.pragma("busy_timeout = 5000"); // wait for a concurrent writer instead of erroring
+    // Adoption gate: refuse a file that belongs to something else BEFORE any
+    // write — including the journal-mode conversion below, which already
+    // rewrites the file header. Without this, getDb() stamped meshfleet
+    // schema + marker into whatever file MESHFLEET_DB_FILE happened to name
+    // and the server silently operated inside an unrelated database. (The
+    // migrator's read-only probe guarded only the migration path.)
+    assertAdoptable(db, file);
     // The WAL conversion is the one statement busy_timeout does NOT cover:
     // SQLite skips the busy handler on the lock upgrade journal-mode changes
     // need (its deadlock-avoidance path), so N processes racing to initialize
