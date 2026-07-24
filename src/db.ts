@@ -178,59 +178,127 @@ const MESH_IDENTITY_TABLES = [
 ] as const;
 
 /**
- * Every table any meshfleet build creates (base schema + storage migrations).
- * Kept in one place so the adoption gate and the migrator's probe cannot
- * drift; verified empirically against a fresh getDb() materialization.
+ * The columns getDb's base SCHEMA declares per table. Used to validate a
+ * marker-less partial initialization: an empty table named like ours but with
+ * a DIFFERENT column layout is somebody else's — adopting it would no-op
+ * through CREATE TABLE IF NOT EXISTS and lock the wrong schema in place,
+ * failing at first read instead of at the door.
  */
-const KNOWN_MESHFLEET_TABLES: ReadonlySet<string> = new Set([
-  "meta",
-  ...MESH_IDENTITY_TABLES,
-  "work_items",
-  "attempts",
-  "attempt_events",
-  "lifecycle_event_outbox",
-  "a2a_acceptance_records",
-  "a2a_decision_receipts",
-  "a2a_request_mappings",
-]);
+const BASE_SCHEMA_COLUMNS: Readonly<Record<string, readonly string[]>> = {
+  meta: ["key", "value"],
+  fleets: ["id", "data"],
+  agents: ["id", "fleet_id", "data"],
+  messages: ["id", "fleet_id", "data"],
+  inboxes: ["agent_id", "data"],
+  capabilities: ["agent_id", "data"],
+  receipts: ["key", "message_id", "data"],
+  ratifications: ["message_id", "fleet_id", "data"],
+  templates: ["key", "data"],
+};
+
+/** The `meta` keys meshfleet itself writes; anything else in `meta` is foreign data. */
+const MESHFLEET_META_KEYS: ReadonlySet<string> = new Set(["schema_version", "storage_schema_version"]);
+
+export type LedgerSchemaClass = "fresh" | "meshfleet" | "init-in-flight" | "foreign";
 
 /**
- * The adoption contract for a db file getDb() is about to initialize:
+ * ONE classification of a database's schema, consumed by BOTH the adoption
+ * gate (assertAdoptable) and the migrator's probe (probeLedgerFile). An
+ * earlier revision let the two answer differently, so the real boot path —
+ * migrator first — refused meshfleet's own interrupted cold init as "foreign"
+ * while the gate would have adopted it, and no restart healed it.
  *
- *  - zero user tables               → adoptable (brand-new file)
- *  - marker + all collection tables → adoptable (a meshfleet ledger)
- *  - all-KNOWN tables, no rows
- *    outside `meta`                 → adoptable (an interrupted or
- *    concurrently-racing first initialization; it holds no data, and refusing
- *    it would turn a healthy cold-boot race into a false refusal)
- *  - anything else                  → THROW, before any write
- *
- * The residual this cannot see: a foreign db whose tables are all exact
- * meshfleet names AND empty is indistinguishable from our own interrupted
- * init — adopting it adds the missing tables and marker but overwrites no
- * rows (there are none). Data-bearing impostors refuse.
+ *  - `fresh`          — no user objects at all: a brand-new file.
+ *  - `meshfleet`      — the schema marker plus every collection table. Extra
+ *    tables are tolerated ON PURPOSE: a newer meshfleet's db must open here
+ *    (its storage version check rejects downgrades loudly later). Residual:
+ *    a file that is BOTH a real ledger and something else's tables adopts.
+ *  - `init-in-flight` — a marker-less SUBSET of the base schema tables, each
+ *    with exactly our column layout (supersets allowed), zero rows outside
+ *    `meta`, and any `meta` rows keyed only by meshfleet's own bookkeeping
+ *    keys. This is what a crash or a racing peer's half-finished first
+ *    `exec(SCHEMA)` leaves behind — it holds nothing, and refusing it would
+ *    make a healthy cold-boot race fatal. Lifecycle/A2A tables cannot appear
+ *    here: storage migrations only ever run AFTER the marker exists, so their
+ *    presence without a marker means the file is not ours.
+ *  - `foreign`        — everything else, including any view or trigger in a
+ *    MARKER-LESS file: meshfleet's base initialization creates neither
+ *    (triggers arrive only in the storage migrations, which run after the
+ *    marker exists), so a marker-less file holding one is not our in-flight
+ *    init — a trigger on `meta` would execute someone else's SQL on our
+ *    marker insert, and a views-only file used to slip through a tables-only
+ *    enumeration as "zero tables". A file that PASSES identity tolerates its
+ *    own triggers and views (real ledgers carry ten lifecycle/A2A guard
+ *    triggers — an earlier draft of this rule refused every genuine ledger on
+ *    reopen, caught by the reopen test on its first run).
+ */
+export function classifyLedgerSchema(db: Database.Database): LedgerSchemaClass {
+  const objects = db
+    .prepare("SELECT name, type FROM sqlite_master WHERE type IN ('table','view','trigger') AND name NOT LIKE 'sqlite_%'")
+    .all() as { name: string; type: string }[];
+  if (objects.length === 0) return "fresh";
+  const tables = objects.filter((o) => o.type === "table").map((o) => o.name);
+
+  let hasMarker = false;
+  if (tables.includes("meta")) {
+    try {
+      hasMarker = db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() !== undefined;
+    } catch {
+      // Unreadable meta (wrong columns) is not OUR meta — fall through to the
+      // in-flight/foreign classification, whose column check answers cleanly.
+      hasMarker = false;
+    }
+  }
+  if (hasMarker && MESH_IDENTITY_TABLES.every((t) => tables.includes(t))) return "meshfleet";
+
+  // No identity: views/triggers cannot belong to our in-flight init.
+  if (objects.some((o) => o.type !== "table")) return "foreign";
+  if (tables.length === 0) return "fresh"; // unreachable (objects non-empty ⇒ tables non-empty here), kept for clarity
+
+  // Marker-less partial initialization — every condition below is load-bearing.
+  const quote = (t: string): string => `"${t.replace(/"/g, '""')}"`;
+  for (const t of tables) {
+    const expected = BASE_SCHEMA_COLUMNS[t];
+    if (!expected) return "foreign"; // a table the base schema never creates
+    let cols: Set<string>;
+    try {
+      cols = new Set((db.pragma(`table_info(${quote(t)})`) as { name: string }[]).map((c) => c.name));
+    } catch {
+      return "foreign";
+    }
+    if (!expected.every((c) => cols.has(c))) return "foreign"; // wrong layout
+  }
+  for (const t of tables) {
+    if (t === "meta") continue;
+    if (db.prepare(`SELECT 1 FROM ${quote(t)} LIMIT 1`).get() !== undefined) return "foreign"; // data of unknown provenance
+  }
+  if (tables.includes("meta")) {
+    const keys = db.prepare("SELECT key FROM meta").all() as { key: string }[];
+    if (!keys.every((r) => MESHFLEET_META_KEYS.has(r.key))) return "foreign"; // someone else's meta rows
+  }
+  return "init-in-flight";
+}
+
+/**
+ * The adoption gate: getDb() must not write into a file that belongs to
+ * something else. Called twice on purpose — once BEFORE the journal-mode
+ * conversion (advisory: the WAL conversion already rewrites the file header,
+ * a mutation we must not perform on a foreign file), and once more INSIDE the
+ * `BEGIN IMMEDIATE` that creates schema and marker (binding: the advisory
+ * read runs under a shared lock, so a foreign writer's uncommitted rows are
+ * invisible to it — the same advisory/binding split the migrator uses).
+ * Residual: a foreign file that only the binding check catches has already
+ * had its journal header converted; nothing else is written.
  */
 function assertAdoptable(db: Database.Database, file: string): void {
-  const tables = (
-    db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all() as { name: string }[]
-  ).map((r) => r.name);
-  if (tables.length === 0) return;
-  const hasMarker =
-    tables.includes("meta") &&
-    db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() !== undefined;
-  if (hasMarker && MESH_IDENTITY_TABLES.every((t) => tables.includes(t))) return;
-  const allKnown = tables.every((t) => KNOWN_MESHFLEET_TABLES.has(t));
-  if (allKnown) {
-    const anyRowsOutsideMeta = tables.some(
-      (t) => t !== "meta" && db.prepare(`SELECT 1 FROM "${t.replace(/"/g, '""')}" LIMIT 1`).get() !== undefined
-    );
-    if (!anyRowsOutsideMeta) return;
-  }
+  if (classifyLedgerSchema(db) !== "foreign") return;
   throw new Error(
-    `the file at ${file} is not a meshfleet ledger (it holds schema or rows this build does not ` +
-      `recognize as its own) — refusing to adopt it or write into it. If MESHFLEET_DB_FILE points ` +
-      `at the wrong file, fix the path; if this really is the intended ledger location, move the ` +
-      `existing database aside first. Nothing was written.`
+    `the file at ${file} is not a meshfleet ledger (it holds schema, rows, or SQL objects this ` +
+      `build does not recognize as its own) — refusing to adopt it or write into it. If ` +
+      `MESHFLEET_DB_FILE points at the wrong file, fix the path. If this really is the intended ` +
+      `ledger location, move the existing database aside first. If this WAS a meshfleet ledger ` +
+      `and a collection table has been dropped or altered, restore it from backup rather than ` +
+      `reopening it here. Nothing was written.`
   );
 }
 
@@ -241,17 +309,23 @@ export function probeLedgerFile(file: string): "absent" | "empty" | "populated" 
     db = new Database(file, { readonly: true, fileMustExist: true });
     // A locked db answers SQLITE_BUSY on the query, not on open — the catch
     // below maps it to `unknown` like every other non-definitive outcome.
-    const tables = new Set(
-      (db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all() as { name: string }[])
-        .map((r) => r.name)
-    );
-    if (tables.size === 0) return "empty";
-    const hasMarker =
-      tables.has("meta") &&
-      db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() !== undefined;
-    const isMeshfleet = hasMarker && MESH_IDENTITY_TABLES.every((t) => tables.has(t));
-    if (!isMeshfleet) return "foreign";
-    return ledgerHasRows(db) ? "populated" : "empty";
+    // ONE classifier, shared with the adoption gate: an earlier revision let
+    // this probe call an in-flight initialization "foreign" while the gate
+    // adopted it, and the migrator-first boot path failed on meshfleet's own
+    // half-finished cold init with no restart able to heal it.
+    switch (classifyLedgerSchema(db)) {
+      case "fresh":
+        return "empty";
+      case "init-in-flight":
+        // Holds nothing; the migrator may proceed and getDb completes it.
+        return "empty";
+      case "foreign":
+        return "foreign";
+      case "meshfleet":
+        return ledgerHasRows(db) ? "populated" : "empty";
+      default:
+        return "unknown"; // unreachable: the switch is exhaustive over LedgerSchemaClass
+    }
   } catch {
     return "unknown";
   } finally {
@@ -834,10 +908,20 @@ function getDb(): Database.Database {
       }
     }
     db.pragma("synchronous = NORMAL"); // WAL-recommended; durable except last txn on OS crash
-    db.exec(SCHEMA);
-    db.prepare("INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', ?)").run(
-      String(CURRENT_SCHEMA_VERSION)
-    );
+    // BINDING adoption re-check, under the same write lock as the writes it
+    // authorizes. The advisory check above ran under a shared lock, so a
+    // foreign writer's uncommitted rows were invisible to it: it could pass
+    // on a pre-commit-empty impostor, wait out the foreign commit, and stamp
+    // schema anyway. Same advisory/binding split as the migrator; a refusal
+    // here rolls back having written nothing (the journal-header conversion
+    // above is the documented residual).
+    db.transaction(() => {
+      assertAdoptable(db, file);
+      db.exec(SCHEMA);
+      db.prepare("INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', ?)").run(
+        String(CURRENT_SCHEMA_VERSION)
+      );
+    }).immediate();
     migrateStorage(db);
   } catch (err) {
     // Never leak a half-initialized connection (its locks/sidecars linger,

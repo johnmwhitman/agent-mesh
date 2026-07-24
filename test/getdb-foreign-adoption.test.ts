@@ -148,3 +148,146 @@ test('adopt: :memory: is always fresh', () => {
     assert.deepEqual(Object.keys(data.agents), [])
   })
 })
+
+// --- round-2 pins (cdx + grk review of the gate) -----------------------------
+
+import { migrateJsonToSqlite } from '../src/migrate.js'
+import { probeLedgerFile } from '../src/db.js'
+import { writeFileSync } from 'node:fs'
+
+const LEDGER_JSON = JSON.stringify({
+  version: 2,
+  fleets: { f1: { id: 'f1', status: 'complete', created_at: 1 } },
+  agents: {}, messages: {}, inboxes: {}, capabilities: {},
+  receipts: {}, ratifications: {}, templates: {},
+})
+
+test('P0: the migrator-first boot path heals an interrupted init instead of calling it foreign', () => {
+  // The real parent boot runs migrateJsonToSqlite() BEFORE any getDb(). An
+  // earlier revision had the gate adopt the marker-less partial-init shape
+  // while the probe classified the SAME shape as foreign — so with a live
+  // JSON present, boot failed on meshfleet's own half-finished cold init and
+  // no restart healed it. One shared classifier now answers for both.
+  const dir = mkdtempSync(join(tmpdir(), 'meshfleet-adopt-p0-'))
+  const dbPath = join(dir, 'ledger.db')
+  const jsonPath = join(dir, 'ledger.json')
+  writeFileSync(jsonPath, LEDGER_JSON)
+  const partial = new DatabaseCtor(dbPath)
+  partial.exec(
+    'CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL); ' +
+      'CREATE TABLE fleets (id TEXT PRIMARY KEY, data TEXT NOT NULL)'
+  )
+  partial.close()
+  assert.equal(probeLedgerFile(dbPath), 'empty', 'the probe must classify an in-flight init as adoptable')
+
+  const prevDb = process.env.MESHFLEET_DB_FILE
+  const prevJson = process.env.MESHFLEET_DATA_FILE
+  process.env.MESHFLEET_DB_FILE = dbPath
+  process.env.MESHFLEET_DATA_FILE = jsonPath
+  try {
+    const result = migrateJsonToSqlite()
+    assert.equal(result.migrated, true, 'the boot path must complete the init and migrate, not refuse')
+    assert.equal(result.rowCount, 1)
+  } finally {
+    if (prevDb === undefined) delete process.env.MESHFLEET_DB_FILE
+    else process.env.MESHFLEET_DB_FILE = prevDb
+    if (prevJson === undefined) delete process.env.MESHFLEET_DATA_FILE
+    else process.env.MESHFLEET_DATA_FILE = prevJson
+    closeDb()
+  }
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('refuse: a views-only foreign file is not "zero tables"', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'meshfleet-adopt-views-'))
+  const dbPath = join(dir, 'views.db')
+  const foreign = new DatabaseCtor(dbPath)
+  foreign.exec('CREATE VIEW report AS SELECT 1 AS x')
+  foreign.close()
+
+  withDb(dbPath, () => {
+    assert.throws(() => readLedger(), /not a meshfleet ledger/)
+  })
+  const check = new DatabaseCtor(dbPath, { readonly: true })
+  const objects = (check.prepare("SELECT name, type FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'").all() as { name: string; type: string }[])
+  const journal = check.pragma('journal_mode', { simple: true })
+  check.close()
+  assert.deepEqual(objects, [{ name: 'report', type: 'view' }], 'the view must survive and no tables may be stamped')
+  assert.notEqual(journal, 'wal', 'refusal must precede the journal-mode conversion')
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('refuse: a trigger anywhere means foreign — our marker insert must never run foreign SQL', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'meshfleet-adopt-trigger-'))
+  const dbPath = join(dir, 'trigger.db')
+  const foreign = new DatabaseCtor(dbPath)
+  foreign.exec(
+    'CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL); ' +
+      'CREATE TABLE fleets (id TEXT PRIMARY KEY, data TEXT NOT NULL); ' +
+      "CREATE TRIGGER t AFTER INSERT ON meta BEGIN UPDATE meta SET value = 'changed'; END"
+  )
+  foreign.close()
+  withDb(dbPath, () => {
+    assert.throws(() => readLedger(), /not a meshfleet ledger/)
+  })
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('refuse: foreign rows in meta are data, not bookkeeping', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'meshfleet-adopt-metarows-'))
+  const dbPath = join(dir, 'metarows.db')
+  const foreign = new DatabaseCtor(dbPath)
+  foreign.exec(
+    'CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL); ' +
+      "INSERT INTO meta VALUES ('app_config', 'keep'); " +
+      'CREATE TABLE fleets (id TEXT PRIMARY KEY, data TEXT NOT NULL)'
+  )
+  foreign.close()
+  withDb(dbPath, () => {
+    assert.throws(() => readLedger(), /not a meshfleet ledger/)
+  })
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('refuse: an empty known-named table with the WRONG column layout is not ours', () => {
+  // CREATE TABLE IF NOT EXISTS would no-op on it and lock the wrong schema in
+  // place — failing at first read instead of at the door.
+  const dir = mkdtempSync(join(tmpdir(), 'meshfleet-adopt-wrongddl-'))
+  const dbPath = join(dir, 'wrongddl.db')
+  const foreign = new DatabaseCtor(dbPath)
+  foreign.exec('CREATE TABLE fleets (id INTEGER PRIMARY KEY)') // no data column
+  foreign.close()
+  withDb(dbPath, () => {
+    assert.throws(() => readLedger(), /not a meshfleet ledger/)
+  })
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('refusal names the offending path, and adoption completes the ledger fully', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'meshfleet-adopt-pins-'))
+  // Path in the error:
+  const foreignPath = join(dir, 'somewhere-else.db')
+  const foreign = new DatabaseCtor(foreignPath)
+  foreign.exec("CREATE TABLE users (id INTEGER PRIMARY KEY); INSERT INTO users VALUES (1)")
+  foreign.close()
+  withDb(foreignPath, () => {
+    assert.throws(() => readLedger(), (err: Error) => err.message.includes(foreignPath))
+  })
+  // Adoption of a partial init ends with the marker and the full table set:
+  const partialPath = join(dir, 'partial.db')
+  const partial = new DatabaseCtor(partialPath)
+  partial.exec('CREATE TABLE fleets (id TEXT PRIMARY KEY, data TEXT NOT NULL)')
+  partial.close()
+  withDb(partialPath, () => {
+    readLedger()
+  })
+  const check = new DatabaseCtor(partialPath, { readonly: true })
+  const marker = check.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string } | undefined
+  const tables = new Set((check.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as { name: string }[]).map((t) => t.name))
+  check.close()
+  assert.ok(marker, 'adoption must finish the interrupted init: marker stamped')
+  for (const t of ['fleets', 'agents', 'receipts', 'work_items']) {
+    assert.ok(tables.has(t), `adoption must finish the interrupted init: ${t} present`)
+  }
+  rmSync(dir, { recursive: true, force: true })
+})

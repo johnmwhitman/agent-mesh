@@ -127,6 +127,9 @@ test("v2 retry histories receive deterministic attempt numbers before unique ind
       CREATE TABLE templates     (key TEXT PRIMARY KEY, data TEXT NOT NULL);
       CREATE TABLE work_items (work_id TEXT PRIMARY KEY, fleet_id TEXT, status TEXT, current_attempt_id TEXT, owner_epoch INTEGER, cancelled_at INTEGER, terminal_at INTEGER, result_json TEXT, error_json TEXT, created_at INTEGER, updated_at INTEGER);
       CREATE TABLE attempts (attempt_id TEXT PRIMARY KEY, work_id TEXT, owner_id TEXT, owner_epoch INTEGER, status TEXT, lease_until INTEGER, created_at INTEGER, updated_at INTEGER, terminal_at INTEGER, result_json TEXT, error_json TEXT);
+      CREATE TABLE attempt_events (seq INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT NOT NULL UNIQUE, work_id TEXT NOT NULL, attempt_id TEXT, owner_epoch INTEGER, kind TEXT NOT NULL, occurred_at INTEGER NOT NULL, payload TEXT NOT NULL);
+      CREATE INDEX idx_attempts_work ON attempts(work_id);
+      CREATE INDEX idx_attempt_events_work_seq ON attempt_events(work_id, seq);
       INSERT INTO work_items VALUES ('w', 'f', 'pending', 'a2', 1, NULL, NULL, NULL, NULL, 1, 2);
       INSERT INTO attempts VALUES ('a1', 'w', NULL, 0, 'expired', NULL, 10, 10, NULL, NULL, NULL);
       INSERT INTO attempts VALUES ('a2', 'w', NULL, 1, 'pending', NULL, 20, 20, NULL, NULL, NULL);
