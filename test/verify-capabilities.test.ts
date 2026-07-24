@@ -105,3 +105,89 @@ test('whitespace-only ids and roles are unroutable, and verify says so', () => {
   const r2 = verifyMeshData(data2, 1000)
   assert.ok(r2.findings.some((f) => f.check === 'capability.unroutable'), 'a blank role scores nothing')
 })
+
+// --- the audit tool's own blind spots -----------------------------------------
+// Twice the write path rejected something verify_ledger reported as ok. In a
+// product whose pitch is "prove it", the verifier missing what the writer
+// catches is the worse defect: a stale or hand-edited ledger is exactly the case
+// verify exists for, and it was passing forged rows.
+
+const msgLedger = (): MeshData => {
+  const d = base()
+  d.fleets['f1'] = { id: 'f1', status: 'running', created_at: 1 }
+  for (const id of ['alice', 'bob', 'mallory']) {
+    d.agents[id] = { id, fleet_id: 'f1', role: 'r', prompt: 'p', status: 'running', started_at: 1 }
+  }
+  d.messages['m1'] = {
+    id: 'm1', from_agent_id: 'alice', to_agent_id: 'bob', fleet_id: 'f1',
+    type: 'question', payload: 'hi', timestamp: 10, acknowledged: false,
+  }
+  d.inboxes['bob'] = ['m1']
+  return d
+}
+
+test('a forged ack from a non-recipient is an ERROR', () => {
+  const d = msgLedger()
+  // mallory is a REAL agent, so the unknown-agent warning stays silent — which
+  // is precisely why this passed before.
+  d.receipts!['m1:mallory:ack'] = { message_id: 'm1', agent_id: 'mallory', action: 'ack', timestamp: 20 }
+  const r = verifyMeshData(d, 1000)
+  assert.equal(r.ok, false, 'a forged acknowledgement must break the audit')
+  assert.ok(
+    r.findings.some((f) => f.check === 'receipt.non_recipient_ack' && f.severity === 'error'),
+    `expected receipt.non_recipient_ack, got ${JSON.stringify(r.findings)}`
+  )
+})
+
+test('a third-party ANNOTATION is still legitimate (only acks are restricted)', () => {
+  const d = msgLedger()
+  d.receipts!['m1:mallory:seen'] = { message_id: 'm1', agent_id: 'mallory', action: 'seen', timestamp: 20 }
+  const r = verifyMeshData(d, 1000)
+  assert.ok(
+    !r.findings.some((f) => f.check === 'receipt.non_recipient_ack'),
+    'annotations by third parties are by design and must not be flagged'
+  )
+})
+
+test('a receipt keyed with an undefined agent_id is an ERROR, not a warning', () => {
+  const d = msgLedger()
+  // The exact row a pre-fix ack_message wrote. The key-mismatch check cannot see
+  // it: rebuilding the key uses the same String(undefined) coercion, so both
+  // sides read "m1:undefined:ack" and the strings match.
+  d.receipts!['m1:undefined:ack'] = {
+    message_id: 'm1', agent_id: undefined as unknown as string, action: 'ack', timestamp: 20,
+  }
+  const r = verifyMeshData(d, 1000)
+  assert.equal(r.ok, false)
+  assert.ok(
+    r.findings.some((f) => f.check === 'receipt.missing_agent_id' && f.severity === 'error'),
+    `expected receipt.missing_agent_id, got ${JSON.stringify(r.findings)}`
+  )
+})
+
+test('a receipt with no action is an ERROR', () => {
+  const d = msgLedger()
+  d.receipts!['m1:bob:'] = { message_id: 'm1', agent_id: 'bob', action: '', timestamp: 20 }
+  const r = verifyMeshData(d, 1000)
+  assert.ok(r.findings.some((f) => f.check === 'receipt.missing_action' && f.severity === 'error'))
+})
+
+test('a legitimate recipient ack still verifies clean', () => {
+  const d = msgLedger()
+  d.receipts!['m1:bob:ack'] = { message_id: 'm1', agent_id: 'bob', action: 'ack', timestamp: 20 }
+  d.messages['m1']!.acknowledged = true
+  d.inboxes['bob'] = []
+  const r = verifyMeshData(d, 1000)
+  assert.equal(r.ok, true, `the normal path must stay clean, got ${JSON.stringify(r.findings)}`)
+})
+
+test('the legacy "*" broadcast backfill is still exempt', () => {
+  const d = msgLedger()
+  d.messages['m1']!.to_agent_id = '*'
+  d.receipts!['m1:*:ack'] = { message_id: 'm1', agent_id: '*', action: 'ack', timestamp: 20 }
+  const r = verifyMeshData(d, 1000)
+  assert.ok(
+    !r.findings.some((f) => f.check === 'receipt.non_recipient_ack' || f.check === 'receipt.missing_agent_id'),
+    'the v1->v2 migration backfill must not be flagged'
+  )
+})

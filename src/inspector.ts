@@ -523,6 +523,21 @@ const CHECK_EXPLANATIONS: Record<string, CheckExplanation> = {
     benign: "a cross-attached fleet advertising capabilities before its agent rows synced",
     investigate: "agent-mesh inspect --export | jq '.capabilities'",
   },
+  "receipt.missing_agent_id": {
+    what: "a receipt records an action by nobody — its agent_id is missing, blank, or the literal \"undefined\"",
+    benign: "written by a pre-0.15.1 ack_message/receipt call that accepted an omitted agent_id and keyed the row <msg>:undefined:<action>",
+    investigate: "agent-mesh inspect --export | jq '.receipts | to_entries | map(select(.value.agent_id == null or .value.agent_id == \"undefined\"))'",
+  },
+  "receipt.missing_action": {
+    what: "a receipt has no usable action, so nothing distinguishes an ack (which consumes) from an annotation (which does not)",
+    benign: "written by a pre-0.15.1 receipt call that accepted an omitted action",
+    investigate: "agent-mesh inspect --export | jq '.receipts | to_entries | map(select(.value.action == null or .value.action == \"\"))'",
+  },
+  "receipt.non_recipient_ack": {
+    what: "an agent acknowledged a message it was never addressed to — the ack asserts a delivery that did not happen",
+    benign: "almost none; the derived acknowledged flag ignores it, but the receipt trail will report an acknowledgement that never occurred. Pre-0.15.1 any registered agent could write this",
+    investigate: "agent-mesh inspect --receipts <message_id> and compare the acking agents against that message's recipients",
+  },
   "receipt.key_mismatch": {
     what: "a receipt's storage key disagrees with its own fields — the idempotency guarantee is broken for that row",
     benign: "a hand-edited export re-imported with a typo in the key",

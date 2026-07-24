@@ -149,6 +149,29 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
   // --- receipts ---------------------------------------------------------------
   const validatedAckReceipts = new Set<string>();
   for (const [key, r] of Object.entries(receipts)) {
+    // Checked BEFORE the key comparison, because that comparison cannot see this
+    // defect: it rebuilds the key with the same template, so a row written with
+    // an undefined agent_id produces `<msg>:undefined:ack` on BOTH sides, the
+    // strings match, and the row sails through to a mere warning. A receipt is
+    // keyed `message_id:agent_id:action` — the key IS the idempotency
+    // guarantee — so a blank component means the guarantee does not hold for
+    // that row, whatever the strings say.
+    if (!isUsableAgentId(r.agent_id) && r.agent_id !== BROADCAST) {
+      error(
+        "receipt.missing_agent_id",
+        key,
+        `receipt ${key} has no usable agent_id (${JSON.stringify(r.agent_id)}) — it records an action by nobody, and its idempotency key cannot be trusted`
+      );
+      continue;
+    }
+    if (typeof r.action !== "string" || r.action.trim().length === 0) {
+      error(
+        "receipt.missing_action",
+        key,
+        `receipt ${key} has no usable action (${JSON.stringify(r.action)}) — the key's action component is what distinguishes an ack from an annotation`
+      );
+      continue;
+    }
     if (key !== `${r.message_id}:${r.agent_id}:${r.action}`) {
       error("receipt.key_mismatch", key, `receipt key ${key} disagrees with its fields (${r.message_id}:${r.agent_id}:${r.action}) — the idempotency guarantee is broken`);
       continue; // the row is untrustworthy; don't derive further findings from it
@@ -166,6 +189,21 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
     // captured (schema v1 predates the recipients field). Not an unknown agent.
     if (!data.agents[r.agent_id] && r.agent_id !== BROADCAST) {
       warning("receipt.unknown_agent", key, `receipt ${key} was written by ${r.agent_id}, which this ledger has not registered as an agent`);
+    }
+    // An ACK asserts "this message was delivered to me and I consumed it". From
+    // an agent the message was never addressed to, that assertion is simply
+    // false, and it is exactly the shape a forged audit entry takes: the writer
+    // is a real agent, so the unknown-agent warning above stays silent. The
+    // derived `acknowledged` flag is not fooled (it gates on messageRecipients),
+    // which is why this went unnoticed — but get_receipts would report an
+    // acknowledgement that never happened. Annotations (`seen`, votes, ...) are
+    // legitimately written by third parties and are NOT restricted.
+    if (r.action === "ack" && r.agent_id !== BROADCAST && !messageRecipients(msg).includes(r.agent_id)) {
+      error(
+        "receipt.non_recipient_ack",
+        key,
+        `${r.agent_id} acknowledged message ${msg.id}, which was addressed to ${JSON.stringify(messageRecipients(msg))} — an ack from a non-recipient asserts a delivery that never happened`
+      );
     }
     if (!Number.isFinite(r.timestamp)) {
       error("receipt.invalid_timestamp", key, `receipt ${key} has a missing or non-finite timestamp`);
