@@ -239,24 +239,34 @@ export type LedgerSchemaClass = "fresh" | "meshfleet" | "init-in-flight" | "fore
  *    tables are tolerated ON PURPOSE: a newer meshfleet's db must open here
  *    (its storage version check rejects downgrades loudly later). Residual:
  *    a file that is BOTH a real ledger and something else's tables adopts.
- *  - `init-in-flight` — a marker-less SUBSET of the base schema tables, each
- *    with exactly our column layout (supersets allowed), zero rows outside
- *    `meta`, and any `meta` rows keyed only by meshfleet's own bookkeeping
- *    keys. This is what a crash or a racing peer's half-finished first
- *    `exec(SCHEMA)` leaves behind — it holds nothing, and refusing it would
- *    make a healthy cold-boot race fatal. Lifecycle/A2A tables cannot appear
- *    here: storage migrations only ever run AFTER the marker exists, so their
- *    presence without a marker means the file is not ours.
- *  - `foreign`        — everything else, including any view or trigger in a
- *    MARKER-LESS file: meshfleet's base initialization creates neither
- *    (triggers arrive only in the storage migrations, which run after the
- *    marker exists), so a marker-less file holding one is not our in-flight
- *    init — a trigger on `meta` would execute someone else's SQL on our
- *    marker insert, and a views-only file used to slip through a tables-only
- *    enumeration as "zero tables". A file that PASSES identity tolerates its
- *    own triggers and views (real ledgers carry ten lifecycle/A2A guard
- *    triggers — an earlier draft of this rule refused every genuine ledger on
- *    reopen, caught by the reopen test on its first run).
+ *  - `init-in-flight` — NO marker, a subset of the base schema tables each
+ *    matching our layout EXACTLY (column name set, nullability, primary key),
+ *    ZERO rows in any of them, and no views or triggers. This is what a crash
+ *    or a racing peer's half-finished first `exec(SCHEMA)` leaves behind — it
+ *    holds nothing, and refusing it would make a healthy cold-boot race fatal.
+ *    Every clause is load-bearing:
+ *      · marker-less, because the marker is written only AFTER the complete
+ *        base schema — a marker with missing collection tables is damage or a
+ *        foreign file, never our in-flight state (adopting one used to
+ *        preserve a `schema_version` this build never wrote);
+ *      · exact layout, because `CREATE TABLE IF NOT EXISTS` cannot repair an
+ *        existing table, so any divergence adopted here is locked in and
+ *        surfaces as a failed write later instead of a refusal now (storage
+ *        migrations DO add columns to base tables, but only post-marker, so
+ *        exact equality cannot false-refuse on this path);
+ *      · zero rows anywhere, because we wrote none;
+ *      · no lifecycle/A2A tables, views, or triggers — all arrive only after
+ *        the marker exists.
+ *  - `foreign`        — everything else. On the IDENTITY path that includes
+ *    any view (meshfleet creates none) and any trigger outside the ten our
+ *    storage migrations install: `INSERT OR IGNORE` fires a `BEFORE INSERT`
+ *    trigger even when the insert loses its conflict and writes nothing
+ *    (verified empirically), so a planted trigger on `meta` would execute
+ *    foreign SQL on every boot. Extra TABLES stay tolerated on the identity
+ *    path for forward-compatibility — a table cannot execute; a trigger can.
+ *    Note the constraint that shaped this: real ledgers carry those ten
+ *    triggers, so an earlier refuse-all-triggers draft refused every genuine
+ *    reopen (caught by the reopen test on its first run).
  */
 export function classifyLedgerSchema(db: Database.Database): LedgerSchemaClass {
   const objects = db
