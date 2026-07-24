@@ -55,6 +55,224 @@ export function resolveDbFile(): string {
   return process.env.MESHFLEET_DB_FILE || dbFile || DEFAULT_DB_FILE;
 }
 
+/** The compiled-in default db path, ignoring every override. */
+export function defaultDbFile(): string {
+  return DEFAULT_DB_FILE;
+}
+
+/**
+ * Does this open handle's ledger hold any rows outside bookkeeping?
+ *
+ * Empty iff EVERY table except `meta` (schema/storage version markers, written
+ * by ordinary first-open) and `sqlite_*` internals has zero rows. The tables
+ * are enumerated from `sqlite_master`, not from a hardcoded list, so lifecycle,
+ * A2A, and any future table are covered by construction — a hardcoded list
+ * silently under-covered once already (it skipped lifecycle rows, so a
+ * lifecycle-only ledger read as "empty" and authorized a wholesale import over
+ * it). Verified empirically: a freshly materialized db holds rows only in
+ * `meta`.
+ *
+ * Runs on the shared handle, so inside an open transaction it sees that
+ * transaction's view — which is what makes it usable as the migrator's
+ * AUTHORIZING check rather than an advisory one.
+ */
+export function isOpenLedgerEmpty(): boolean {
+  const db = getDb();
+  return !ledgerHasRows(db);
+}
+
+/** Read one `meta` row on the shared handle (in-transaction safe). */
+export function getMetaValue(key: string): string | undefined {
+  const db = getDb();
+  const row = db.prepare("SELECT value FROM meta WHERE key = ?").get(key) as { value: string } | undefined;
+  return row?.value;
+}
+
+/**
+ * Read the `schema_version` marker from a ledger FILE on a private read-only
+ * connection — `undefined` when the file, table, or row is absent or
+ * unreadable. Advisory: the migrator uses it to refuse a wrong-version
+ * destination BEFORE its irreversible corrupt-source quarantine; the binding
+ * check still runs inside the import transaction.
+ */
+export function readLedgerFileMarker(file: string): string | undefined {
+  if (!existsSync(file)) return undefined;
+  let db: Database.Database | null = null;
+  try {
+    db = new Database(file, { readonly: true, fileMustExist: true });
+    const row = db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string } | undefined;
+    return row?.value;
+  } catch {
+    return undefined;
+  } finally {
+    try { db?.close(); } catch { /* best-effort */ }
+  }
+}
+
+/** Write one `meta` row on the shared handle (in-transaction safe). */
+export function setMetaValue(key: string, value: string): void {
+  const db = getDb();
+  db.prepare("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(key, value);
+}
+
+function ledgerHasRows(db: Database.Database): boolean {
+  const tables = db
+    .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name <> 'meta'")
+    .all() as { name: string }[];
+  for (const { name } of tables) {
+    if (db.prepare(`SELECT 1 FROM "${name.replace(/"/g, '""')}" LIMIT 1`).get() !== undefined) return true;
+  }
+  return false;
+}
+
+/**
+ * Does this ledger FILE exist but hold no rows?
+ *
+ * Same predicate as `isOpenLedgerEmpty`, on a private read-only connection that
+ * never touches the global handle or the configured path. Advisory only — the
+ * migrator re-checks under its import transaction before writing anything.
+ *
+ * Unreadable or non-SQLite files answer `false` (not empty) — the conservative
+ * direction, since claiming "empty" would authorize an import over the file.
+ */
+export function isLedgerFileEmpty(file: string): boolean {
+  return probeLedgerFile(file) === "empty";
+}
+
+/**
+ * Advisory classification of a ledger file. The distinction that matters:
+ * `populated` is the ONLY answer that may short-circuit a migration decision,
+ * and it additionally requires meshfleet IDENTITY — rows alone are not enough.
+ *
+ * The boolean predecessor collapsed "unreadable / locked / not-SQLite" into
+ * "not empty", which the migrator's fast-path then read as "a ledger is already
+ * present" — so a transient SQLITE_BUSY from a peer's cold initialization (or
+ * plain garbage at the path) silently skipped the migration and stranded the
+ * JSON source with a FALSE reason. `unknown` forces those cases down to the
+ * authoritative in-transaction check, where a lock wait serializes properly and
+ * a genuinely broken file fails loudly instead of quietly.
+ *
+ * `foreign` = a valid SQLite db that is not a meshfleet ledger. Answering
+ * `populated` for one would declare an unrelated database "the ledger" and
+ * advise the operator to retire their real JSON against it; answering `empty`
+ * would let getDb() stamp meshfleet schema into a file that belongs to
+ * something else. Identity therefore requires BOTH the schema marker and the
+ * full mesh collection table set — a generic `meta(key,value)` table holding a
+ * `schema_version` row is not meshfleet identity (plenty of apps have one),
+ * and every meshfleet db has carried all eight collection tables plus the
+ * marker since the SQLite era began (getDb creates them together, atomically,
+ * on first open). A file with NO user tables at all is `empty` (a brand-new
+ * db, adoptable). The identity check must run HERE, on the read-only probe:
+ * once getDb() touches the file it stamps marker and schema into it, spoiling
+ * the question.
+ */
+const MESH_IDENTITY_TABLES = [
+  "fleets",
+  "agents",
+  "messages",
+  "inboxes",
+  "capabilities",
+  "receipts",
+  "ratifications",
+  "templates",
+] as const;
+
+export function probeLedgerFile(file: string): "absent" | "empty" | "populated" | "foreign" | "unknown" {
+  if (!existsSync(file)) return "absent";
+  let db: Database.Database | null = null;
+  try {
+    db = new Database(file, { readonly: true, fileMustExist: true });
+    // A locked db answers SQLITE_BUSY on the query, not on open — the catch
+    // below maps it to `unknown` like every other non-definitive outcome.
+    const tables = new Set(
+      (db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all() as { name: string }[])
+        .map((r) => r.name)
+    );
+    if (tables.size === 0) return "empty";
+    const hasMarker =
+      tables.has("meta") &&
+      db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() !== undefined;
+    const isMeshfleet = hasMarker && MESH_IDENTITY_TABLES.every((t) => tables.has(t));
+    if (!isMeshfleet) return "foreign";
+    return ledgerHasRows(db) ? "populated" : "empty";
+  } catch {
+    return "unknown";
+  } finally {
+    try { db?.close(); } catch { /* best-effort */ }
+  }
+}
+
+/**
+ * Run `fn` inside ONE `BEGIN IMMEDIATE` transaction on the ledger handle.
+ * Exists for the migrator, whose decide→import→validate sequence must be a
+ * single unit of exclusive ownership: any check performed outside the
+ * transaction can be invalidated by a writer committing before the import's
+ * wholesale replace, which is how a "checked empty" db lost committed rows.
+ * Nested transaction seams (`importSnapshot`, `readLedger`) become savepoints
+ * inside it, and a throw rolls the WHOLE unit back.
+ *
+ * Options — each exists for a reviewed failure mode, not for generality:
+ *  - `durable`: run the transaction under `synchronous = FULL`, restoring the
+ *    connection's PRIOR setting after (whatever it was — not a hardcoded
+ *    NORMAL). WAL + synchronous=NORMAL explicitly allows the last commit to be
+ *    lost on power failure; a caller that performs an IRREVERSIBLE filesystem
+ *    action conditioned on the commit (the migrator renames the JSON source
+ *    away) must not act on a commit the disk has not yet seen.
+ *  - `acquireMs`: bounded retry on the busy family for everything UP TO the
+ *    callback: `getDb()` cold initialization (schema exec + storage migration,
+ *    which take their own write locks under the 5s busy_timeout) AND the
+ *    `BEGIN IMMEDIATE` acquisition. A peer's long-held import can legitimately
+ *    exceed 5s at either point; for a startup-critical caller, crashing the
+ *    whole server because a sibling was slow is worse than waiting.
+ *
+ *    The callback itself is NEVER replayed: a busy error thrown after `fn` has
+ *    started (post-BEGIN) propagates instead of retrying. Retrying it would
+ *    re-run side effects — the migrator's callback quarantine-renames a corrupt
+ *    source, which must happen at most once. An `entered` sentinel
+ *    distinguishes "BEGIN failed" (fn never ran → safe to retry) from "fn
+ *    threw" (never retry); this was verified to matter empirically — the
+ *    previous shape replayed a counter callback twice under an injected busy.
+ */
+export function withImmediateTransaction<T>(fn: () => T, opts?: { durable?: boolean; acquireMs?: number }): T {
+  const deadline = Date.now() + (opts?.acquireMs ?? 0);
+  const retryable = (err: unknown): boolean => {
+    const code = (err as { code?: string }).code ?? "";
+    return Boolean(opts?.acquireMs) && code.startsWith("SQLITE_BUSY") && Date.now() <= deadline;
+  };
+  for (;;) {
+    let db: Database.Database;
+    try {
+      // Inside the retry loop on purpose: cold initialization takes write
+      // locks of its own, and getDb() closes its half-initialized connection
+      // on failure, so re-attempting is safe.
+      db = getDb();
+    } catch (err) {
+      if (!retryable(err)) throw err;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50); // synchronous 50ms backoff
+      continue;
+    }
+    let entered = false;
+    const run = (): T =>
+      db.transaction(() => {
+        entered = true;
+        return fn();
+      }).immediate();
+    try {
+      if (!opts?.durable) return run();
+      const prior = db.pragma("synchronous", { simple: true });
+      db.pragma("synchronous = FULL");
+      try {
+        return run();
+      } finally {
+        db.pragma(`synchronous = ${prior}`);
+      }
+    } catch (err) {
+      if (entered || !retryable(err)) throw err; // fn ran (or not ours to retry): never replay it
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+    }
+  }
+}
+
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS meta          (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS fleets        (id TEXT PRIMARY KEY, data TEXT NOT NULL);
@@ -528,7 +746,29 @@ function getDb(): Database.Database {
     db.pragma("foreign_keys = ON"); // enforce relational lifecycle invariants on every handle
     if ((db.pragma("foreign_keys", { simple: true }) as number) !== 1) throw new Error("SQLite foreign_keys could not be enabled");
     db.pragma("busy_timeout = 5000"); // wait for a concurrent writer instead of erroring
-    db.pragma("journal_mode = WAL"); // local-disk only; the ledger lives under ~/.config
+    // The WAL conversion is the one statement busy_timeout does NOT cover:
+    // SQLite skips the busy handler on the lock upgrade journal-mode changes
+    // need (its deadlock-avoidance path), so N processes racing to initialize
+    // a COLD file — a real multi-session first boot — get an instant
+    // SQLITE_BUSY however long the timeout is. Found by the concurrent-migrator
+    // race test. Bounded retry is the documented remedy; once any process has
+    // converted the file, this succeeds immediately for everyone after.
+    {
+      const deadline = Date.now() + 5000;
+      for (;;) {
+        try {
+          db.pragma("journal_mode = WAL"); // local-disk only; the ledger lives under ~/.config
+          break;
+        } catch (err) {
+          // Prefix match: better-sqlite3 surfaces extended result codes, so the
+          // busy family arrives as SQLITE_BUSY_RECOVERY / SQLITE_BUSY_TIMEOUT /
+          // SQLITE_BUSY_SNAPSHOT as well as plain SQLITE_BUSY.
+          const code = (err as { code?: string }).code ?? "";
+          if (!code.startsWith("SQLITE_BUSY") || Date.now() > deadline) throw err;
+          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5); // synchronous 5ms backoff
+        }
+      }
+    }
     db.pragma("synchronous = NORMAL"); // WAL-recommended; durable except last txn on OS crash
     db.exec(SCHEMA);
     db.prepare("INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', ?)").run(

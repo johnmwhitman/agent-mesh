@@ -1199,9 +1199,22 @@ if (!isChildInstance) {
   try {
     const migration = migrateJsonToSqlite();
     if (migration.migrated) {
+      // Only claim a backup that was actually created: the rename can fail (or
+      // the source can have been quarantined/vanished), in which case
+      // backupPath is unset and `reason` carries the honest account — the old
+      // line printed "backed up to undefined" for those cases.
+      const disposition = migration.backupPath
+        ? `JSON backed up to ${migration.backupPath}`
+        : (migration.reason ?? "source not retired");
       console.error(
-        `Agent Mesh v${MESH_VERSION} — migrated ${migration.rowCount} ledger entr${migration.rowCount === 1 ? "y" : "ies"} JSON→SQLite; JSON backed up to ${migration.backupPath}`
+        `Agent Mesh v${MESH_VERSION} — migrated ${migration.rowCount} ledger entr${migration.rowCount === 1 ? "y" : "ies"} JSON→SQLite; ${disposition}`
       );
+    } else if (migration.refused) {
+      // A migration that could have run and was declined must SAY SO. Otherwise
+      // someone who legitimately relocated their db sees an empty ledger with no
+      // explanation — the silent-skip failure mode is nearly as bad as the
+      // silent-consume one it replaces. The ordinary no-ops stay quiet.
+      console.error(`Agent Mesh v${MESH_VERSION} — ledger migration SKIPPED: ${migration.reason}`);
     }
   } catch (err) {
     console.error(`Agent Mesh v${MESH_VERSION} — FATAL: ${err instanceof Error ? err.message : String(err)}`);

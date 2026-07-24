@@ -213,25 +213,62 @@ export function resolveDataFile(): string {
   return resolveEnv(process.env, "MESHFLEET_DATA_FILE", "AGENT_MESH_DATA_FILE") ?? dataFile;
 }
 
+/**
+ * The compiled-in default JSON ledger path, ignoring every override. Used by the
+ * migrator to tell "the caller pointed us somewhere deliberately" apart from
+ * "we fell back to the real user ledger".
+ */
+export function defaultDataFile(): string {
+  return DEFAULT_DATA_FILE;
+}
+
+/**
+ * Did the caller state where the JSON ledger lives, as opposed to us falling
+ * back to the default?
+ *
+ * Deliberately tests PRESENCE, not path inequality: someone who explicitly sets
+ * `MESHFLEET_DATA_FILE` to the default path has still consciously named the
+ * source, which is exactly the acknowledgement the migrator's isolation guard
+ * is looking for. Comparing paths instead would silently reject that as "not
+ * redirected" and refuse a migration the caller explicitly asked for.
+ */
+export function isDataFileDeclared(): boolean {
+  if (resolveEnv(process.env, "MESHFLEET_DATA_FILE", "AGENT_MESH_DATA_FILE") != null) return true;
+  // setLedgerPath() moved it off the compiled default.
+  return dataFile !== DEFAULT_DATA_FILE;
+}
+
 export function resolveDataDir(): string {
   return resolveEnv(process.env, "MESHFLEET_DATA_DIR", "AGENT_MESH_DATA_DIR") ?? dataDir;
+}
+
+/**
+ * Shape an already-parsed raw ledger object into MeshData (running the
+ * v0/v1→v2 backfill). Exported for the migrator, which must parse the source
+ * itself BEFORE its import transaction — both to bound the source's
+ * schema_version (a future-version ledger would otherwise be silently
+ * downgraded: unknown collections dropped, source retired) and so the
+ * corrupt-path quarantine rename never sits inside SQL rollback scope.
+ */
+export function ledgerFromRaw(raw: Record<string, unknown>): MeshData {
+  const migrated = migrateLedger(raw) as Record<string, unknown>;
+  return {
+    fleets: (migrated.fleets || {}) as Record<string, Fleet>,
+    agents: (migrated.agents || {}) as Record<string, Agent>,
+    messages: (migrated.messages || {}) as Record<string, Message>,
+    inboxes: (migrated.inboxes || {}) as Record<string, string[]>,
+    capabilities: (migrated.capabilities || {}) as Record<string, Capability>,
+    receipts: (migrated.receipts || {}) as Record<string, Receipt>,
+    ratifications: (migrated.ratifications || {}) as Record<string, Ratification>,
+    templates: (migrated.templates || {}) as Record<string, unknown>,
+  };
 }
 
 export function loadDataFromFile(file: string): MeshData {
   if (!existsSync(file)) return { ...EMPTY_DATA };
   try {
     const raw = JSON.parse(readFileSync(file, "utf-8"));
-    const migrated = migrateLedger(raw) as Record<string, unknown>;
-    return {
-      fleets: (migrated.fleets || {}) as Record<string, Fleet>,
-      agents: (migrated.agents || {}) as Record<string, Agent>,
-      messages: (migrated.messages || {}) as Record<string, Message>,
-      inboxes: (migrated.inboxes || {}) as Record<string, string[]>,
-      capabilities: (migrated.capabilities || {}) as Record<string, Capability>,
-      receipts: (migrated.receipts || {}) as Record<string, Receipt>,
-      ratifications: (migrated.ratifications || {}) as Record<string, Ratification>,
-      templates: (migrated.templates || {}) as Record<string, unknown>,
-    };
+    return ledgerFromRaw(raw as Record<string, unknown>);
   } catch (err) {
     // Corrupt ledger: QUARANTINE the bad file (preserve it for recovery) and fail
     // LOUDLY, then start empty — never silently overwrite unrecoverable data. The
