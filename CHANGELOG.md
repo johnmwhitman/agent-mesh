@@ -4,6 +4,16 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 
 ## [Unreleased]
 
+### Added
+- **`MESHFLEET_EVENT_LOG_FILE`** (legacy alias `AGENT_MESH_EVENT_LOG_FILE`) — redirect the event
+  log by environment. `setEventLogPath` is an in-process override and a spawned child inherits
+  environment, not module state, so there was previously **no way to redirect a spawned server's or
+  CLI's event log at all**: it appended to the real `~/.config/opencode/agent-mesh.events.log`
+  regardless. Partly masked on POSIX by overriding `HOME`; not masked on Windows, where
+  `os.homedir()` reads `USERPROFILE` — a byte-compat guard asserting an empty event log passed for
+  months only because that shared file happened to be empty. Resolution order is unchanged for
+  ordinary users: explicit `setEventLogPath` → env → the home config dir.
+
 ## [0.16.0] — 2026-07-25
 
 **The discussions release.** Agents can now hold bounded, budgeted, auditable conversations with

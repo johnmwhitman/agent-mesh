@@ -65,13 +65,21 @@ cut through it (fixed 2026-07-23).
 Any run that spawns the server or opens a ledger sets **BOTH**:
 
 ```
-MESHFLEET_DB_FILE=<temp>   MESHFLEET_DATA_FILE=<temp>
+MESHFLEET_DB_FILE=<temp>   MESHFLEET_DATA_FILE=<temp>   MESHFLEET_EVENT_LOG_FILE=<temp>
 ```
 
 `MESHFLEET_DB_FILE` alone is **NOT** isolation. The two paths resolve from independent overrides,
 and the startup migrator pairs a redirected destination with a defaulted source — so a "sandboxed"
 run imports the operator's real JSON ledger into the temp db and **renames the real file**. This
 ate the live ledger twice on 2026-07-23, once from a test written to verify the isolation guard.
+
+**`MESHFLEET_EVENT_LOG_FILE` (added 0.16.0) is the third, and it is the one you will forget.** The
+in-process `setEventLogPath` override does NOT reach a spawned child — a child inherits environment,
+not module state — so before this variable existed, any run that spawned the server or the CLI
+appended to the operator's real `agent-mesh.events.log` no matter what the parent had set. On POSIX
+that was partly masked by overriding `HOME`; on Windows it was not masked at all, because
+`os.homedir()` reads `USERPROFILE` there. A byte-compat guard asserting an empty event log passed
+for months purely because that shared file happened to be empty.
 
 Never write to `~/.config/opencode/` — it is shared live state that Codex and Antigravity read,
 and the harness classifier blocks it anyway. Audit it read-only via `readLedgerFile()`, which

@@ -424,25 +424,46 @@ export function extractSkillsFromDescription(description: string): string[] {
 
 export const DEFAULT_EVENT_LOG = join(DEFAULT_DATA_DIR, "agent-mesh.events.log");
 
-let eventLogFile = DEFAULT_EVENT_LOG;
+let eventLogFile: string | null = null;
 
 export function setEventLogPath(path: string): void {
   eventLogFile = path;
 }
 
-/** The active event-log path (honors setEventLogPath — the isolated path under test). */
+/**
+ * The active event-log path.
+ *
+ * Resolution order: an explicit `setEventLogPath` override, then
+ * `MESHFLEET_EVENT_LOG_FILE`, then the default under the home config dir.
+ *
+ * The env layer exists because `setEventLogPath` is an IN-PROCESS override, and
+ * a spawned child does not inherit it — only environment. Tests that spawn the
+ * CLI or the server therefore had no way to redirect the child's event log, and
+ * were writing into the real user profile. On POSIX that was masked by tests
+ * overriding `HOME`; on Windows `os.homedir()` reads `USERPROFILE`, so the
+ * redirect silently did nothing and children appended to the developer's (or
+ * the CI runner's) actual `agent-mesh.events.log`. A byte-compat guard asserting
+ * "No events recorded." was passing only while that shared file happened to be
+ * empty.
+ *
+ * Read per call rather than captured at module load, so a test that sets the
+ * variable after import still gets isolation.
+ */
 export function resolveEventLogFile(): string {
-  return eventLogFile;
+  if (eventLogFile !== null) return eventLogFile;
+  const fromEnv = resolveEnv(process.env, "MESHFLEET_EVENT_LOG_FILE", "AGENT_MESH_EVENT_LOG_FILE");
+  return fromEnv ?? DEFAULT_EVENT_LOG;
 }
 
 export function appendEvent(
   event: string,
   data: Record<string, unknown> = {}
 ): void {
-  const dir = dirname(eventLogFile);
+  const file = resolveEventLogFile();
+  const dir = dirname(file);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   const entry = JSON.stringify({ event, timestamp: Date.now(), ...data }) + "\n";
-  appendFileSync(eventLogFile, entry, "utf-8");
+  appendFileSync(file, entry, "utf-8");
 }
 
 /**
@@ -451,13 +472,15 @@ export function appendEvent(
  */
 export function appendEventOnce(eventId: string, event: string, data: Record<string, unknown> = {}): void {
   const marker = `\"event_id\":\"${eventId}\"`;
-  if (existsSync(eventLogFile) && readFileSync(eventLogFile, "utf-8").includes(marker)) return;
+  const file = resolveEventLogFile();
+  if (existsSync(file) && readFileSync(file, "utf-8").includes(marker)) return;
   appendEvent(event, { ...data, event_id: eventId });
 }
 
 export function readEventLog(limit = 1000): Array<Record<string, unknown>> {
-  if (!existsSync(eventLogFile)) return [];
-  const content = readFileSync(eventLogFile, "utf-8");
+  const file = resolveEventLogFile();
+  if (!existsSync(file)) return [];
+  const content = readFileSync(file, "utf-8");
   const lines = content.trim().split("\n").filter(Boolean);
   const recent = lines.slice(-limit);
   const events: Array<Record<string, unknown>> = [];

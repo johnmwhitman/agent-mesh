@@ -48,7 +48,15 @@ export function withTempDb(initial?: Partial<MeshData>): TempDb {
   const dir = mkdtempSync(join(tmpdir(), "agent-mesh-test-"));
   const dbFile = join(dir, "ledger.db");
   setDbPath(dbFile);
-  setEventLogPath(join(dir, "events.log"));
+  const eventLog = join(dir, "events.log");
+  setEventLogPath(eventLog);
+  // ALSO via env, because `setEventLogPath` is an in-process override and a
+  // spawned child inherits environment, not module state. Without this a test
+  // that spawns the CLI or the server wrote events into the REAL user profile —
+  // masked on POSIX by tests overriding HOME, and not masked at all on Windows,
+  // where os.homedir() reads USERPROFILE.
+  const prevEventLogEnv = process.env.MESHFLEET_EVENT_LOG_FILE;
+  process.env.MESHFLEET_EVENT_LOG_FILE = eventLog;
 
   const seed = (data: Partial<MeshData>): void => {
     importSnapshot({ ...EMPTY, ...data });
@@ -63,6 +71,8 @@ export function withTempDb(initial?: Partial<MeshData>): TempDb {
       closeDb();
       setDbPath(prevDbFile);
       setEventLogPath(DEFAULT_EVENT_LOG);
+      if (prevEventLogEnv === undefined) delete process.env.MESHFLEET_EVENT_LOG_FILE;
+      else process.env.MESHFLEET_EVENT_LOG_FILE = prevEventLogEnv;
       rmSync(dir, { recursive: true, force: true });
     },
   };
