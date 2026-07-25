@@ -1,4 +1,20 @@
+import { writeFileSync } from "node:fs";
+
 const [mode = "success", prompt = ""] = process.argv.slice(2);
+
+/**
+ * Announce that this child is fully armed — its signal handlers are installed
+ * and it is now genuinely SIGTERM-resistant. A caller that wants to prove
+ * escalation must wait for THIS, not for a fixed delay: until Node has finished
+ * booting and the handler is registered, a SIGTERM kills the child under the
+ * default disposition, which looks exactly like an escalation that never
+ * happened. Signalled through a file rather than stdout so the byte-exact
+ * stdout assertions in runtime-adapter.test.ts stay unchanged.
+ */
+function announceReady() {
+  const path = process.env.MESH_READY_FILE;
+  if (path) writeFileSync(path, "ready");
+}
 
 if (mode === "timeout") {
   setInterval(() => {}, 1_000);
@@ -15,6 +31,7 @@ if (mode === "timeout") {
     process.stdout.write("ignored-term");
   });
   setInterval(() => {}, 1_000);
+  announceReady();
 } else if (mode === "signal") {
   process.kill(process.pid, "SIGTERM");
 } else if (mode === "failure") {
