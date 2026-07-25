@@ -74,6 +74,24 @@ export function requireNumber(
   return null;
 }
 
+/**
+ * An optional real boolean — absent is fine, truthiness never is.
+ *
+ * The optional case is the more dangerous one, because the natural reading is
+ * `params.flag ?? false` and that treats the string `"false"` as `true`. On
+ * `reply_discussion.close` that silently makes a conversation terminal.
+ */
+export function optionalBoolean(tool: string, field: string, v: unknown): string | null {
+  if (v === undefined || v === null) return null;
+  if (typeof v !== "boolean") {
+    return (
+      `${tool}: '${field}' must be a boolean when provided, got ${got(v)}. ` +
+      `Refusing to infer intent — the string "false" is truthy.`
+    );
+  }
+  return null;
+}
+
 /** An optional finite number — absent is fine, but a non-number is not. */
 export function optionalNumber(tool: string, field: string, v: unknown): string | null {
   if (v === undefined || v === null) return null;
