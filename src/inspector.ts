@@ -507,6 +507,26 @@ const CHECK_EXPLANATIONS: Record<string, CheckExplanation> = {
     benign: "a ledger written before 0.16.0, or an export taken before the startup reconciler ran — starting meshfleet on this ledger repairs it and logs a fleet_reconciled event",
     investigate: "agent-mesh inspect --export | jq '.fleets[] | select(.status == \"running\")'",
   },
+  "discussion.derive_invalid": {
+    what: "a discussion derives to status 'invalid', so its transcript, attempts and turns_used are not safe to present as usable",
+    benign: "an interrupted write, or a discussion whose envelopes were partially copied between ledgers",
+    investigate: "agent-mesh inspect --export | jq '.messages[] | select(.payload | contains(\"discussion/v1\"))'",
+  },
+  "discussion.budget_turns_mismatch": {
+    what: "a discussion's reported turns_used disagrees with the number of attempts actually holding a 'reserved' receipt — it either overclaims turns that were never reserved, or understates ones that were",
+    benign: "understating is expected when deeper validation legitimately excluded a reservation; overclaiming is not, and means the budget was spent against receipts that do not exist",
+    investigate: "agent-mesh inspect --receipts | grep reserved",
+  },
+  "discussion.reply_target_mismatch": {
+    what: "an attempt's completed receipt names a reply_message_id that this ledger does not hold, or names one whose own envelope does not agree it is that attempt's reply",
+    benign: "a partial copy between ledgers that brought the receipts without their messages",
+    investigate: "agent-mesh inspect --export | jq '.receipts'",
+  },
+  "discussion.unparseable_candidate": {
+    what: "an id matched the discussion discovery filter — some message payload contains the string \"discussion/v1\" — but no message under it parses as an actual discussion/v1 envelope",
+    benign: "usually exactly what it looks like: a coincidental substring in ordinary message content, not a real discussion. The filter is deliberately wide so that a genuine discussion cannot be missed by discovery",
+    investigate: "agent-mesh inspect --export | jq '.messages[] | select(.payload | contains(\"discussion/v1\"))'",
+  },
   "agent.orphan_fleet": {
     what: "an agent row references a fleet this ledger does not hold",
     benign: "agents copied in from another mesh, or old fleet rows pruned without their agents",
