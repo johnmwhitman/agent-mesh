@@ -16,7 +16,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -93,6 +93,33 @@ function assertCleanSignalExit(
   }
   assert.equal(res.code, 0, `expected a clean handler-driven exit; stderr:\n${stderr}`);
 }
+
+test("inspect --follow: signal handlers are installed BEFORE the banner promises ctrl-c", () => {
+  // A structural guard, deliberately, because the defect it pins is a RACE and
+  // a timing test cannot pin a timing fix — the SIGTERM test below passed
+  // locally many times while this window was wide open, and only ever failed on
+  // CI (ubuntu/Node 24, on a docs-only commit).
+  //
+  // The invariant: by the time the banner says "ctrl-c to stop", ctrl-c must
+  // actually stop. Handlers registered after the banner left a window where the
+  // default disposition killed the process outright — no closeFollowDb(), exit
+  // by signal instead of through the cleanup path — and the banner is precisely
+  // the readiness signal anything watching this process keys off.
+  const src = readFileSync(join(here, "..", "src", "bin", "inspect.ts"), "utf8");
+  const follow = src.slice(src.indexOf("function runFollow"));
+  const sigint = follow.indexOf("process.on('SIGINT'");
+  // Anchor on the banner's CODE, not on the phrase "ctrl-c to stop" — the first
+  // version of this guard matched that phrase inside its own explanatory comment
+  // above the handlers and reported the ordering backwards. A guard that can see
+  // prose it wrote about itself is measuring the wrong thing.
+  const banner = follow.indexOf("· poll ${intervalMs}ms");
+  assert.ok(sigint > 0, "expected a SIGINT registration in the follow path");
+  assert.ok(banner > 0, "expected the banner's stdout.write in the follow path");
+  assert.ok(
+    sigint < banner,
+    "the SIGINT/SIGTERM handlers must be registered BEFORE the banner advertises ctrl-c"
+  );
+});
 
 test("inspect --follow: idle banner on empty ledger, live message within budget, --fleet filters in-loop, clean ctrl-c exit", async () => {
   const dir = mkdtempSync(join(tmpdir(), "meshfleet-follow-"));

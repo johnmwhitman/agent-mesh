@@ -250,12 +250,34 @@ function runFollow(args: string[]): void {
     process.exit(2)
   }
 
+  // Signal handlers go up BEFORE the banner, and the ordering is load-bearing.
+  //
+  // The banner says "ctrl-c to stop" and is the readiness signal anything
+  // watching this process keys off. Registering the handlers afterwards left a
+  // window where the banner made that promise while the default SIGTERM/SIGINT
+  // disposition would still kill the process outright — no `closeFollowDb()`,
+  // exit by signal rather than through the cleanup path.
+  //
+  // Found by CI, not by reading: the SIGTERM test went red on ubuntu/Node 24
+  // with `code: null` on a commit that only touched documentation, which is the
+  // signature of a latent race rather than a regression.
+  let stopped = false
+  let timer: NodeJS.Timeout | undefined
+  const stop = (): void => {
+    if (stopped) return
+    stopped = true
+    if (timer !== undefined) clearInterval(timer)
+    closeFollowDb()
+    process.exit(0)
+  }
+  process.on('SIGINT', stop)
+  process.on('SIGTERM', stop)
+
   process.stdout.write(
     `ledger: ${dbFile}  · poll ${intervalMs}ms  · ctrl-c to stop\n` +
       `watching… no messages yet  (spawn a fleet or send_message from MCP)\n`
   )
 
-  let stopped = false
   const tick = (): void => {
     if (stopped) return
     let rows: MessageRow[]
@@ -285,16 +307,7 @@ function runFollow(args: string[]): void {
     }
   }
 
-  const timer = setInterval(tick, intervalMs)
-  const stop = (): void => {
-    if (stopped) return
-    stopped = true
-    clearInterval(timer)
-    closeFollowDb()
-    process.exit(0)
-  }
-  process.on('SIGINT', stop)
-  process.on('SIGTERM', stop)
+  timer = setInterval(tick, intervalMs)
 
   tick() // first poll immediately — don't make the caller wait a full interval
 }

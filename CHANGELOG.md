@@ -4,6 +4,14 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 
 ## [Unreleased]
 
+### Fixed
+- **`inspect --follow` installs its signal handlers before the banner promises `ctrl-c`.** The
+  banner printed `ctrl-c to stop` and the SIGINT/SIGTERM handlers were registered afterwards, so
+  there was a window in which the advertised control did not work: the default disposition killed
+  the process outright, skipping `closeFollowDb()` and exiting by signal rather than through the
+  cleanup path. The banner is also the readiness signal anything watching the process keys off, so
+  the window was reachable in practice — CI hit it on a commit that only touched documentation.
+
 ### Added
 - **`MESHFLEET_EVENT_LOG_FILE`** (legacy alias `AGENT_MESH_EVENT_LOG_FILE`) — redirect the event
   log by environment. `setEventLogPath` is an in-process override and a spawned child inherits
