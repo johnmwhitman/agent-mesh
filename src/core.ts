@@ -755,7 +755,14 @@ export function recoverInterruptedAgents(): number {
 
 export const MAX_PAYLOAD_BYTES = 64 * 1024;
 
-/** In-transaction helper: append a message + inbox entries to `data`; returns the id. */
+/**
+ * In-transaction helper: append a message + inbox entries to `data`; returns the id.
+ *
+ * `broadcastRecipients` (v0.14, council privacy fix) narrows a `BROADCAST` send to an
+ * explicit recipient list instead of resolving to every other agent in the fleet — the
+ * mechanism a narrowed-voters ratification uses so a proposal's payload isn't leaked to
+ * agents outside the council. Ignored for direct (non-broadcast) sends.
+ */
 export function _sendMessage(
   data: MeshData,
   fromAgentId: string,
@@ -763,14 +770,17 @@ export function _sendMessage(
   fleetId: string,
   type: MessageType,
   payload: string,
-  correlationId?: string
+  correlationId?: string,
+  broadcastRecipients?: string[]
 ): { messageId: string; recipients: string[] } {
   const messageId = randomUUID();
   let recipients: string[] | undefined;
   if (toAgentId === BROADCAST) {
-    recipients = Object.values(data.agents)
-      .filter((a) => a.fleet_id === fleetId && a.id !== fromAgentId)
-      .map((a) => a.id);
+    recipients = broadcastRecipients
+      ? [...new Set(broadcastRecipients)]
+      : Object.values(data.agents)
+          .filter((a) => a.fleet_id === fleetId && a.id !== fromAgentId)
+          .map((a) => a.id);
     if (recipients.length === 0) {
       throw new Error(
         `Broadcast in fleet ${fleetId} has no recipients (no other agents registered)`

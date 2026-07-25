@@ -21,7 +21,10 @@ A **ratification** is a proposal broadcast to a set of eligible voters, plus a
 tally over their vote receipts.
 
 - **Proposal** — a broadcast message (`send_message` to `"*"`). Its `message_id`
-  is the ratification id.
+  is the ratification id. When `voters` is explicit, delivery is narrowed to
+  voters ∪ required signoffs ∪ the proposer (v0.14, council privacy fix) —
+  the fleet's other agents never see the proposal's payload. Omitting `voters`
+  keeps the send a true fleet-wide broadcast, unchanged.
 - **Vote** — an `r-ack` (approve) or `r-decline` (reject) receipt on the proposal.
   Voting is just `writeReceipt`; nothing new is stored per vote.
 - **Quorum** — number of approvals required to ratify.

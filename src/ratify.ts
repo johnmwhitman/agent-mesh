@@ -135,7 +135,28 @@ export function openRatification(input: OpenRatificationInput): string {
   const weights =
     input.weights && Object.keys(input.weights).length > 0 ? input.weights : undefined;
   return withLedger((data): string => {
-    const { messageId } = _sendMessage(data, input.proposer, BROADCAST, input.fleetId, "question", input.payload ?? input.subject);
+    // Council privacy fix (2026-07-19): a narrowed `voters` list means the proposal is a
+    // targeted discussion, not a fleet-wide announcement — the broadcast must not deliver
+    // to agents outside the council. Deliver only to voters ∪ required signoffs. The
+    // proposer is deliberately excluded: they authored the message and don't need it
+    // delivered to their own inbox — and the canonical A2A envelope now enforces that
+    // globally (validateEnvelope rejects sender-as-recipient), so including them here
+    // would make _sendMessage's legacy-map delivery fail outright. When `voters` is
+    // omitted (default = every other fleet agent), the send stays a true broadcast,
+    // unchanged.
+    const narrowedRecipients = input.voters
+      ? [...new Set([...input.voters, ...(input.requiredSignoffs ?? [])])]
+      : undefined;
+    const { messageId } = _sendMessage(
+      data,
+      input.proposer,
+      BROADCAST,
+      input.fleetId,
+      "question",
+      input.payload ?? input.subject,
+      undefined,
+      narrowedRecipients
+    );
     const msg = data.messages[messageId];
     // Dedupe: the tally counts every occurrence in `voters`, so a duplicated id
     // would let one agent satisfy the quorum alone.
