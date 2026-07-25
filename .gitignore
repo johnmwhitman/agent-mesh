@@ -9,6 +9,9 @@ agent-mesh.json
 .omo/
 out-receipted-fleet/
 scratch/
+# Session worktrees for multi-commit work. The tree itself must never be
+# committed — a node_modules symlink inside one was committed once.
+.wt-meshfleet/
 
 # Python reference-witness bytecode (reference/python/)
 __pycache__/
