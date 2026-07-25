@@ -83,13 +83,38 @@ function bootServer(dbFile: string, dir: string, asChild: boolean): Promise<stri
     });
 
     let stderr = "";
-    const done = (fn: () => void): void => {
+    let settled = false;
+
+    /**
+     * Stop the server and settle only once it has ACTUALLY exited.
+     *
+     * `p.kill()` returns as soon as the signal is delivered, not when the
+     * process is gone. Resolving there let the caller open the SQLite ledger
+     * while the dying server still held it — and let the `finally` block delete
+     * the temp directory out from under those handles. POSIX tolerates both;
+     * Windows does not, and all three windows-2022 legs failed with a bare
+     * SQLite `disk I/O error`. Waiting for `close` (stdio drained *and* the
+     * process reaped) is the deterministic fix; a sleep would only widen the
+     * race.
+     */
+    const stopThen = (fn: () => void): void => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
+      if (p.exitCode !== null || p.signalCode !== null) {
+        fn();
+        return;
+      }
+      const hardKill = setTimeout(() => p.kill("SIGKILL"), 5_000);
+      p.once("close", () => {
+        clearTimeout(hardKill);
+        fn();
+      });
       p.kill();
-      fn();
     };
+
     const timer = setTimeout(
-      () => done(() => reject(new Error(`server did not announce startup in 30s. stderr:\n${stderr}`))),
+      () => stopThen(() => reject(new Error(`server did not announce startup in 30s. stderr:\n${stderr}`))),
       30_000
     );
 
@@ -98,13 +123,13 @@ function bootServer(dbFile: string, dir: string, asChild: boolean): Promise<stri
       if (stderr.includes("started")) {
         // The banner is written after startup recovery has run (or been
         // skipped), so it is a safe point to stop and inspect the ledger.
-        done(() => resolve(stderr));
+        stopThen(() => resolve(stderr));
       }
     });
-    p.on("error", (err) => done(() => reject(err)));
+    p.on("error", (err) => stopThen(() => reject(err)));
     p.on("exit", (code) => {
       if (!stderr.includes("started")) {
-        done(() => reject(new Error(`server exited ${code} before starting. stderr:\n${stderr}`)));
+        stopThen(() => reject(new Error(`server exited ${code} before starting. stderr:\n${stderr}`)));
       }
     });
   });
@@ -153,6 +178,8 @@ test("a CHILD instance leaves the parent's running agents alone; a PARENT instan
     );
   } finally {
     closeDb();
-    rmSync(dir, { recursive: true, force: true });
+    // maxRetries: Windows can still report EBUSY/EPERM for a short window after
+    // a process exits and its handles are formally released.
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
