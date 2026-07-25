@@ -4,7 +4,43 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 
 ## [Unreleased]
 
+### Added
+- **A published tampered-ledger corpus — the falsification test for the receipts claim.**
+  `test/fixtures/corpus/` holds 46 deliberately falsified ledgers, each one the shared clean
+  baseline plus **one declared change** (recorded as explicit operations in `manifest.json`).
+  The harness proves every fixture really is baseline-plus-its-declared-ops, which makes the
+  baseline a genuine near-neighbour control: a vector and its control share one topology and
+  differ by one fact, so passing means the verifier recognised the violated invariant rather
+  than the shape of a fixture. Three buckets, reported separately and never blended into one
+  "N/N covered" figure: **26 `caught`** (an overclaim — must raise its named check at error
+  severity and drive `ok: false`), **10 `anomaly`** (surprising but claiming no more than the
+  records support — warning only, and deliberately *not* counted as caught), and **10
+  `undetectable`**. Coverage over the 34 non-`discussion` checks is re-derived from
+  `src/verify.ts` on every run, so adding a check without a vector fails the suite.
+  Expectations are exact multisets, never `some(...)`, and the clock is pinned so the corpus
+  cannot rot into a time bomb. Regenerate with `npx tsx scripts/generate-corpus.ts`.
+- **The `undetectable` bucket publishes the free core's own blind spots**, as executable
+  evidence rather than prose. An unsigned local control plane can police internal coherence
+  but not provenance, content binding, completeness, or absolute time — so a payload swapped
+  after approval, a ballot minted for a seated voter, a ghost agent with a coherent history,
+  and a wholesale clock shift all verify clean, and each asserts **zero** findings. If one ever
+  goes red because the verifier learned to catch it, that is good news: reclassify it
+  deliberately instead of deleting the assertion.
+
 ### Fixed
+- **A ledger that declares an older schema is trusted about its own acknowledgements.**
+  Deleting an ack receipt *and* the ledger's `schema_version` makes the loader's v1→v2
+  migration backfill that receipt from the message's own `acknowledged` flag, so the overclaim
+  `message.ack_flag_mismatch` exists to catch repairs itself before the verifier ever runs.
+  The behaviour is intended for genuine v1 ledgers and is not changed here; it is now pinned
+  and published as `undetectable-schema-downgrade-ack-backfill` so the exposure is documented
+  rather than latent. Found by driving the corpus through the real file loader instead of
+  verifying in-memory objects.
+- **A test loaded a fixture that was never committed.** `tampered-fixtures.test.ts` read
+  `tampered-identities.json`, which does not exist; `loadDataFromFile` returns an empty ledger
+  for a missing path (correct for a fresh install), so the read silently yielded nothing and
+  the reference rotted invisibly. The corpus harness now asserts a fixture is present on disk
+  before loading it, so this class of rot fails loudly.
 - **`inspect --follow` installs its signal handlers before the banner promises `ctrl-c`.** The
   banner printed `ctrl-c to stop` and the SIGINT/SIGTERM handlers were registered afterwards, so
   there was a window in which the advertised control did not work: the default disposition killed
