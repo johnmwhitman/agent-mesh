@@ -4,7 +4,61 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 
 ## [Unreleased]
 
+## [0.15.1] — 2026-07-24
+
+**The boundary release.** 0.15.0 fixed one tool that reported success while discarding its input;
+a 27-of-27 audit then found the same defect class in a dozen more, and found that the audit meant
+to catch such rows shared the writers' blind spot. Every fix here came from *driving* the server
+over real MCP stdio and reading the ledger back — none from reading the code. Storage gets the
+other half: the migrator and the db-open path can no longer consume, erase, or adopt a file they
+do not own.
+
 ### Fixed
+- **Tool arguments are validated against the published contract, in one place.** The MCP SDK
+  enforces neither `required` nor `type`, and every handler was left to check for itself — which
+  is exactly how the inconsistency arose. Validation now lives in `src/tool-args.ts`. Each of these
+  previously returned success: `record_routing_outcome.success` omitted recorded a FAILURE and
+  `"false"` recorded a SUCCESS (multiplying every later `route_work` score, in an in-process map
+  `verify_ledger` cannot see); `ack_message.agent_id` omitted wrote a receipt keyed
+  `<msg>:undefined:ack` that consumed no inbox; `open_ratification` wrote an undefined `subject`,
+  spread `voters: "alice"` into five single-character voters (locking every real voter out of
+  their own council), accepted an ISO-string `deadline` that made the ratification unable to ever
+  expire, and silently degraded `silence_policy: "APPROVE"` to abstain; `set_fleet_timeout`
+  accepted `0`, failing every agent the instant it started; `get_inbox.since` given a non-numeric
+  value returned an EMPTY inbox with success — a message-loss path, and the documented fallback
+  when SSE is not in use.
+- **An ack was forgeable.** Any registered agent could `ack_message` a message it was never
+  addressed to: `{ok:true}`, and an acknowledgement written into the trail that
+  `verify_ledger` did not flag, because the forger is a real agent. Acking now requires being an
+  addressed recipient. Ledger semantics were never fooled (the derived `acknowledged` flag gates
+  on the recipient list) but `get_receipts` would report an acknowledgement that never happened.
+  Non-consuming annotations (`seen`, votes) keep their open third-party policy deliberately.
+- **The audit now catches what the write path rejects.** Fixing a writer does nothing for a
+  ledger that already holds the bad row — which is precisely what the verifier is for, and it was
+  passing forged ones. Three new checks: `receipt.non_recipient_ack` (ERROR), the forged ack
+  above; `receipt.missing_agent_id` (ERROR), which the key-mismatch check structurally could not
+  see because rebuilding the comparison key applied the same `String(undefined)` coercion to both
+  sides; `receipt.missing_action` (ERROR), since the action component is what distinguishes a
+  consuming ack from an annotation. The legacy `"*"` broadcast backfill and third-party
+  annotations stay exempt, pinned by test. All three carry `--explain` entries.
+- **`subscribe_inbox` no longer promises a stream it cannot serve.** `startSseServer()` failure is
+  caught and logged to stderr only, so with the port already taken — by another meshfleet instance
+  or anything else — the tool returned a normal-looking `stream_url`; the client then waited
+  forever for events that could never arrive while its messages sat correctly in the durable
+  inbox. It now refuses with the reason and points at `get_inbox`. The success shape also stops
+  overstating: SSE pushes only what THIS process writes, so a sibling instance sharing the ledger
+  cannot reach the stream and `get_inbox` is the only complete view — said in the response rather
+  than left to be discovered under load.
+- **Undeliverable mail is visible.** `verify_ledger` gains `inbox.unknown_agent` (warning): a
+  mistyped recipient was a silent black hole — `send_message` returns success, the message lands
+  in a phantom inbox for an agent that does not exist, the intended recipient's inbox stays empty,
+  and nothing ever flagged it. A warning rather than an error because a cross-attached fleet can
+  legitimately hold entries for agents this ledger has not registered; only genuinely queued,
+  undeliverable mail is reported.
+- **`record_routing_outcome`'s description no longer describes behaviour that does not exist.** It
+  promised `capability_key` scoping "so an agent can be penalized for one failure mode without
+  losing other capabilities"; state is keyed by agent id alone, so a failure at `react` has always
+  lowered that agent's score for `sql` too. The description now says what actually happens.
 - **The server no longer adopts a database file that belongs to something else.** `getDb()` used
   to run its schema creation and stamp its version marker into WHATEVER file sat at the resolved
   db path — a wrong `MESHFLEET_DB_FILE` meant meshfleet silently wrote its tables into an
@@ -494,7 +548,8 @@ cd ~/.config/opencode/mcp-servers/agent-mesh && npm install && npm run build
 - Independent process execution (bypasses OpenCode's 30-minute background task timeout)
 - Schema for Fleet and Agent records
 
-[Unreleased]: https://github.com/johnmwhitman/agent-mesh/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/johnmwhitman/agent-mesh/compare/v0.15.1...HEAD
+[0.15.1]: https://github.com/johnmwhitman/agent-mesh/compare/v0.15.0...v0.15.1
 [0.3.0]: https://github.com/johnmwhitman/agent-mesh/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/johnmwhitman/agent-mesh/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/johnmwhitman/agent-mesh/releases/tag/v0.1.0
