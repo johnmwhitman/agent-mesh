@@ -36,6 +36,24 @@ _Contains a wire-visible additive enum change; releases as 0.16.0._
   that's inherent SQLite mechanics, not application data being written.)
 
 ### Fixed
+- **The four Discussions tools validate their published contract.** They shipped doing
+  `args as XParams`, the same blind cast that made `register_capability` discard its ids for a
+  month — the MCP SDK enforces neither `required` nor `type`, so a cast is not a check. Two of the
+  observed consequences were serious. `ask_peer` with `wake_peer: "false"` responded
+  **`wake_reserved: true`**, launching a peer attempt for a caller that had explicitly declined
+  one — `wake_peer` is the explicit, budgeted authority to RUN an agent, in a lane whose whole
+  premise is that nothing starts a process implicitly, so this is the `cast_vote` truthiness defect
+  on the switch where it matters most. And `ask_peer` with `payload` omitted returned a
+  normal-looking result while **writing a discussion whose derived status is `invalid`** (empty
+  `fleet_id`, participants `["",""]`, `max_turns: 0`) — a row `verify_ledger`'s own
+  `discussion.derive_invalid` check reports as an error, so the writer was manufacturing exactly
+  what the auditor exists to catch. Also refused now: `reply_discussion.close` as a non-boolean
+  (read as `params.close ?? false`, so `"false"` made a conversation **terminal**),
+  `reply_discussion.type` outside its two-member enum, `wake_agent`'s three compare-and-swap
+  identity fields when omitted (they reached a `not_found` that read like a genuine miss), and
+  `get_discussion`'s id and `include_receipts`. Validation uses the shared `src/tool-args.ts`
+  helpers rather than per-handler checks — the inconsistency between handlers is how this class
+  arose. Refusal happens before any write, pinned by row counts.
 - **Fleet completion is a lattice over agent terminal states, not a boolean.** Any `failed` →
   `failed`; otherwise any `interrupted` → `abandoned`; otherwise `complete`. The naive repair —
   widening the predicate to include `interrupted` while keeping the two-way outcome — would mark

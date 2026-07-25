@@ -67,6 +67,7 @@ import {
   firstError,
   requireString,
   requireBoolean,
+  optionalBoolean,
   requireNumber,
   optionalNumber,
   requireStringArray,
@@ -1325,6 +1326,34 @@ toolHandlers["spawn_from_template"] = async (args) => {
 // ---------------------------------------------------------------------------
 
 toolHandlers["ask_peer"] = async (args) => {
+    // `wake_peer` is the single most dangerous field on this tool surface: it is
+    // the explicit, budgeted authority to RUN an agent, in a lane whose whole
+    // premise is that nothing starts a process implicitly. Read for truthiness,
+    // `wake_peer: "false"` reserved and launched a peer attempt from a caller
+    // that had explicitly declined one — measured over real stdio, the response
+    // came back `wake_reserved: true`. Same defect as cast_vote, on the switch
+    // where it matters most.
+    //
+    // The string fields matter for a different reason: omitting `payload` wrote
+    // a whole discussion whose derived status is `invalid` (empty fleet_id,
+    // participants `["",""]`, max_turns 0) and returned a normal-looking result.
+    // `verify_ledger` then correctly reports that row as an error — the writer
+    // was manufacturing exactly what the auditor is there to catch.
+    //
+    // Numeric fields are type-checked here and RANGE-checked in the store, which
+    // owns the named bounds. The boundary asserts the published contract; the
+    // store asserts the domain policy.
+    const argErr = firstError(
+      requireString("ask_peer", "from_agent_id", (args as Record<string, unknown>).from_agent_id),
+      requireString("ask_peer", "to_agent_id", (args as Record<string, unknown>).to_agent_id),
+      requireString("ask_peer", "fleet_id", (args as Record<string, unknown>).fleet_id),
+      requireString("ask_peer", "payload", (args as Record<string, unknown>).payload),
+      requireNumber("ask_peer", "max_turns", (args as Record<string, unknown>).max_turns, { integer: true }),
+      requireNumber("ask_peer", "timeout_ms", (args as Record<string, unknown>).timeout_ms, { integer: true }),
+      requireNumber("ask_peer", "turn_timeout_ms", (args as Record<string, unknown>).turn_timeout_ms, { integer: true }),
+      requireBoolean("ask_peer", "wake_peer", (args as Record<string, unknown>).wake_peer)
+    );
+    if (argErr) return jsonError(argErr);
     try {
       const params = args as AskPeerParams;
       const opened = await getDiscussionStore().openDiscussion(params);
@@ -1337,6 +1366,20 @@ toolHandlers["ask_peer"] = async (args) => {
 };
 
 toolHandlers["wake_agent"] = async (args) => {
+    // All three are the compare-and-swap identity of a wake. An omitted
+    // `expected_head_message_id` would turn a guarded resume into an unguarded
+    // one, and an omitted `agent_id` reached the discussion lookup before
+    // anything noticed it was missing.
+    const argErr = firstError(
+      requireString("wake_agent", "agent_id", (args as Record<string, unknown>).agent_id),
+      requireString("wake_agent", "discussion_id", (args as Record<string, unknown>).discussion_id),
+      requireString(
+        "wake_agent",
+        "expected_head_message_id",
+        (args as Record<string, unknown>).expected_head_message_id
+      )
+    );
+    if (argErr) return jsonError(argErr);
     try {
       const params = args as WakeAgentParams;
       const result = await getDiscussionStore().wakeAgent(params);
@@ -1348,6 +1391,24 @@ toolHandlers["wake_agent"] = async (args) => {
 };
 
 toolHandlers["reply_discussion"] = async (args) => {
+    // `close` is read as `params.close ?? false`, so the string "false" makes a
+    // conversation TERMINAL — the nullish coalesce only guards absence, never
+    // type. `type` is a two-member enum written straight into the message row;
+    // an unrecognized value is persisted rather than refused.
+    const argErr = firstError(
+      requireString("reply_discussion", "agent_id", (args as Record<string, unknown>).agent_id),
+      requireString("reply_discussion", "discussion_id", (args as Record<string, unknown>).discussion_id),
+      requireString("reply_discussion", "attempt_id", (args as Record<string, unknown>).attempt_id),
+      requireString(
+        "reply_discussion",
+        "reply_to_message_id",
+        (args as Record<string, unknown>).reply_to_message_id
+      ),
+      requireEnum("reply_discussion", "type", (args as Record<string, unknown>).type, ["question", "result"]),
+      requireString("reply_discussion", "payload", (args as Record<string, unknown>).payload),
+      optionalBoolean("reply_discussion", "close", (args as Record<string, unknown>).close)
+    );
+    if (argErr) return jsonError(argErr);
     try {
       const params = args as ReplyDiscussionParams;
       const result = await getDiscussionStore().replyDiscussion(params);
@@ -1359,6 +1420,16 @@ toolHandlers["reply_discussion"] = async (args) => {
 };
 
 toolHandlers["get_discussion"] = async (args) => {
+    // Read-only, so the blast radius is small — but an omitted `discussion_id`
+    // produced `not_found` naming no id, which reads like a real miss rather
+    // than a malformed call. `include_receipts` is compared with `=== false`,
+    // which happens to fail SAFE (a string over-includes); it is validated
+    // anyway, because "safe by accident" is not a contract.
+    const argErr = firstError(
+      requireString("get_discussion", "discussion_id", (args as Record<string, unknown>).discussion_id),
+      optionalBoolean("get_discussion", "include_receipts", (args as Record<string, unknown>).include_receipts)
+    );
+    if (argErr) return jsonError(argErr);
     try {
       const params = args as GetDiscussionParams;
       const view = getDiscussionStore().getDiscussion(params);
