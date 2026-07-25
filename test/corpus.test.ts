@@ -160,31 +160,58 @@ for (const v of manifest.vectors) {
 // under-covered; an oracle that cannot fail is the same failure again.
 // --------------------------------------------------------------------------
 
-test("the oracle rejects a corpus whose expectations have drifted (mutation meta-test)", () => {
-  let rejected = 0;
+/**
+ * Runs the exact comparison a per-vector test performs. The meta-test below
+ * feeds it deliberately wrong expectations and requires it to throw — so what is
+ * exercised is the oracle's real assertion path, not a fact about `deepEqual`.
+ *
+ * The load-bearing evidence for "this corpus goes red when detection regresses"
+ * is not this test: it is that disabling `receipt.non_recipient_ack` in
+ * `src/verify.ts` fails that vector, and deleting the check together with its id
+ * additionally fails both inventory guards below. This test pins the narrower
+ * property that the comparison itself tolerates no drift.
+ */
+function oracleCompare(actual: Finding[], expected: Finding[]): void {
+  assert.deepEqual(actual, expected);
+}
+
+test("the oracle's own comparison rejects every class of drifted expectation", () => {
+  let exercised = 0;
   for (const v of manifest.vectors) {
-    const report = verifyMeshData(loadCorpusFixture(v.id) as any, NOW);
-    const actual = normalize(report.findings);
+    const actual = normalize(verifyMeshData(loadCorpusFixture(v.id) as any, NOW).findings);
 
-    // Mutation A: drop a finding. Only meaningful where one exists.
-    if (actual.length > 0) {
-      assert.notDeepEqual(actual, actual.slice(1), `${v.id}: dropping a finding must change the multiset`);
-      rejected++;
-    }
-    // Mutation B: add a plausible finding. Must be detected for EVERY vector,
-    // including the undetectable ones — that is what pins their emptiness.
-    const inflated = normalize([...actual, { severity: "error", check: "receipt.orphan_message", subject: "planted" }]);
-    assert.notDeepEqual(actual, inflated, `${v.id}: an extra finding must change the multiset`);
+    // Sanity: the truth must pass, or the mutations below prove nothing.
+    oracleCompare(actual, v.expected_findings);
 
-    // Mutation C: flip a severity. An exact oracle must not tolerate it.
+    // Drift A — a finding goes missing (a check stopped firing).
     if (actual.length > 0) {
-      const flipped = actual.map((f, i) =>
-        i === 0 ? { ...f, severity: f.severity === "error" ? "warning" : "error" } : f
+      assert.throws(
+        () => oracleCompare(actual, actual.slice(1)),
+        `${v.id}: the oracle tolerated a MISSING finding`
       );
-      assert.notDeepEqual(actual, flipped, `${v.id}: a severity flip must change the multiset`);
+      exercised++;
+    }
+
+    // Drift B — a spurious finding appears. Must be rejected for EVERY vector,
+    // including the undetectable ones; that is what pins their emptiness and is
+    // precisely what a `some(...)` style assertion would sleep through.
+    assert.throws(
+      () => oracleCompare(actual, [...actual, { severity: "error", check: "receipt.orphan_message", subject: "planted" }]),
+      `${v.id}: the oracle tolerated an EXTRA finding`
+    );
+
+    // Drift C — severity downgraded. An error quietly becoming a warning turns a
+    // caught overclaim into a passing ledger, so this must never be tolerated.
+    if (actual.length > 0) {
+      assert.throws(
+        () => oracleCompare(actual, actual.map((f, i) =>
+          i === 0 ? { ...f, severity: f.severity === "error" ? "warning" : "error" } : f
+        )),
+        `${v.id}: the oracle tolerated a SEVERITY FLIP`
+      );
     }
   }
-  assert.ok(rejected > 30, `expected the meta-test to exercise many vectors, only ${rejected}`);
+  assert.ok(exercised >= 36, `expected the drift checks to exercise the findings-bearing vectors, got ${exercised}`);
 });
 
 test("minimality checking actually catches an undeclared edit", () => {
