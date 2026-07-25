@@ -325,6 +325,7 @@ function printMetrics(json = false): void {
   process.stdout.write(`  completed:        ${m.completed_fleets}\n`)
   process.stdout.write(`  failed:           ${m.failed_fleets}\n`)
   process.stdout.write(`  running:          ${m.running_fleets}\n`)
+  process.stdout.write(`  abandoned:        ${m.abandoned_fleets}\n`)
   process.stdout.write(`Total agents:       ${m.total_agents}\n`)
   process.stdout.write(`Total messages:     ${m.total_messages}\n`)
   process.stdout.write(`Total capabilities: ${m.total_capabilities}\n`)

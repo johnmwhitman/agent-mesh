@@ -30,6 +30,7 @@ import {
   MESSAGE_TYPES,
   MessageType,
   recoverInterruptedAgents,
+  reconcileAbandonedFleets,
   registerCapability,
   routeWork,
   sendMessage,
@@ -1066,11 +1067,25 @@ toolHandlers["attach_agent"] = async (args) => {
     // same transaction. Checking outside (as before) let a concurrent
     // checkFleetCompletion flip the fleet to complete between check and write —
     // a live agent attached to a dead fleet (the red-team's exact case).
-    const check = withLedger((data): { error?: string } => {
+    const check = withLedger((data): { error?: string; reopened?: boolean } => {
       const fleet = data.fleets[fleet_id];
       if (!fleet) return { error: `Fleet ${fleet_id} not found` };
-      if (fleet.status !== "running") {
+      // `abandoned` is accepted, and this is load-bearing rather than a
+      // convenience. attach_agent is the ONLY in-place path into an existing
+      // fleet — nothing anywhere re-runs an interrupted agent — so if
+      // terminalizing a crashed fleet also sealed it, making the fleet's status
+      // truthful would have cost the only remedy its own error string names.
+      // `complete` and `failed` stay sealed: those fleets reached a real outcome.
+      if (fleet.status !== "running" && fleet.status !== "abandoned") {
         return { error: `Fleet ${fleet_id} is ${fleet.status}, not running` };
+      }
+      // Reopen: a fleet with a live agent in it is running, whatever it was a
+      // moment ago. Leaving it `abandoned` while its replacement works would be
+      // the same class of false projection this status was added to remove.
+      const reopened = fleet.status === "abandoned";
+      if (reopened) {
+        fleet.status = "running";
+        delete fleet.completed_at;
       }
       _registerAgent(data, {
         id: agentId,
@@ -1081,9 +1096,17 @@ toolHandlers["attach_agent"] = async (args) => {
         status: "running",
         started_at: Date.now(),
       });
-      return {};
+      return { reopened };
     });
     if (check.error) return jsonError(check.error);
+    if (check.reopened) {
+      appendEvent("fleet_reconciled", {
+        fleet_id,
+        from: "abandoned",
+        to: "running",
+        via: "attach_agent",
+      });
+    }
 
     // Spawn after commit; capability auto-register is its own txn.
     trySpawn({ fleetId: fleet_id, role, prompt, agentFile: agent }, agentId, 1);
@@ -1229,6 +1252,14 @@ if (!isChildInstance) {
   const recoveredCount = recoverInterruptedAgents();
   if (recoveredCount > 0) {
     console.error(`Agent Mesh v${MESH_VERSION} — recovered ${recoveredCount} interrupted agent(s) from previous run`);
+  }
+  // Close fleets written before the completion lattice existed, which no normal
+  // write path can ever revisit. LOUD, because this rewrites stored statuses in
+  // the operator's ledger on first start after upgrade; each move also leaves a
+  // `fleet_reconciled` receipt in the event log naming its before and after.
+  const reconciledCount = reconcileAbandonedFleets();
+  if (reconciledCount > 0) {
+    console.error(`Agent Mesh v${MESH_VERSION} — reconciled ${reconciledCount} fleet(s) whose agents had all finished but which were still recorded as running (see fleet_reconciled events)`);
   }
 
   // v0.11: periodic ratification deadline sweep (0 disables)

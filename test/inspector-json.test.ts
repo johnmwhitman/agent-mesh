@@ -332,6 +332,10 @@ test("inspect text metrics remain byte-compatible", () => {
         "  completed:        0\n" +
         "  failed:           0\n" +
         "  running:          1\n" +
+        // 0.16.0 added this line deliberately. Abandoned fleets are no longer
+        // `running`, so without a bucket of their own they would appear in the
+        // summary nowhere at all — a fix that conceals its own subject.
+        "  abandoned:        0\n" +
         "Total agents:       1\n" +
         "Total messages:     0\n" +
         "Total capabilities: 0\n" +

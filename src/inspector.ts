@@ -210,6 +210,8 @@ function statusLabel(status: string): string {
       return 'running '
     case 'pending':
       return 'pending '
+    case 'abandoned':
+      return 'abandoned'
     default:
       return status
   }
@@ -285,8 +287,23 @@ export interface MetricsReport {
   completed_fleets: number
   failed_fleets: number
   running_fleets: number
+  /**
+   * Fleets that died rather than finishing or erroring (0.16.0+). Reported in
+   * its own bucket because it belongs to none of the three above: before this
+   * status existed these fleets sat in `running` forever, and adding the status
+   * without adding the bucket would have made them vanish from the summary
+   * entirely — a fix that hides its own subject.
+   */
+  abandoned_fleets: number
   avg_fleet_duration_ms: number
-  success_rate: number // 0..1, 0 if no completed fleets
+  /**
+   * 0..1 over DECIDED fleets only — `completed / (completed + failed)`.
+   * Abandoned fleets are excluded from both sides rather than counted as
+   * failures: nothing is known about whether their work would have succeeded.
+   * They are visible in `abandoned_fleets`, so the exclusion cannot flatter the
+   * number by hiding them.
+   */
+  success_rate: number
   total_capabilities: number
 }
 
@@ -299,6 +316,7 @@ export function getFleetMetrics(): MetricsReport {
   const completed = fleets.filter((f) => f.status === 'complete')
   const failed = fleets.filter((f) => f.status === 'failed')
   const running = fleets.filter((f) => f.status === 'running')
+  const abandoned = fleets.filter((f) => f.status === 'abandoned')
 
   const totalFinished = completed.length + failed.length
   const success_rate =
@@ -323,6 +341,7 @@ export function getFleetMetrics(): MetricsReport {
     completed_fleets: completed.length,
     failed_fleets: failed.length,
     running_fleets: running.length,
+    abandoned_fleets: abandoned.length,
     avg_fleet_duration_ms: avgDuration,
     success_rate,
     total_capabilities: Object.keys(data.capabilities).length,
@@ -483,6 +502,11 @@ interface CheckExplanation {
 }
 
 const CHECK_EXPLANATIONS: Record<string, CheckExplanation> = {
+  "fleet.unreconciled_status": {
+    what: "a fleet is still recorded as running/pending although every one of its agents has finished",
+    benign: "a ledger written before 0.16.0, or an export taken before the startup reconciler ran — starting meshfleet on this ledger repairs it and logs a fleet_reconciled event",
+    investigate: "agent-mesh inspect --export | jq '.fleets[] | select(.status == \"running\")'",
+  },
   "agent.orphan_fleet": {
     what: "an agent row references a fleet this ledger does not hold",
     benign: "agents copied in from another mesh, or old fleet rows pruned without their agents",

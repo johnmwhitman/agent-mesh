@@ -4,6 +4,60 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 
 ## [Unreleased]
 
+_Contains a wire-visible additive enum change; releases as 0.16.0._
+
+### Added
+- **`abandoned` fleet status.** A fleet whose agents have all reached a terminal state with at
+  least one `interrupted` and none `failed` did not finish and did not error — its process died.
+  It had no way to say so: `Agent.status` has three terminal members and fleet completion
+  recognised only two, so such a fleet stayed `running` forever and every crash minted another
+  one. The three available labels are each untrue — `complete` claims work that never happened,
+  `failed` claims an error that never occurred, `running` claims agents that are all already dead
+  — so the vocabulary gained the missing one. See COMPATIBILITY.md for the consumer impact.
+- **`verify_ledger` check `fleet.unreconciled_status`** (warning): a fleet recorded as
+  `running`/`pending` whose agents have all finished. Fixing the writer does nothing for the rows
+  already in a ledger, which is what the audit is for. Measured read-only against a real
+  production ledger: errors unchanged, 12 genuine new findings, no false positives. Empty fleets
+  are excluded — they are stuck, not finished.
+
+### Fixed
+- **Fleet completion is a lattice over agent terminal states, not a boolean.** Any `failed` →
+  `failed`; otherwise any `interrupted` → `abandoned`; otherwise `complete`. The naive repair —
+  widening the predicate to include `interrupted` while keeping the two-way outcome — would mark
+  every crashed fleet `complete`, because none of its agents `failed`. That is a worse lie than
+  leaving them `running`, and it would be written into the evidence ledger.
+- **A fleet with no agents is no longer marked complete.** `[].every(...)` is `true`, so a
+  childless fleet fell through the "all done" test and could be recorded as finished having never
+  run anything. It also contradicted `health.ts`, which deliberately treats an empty old-running
+  fleet as STUCK. The read and write models now agree.
+- **Crash recovery re-aggregates the fleets it changes.** `recoverInterruptedAgents` flipped
+  agents to `interrupted` and never called fleet completion — the mechanism behind the permanent
+  `running` pile. It now does, in the same transaction.
+- **Fleets left inconsistent by older versions are reconciled at startup**, loudly, each emitting
+  a `fleet_reconciled` receipt naming the before and after. No normal write path could ever
+  revisit them: completion runs when an agent finishes, and these agents finished weeks ago. A
+  silent status rewrite in an evidence ledger would fail the same bar that disqualified reusing
+  `failed`.
+- **`attach_agent` accepts an abandoned fleet and reopens it to `running`.** It is the only
+  in-place path into an existing fleet — nothing anywhere re-runs an interrupted agent — so
+  terminalizing crashed fleets without this would have foreclosed the very remedy the crash
+  message names. `complete` and `failed` stay sealed.
+- **`inspect --metrics` reports abandoned fleets** in their own bucket. They are no longer
+  `running`, so without it they would have vanished from the summary entirely — a fix that hides
+  its own subject. `success_rate` still covers decided fleets only (`complete` vs `failed`);
+  abandoned fleets are excluded from both sides rather than counted as failures, since nothing is
+  known about whether their work would have succeeded.
+- **`get_health`'s `abandoned_fleets` counts the stored status**, not only the legacy inference.
+  Counting the inference alone would have driven the number to zero exactly as the condition
+  started being recorded properly — an alarm silenced by its own fix.
+
+**Known limitation, stated rather than hidden:** a fleet reopened by `attach_agent` recomputes to
+`abandoned` again once the replacement finishes, because `attach_agent` injects a NEW agent and
+deliberately leaves the interrupted one intact. The fleet status therefore cannot distinguish a
+recovered fleet from an unrecovered one; that distinction lives in the agent rows and the
+`fleet_reconciled` events. Encoding it in the fleet status would need a supersession link between
+a replacement and the agent it replaces, which does not exist.
+
 ## [0.15.1] — 2026-07-24
 
 **The boundary release.** 0.15.0 fixed one tool that reported success while discarding its input;

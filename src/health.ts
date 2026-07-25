@@ -66,10 +66,14 @@ export interface HealthReport {
   events_log_bytes: number
   last_event_timestamp?: number
   /**
-   * Fleets left `running` past 24h whose agents have ALL reached a terminal state. These are
-   * projection inconsistencies, not hangs, so they do not set `degraded` — but they are
-   * counted here so fixing the false alarm never hides them. Reconciling them to a terminal
-   * fleet status is a separate, explicit operator action.
+   * Fleets whose agents have ALL reached a terminal state with at least one
+   * `interrupted` — the fleet's process died rather than finishing or erroring.
+   * These are not hangs, so they do not set `degraded`, but they are counted so
+   * the condition can never become invisible.
+   *
+   * Counts both the stored `abandoned` status (0.16.0+, the normal case, no age
+   * gate) and the legacy inference over fleets still mislabelled `running` past
+   * 24h in a ledger that has not been reconciled.
    */
   abandoned_fleets: number
 }
@@ -103,7 +107,18 @@ export function getHealth(): HealthReport {
   const oldRunning = fleets.filter((f) => f.status === 'running' && now - f.created_at > ONE_DAY)
 
   let hasStuckFleet = false
-  let abandonedFleets = 0
+  // Since 0.16.0 abandonment is a STORED fleet status, so it is counted from the
+  // rows rather than inferred. Counting only the inference would have silenced
+  // this number the moment the reconciler started labelling fleets correctly —
+  // the alarm would read 0 precisely because the condition was now being
+  // recorded. Never remove an alarm without its replacement signal.
+  //
+  // No age gate on the stored form: `abandoned` is a decided outcome, not a
+  // suspicion that needs 24h to ripen. The inference below is kept for ledgers
+  // that have not been reconciled yet (an old ledger opened read-only, or a
+  // fleet abandoned since the last startup sweep); the two sets are disjoint,
+  // one matching `status === 'abandoned'` and the other `status === 'running'`.
+  let abandonedFleets = fleets.filter((f) => f.status === 'abandoned').length
   for (const fleet of oldRunning) {
     const fleetAgents = agents.filter((a) => a.fleet_id === fleet.id)
     // Note the empty case is deliberately STUCK, not abandoned: `[].every(terminal)` is

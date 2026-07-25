@@ -35,11 +35,41 @@ export interface Agent {
 
 export interface Fleet {
   id: string;
-  status: "pending" | "running" | "complete" | "failed";
+  /**
+   * `abandoned` (added 0.16.0) means every agent reached a terminal state but at
+   * least one was `interrupted` and none `failed` — the fleet did not finish and
+   * did not error; its process died. It exists because the alternatives both
+   * write something untrue into an evidence ledger: `complete` claims work that
+   * never happened, `failed` claims an error that never occurred, and leaving it
+   * `running` claims agents that are all already dead.
+   *
+   * Unlike `complete`/`failed` it is NOT sealed — `attach_agent` accepts an
+   * abandoned fleet and reopens it, so the fleet can still reach a real outcome.
+   */
+  status: "pending" | "running" | "complete" | "failed" | "abandoned";
   created_at: number;
   completed_at?: number;
   timeout_ms?: number;
 }
+
+/**
+ * Agent statuses from which no further progress is possible.
+ *
+ * `interrupted` belongs here and its absence was the whole defect: the fleet
+ * aggregate recognised only two of the three, so an all-interrupted fleet could
+ * never close.
+ */
+export const TERMINAL_AGENT_STATUSES: ReadonlySet<Agent["status"]> = new Set([
+  "complete",
+  "failed",
+  "interrupted",
+]);
+
+/** Fleet outcomes that are final — a recompute must never rewrite them. */
+export const SEALED_FLEET_STATUSES: ReadonlySet<Fleet["status"]> = new Set([
+  "complete",
+  "failed",
+]);
 
 export const MESSAGE_TYPES = A2A_MESSAGE_TYPES;
 
@@ -505,20 +535,103 @@ export function createFleet(fleetId: string): Fleet {
   return fleet;
 }
 
-/** In-transaction helper: decide fleet completion from `data` and set it in place. */
-export function _checkFleetCompletion(data: MeshData, fleetId: string): void {
+/**
+ * In-transaction helper: decide fleet completion from `data` and set it in place.
+ * Returns the status it moved the fleet FROM, or undefined if it did not move it
+ * (so callers can emit an honest transition event without re-reading).
+ *
+ * The outcome is a lattice over the agents' terminal states, not a boolean:
+ *
+ *   no agents            -> leave it alone   (see the vacuous-truth note below)
+ *   any agent non-terminal -> leave it alone
+ *   any `failed`         -> failed      (an error that happened outranks one that did not)
+ *   any `interrupted`    -> abandoned   (ran, died, never errored)
+ *   otherwise            -> complete
+ *
+ * `[].every(...)` is `true`, so a childless fleet used to fall straight through
+ * to "all done" and could be marked `complete` having never run anything. That
+ * also contradicted `health.ts`, which deliberately classifies an empty
+ * old-running fleet as STUCK. The read and write models now agree: an empty
+ * fleet is not finished, it is stuck, and nothing here will close it.
+ */
+export function _checkFleetCompletion(
+  data: MeshData,
+  fleetId: string
+): Fleet["status"] | undefined {
+  const fleet = data.fleets[fleetId];
+  if (!fleet) return undefined;
+  // `complete`/`failed` are sealed. `abandoned` deliberately is not: attach_agent
+  // reopens it, and the replacement's outcome has to be able to land.
+  if (SEALED_FLEET_STATUSES.has(fleet.status)) return undefined;
+
   const agents = Object.values(data.agents).filter((a) => a.fleet_id === fleetId);
-  const allDone = agents.every((a) => a.status === "complete" || a.status === "failed");
-  if (allDone && data.fleets[fleetId]) {
-    const hasFail = agents.some((a) => a.status === "failed");
-    const fleet = data.fleets[fleetId];
-    fleet.status = hasFail ? "failed" : "complete";
-    fleet.completed_at = Date.now();
-  }
+  if (agents.length === 0) return undefined;
+  if (!agents.every((a) => TERMINAL_AGENT_STATUSES.has(a.status))) return undefined;
+
+  const next: Fleet["status"] = agents.some((a) => a.status === "failed")
+    ? "failed"
+    : agents.some((a) => a.status === "interrupted")
+      ? "abandoned"
+      : "complete";
+  if (fleet.status === next) return undefined;
+
+  const from = fleet.status;
+  fleet.status = next;
+  fleet.completed_at = Date.now();
+  return from;
 }
 
 export function checkFleetCompletion(fleetId: string): void {
   withLedger((data) => _checkFleetCompletion(data, fleetId));
+}
+
+/** A fleet status change worth a receipt. */
+export interface FleetTransition {
+  fleet_id: string;
+  from: Fleet["status"];
+  to: Fleet["status"];
+}
+
+/**
+ * Emit transition receipts. Hoisted out of the caller's transaction — side
+ * effects never run inside `withLedger`.
+ */
+function emitFleetTransitions(transitions: FleetTransition[], via: string): void {
+  for (const t of transitions) {
+    appendEvent("fleet_reconciled", { ...t, via });
+  }
+}
+
+/**
+ * Close fleets that can never close themselves.
+ *
+ * Startup sweep for ledgers written before the completion lattice existed: a
+ * fleet stuck at `running` whose agents have ALL reached a terminal state is a
+ * projection that contradicts its own rows, and nothing in the normal write path
+ * will ever revisit it (completion only runs when an agent finishes, and these
+ * agents already finished — some of them weeks ago).
+ *
+ * Deliberately narrow, and it is a status correction rather than a data change:
+ * it writes through the normal ledger path, it applies the same lattice as every
+ * other caller, it cannot touch a sealed fleet, it leaves empty fleets alone
+ * (they are stuck, not finished), and every move it makes emits a
+ * `fleet_reconciled` receipt naming the before and after. A silent status
+ * mutation in an evidence product would fail the same bar that disqualified
+ * "just write `failed` and accept the lost distinction".
+ *
+ * Returns the number of fleets moved.
+ */
+export function reconcileAbandonedFleets(): number {
+  const transitions: FleetTransition[] = [];
+  withLedger((data) => {
+    transitions.length = 0; // a busy-retry may replay this mutator
+    for (const fleet of Object.values(data.fleets)) {
+      const from = _checkFleetCompletion(data, fleet.id);
+      if (from) transitions.push({ fleet_id: fleet.id, from, to: fleet.status });
+    }
+  });
+  emitFleetTransitions(transitions, "startup_reconcile");
+  return transitions.length;
 }
 
 // ---------------------------------------------------------------------------
@@ -590,6 +703,7 @@ export function recoverInterruptedAgents(): number {
   // Startup-only, parent-only (CHILD guard). isPidAlive is a read-only syscall so
   // it stays in the mutator; the recovery events are hoisted OUT of the txn.
   const recovered: Agent[] = [];
+  const transitions: FleetTransition[] = [];
   withLedgerAndStorage((data, db) => {
     for (const agent of Object.values(data.agents)) {
       if (agent.status === "running") {
@@ -606,14 +720,24 @@ export function recoverInterruptedAgents(): number {
         // re-runs an interrupted agent (`retry.ts` and the attempt lifecycle are
         // automatic machinery for LIVE attempts, not an operator handle). The two
         // real options are stated instead. Note attach_agent injects a REPLACEMENT
-        // agent and leaves this row as-is; it is not resumption. It also requires
-        // the fleet to still be `running`, which today it is, because completion
-        // never terminalizes an all-interrupted fleet.
+        // agent and leaves this row as-is; it is not resumption. Since 0.16.0 the
+        // fleet may terminalize to `abandoned` in this same transaction, and
+        // attach_agent accepts that status precisely so this remedy keeps working.
         agent.error = "MCP server crashed before this agent completed. This agent cannot be resumed; attach a replacement to the fleet with attach_agent, or re-run the work with spawn_fleet.";
         recovered.push(agent);
       }
     }
+    // Re-aggregate the fleets we just changed, INSIDE the same transaction.
+    // Recovery never did this, which is the mechanism behind the whole defect:
+    // it flipped agents to a terminal state that fleet completion did not
+    // recognise, and nothing ever looked at the fleet again. Every crash left a
+    // permanently-`running` fleet behind.
+    for (const fleetId of new Set(recovered.map((a) => a.fleet_id))) {
+      const from = _checkFleetCompletion(data, fleetId);
+      if (from) transitions.push({ fleet_id: fleetId, from, to: data.fleets[fleetId].status });
+    }
   });
+  emitFleetTransitions(transitions, "crash_recovery");
   for (const agent of recovered) {
     appendEvent("agent_interrupted_recovered", {
       agent_id: agent.id,
