@@ -350,7 +350,13 @@ test("inspect text events remain byte-compatible", () => {
   const home = mkdtempSync(join(tmpdir(), "meshfleet-inspect-events-"));
   try {
     withCliLedger((dbFile) => {
-      const result = runInspect(dbFile, ["--events", "2"], { HOME: home });
+      // USERPROFILE as well as HOME, or this isolation is a NO-OP on Windows.
+      // The event log resolves from `os.homedir()`, which reads $HOME on POSIX
+      // but USERPROFILE on Windows — so the child was reading the machine's REAL
+      // event log there, and this assertion passed only while that file happened
+      // to be empty. It went red the moment another test in the run wrote an
+      // event first, which is how the blind spot was found.
+      const result = runInspect(dbFile, ["--events", "2"], { HOME: home, USERPROFILE: home });
       assert.equal(result.status, 0);
       assert.equal(result.stderr, "");
       assert.equal(result.stdout, "No events recorded.\n");
