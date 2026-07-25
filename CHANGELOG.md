@@ -20,6 +20,21 @@ _Contains a wire-visible additive enum change; releases as 0.16.0._
   production ledger: errors unchanged, 12 genuine new findings, no false positives. Empty fleets
   are excluded — they are stuck, not finished.
 
+- **`inspect --follow` / `-f`** — zero-config live P2P message view. Polls the ledger via an
+  indexed `rowid > cursor` query (the messages table's implicit SQLite rowid — strictly
+  increasing per insert, so it can't tie the way a `timestamp >` cursor did on
+  same-millisecond sends). Optional `--fleet <id>` filters inside the poll query, ahead of
+  cursor advancement. Prints an idle banner immediately on an empty ledger and hard-errors
+  (exit 2) on a genuinely missing one — never invents demo data or a ledger file. Skips
+  malformed message rows (logged, not fatal) and bounds its de-dupe set so a long session
+  can't leak memory. Exits cleanly on ctrl-c/SIGTERM. Reads through a DEDICATED
+  `{ readonly: true, fileMustExist: true }` connection, never the shared writer handle: no
+  schema exec, no meta row, no forced WAL conversion, no daemon beyond the existing poll-loop
+  pattern (`agent-mesh dashboard` already sets that precedent), no config file. (If the ledger
+  is already in WAL mode — true of any real, previously-used ledger — SQLite's own WAL-reader
+  protocol may still touch `-wal`/`-shm` sidecars, same as any other reader in this codebase;
+  that's inherent SQLite mechanics, not application data being written.)
+
 ### Fixed
 - **Fleet completion is a lattice over agent terminal states, not a boolean.** Any `failed` →
   `failed`; otherwise any `interrupted` → `abandoned`; otherwise `complete`. The naive repair —

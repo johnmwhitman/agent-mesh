@@ -437,6 +437,56 @@ export function formatReceiptTrail(msg: Message, receipts: Receipt[]): string {
   return lines.join('\n')
 }
 
+// ---------------------------------------------------------------------------
+// Live tail (`inspect --follow`) — one line per newly-observed message
+// ---------------------------------------------------------------------------
+
+/** Render one message as a single live-tail line: `ts  type  from → to  msg=id  payload`. */
+export function formatLiveMessage(msg: Message): string {
+  const to =
+    msg.to_agent_id === '*'
+      ? `* (${(msg.recipients ?? []).length})`
+      : truncate(msg.to_agent_id, 8)
+  return `${formatTimestamp(msg.timestamp)}  ${msg.type}  ${truncate(msg.from_agent_id, 8)} → ${to}  msg=${truncate(msg.id, 8)}  ${truncate(msg.payload, 60)}`
+}
+
+/** Bound on the follow loop's `seenIds` de-dupe set — a long-running session must not leak memory. */
+export const FOLLOW_SEEN_CAP = 2000
+
+/**
+ * Filter `rows` down to ones not already in `seenIds`, marking each as seen
+ * (FIFO-capped: `Set` preserves insertion order, so evicting `.values().next()`
+ * drops the oldest entry once over `cap`). Pure and side-effect-free on
+ * anything but `seenIds` — easy to unit test without a database or a spawned
+ * process.
+ *
+ * Exists as insurance against a message resurfacing at a NEW rowid for the
+ * same id (an ack touching its row, a migration, etc.) — without this,
+ * `--follow` would print it twice. Today's real persistence (db.ts's
+ * `INSERT ... ON CONFLICT(pk) DO UPDATE`, since PR #15's durable-lifecycle
+ * work) preserves rowid across an in-place update, so this can't currently
+ * happen through the normal write path — kept anyway because it's cheap and
+ * because that guarantee is an implementation detail of the persistence
+ * layer, not a contract this module should assume will never change.
+ */
+export function dedupeFollowRows<T extends { id: string }>(
+  rows: readonly T[],
+  seenIds: Set<string>,
+  cap = FOLLOW_SEEN_CAP
+): T[] {
+  const fresh: T[] = []
+  for (const row of rows) {
+    if (seenIds.has(row.id)) continue
+    seenIds.add(row.id)
+    fresh.push(row)
+    if (seenIds.size > cap) {
+      const oldest = seenIds.values().next().value
+      if (oldest !== undefined) seenIds.delete(oldest)
+    }
+  }
+  return fresh
+}
+
 /** Render a council (ratification) with a receipt-derived vote breakdown + integrity gaps. */
 export function formatCouncil(rat: Ratification, votes: Receipt[]): string {
   const approvals = votes.filter((v) => v.action === 'r-ack').map((v) => v.agent_id)

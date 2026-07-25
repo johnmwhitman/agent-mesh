@@ -204,6 +204,11 @@ TIMESTAMP            EVENT              DETAIL
 2026-07-02 12:40:12  agent_spawned       fleet=f-1 agent=a-1
 2026-07-02 12:40:12  agent_spawned       fleet=f-1 agent=a-2
 2026-07-02 12:40:12  fleet_created       fleet=f-1
+
+$ npx agent-mesh inspect --follow            # or -f; add --fleet <id> to scope to one fleet
+ledger: ~/.config/opencode/agent-mesh.db  · poll 400ms  · ctrl-c to stop
+watching… no messages yet  (spawn a fleet or send_message from MCP)
+2026-07-22 09:14:03  handoff  agent-a → agent-b  msg=3f9c1a2b  {"task":"review PR #42"}
 ```
 
 ---
