@@ -4,9 +4,32 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 
 ## [Unreleased]
 
-_Contains a wire-visible additive enum change; releases as 0.16.0._
+## [0.16.0] — 2026-07-25
+
+**The discussions release.** Agents can now hold bounded, budgeted, auditable conversations with
+each other — and the fleet-status vocabulary finally has a word for a fleet that died rather than
+finishing. Both halves are additive and wire-visible; see COMPATIBILITY.md.
+
+_0.15.1 was tagged but never published; everything in it ships here._
+
+The through-line of this release is the same as the last one: **every defect fixed below was found
+by running the thing, not by reading it.** Three cdx review cycles and a conductor acceptance did
+not catch that `ask_peer` launched an agent for a caller who had declined one — driving the tool
+over stdio with its published field names caught it in minutes.
 
 ### Added
+- **Discussions.** Four MCP tools — `ask_peer`, `wake_agent`, `reply_discussion`, `get_discussion`
+  — over a durable reservation/wake/reply store, with envelope + transcript derivation. The
+  governing law is non-negotiable and enforced rather than asserted: **message arrival never
+  reserves a turn or starts a process.** Wake is explicit, atomic-before-spawn, budgeted, one-shot,
+  and human-revocable. The underlying wake state machine was model-checked before it was written:
+  8 invariants over 3,991,176 states, mutation-validated.
+- **`verify_ledger` understands Discussions**: derivation validity, budget/turns cross-checks
+  against reservation receipts, reply-target agreement, and discovery over discussion candidates —
+  each with an `--explain` entry. A Discussions layer that cannot be audited would have to be
+  trusted instead, which is the opposite of this project.
+- **Council privacy.** `open_ratification` delivered proposals by broadcast, reaching every agent
+  in the fleet; delivery is now narrowed to `voters ∪ required_signoffs` when voters are explicit.
 - **`abandoned` fleet status.** A fleet whose agents have all reached a terminal state with at
   least one `interrupted` and none `failed` did not finish and did not error — its process died.
   It had no way to say so: `Agent.status` has three terminal members and fleet completion
@@ -19,7 +42,6 @@ _Contains a wire-visible additive enum change; releases as 0.16.0._
   already in a ledger, which is what the audit is for. Measured read-only against a real
   production ledger: errors unchanged, 12 genuine new findings, no false positives. Empty fleets
   are excluded — they are stuck, not finished.
-
 - **`inspect --follow` / `-f`** — zero-config live P2P message view. Polls the ledger via an
   indexed `rowid > cursor` query (the messages table's implicit SQLite rowid — strictly
   increasing per insert, so it can't tie the way a `timestamp >` cursor did on
@@ -635,7 +657,8 @@ cd ~/.config/opencode/mcp-servers/agent-mesh && npm install && npm run build
 - Independent process execution (bypasses OpenCode's 30-minute background task timeout)
 - Schema for Fleet and Agent records
 
-[Unreleased]: https://github.com/johnmwhitman/agent-mesh/compare/v0.15.1...HEAD
+[Unreleased]: https://github.com/johnmwhitman/agent-mesh/compare/v0.16.0...HEAD
+[0.16.0]: https://github.com/johnmwhitman/agent-mesh/compare/v0.15.0...v0.16.0
 [0.15.1]: https://github.com/johnmwhitman/agent-mesh/compare/v0.15.0...v0.15.1
 [0.3.0]: https://github.com/johnmwhitman/agent-mesh/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/johnmwhitman/agent-mesh/compare/v0.1.0...v0.2.0
