@@ -4,15 +4,20 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 
 ## [Unreleased]
 
-### Fixed
-- **`inspect --follow` installs its signal handlers before the banner promises `ctrl-c`.** The
-  banner printed `ctrl-c to stop` and the SIGINT/SIGTERM handlers were registered afterwards, so
-  there was a window in which the advertised control did not work: the default disposition killed
-  the process outright, skipping `closeFollowDb()` and exiting by signal rather than through the
-  cleanup path. The banner is also the readiness signal anything watching the process keys off, so
-  the window was reachable in practice — CI hit it on a commit that only touched documentation.
-
 ### Added
+- **The child-instance guard is finally tested** (`test/child-instance-guard.test.ts`). When a
+  spawned agent runs its own `opencode` session, that session boots its own agent-mesh server
+  against the *same* ledger; without `AGENT_MESH_CHILD=1` the nested instance runs startup
+  recovery and flips the parent's genuinely-live agents to `interrupted`. That incident
+  happened — 31 of 52 agents on 2026-07-02 — and the guard added in response had no test:
+  `recovery.test.ts` covers the recovery function, and `mcp-stdio.test.ts` boots with the
+  variable set but only asserts the tool list, so the one thing child mode exists to *not* do
+  was unpinned. The test boots the real server twice against a seeded ledger: as a child, which
+  must leave a crashed-looking agent `running`, and then as a parent, which must recover it.
+  The parent leg is the control — without it the child assertion would pass just as happily if
+  recovery were broken outright or the seed never qualified. Verified red by making child mode
+  call recovery while still printing its "skipped" banner.
+
 - **`MESHFLEET_EVENT_LOG_FILE`** (legacy alias `AGENT_MESH_EVENT_LOG_FILE`) — redirect the event
   log by environment. `setEventLogPath` is an in-process override and a spawned child inherits
   environment, not module state, so there was previously **no way to redirect a spawned server's or
@@ -21,6 +26,25 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
   `os.homedir()` reads `USERPROFILE` — a byte-compat guard asserting an empty event log passed for
   months only because that shared file happened to be empty. Resolution order is unchanged for
   ordinary users: explicit `setEventLogPath` → env → the home config dir.
+
+### Removed
+- **`scripts/validate-gates.mjs`, a safety net that had not existed for thirteen releases.**
+  The release-gate runner (F2: 10 sequential fleets; F3: 3 concurrent fleets with zero
+  interrupted agents ledger-wide) crashed with `ENOENT` on the pre-SQLite `agent-mesh.json`
+  it still expected, and had done since the 0.12.0 storage migration. It was referenced by no
+  workflow and no npm script, so nothing ran it and nothing reported it broken. It could not
+  simply be wired into CI either: it spawns real `opencode run` children and needs a live CLI,
+  a configured provider, and real model calls — none of which exist on a runner.
+  Its F2 property (fleets reach a terminal state) is already covered hermetically by the spawn
+  and lifecycle suites. Its F3 property was **not**, and is preserved as the test above.
+
+### Fixed
+- **`inspect --follow` installs its signal handlers before the banner promises `ctrl-c`.** The
+  banner printed `ctrl-c to stop` and the SIGINT/SIGTERM handlers were registered afterwards, so
+  there was a window in which the advertised control did not work: the default disposition killed
+  the process outright, skipping `closeFollowDb()` and exiting by signal rather than through the
+  cleanup path. The banner is also the readiness signal anything watching the process keys off, so
+  the window was reachable in practice — CI hit it on a commit that only touched documentation.
 
 ## [0.16.0] — 2026-07-25
 
