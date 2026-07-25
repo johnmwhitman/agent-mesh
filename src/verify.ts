@@ -22,7 +22,7 @@
  * Read-only by design: verification never mutates the ledger it audits.
  */
 import { existsSync } from "fs";
-import { BROADCAST, isRoutableCapability, isUsableAgentId, messageRecipients, type MeshData, type Message, type Receipt } from "./core.js";
+import { BROADCAST, TERMINAL_AGENT_STATUSES, isRoutableCapability, isUsableAgentId, messageRecipients, type MeshData, type Message, type Receipt } from "./core.js";
 import { MAX_TOTAL_WEIGHT, MAX_VOTE_WEIGHT, computeTally, parseVoteAction } from "./ratify.js";
 import { readLedger } from "./db.js";
 import { readLifecycleSnapshot, readLifecycleSnapshotFile, verifyLifecycleSnapshot } from "./lifecycle-visibility.js";
@@ -68,6 +68,32 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
 
   const receipts = data.receipts ?? {};
   const ratifications = data.ratifications ?? {};
+
+  // --- fleets ---------------------------------------------------------------
+  // Fixing the writer does nothing for a ledger that already holds the bad row,
+  // which is exactly what this audit is for. Before the completion lattice, a
+  // crash left the fleet at `running` with every one of its agents terminal —
+  // a projection that contradicts its own rows. The startup reconciler repairs
+  // these, so the audit should be able to see any that a reconciler has not
+  // reached (an export, a read-only copy, a ledger written by an older build).
+  //
+  // Warning, not error: the rows are internally consistent and nothing is
+  // overclaimed by them — the fleet's own agents state the truth plainly. It is
+  // a stale projection, not a forged one.
+  for (const f of Object.values(data.fleets)) {
+    if (f.status !== "running" && f.status !== "pending") continue;
+    const fleetAgents = Object.values(data.agents).filter((a) => a.fleet_id === f.id);
+    // An EMPTY fleet is deliberately excluded: `[].every(...)` is vacuously true,
+    // and such a fleet is stuck rather than finished. health.ts makes the same
+    // distinction, and the two must not disagree.
+    if (fleetAgents.length === 0) continue;
+    if (!fleetAgents.every((a) => TERMINAL_AGENT_STATUSES.has(a.status))) continue;
+    warning(
+      "fleet.unreconciled_status",
+      f.id,
+      `fleet ${f.id} is recorded as ${f.status} but all ${fleetAgents.length} of its agents have finished — the fleet status was never recomputed`
+    );
+  }
 
   // --- agents ---------------------------------------------------------------
   for (const a of Object.values(data.agents)) {

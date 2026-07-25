@@ -87,6 +87,30 @@ Future versions will increment `CURRENT_SCHEMA_VERSION` and add a migration step
 
 **Promise so far**: every minor release has been additive. No tool has been removed or had its signature narrowed. Tool inputs default to safe values when omitted.
 
+## Fleet status vocabulary
+
+| Version | `fleet.status` values | Notes |
+|---|---|---|
+| 0.1.0 – 0.15.x | `pending`, `running`, `complete`, `failed` | Incomplete: a fleet whose agents were all `interrupted` matched no terminal outcome and stayed `running` indefinitely. |
+| 0.16.0+ | + `abandoned` | Every agent terminal, at least one `interrupted`, none `failed`. |
+
+**This is a wire-visible additive change**, surfaced by `fleet_status`, `list_fleets`, the
+`--metrics` report and the dashboard. A consumer that switches exhaustively on the four old values
+will meet a fifth. It is not a rename or a type change, and no existing value changed meaning:
+`complete` and `failed` mean exactly what they did.
+
+What DOES change for an existing ledger: on first start under 0.16.0, fleets that were left
+`running` although all their agents had finished are reconciled to their true outcome, each
+emitting a `fleet_reconciled` event naming the before and after. Fleets with no agents at all are
+deliberately left `running` — they are stuck, not finished.
+
+Two related surfaces moved with it: `inspect --metrics` text output gains an `abandoned:` line
+(anything parsing that text by line position should be checked), and `verify_ledger` gains the
+`fleet.unreconciled_status` warning for ledgers a reconciler has not yet reached.
+
+`attach_agent` accepts `running` **or** `abandoned` and reopens an abandoned fleet to `running`;
+`complete` and `failed` remain sealed as before.
+
 ## Runtime adapter platform support
 
 `LocalProcessRuntimeAdapter` spawns and terminates child processes. Its

@@ -60,7 +60,11 @@ function render(): void {
       const dur = f.completed_at
         ? fmtDuration(f.completed_at - f.created_at)
         : fmtDuration(Date.now() - f.created_at)
-      const icon = f.status === 'complete' ? '✓' : f.status === 'failed' ? '✗' : '◐'
+      const icon =
+        f.status === 'complete' ? '✓'
+        : f.status === 'failed' ? '✗'
+        : f.status === 'abandoned' ? '⊘'
+        : '◐'
       lines.push(
         `  ${icon} ${f.id.slice(0, 8)}  ${f.status.padEnd(10)} ` +
         `agents=${String(f.agent_count).padStart(3)} ` +
