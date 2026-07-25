@@ -75,6 +75,14 @@ import {
 import { buildFailureDetail } from "./spawn-attempt.js";
 import { getDefaultRuntimeAdapter } from "./runtime/registry.js";
 import { defaultLifecycleMode, LifecycleExecutionCoordinator, repairLifecycleOutbox } from "./lifecycle-execution.js";
+import { getDiscussionStore, primeDiscussionSweepIndex } from "./discussion-mcp.js";
+import {
+  DiscussionError,
+  type AskPeerParams,
+  type WakeAgentParams,
+  type ReplyDiscussionParams,
+  type GetDiscussionParams,
+} from "./discussion-store.js";
 
 // ---------------------------------------------------------------------------
 // Server
@@ -580,6 +588,107 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         required: ["name"],
       },
     },
+    {
+      name: "ask_peer",
+      description:
+        "Open a bounded, two-agent Discussion: sends the root question and (optionally) explicitly reserves one peer attempt, then waits until the conversation deadline for a settled answer. Message arrival never starts an agent by itself — wake_peer:true is the explicit, budgeted authority to run the peer once.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          from_agent_id: { type: "string", description: "The initiating agent's ID." },
+          to_agent_id: { type: "string", description: "The target peer agent's ID." },
+          fleet_id: { type: "string", description: "The fleet both agents belong to." },
+          payload: { type: "string", description: "The UTF-8 string payload for the root question." },
+          max_turns: {
+            type: "integer",
+            minimum: 2,
+            maximum: 32,
+            description: "Total allowed turns, including the root. Must be 2..32.",
+          },
+          timeout_ms: {
+            type: "integer",
+            minimum: 1000,
+            maximum: 900000,
+            description: "Conversation duration in milliseconds. Must be 1s..15m.",
+          },
+          turn_timeout_ms: {
+            type: "integer",
+            minimum: 1000,
+            maximum: 300000,
+            description: "Per-turn deadline duration. Must be 1s..5m and <= timeout_ms.",
+          },
+          wake_peer: { type: "boolean", description: "If true, explicitly reserves exactly one peer attempt." },
+        },
+        required: [
+          "from_agent_id",
+          "to_agent_id",
+          "fleet_id",
+          "payload",
+          "max_turns",
+          "timeout_ms",
+          "turn_timeout_ms",
+          "wake_peer",
+        ],
+        additionalProperties: false,
+      },
+    },
+    {
+      name: "wake_agent",
+      description:
+        "The sole general-purpose Discussion run trigger. Atomically reserves one bounded attempt for a resident participant who is the current recipient of the canonical head, then launches it. Never waits for the reply. Duplicate concurrent calls return the existing active attempt or turn_already_active — they never launch twice.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent_id: { type: "string", description: "The resident agent to wake." },
+          discussion_id: { type: "string", description: "The discussion to resume." },
+          expected_head_message_id: {
+            type: "string",
+            description: "The expected current canonical head for compare-and-swap.",
+          },
+        },
+        required: ["agent_id", "discussion_id", "expected_head_message_id"],
+        additionalProperties: false,
+      },
+    },
+    {
+      name: "reply_discussion",
+      description:
+        "Submit the one reply an active wake attempt is authorized to produce. Never launches an agent. Rejects a second reply for the same attempt, a stale head, or a reply past the conversation/attempt deadline. close:true makes the conversation terminal; exhausting the last turn without close returns exhausted.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent_id: { type: "string", description: "The agent authoring the reply." },
+          discussion_id: { type: "string", description: "The discussion being replied to." },
+          attempt_id: { type: "string", description: "The server-assigned attempt ID this reply satisfies." },
+          reply_to_message_id: { type: "string", description: "The canonical head being replied to." },
+          type: { type: "string", enum: ["question", "result"], description: "Message type for the reply." },
+          payload: { type: "string", description: "The UTF-8 string payload for the reply." },
+          close: {
+            type: "boolean",
+            description: "If true, explicitly closes the discussion. Defaults to false.",
+          },
+        },
+        required: ["agent_id", "discussion_id", "attempt_id", "reply_to_message_id", "type", "payload"],
+        additionalProperties: false,
+      },
+    },
+    {
+      name: "get_discussion",
+      description:
+        "Read-only: derive and return a Discussion's full state — transcript, attempts, budget, and fail-closed status (invalid > closed > deadman > expired > exhausted > active > open) — from durable messages and receipts. Remains useful after every inbox entry has been acknowledged.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          discussion_id: { type: "string", description: "The discussion ID to retrieve." },
+          include_receipts: {
+            type: "boolean",
+            description: "Whether to include lifecycle receipts in transcript presentation. Defaults to true.",
+          },
+        },
+        required: ["discussion_id"],
+        additionalProperties: false,
+      },
+    },
   ],
 }));
 
@@ -596,6 +705,23 @@ function jsonResult(data: unknown) {
 function jsonError(message: string) {
   return {
     content: [{ type: "text" as const, text: JSON.stringify({ error: message }) }],
+    isError: true,
+  };
+}
+
+// D3 errata item 4, option (a): the four Discussion tools implement the
+// blueprint's extended error contract (`{error, detail_fields}` + isError)
+// locally rather than widening the shared `jsonError` above — the existing
+// 27 tools' `{ error: string }` shape is a load-bearing contract for callers
+// already depending on it, and errata item 4 explicitly frames (a) vs (b) as
+// an open choice rather than mandating a global change. `DiscussionError`'s
+// `.detail` fields are already snake_case at the throw site (see
+// discussion-store.ts), so this only needs to project `.code`/`.detail`.
+function jsonDiscussionError(code: string, detailFields: Record<string, unknown> = {}) {
+  return {
+    content: [
+      { type: "text" as const, text: JSON.stringify({ error: code, detail_fields: detailFields }) },
+    ],
     isError: true,
   };
 }
@@ -1191,6 +1317,58 @@ toolHandlers["spawn_from_template"] = async (args) => {
     return jsonResult({ spec });
 };
 
+// ---------------------------------------------------------------------------
+// Discussions (D3) — thin MCP delegation to src/discussion-mcp.ts's real-deps
+// DiscussionStore singleton. All transaction/guard/receipt mechanics live in
+// the store (src/discussion-store.ts, D2); handlers here only marshal args,
+// delegate, and translate DiscussionError into the extended error contract.
+// ---------------------------------------------------------------------------
+
+toolHandlers["ask_peer"] = async (args) => {
+    try {
+      const params = args as AskPeerParams;
+      const opened = await getDiscussionStore().openDiscussion(params);
+      const result = await getDiscussionStore().awaitAnswer(opened.discussion_id, opened.root_message_id);
+      return jsonResult(result);
+    } catch (err) {
+      if (err instanceof DiscussionError) return jsonDiscussionError(err.code, err.detail);
+      return jsonError(err instanceof Error ? err.message : String(err));
+    }
+};
+
+toolHandlers["wake_agent"] = async (args) => {
+    try {
+      const params = args as WakeAgentParams;
+      const result = await getDiscussionStore().wakeAgent(params);
+      return jsonResult(result);
+    } catch (err) {
+      if (err instanceof DiscussionError) return jsonDiscussionError(err.code, err.detail);
+      return jsonError(err instanceof Error ? err.message : String(err));
+    }
+};
+
+toolHandlers["reply_discussion"] = async (args) => {
+    try {
+      const params = args as ReplyDiscussionParams;
+      const result = await getDiscussionStore().replyDiscussion(params);
+      return jsonResult(result);
+    } catch (err) {
+      if (err instanceof DiscussionError) return jsonDiscussionError(err.code, err.detail);
+      return jsonError(err instanceof Error ? err.message : String(err));
+    }
+};
+
+toolHandlers["get_discussion"] = async (args) => {
+    try {
+      const params = args as GetDiscussionParams;
+      const view = getDiscussionStore().getDiscussion(params);
+      return jsonResult(view);
+    } catch (err) {
+      if (err instanceof DiscussionError) return jsonDiscussionError(err.code, err.detail);
+      return jsonError(err instanceof Error ? err.message : String(err));
+    }
+};
+
 server.setRequestHandler(CallToolRequestSchema, async (req) => {
   const { name, arguments: args } = req.params;
   const handler = toolHandlers[name];
@@ -1261,6 +1439,29 @@ if (!isChildInstance) {
   if (reconciledCount > 0) {
     console.error(`Agent Mesh v${MESH_VERSION} — reconciled ${reconciledCount} fleet(s) whose agents had all finished but which were still recorded as running (see fleet_reconciled events)`);
   }
+
+  // D3: prime the Discussions sweep index — scan the ledger for discussion
+  // roots and seed the store's knownDiscussionIds (via the cheap,
+  // hydration-free seedKnownDiscussionIds path — see discussion-mcp.ts's doc
+  // comment on primeDiscussionSweepIndex) so a post-restart sweep can find
+  // stranded reserved/started attempts. Deferred via setImmediate (cdx
+  // pass-1 review item 4): `server.connect(transport)` above has already
+  // resolved by this point, but this whole startup block still runs
+  // synchronously on the event loop — a large-ledger scan here would still
+  // delay the process from actually servicing its first incoming stdio tool
+  // call. setImmediate lets that happen first; priming then runs as its own
+  // best-effort tick, and a failure logs a stderr one-liner rather than
+  // aborting startup or failing silently.
+  setImmediate(() => {
+    try {
+      const primedCount = primeDiscussionSweepIndex();
+      if (primedCount > 0) {
+        console.error(`Agent Mesh v${MESH_VERSION} — primed ${primedCount} discussion(s) into the sweep index`);
+      }
+    } catch (err) {
+      console.error(`Agent Mesh v${MESH_VERSION} — discussion sweep-index priming failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`);
+    }
+  });
 
   // v0.11: periodic ratification deadline sweep (0 disables)
   const sweepMs = Number(resolveEnv(process.env, "MESHFLEET_RATIFY_SWEEP_MS", "AGENT_MESH_RATIFY_SWEEP_MS") ?? 60_000);
