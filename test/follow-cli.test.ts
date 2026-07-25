@@ -7,7 +7,9 @@
  *   - a message sent by ANOTHER process after --follow is already watching is
  *     visible on stdout well inside the "<20s to first message" budget
  *   - --fleet filtering happens in the child's poll loop, not post-hoc
- *   - ctrl-c (SIGINT) exits promptly with code 0 — no hang, no stack trace
+ *   - ctrl-c (SIGINT) exits promptly and quietly — code 0 through the handler
+ *     on POSIX; on Windows the signal is not deliverable, so only prompt
+ *     termination is asserted (see assertCleanSignalExit)
  *
  * This is read-only-forever by construction: the only mutation is done by the
  * TEST process via sendMessage; the spawned --follow child never writes.
@@ -47,14 +49,49 @@ async function waitFor(getOutput: () => string, predicate: (out: string) => bool
   throw new Error(`timed out after ${budgetMs}ms waiting for output; got:\n${getOutput()}`);
 }
 
-function waitExit(child: ChildProcessWithoutNullStreams, budgetMs: number): Promise<number | null> {
+function waitExit(
+  child: ChildProcessWithoutNullStreams,
+  budgetMs: number
+): Promise<{ code: number | null; signal: NodeJS.Signals | null }> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`process did not exit within ${budgetMs}ms`)), budgetMs);
-    child.on("exit", (code) => {
+    child.on("exit", (code, signal) => {
       clearTimeout(timer);
-      resolve(code);
+      resolve({ code, signal });
     });
   });
+}
+
+const IS_WINDOWS = process.platform === "win32";
+
+/**
+ * Assert a signal shut the child down promptly and without noise.
+ *
+ * COOPERATIVE SIGNAL SHUTDOWN IS POSIX-ONLY, the same limit already declared for
+ * the runtime adapter. Windows has no SIGINT/SIGTERM delivery: `child.kill()`
+ * terminates the process outright, so `--follow`'s handler never runs and the
+ * child reports `code: null` with a signal instead of exiting 0 through its own
+ * cleanup path.
+ *
+ * The portable half of each test — the idle banner, live message delivery, the
+ * `--fleet` filter, malformed-row survival, and the requirement that the process
+ * actually DIES within the budget rather than hanging — still runs on Windows.
+ * Only the claim that exit ran through the handler is gated, because on Windows
+ * it provably cannot. A blanket skip would have hidden the portable half too.
+ */
+function assertCleanSignalExit(
+  res: { code: number | null; signal: NodeJS.Signals | null },
+  stderr = ""
+): void {
+  if (IS_WINDOWS) {
+    assert.ok(
+      res.code !== null || res.signal !== null,
+      "the child must still terminate within the budget on Windows, even though " +
+        "the signal is not delivered to its handler"
+    );
+    return;
+  }
+  assert.equal(res.code, 0, `expected a clean handler-driven exit; stderr:\n${stderr}`);
 }
 
 test("inspect --follow: idle banner on empty ledger, live message within budget, --fleet filters in-loop, clean ctrl-c exit", async () => {
@@ -100,8 +137,8 @@ test("inspect --follow: idle banner on empty ledger, live message within budget,
 
     // Ctrl-c must exit promptly and cleanly — no hang, no stack trace on stderr.
     child.kill("SIGINT");
-    const code = await waitExit(child, 5_000);
-    assert.equal(code, 0);
+    const res = await waitExit(child, 5_000);
+    assertCleanSignalExit(res, stderr);
     assert.doesNotMatch(stderr, /Error|Traceback|at Object\./, `unexpected stderr on clean exit:\n${stderr}`);
   } finally {
     if (child && child.exitCode === null && !child.killed) child.kill("SIGKILL");
@@ -146,8 +183,8 @@ test("inspect --follow: a malformed message row is skipped (logged to stderr), t
     await waitFor(() => stdout, (out) => out.includes("still-alive-after-corruption"), FIRST_MESSAGE_BUDGET_MS);
 
     child.kill("SIGINT");
-    const code = await waitExit(child, 5_000);
-    assert.equal(code, 0);
+    const res = await waitExit(child, 5_000);
+    assertCleanSignalExit(res);
   } finally {
     if (child && child.exitCode === null && !child.killed) child.kill("SIGKILL");
     setDbPath(null);
@@ -170,8 +207,8 @@ test("inspect --follow: SIGTERM also exits promptly and cleanly (same cleanup pa
     await waitFor(() => stdout, (out) => /watching/i.test(out), 5_000);
 
     child.kill("SIGTERM");
-    const code = await waitExit(child, 5_000);
-    assert.equal(code, 0);
+    const res = await waitExit(child, 5_000);
+    assertCleanSignalExit(res);
   } finally {
     if (child && child.exitCode === null && !child.killed) child.kill("SIGKILL");
     setDbPath(null);
@@ -190,7 +227,7 @@ test("inspect --follow: a genuinely missing ledger file is a hard error (exit 2)
     child.stdout.on("data", () => {}); // drain, don't care about content
     child.stderr.on("data", (b) => (stderr += b.toString()));
 
-    const code = await waitExit(child, 5_000);
+    const { code } = await waitExit(child, 5_000);
     assert.equal(code, 2);
     assert.match(stderr, /not found/i);
     // The whole point of the check: --follow must never invent a ledger by

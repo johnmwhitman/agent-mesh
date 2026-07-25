@@ -111,6 +111,15 @@ Two related surfaces moved with it: `inspect --metrics` text output gains an `ab
 `attach_agent` accepts `running` **or** `abandoned` and reopens an abandoned fleet to `running`;
 `complete` and `failed` remain sealed as before.
 
+## `inspect --follow` platform support
+
+`--follow` installs SIGINT/SIGTERM handlers so ctrl-c exits through its own cleanup path with
+code 0. That is **POSIX-only**, the same limit already declared for the runtime adapter below:
+Windows has no signal delivery, so `kill()` terminates the process outright and the handler never
+runs. The viewer still works on Windows and still terminates promptly — only the
+handler-driven exit code is unavailable there, and the test suite asserts exactly that much on
+Windows rather than skipping the portable half.
+
 ## Runtime adapter platform support
 
 `LocalProcessRuntimeAdapter` spawns and terminates child processes. Its
