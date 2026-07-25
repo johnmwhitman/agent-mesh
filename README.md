@@ -298,6 +298,34 @@ That's 31. We counted twice this time.
 
 ---
 
+## What the verifier catches — and what it can't
+
+"Prove it" is a claim about detection, so it ships with the evidence:
+[`test/fixtures/corpus/`](test/fixtures/corpus/README.md) is a corpus of 46 deliberately
+falsified ledgers, each one a clean baseline plus **one declared change**. Results are
+reported in three separate buckets, never blended into a single coverage number:
+
+| Bucket | N | What it means |
+|---|---|---|
+| `caught` | 26 | An overclaim — the ledger asserts something its own records don't support. Raises an error and fails the ledger. |
+| `anomaly` | 10 | Surprising, but claims no more than the records support. Warning only, and deliberately *not* counted as caught. |
+| `undetectable` | 10 | The unsigned local core structurally cannot see it. Produces zero findings. |
+
+**That third bucket is published on purpose.** The core polices internal coherence; it
+cannot police provenance, content binding, completeness, or absolute time. So a payload
+swapped *after* a council approved it, a ballot minted for an agent that legitimately
+holds a seat, a ghost agent with a coherent history, and a wholesale clock shift all
+verify clean — and each is committed as a fixture asserting exactly that. This is the
+free-core boundary as something you can run, rather than something we assert. It is also
+precisely the line [Meshfleet Pro](https://meshfleet.app/pro) exists on the other side of:
+signatures are what make those vectors detectable, and signatures are not in this core.
+
+Together the `caught` and `anomaly` vectors name every check the verifier can emit outside
+the `discussion.*` family, and that inventory is re-derived from source on every run — so
+a new check without a fixture fails the build.
+
+---
+
 ## How it compares
 
 | Tool | Best for | Tradeoffs |

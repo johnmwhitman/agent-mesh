@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { spawn } from "node:child_process";
 import { LocalProcessRuntimeAdapter } from "../src/runtime/local-process.js";
 import { OpenCodeRuntimeAdapter } from "../src/runtime/opencode.js";
 import {
@@ -47,6 +48,54 @@ function spec(overrides: Partial<ExecutionSpec> = {}): ExecutionSpec {
     timeoutMs: 500,
     ...overrides,
   };
+}
+
+/**
+ * Block until the child fixture reports that its signal handlers are installed.
+ *
+ * Polling for the marker is what makes the escalation assertions deterministic:
+ * they need a child that genuinely RESISTS SIGTERM, and a child that has not
+ * finished booting simply dies from it. The generous ceiling is a failure
+ * detector, not a budget — a healthy child arrives in tens of milliseconds, and
+ * exhausting it means something is actually wrong, so it reports that rather
+ * than letting the caller signal a child that was never ready.
+ */
+async function waitForReady(marker: string, ceilingMs = 30_000): Promise<void> {
+  const deadline = Date.now() + ceilingMs;
+  while (!existsSync(marker)) {
+    if (Date.now() > deadline) {
+      throw new Error(`child never reported readiness at ${marker} within ${ceilingMs}ms`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
+/**
+ * Measure how long a child of this fixture actually takes to become
+ * SIGTERM-resistant ON THIS MACHINE, right now.
+ *
+ * The timeout-escalation test needs a budget that outlasts child startup, and a
+ * hardcoded one is a guess about hardware and load that a busy CI runner can
+ * falsify — which is the whole failure mode. Measuring instead of guessing makes
+ * the budget adapt: a fast laptop keeps the small floor, a contended runner gets
+ * proportionally more room. It also warms the Node binary in the page cache, so
+ * the measured run is the pessimistic one.
+ */
+async function measureChildBootMs(): Promise<number> {
+  const dir = mkdtempSync(join(tmpdir(), "meshfleet-boot-"));
+  const marker = join(dir, "ready");
+  const started = Date.now();
+  const probe = spawn(process.execPath, [FIXTURE, "term-ignore"], {
+    env: { ...process.env, MESH_READY_FILE: marker },
+    stdio: "ignore",
+  });
+  try {
+    await waitForReady(marker);
+    return Math.max(1, Date.now() - started);
+  } finally {
+    probe.kill("SIGKILL");
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
 }
 
 function local(mode: string): LocalProcessRuntimeAdapter {
@@ -101,15 +150,29 @@ test("local process adapter owns timeout and AbortSignal cancellation", async ()
 });
 
 test("timeout waits for cooperative SIGTERM exit and captures trailing output", { skip: POSIX_SIGNALS_ONLY }, async () => {
-  const result = await execute(local("term-exit"), spec({ timeoutMs: CHILD_BOOT_BUDGET_MS }));
+  // Same measured budget as the escalation test below, for the same reason: a
+  // SIGTERM that lands before this child installed its handler kills it under
+  // the default disposition, and the trailing-output assertion fails as though
+  // cooperative shutdown were broken.
+  const budget = Math.max(CHILD_BOOT_BUDGET_MS, (await measureChildBootMs()) * 5);
+  const result = await execute(local("term-exit"), spec({ timeoutMs: budget }));
   assert.equal(result.status, "timeout");
   assert.equal(result.stdout, "before-termterm-exit");
   assert.equal(result.signal, null);
 });
 
 test("timeout escalates SIGTERM-resistant children and leaves no live child", { skip: POSIX_SIGNALS_ONLY }, async () => {
+  // Here the TIMEOUT is what must escalate, so the test cannot gate the signal
+  // on a readiness marker the way the cancellation test does — the adapter's
+  // timer starts at spawn. The budget therefore has to outlast child startup,
+  // and a fixed 250ms is a guess about hardware that a contended runner
+  // falsifies: the SIGTERM lands before the handler exists, the child dies under
+  // the default disposition, and both the stdout and signal assertions below
+  // fail as though escalation were broken. Measuring this machine and budgeting
+  // from that adapts to whatever the runner is actually doing.
+  const budget = Math.max(CHILD_BOOT_BUDGET_MS, (await measureChildBootMs()) * 5);
   const adapter = local("term-ignore");
-  const handle = await adapter.start(spec({ timeoutMs: CHILD_BOOT_BUDGET_MS }));
+  const handle = await adapter.start(spec({ timeoutMs: budget }));
   const result = await adapter.wait(handle);
   assert.equal(result.status, "timeout");
   assert.equal(result.stdout, "before-termignored-term");
@@ -132,14 +195,26 @@ test("cancellation wins the timeout race and settles exactly once after forced k
     diagnostics: [],
     identity: { adapterId: "test", evidence: "none" },
   });
-  // The timeout must stay well clear of the abort below: cancellation only wins
-  // the race if it lands after the child is up but before the timeout fires.
-  const cancellationTimeoutMs = CHILD_BOOT_BUDGET_MS * 4;
+  // Cancellation only wins the race if it lands after the child is genuinely
+  // SIGTERM-resistant. This used to sleep CHILD_BOOT_BUDGET_MS and hope: under
+  // load Node had not finished booting, the handler was not installed yet, and
+  // the SIGTERM killed the child under the default disposition — so it closed
+  // with SIGTERM and the SIGKILL assertion below failed. (This test has no
+  // stdout assertion, so the signal check is the first thing that notices.)
+  //
+  // Now the child announces readiness and the abort waits for it, so the
+  // ordering is established by evidence rather than by a delay. The timeout is
+  // correspondingly a far-away ceiling a healthy run never approaches, not a
+  // deadline the test is racing; raising it cannot mask a regression, because
+  // the assertions require cancellation — a timeout would fail `status` first.
+  const readyDir = mkdtempSync(join(tmpdir(), "meshfleet-ready-"));
+  const readyFile = join(readyDir, "ready");
+  const cancellationTimeoutMs = 30_000;
   const handle = startProcessExecution(spec({ timeoutMs: cancellationTimeoutMs }), {
     command: process.execPath,
     args: [FIXTURE, "term-ignore"],
     cwd: process.cwd(),
-    environment: {},
+    environment: { MESH_READY_FILE: readyFile },
     timeoutMs: cancellationTimeoutMs,
     terminationGraceMs: TERMINATION_GRACE_MS,
     normalizeClose: (raw) => {
@@ -155,14 +230,20 @@ test("cancellation wins the timeout race and settles exactly once after forced k
   });
   const controller = new AbortController();
   const pending = waitForProcessExecution(handle, controller.signal);
-  await new Promise((resolve) => setTimeout(resolve, CHILD_BOOT_BUDGET_MS));
-  controller.abort();
-  const result = await pending;
-  assert.equal(result.status, "cancelled");
-  assert.equal(result.signal, "SIGKILL");
-  assert.equal(handle.isAlive(), false);
-  assert.equal(closeNormalizations, 0);
-  assert.equal(cancellationNormalizations, 1);
+  try {
+    await waitForReady(readyFile);
+    controller.abort();
+    const result = await pending;
+    assert.equal(result.status, "cancelled");
+    assert.equal(result.signal, "SIGKILL");
+    assert.equal(handle.isAlive(), false);
+    assert.equal(closeNormalizations, 0);
+    assert.equal(cancellationNormalizations, 1);
+  } finally {
+    controller.abort(); // never leak the child if an assertion throws
+    await pending.catch(() => {});
+    rmSync(readyDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
 });
 
 test("local process adapter keeps argv data, cwd, explicit env, and child output isolated", async () => {
