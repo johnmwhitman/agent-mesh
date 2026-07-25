@@ -19,10 +19,10 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
 import { DEFAULT_EVENT_LOG, resolveEventLogFile, setEventLogPath } from "../src/core.js";
 
@@ -34,27 +34,35 @@ test("a spawned child writes its events to MESHFLEET_EVENT_LOG_FILE, not the use
   try {
     // A child that appends one event, told where to put it ONLY via environment
     // — exactly the channel a spawned process actually has.
-    const child = spawnSync(
-      process.execPath,
-      [
-        "--import",
-        "tsx",
-        "-e",
-        `import("${join(repoRoot, "src", "core.ts").replace(/\\/g, "\\\\")}")` +
-          `.then(m => m.appendEvent("isolation_probe", { marker: "child-wrote-here" }))`,
-      ],
-      {
-        env: {
-          ...process.env,
-          MESHFLEET_EVENT_LOG_FILE: eventLog,
-          MESHFLEET_DB_FILE: join(dir, "l.db"),
-          MESHFLEET_DATA_FILE: join(dir, "l.json"),
-        },
-        encoding: "utf8",
-      }
+    //
+    // Written to a FILE rather than passed with `-e`, and imported as a file://
+    // URL rather than a bare path. Both are Windows requirements: an inline
+    // script has to survive Windows command-line quoting (the first version of
+    // this test died there with an empty stderr), and Node refuses to dynamic-
+    // import an absolute Windows path like `C:\...` because it reads as a URL
+    // scheme.
+    const childScript = join(dir, "probe.mjs");
+    writeFileSync(
+      childScript,
+      `import { appendEvent } from ${JSON.stringify(pathToFileURL(join(repoRoot, "src", "core.ts")).href)};\n` +
+        `appendEvent("isolation_probe", { marker: "child-wrote-here" });\n`
     );
 
-    assert.equal(child.status, 0, `child failed: ${child.stderr}`);
+    const child = spawnSync(process.execPath, ["--import", "tsx", childScript], {
+      env: {
+        ...process.env,
+        MESHFLEET_EVENT_LOG_FILE: eventLog,
+        MESHFLEET_DB_FILE: join(dir, "l.db"),
+        MESHFLEET_DATA_FILE: join(dir, "l.json"),
+      },
+      encoding: "utf8",
+    });
+
+    assert.equal(
+      child.status,
+      0,
+      `child failed (status=${child.status}, signal=${child.signal})\nstdout:\n${child.stdout}\nstderr:\n${child.stderr}`
+    );
     assert.ok(existsSync(eventLog), "the child must have created the redirected event log");
     assert.match(
       readFileSync(eventLog, "utf8"),
