@@ -83,9 +83,25 @@ Future versions will increment `CURRENT_SCHEMA_VERSION` and add a migration step
 | 0.7.0 | + subscribe_inbox (SSE) | — |
 | 0.8.0 | (no new tools; retry/recovery/schema migration are behavior changes) | — |
 | 0.8.1 – 0.13.x | (no new tools; skill taxonomy is a library module, not a tool yet) | — |
-| 0.14.0+ | (no new tools; stdio handshake and host-neutral launch configuration are covered by integration tests) | — |
+| 0.14.0 – 0.15.x | (no new tools; stdio handshake and host-neutral launch configuration are covered by integration tests) | — |
+| 0.16.0 | + ask_peer, wake_agent, reply_discussion, get_discussion (Discussions) | see the input-validation note below |
 
-**Promise so far**: every minor release has been additive. No tool has been removed or had its signature narrowed. Tool inputs default to safe values when omitted.
+**Promise so far**: every minor release has been additive. No tool has been removed or had its
+signature narrowed.
+
+**⚠️ Input handling changed in 0.16.0, and the old promise was the bug.** This table used to end
+"Tool inputs default to safe values when omitted." That was not a guarantee — it was a description
+of unvalidated handlers guessing, and the guesses were not safe. `cast_vote` recorded `approve:
+"false"` as an APPROVAL and an omitted `approve` as a binding DECLINE. `ask_peer` treated
+`wake_peer: "false"` as authority to launch an agent. `ack_message` with no `agent_id` wrote a
+receipt keyed `…:undefined` and consumed nothing.
+
+Tools now **refuse** a violation of their published `inputSchema` — wrong type, or a missing
+`required` field — and return an error naming the field, instead of inferring intent. A caller that
+was relying on a default it never declared will see an error where it previously saw success; in
+every case found, that success was writing something untrue. Optional fields with documented
+defaults (`close`, `include_receipts`) still default when genuinely absent, but reject a wrong
+type.
 
 ## Fleet status vocabulary
 
