@@ -22,8 +22,13 @@ test("verifier catches tampered timestamps", () => {
 });
 
 test("an invalid early ack cannot prove acknowledgement", () => {
-  const file = join(__dirname, "fixtures", "tampered-identities.json");
-  const data = loadDataFromFile(file);
+  // Builds its ledger inline. It used to load `tampered-identities.json` first —
+  // a fixture that was never committed. loadDataFromFile returns an EMPTY ledger
+  // for a missing path (correct for a fresh install), so the read silently
+  // yielded nothing and the reference rotted invisibly for as long as it existed.
+  // The corpus harness guards against exactly this by asserting a fixture is on
+  // disk before loading it; see test/corpus.test.ts.
+  const data = loadDataFromFile(join(__dirname, "fixtures", "tampered-timestamps.json"));
   data.fleets = { f1: { id: "f1", status: "running", created_at: 500 } };
   data.agents = {
     a1: { id: "a1", fleet_id: "f1", role: "worker", status: "running", prompt: "test" },

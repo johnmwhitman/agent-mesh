@@ -134,18 +134,20 @@ API freeze. Production-ready. Backward-compatible.
 Direction, not commitment — items ship when real usage pulls them.
 
 **Now**
-- Provenance-signed npm releases (the "prove it" project practicing its own thesis at the package layer)
-- VS Code extension marketplace listing (the read-only inspector MVP already lives in `editors/vscode/`)
-- `verify --explain` — failure triage for the ledger auditor
+- Provenance-signed npm releases (the "prove it" project practicing its own thesis at the package layer) — the workflow is built (`.github/workflows/release.yml`, OIDC + `npm publish --provenance`); it is waiting on a working `NPM_TOKEN` repository secret, not on code.
+- VS Code extension marketplace listing (the read-only inspector MVP already lives in `editors/vscode/`) — waiting on a publisher account, not on code.
 
 **Next**
 - P1 spawn receipts: resolved runtime agent/model banner capture is implemented. Capability `model` remains routing self-description, not proof of runtime identity; requested-vs-resolved model binding remains future work.
-- Zero-install ledger verification (`npx` against any ledger file someone sends you)
-- A quickstart demo that ends with a verification, not a wall of text
-- `agent-mesh doctor` — 30-second diagnosis of broken installs
-- Machine-readable `--json` output across every inspect subcommand
-- A published corpus of tampered-ledger fixtures the verifier must catch
 - Per-entry provenance confidence bands in verify output
+
+**Recently shipped from this list** (moved here rather than deleted, so the list stays auditable)
+- A published corpus of tampered-ledger fixtures the verifier must catch — [`test/fixtures/corpus/`](test/fixtures/corpus/README.md). 46 vectors over a shared clean baseline, each one baseline-plus-one-declared-change so the baseline is a genuine near-neighbour control. Reported in three separate buckets, never blended: 26 `caught` (overclaims that must raise an error and fail the ledger), 10 `anomaly` (warning-only; deliberately not counted as caught), and 10 `undetectable` — vectors the unsigned local core structurally cannot see, published because a boundary you conceal is more dangerous than one you demonstrate. Coverage over the 34 non-`discussion` checks is re-derived from source each run, so a new check without a vector fails the suite.
+- `verify --explain` — failure triage for the ledger auditor
+- Zero-install ledger verification (`npx agent-mesh inspect --verify <file>` against any ledger someone sends you; the audited file is copied read-only and never mutated)
+- A quickstart demo that ends with a verification, not a wall of text (`npx agent-mesh demo`)
+- `agent-mesh doctor` — 30-second diagnosis of broken installs (`--json` supported)
+- Machine-readable `--json` output across every inspect subcommand
 
 **Later / exploring**
 - Incident-window timeline reconstruction from the ledger
