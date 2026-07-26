@@ -1,5 +1,10 @@
 # A2A Capability Profile v0.1
 
+> **STATUS — implementation removed from `main`, 2026-07-25.** The TypeScript module this
+> document specified had no caller in `src/` and was deleted along with the rest of the dormant
+> surface. This file is retained as a **design record of what was worked out**, not as a
+> description of code that exists. Nothing here is implemented on `main` today.
+
 **Status:** Offline/dormant semantic foundation implemented and independently
 verified at `ea69cb9` over `234cd55..ea69cb9`; not activated, public,
 runtime-selected, authenticated, networked, or backed by a durable capability

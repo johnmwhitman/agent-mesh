@@ -49,7 +49,7 @@ descriptive prose, not a status label.
 | Canonical ingress contract v0.1 | `fixture-verified` | Deterministic fixtures exercise the designed ordering and stable external result vocabulary; this is not a production store, policy engine, delivery path, or public tool | `docs/A2A-INGRESS-CONTRACT-v0.1.md`, `test/fixtures/a2a/ingress/v0.1/corpus.json` |
 | Durable attempt lifecycle | `recovery-verified` | Durable-mode `spawn_fleet` and `attach_agent` preserve MCP shapes while using one SQLite authority for leases, deterministic retry, launch-intent quarantine, scheduled recovery, recorded-PID containment only, fenced projections, and sequence-ordered repairable event outbox | `docs/A2A-NEXT-SLICE.md`, `src/lifecycle-execution.ts`, `test/lifecycle-integration-adversarial.test.ts` |
 | Provider-neutral runtime adapters | `runtime-launch-verified` | Isolated RuntimeAdapter SPI, OpenCode adapter, and deterministic local-process adapter are verified; public runtime selection and vendor adapters are deferred | `docs/ADAPTER-CONTRACT.md`, `src/runtime`, `test/runtime-adapter.test.ts` |
-| Dormant durable acceptance journal | `dormant-internal-durable-verified` | Branch `codex/a2a-seamless-foundation` implements and locally verifies physical SQLite v4, three private append-only tables, exact schema validation, pre-tokenized keyed identities, request-first replay/conflict ordering, and accepted-only local receipts. It remains unmerged, unpublished, inactive, and has no public ingress, auth provider, delivery, or execution claim. | `docs/A2A-DURABLE-ACCEPTANCE-v0.1.md`, `docs/adr/0005-dormant-durable-acceptance-journal.md`, `acc4090..f1f98fb` |
+| Dormant durable acceptance journal (**writer deleted from `main` 2026-07-25**; the physical SQLite v4 tables remain, unused) | `dormant-internal-durable-verified` | Branch `codex/a2a-seamless-foundation` implements and locally verifies physical SQLite v4, three private append-only tables, exact schema validation, pre-tokenized keyed identities, request-first replay/conflict ordering, and accepted-only local receipts. It remains unmerged, unpublished, inactive, and has no public ingress, auth provider, delivery, or execution claim. | `docs/A2A-DURABLE-ACCEPTANCE-v0.1.md`, `docs/adr/0005-dormant-durable-acceptance-journal.md`, `acc4090..f1f98fb` |
 | Slice 4C-0 capability profile and evidence taxonomy | `reference-conformance` | Offline/dormant semantic foundation implemented at `ea69cb9` over `234cd55..ea69cb9`; 363 exact five-operation cases, 363/363 direct TypeScript/Python byte differential, 530/530 full tests, passed typecheck, and two APPROVED independent reviews. Translation evidence is `static-translation-verified`. No public ingress, auth, runtime selection, network, persistence, provider call, delivery, execution, cryptographic verification, durable registry, release, or activation claim. | `docs/A2A-CAPABILITY-PROFILE-v0.1.md`, `docs/adr/0006-capability-evidence-is-not-authority.md`, `reference/python/a2a_capability_profile_reference.py`, `234cd55..ea69cb9` |
 | Multi-host coordination | `deferred` | No shared remote ownership authority exists | `docs/A2A-PROGRAM.md` |
 
@@ -279,6 +279,10 @@ it does not claim public A2A ingress, remote transport, provider conformance,
 delivery, execution, or multi-host operation.
 
 ## Slice 4C-0 capability-profile compatibility
+
+> **Superseded 2026-07-25 — the implementation was deleted from `main`.** It had no caller in
+> `src/`. The specification is retained as a design record only; the rows below describe work that
+> no longer ships.
 
 The current branch contains the **reference-conformance** offline/dormant
 [A2A Capability Profile v0.1](docs/A2A-CAPABILITY-PROFILE-v0.1.md). Its semantic
