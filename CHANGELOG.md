@@ -2,7 +2,11 @@
 
 All notable changes to Agent Mesh are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.17.0] — 2026-07-26
+
+**The falsification release.** The receipts claim now ships with a published corpus that tries to
+break it, a safety net that had silently not existed for thirteen releases is gone and the one
+property it alone covered is pinned by a real test, and the dormant surface nobody used is deleted.
 
 ### Added
 - **A published tampered-ledger corpus — the falsification test for the receipts claim.**
@@ -26,40 +30,6 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
   and a wholesale clock shift all verify clean, and each asserts **zero** findings. If one ever
   goes red because the verifier learned to catch it, that is good news: reclassify it
   deliberately instead of deleting the assertion.
-
-### Fixed
-- **A ledger that declares an older schema is trusted about its own acknowledgements.**
-  Deleting an ack receipt *and* the ledger's `schema_version` makes the loader's v1→v2
-  migration backfill that receipt from the message's own `acknowledged` flag, so the overclaim
-  `message.ack_flag_mismatch` exists to catch repairs itself before the verifier ever runs.
-  The behaviour is intended for genuine v1 ledgers and is not changed here; it is now pinned
-  and published as `undetectable-schema-downgrade-ack-backfill` so the exposure is documented
-  rather than latent. Found by driving the corpus through the real file loader instead of
-  verifying in-memory objects.
-- **A test loaded a fixture that was never committed.** `tampered-fixtures.test.ts` read
-  `tampered-identities.json`, which does not exist; `loadDataFromFile` returns an empty ledger
-  for a missing path (correct for a fresh install), so the read silently yielded nothing and
-  the reference rotted invisibly. The corpus harness now asserts a fixture is present on disk
-  before loading it, so this class of rot fails loudly.
-- **`inspect --follow` installs its signal handlers before the banner promises `ctrl-c`.** The
-  banner printed `ctrl-c to stop` and the SIGINT/SIGTERM handlers were registered afterwards, so
-  there was a window in which the advertised control did not work: the default disposition killed
-  the process outright, skipping `closeFollowDb()` and exiting by signal rather than through the
-  cleanup path. The banner is also the readiness signal anything watching the process keys off, so
-  the window was reachable in practice — CI hit it on a commit that only touched documentation.
-
-### Removed
-- **`scripts/validate-gates.mjs`, a safety net that had not existed for thirteen releases.**
-  The release-gate runner (F2: 10 sequential fleets; F3: 3 concurrent fleets with zero
-  interrupted agents ledger-wide) crashed with `ENOENT` on the pre-SQLite `agent-mesh.json`
-  it still expected, and had done since the 0.12.0 storage migration. It was referenced by no
-  workflow and no npm script, so nothing ran it and nothing reported it broken. It could not
-  simply be wired into CI either: it spawns real `opencode run` children and needs a live CLI,
-  a configured provider, and real model calls — none of which exist on a runner.
-  Its F2 property (fleets reach a terminal state) is already covered hermetically by the spawn
-  and lifecycle suites. Its F3 property was **not**, and is preserved as the test above.
-
-### Added
 - **The child-instance guard is finally tested** (`test/child-instance-guard.test.ts`). When a
   spawned agent runs its own `opencode` session, that session boots its own agent-mesh server
   against the *same* ledger; without `AGENT_MESH_CHILD=1` the nested instance runs startup
@@ -81,6 +51,71 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
   `os.homedir()` reads `USERPROFILE` — a byte-compat guard asserting an empty event log passed for
   months only because that shared file happened to be empty. Resolution order is unchanged for
   ordinary users: explicit `setEventLogPath` → env → the home config dir.
+
+### Fixed
+- **A ledger that declares an older schema is trusted about its own acknowledgements.**
+  Deleting an ack receipt *and* the ledger's `schema_version` makes the loader's v1→v2
+  migration backfill that receipt from the message's own `acknowledged` flag, so the overclaim
+  `message.ack_flag_mismatch` exists to catch repairs itself before the verifier ever runs.
+  The behaviour is intended for genuine v1 ledgers and is not changed here; it is now pinned
+  and published as `undetectable-schema-downgrade-ack-backfill` so the exposure is documented
+  rather than latent. Found by driving the corpus through the real file loader instead of
+  verifying in-memory objects.
+- **A test loaded a fixture that was never committed.** `tampered-fixtures.test.ts` read
+  `tampered-identities.json`, which does not exist; `loadDataFromFile` returns an empty ledger
+  for a missing path (correct for a fresh install), so the read silently yielded nothing and
+  the reference rotted invisibly. The corpus harness now asserts a fixture is present on disk
+  before loading it, so this class of rot fails loudly.
+- **`inspect --follow` installs its signal handlers before the banner promises `ctrl-c`.** The
+  banner printed `ctrl-c to stop` and the SIGINT/SIGTERM handlers were registered afterwards, so
+  there was a window in which the advertised control did not work: the default disposition killed
+  the process outright, skipping `closeFollowDb()` and exiting by signal rather than through the
+  cleanup path. The banner is also the readiness signal anything watching the process keys off, so
+  the window was reachable in practice — CI hit it on a commit that only touched documentation.
+- **The runtime-adapter signal tests raced child startup, not the escalation timer.** A reported
+  `SIGTERM`-where-`SIGKILL`-was-expected failure reads like the escalation timer not having fired,
+  and that is not what happened: `waitForProcessExecution` settles from the child's own `close`
+  event, so the signal it reports is whatever actually killed the child. The race is one step
+  earlier — a fixture cannot install its `SIGTERM` handler until Node has finished booting, so a
+  signal delivered before that kills it under the default disposition; it never resists, so it is
+  never escalated. Child startup had been budgeted at a fixed 250ms, a guess about hardware that a
+  contended runner falsifies. The cancellation test now waits on a readiness file the child writes,
+  and the two timeout tests measure this machine's actual child boot and budget a multiple of it.
+  Tests only; no production change.
+- **🔴 `npm run build` never cleaned `dist/`, so the tarball shipped deleted code.** `build` was a
+  bare `tsc`, which overwrites and adds but never removes, and `dist/` is git-ignored — so the
+  published artifact's contents depended on whatever the publisher's machine had accumulated,
+  not on the source tree. Concretely: this release deletes seven modules, and all seven were still
+  sitting in `dist/` as compiled JavaScript, inside the `files` whitelist, ready to publish. A
+  release that removes 26,517 lines would have shipped them anyway. `build` now runs a portable
+  `clean` first (`fs.rmSync`, so it works on the Windows CI legs too). The tell was the pack
+  manifest: **60 files before, 47 after** — a file count that does not move when whole modules are
+  deleted is the same "treat the count as a checksum" signal that caught the 0.15.1 near-miss, and
+  this is the second time a stale `dist/` has been found sitting in front of a publish.
+
+### Removed
+- **`scripts/validate-gates.mjs`, a safety net that had not existed for thirteen releases.**
+  The release-gate runner (F2: 10 sequential fleets; F3: 3 concurrent fleets with zero
+  interrupted agents ledger-wide) crashed with `ENOENT` on the pre-SQLite `agent-mesh.json`
+  it still expected, and had done since the 0.12.0 storage migration. It was referenced by no
+  workflow and no npm script, so nothing ran it and nothing reported it broken. It could not
+  simply be wired into CI either: it spawns real `opencode run` children and needs a live CLI,
+  a configured provider, and real model calls — none of which exist on a runner.
+  Its F2 property (fleets reach a terminal state) is already covered hermetically by the spawn
+  and lifecycle suites. Its F3 property was **not**, and is preserved as the test above.
+- **The dormant A2A/config surface that was authored for nobody** — four `src/a2a` modules
+  (`durable-acceptance`, `capability-profile`, `local-admission`, `static-harness-mapping`),
+  `src/config/renderers/`, `src/config/mcp-stdio-connection.ts`, and `src/runtime/local-process.ts`,
+  with their tests and fixtures: 26,517 lines. Each file was verified to have zero importers
+  immediately before removal, and the build, typecheck and full suite are green after. Nothing
+  public was exported from any of them, so the published API is unchanged; the tarball's `dist/`
+  is smaller. Two things the plan wanted deleted were deliberately **kept**: the physical SQLite
+  v4 schema (removing it is a migration against live ledgers, and a v3 binary refuses a v4 file —
+  deleting a writer is reversible, a schema migration is not), and `src/runtime/local-process.ts`
+  was re-examined and found to be the harness `runtime-adapter.test.ts` runs real spawn and
+  signal-escalation against, not dead code. The three A2A design specs whose implementations went
+  away are marked as **design records** rather than deleted: the design work is real provenance,
+  and a spec describing code that no longer exists is a publicly-false document.
 
 ## [0.16.0] — 2026-07-25
 
@@ -735,7 +770,8 @@ cd ~/.config/opencode/mcp-servers/agent-mesh && npm install && npm run build
 - Independent process execution (bypasses OpenCode's 30-minute background task timeout)
 - Schema for Fleet and Agent records
 
-[Unreleased]: https://github.com/johnmwhitman/agent-mesh/compare/v0.16.0...HEAD
+[Unreleased]: https://github.com/johnmwhitman/agent-mesh/compare/v0.17.0...HEAD
+[0.17.0]: https://github.com/johnmwhitman/agent-mesh/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/johnmwhitman/agent-mesh/compare/v0.15.0...v0.16.0
 [0.15.1]: https://github.com/johnmwhitman/agent-mesh/compare/v0.15.0...v0.15.1
 [0.3.0]: https://github.com/johnmwhitman/agent-mesh/compare/v0.2.0...v0.3.0
