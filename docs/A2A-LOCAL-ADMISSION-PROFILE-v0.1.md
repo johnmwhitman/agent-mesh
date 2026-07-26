@@ -1,5 +1,10 @@
 # A2A Local Admission Profile v0.1
 
+> **STATUS — implementation removed from `main`, 2026-07-25.** The TypeScript module this
+> document specified had no caller in `src/` and was deleted along with the rest of the dormant
+> surface. This file is retained as a **design record of what was worked out**, not as a
+> description of code that exists. Nothing here is implemented on `main` today.
+
 **Status:** Designed, not implemented. This offline, dormant Slice 4C-1
 contract creates no public ingress, authentication provider, trust root,
 credential, signed carrier, replay store, Slice 4B integration, database, MCP,

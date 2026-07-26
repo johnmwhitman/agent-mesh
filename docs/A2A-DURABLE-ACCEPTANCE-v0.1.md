@@ -1,5 +1,10 @@
 # Dormant Durable Acceptance Contract v0.1
 
+> **STATUS — implementation removed from `main`, 2026-07-25.** The TypeScript module this
+> document specified had no caller in `src/` and was deleted along with the rest of the dormant
+> surface. This file is retained as a **design record of what was worked out**, not as a
+> description of code that exists. Nothing here is implemented on `main` today.
+
 **Status:** Implemented and locally verified on `codex/a2a-seamless-foundation`
 at `f1f98fb`; dormant and not activated. Evidence level:
 `dormant-internal-durable-verified`, which remains below public ingress.
