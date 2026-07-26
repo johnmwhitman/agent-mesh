@@ -8,7 +8,7 @@ import { getBudgetAdjustment } from "./budget-awareness.js";
 import { expandKeywordsWithSynonyms } from "./synonyms.js";
 import { getSkillTaxonomy, scoreSkillsAgainstKeywords } from "./skill-taxonomy.js";
 import { resolveEnv } from "./env.js";
-import { withLedger, withLedgerAndStorage, readLedger, importSnapshot } from "./db.js";
+import { withLedger, withLedgerAndStorage, readLedger } from "./db.js";
 import { mapLegacyMessage, projectLegacyMessage } from "./a2a/legacy-map.js";
 import { A2A_MESSAGE_TYPES, type A2AMessageType } from "./a2a/types.js";
 

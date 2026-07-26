@@ -25,7 +25,7 @@ program. Canonical behavior remains in the linked specifications and ADRs.
   `e2a7bc8`, `276f6ec`, `d2457c3`, and `f1f98fb`.
 - Live pre-activation ledger audit: `ok=true`, `0` errors, `0` warnings;
   `34` fleets, `82` agents, `4` messages, `1` receipt, `0` ratifications.
-- Portfolio Conductor structural validator: exit `0`.
+- External structural validator: exit `0`.
 - No live process restart or activation occurred. The MCP server remains the
   prior process; its ledger audit was read-only evidence only.
 - Nothing was merged, pushed, published, deployed, or remotely activated.

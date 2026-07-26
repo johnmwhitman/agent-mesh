@@ -17,8 +17,9 @@ That file is the queue. This file is the law. Read both; write back to the queue
 This inverts the usual "state lives in the repo" invariant on purpose: the invariant exists so
 knowledge survives the next turn, and a private file satisfies it. Committing gates to a public
 repo would satisfy the letter and break the product. (A 2026-07-16 public-surface scrub already
-had to remove exactly this class of material once; a 2026-07-23 doc shipped a live quota reading
-and the operator's entire AI-subscription roster before being caught in review.)
+had to remove exactly this class of material once, and a doc a week later carried maintainer
+environment detail into the public tree before being caught in review. This mistake is neither
+hypothetical nor rare, and it is easiest to make in a file that warns against it.)
 
 ## What "good" means, in priority order
 
@@ -81,9 +82,9 @@ that was partly masked by overriding `HOME`; on Windows it was not masked at all
 `os.homedir()` reads `USERPROFILE` there. A byte-compat guard asserting an empty event log passed
 for months purely because that shared file happened to be empty.
 
-Never write to `~/.config/opencode/` — it is shared live state that Codex and Antigravity read,
-and the harness classifier blocks it anyway. Audit it read-only via `readLedgerFile()`, which
-works on a private temp copy by construction.
+Never write to `~/.config/opencode/` — it is shared live state that other MCP clients on the same
+machine read concurrently, and the harness classifier blocks it anyway. Audit it read-only via
+`readLedgerFile()`, which works on a private temp copy by construction.
 
 ## Rotating adversarial lens (when the queue looks empty)
 
