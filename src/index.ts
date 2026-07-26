@@ -734,6 +734,27 @@ const toolHandlers: Record<
 
 toolHandlers["spawn_fleet"] = async (args) => {
     const { agents } = args as { agents: { role: string; prompt: string; agent?: string }[] };
+    // The published schema declares agents[] items with REQUIRED string role and
+    // prompt, and the MCP SDK enforces neither `required` nor `type`. Without this
+    // the blind cast above let `{"agents":[{"role":"reviewer"}]}` return a normal
+    // success, commit a fleet plus an agent row whose prompt is NULL, and call
+    // trySpawn — a ledger write and a process start off a request that violates the
+    // contract we publish. Same defect family as register_capability, cast_vote and
+    // the Discussions tools; this is the highest-blast-radius member of it, so the
+    // refusal must precede the transaction and the spawn, not merely report after.
+    if (!Array.isArray(agents)) {
+      return jsonError("spawn_fleet: 'agents' is required and must be an array");
+    }
+    const badAgent = firstError(
+      ...agents.flatMap((a, i) => [
+        requireString("spawn_fleet", `agents[${i}].role`, a?.role),
+        requireString("spawn_fleet", `agents[${i}].prompt`, a?.prompt),
+        a?.agent === undefined
+          ? null
+          : requireString("spawn_fleet", `agents[${i}].agent`, a.agent),
+      ]),
+    );
+    if (badAgent) return jsonError(badAgent);
     const fleetId = randomUUID();
     const specs = agents.map((a) => ({
       agentId: randomUUID(),
@@ -1177,6 +1198,17 @@ toolHandlers["attach_agent"] = async (args) => {
       prompt: string;
       agent?: string;
     };
+    // Same unenforced-contract hole as spawn_fleet, and attach_agent also spawns.
+    // It is additionally the ONLY in-place path that reopens an `abandoned` fleet,
+    // so a corrupt row written here lands on the one remedy a truthful terminal
+    // status leaves available.
+    const badAttach = firstError(
+      requireString("attach_agent", "fleet_id", fleet_id),
+      requireString("attach_agent", "role", role),
+      requireString("attach_agent", "prompt", prompt),
+      agent === undefined ? null : requireString("attach_agent", "agent", agent),
+    );
+    if (badAttach) return jsonError(badAttach);
     const agentId = randomUUID();
     let lifecycleMode;
     try {
