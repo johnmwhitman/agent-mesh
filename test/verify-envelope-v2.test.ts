@@ -94,15 +94,26 @@ test("v2 envelope allocates a closed frozen scope and tuple for every build", ()
   assertExactScope(second);
 });
 
-test("v2 envelope leaves real caught, anomaly, and undetectable corpus reports untouched", () => {
-  for (const classification of ["caught", "anomaly", "undetectable"] as const) {
-    const vector = corpusManifest.vectors.find((candidate) => candidate.classification === classification);
-    assert.ok(vector, `corpus must contain a ${classification} vector`);
+test("v2 envelope leaves every classified corpus report untouched", () => {
+  assert.ok(corpusManifest.vectors.length >= 46, "the full corpus must include the reviewed 46-vector floor");
+  for (const vector of corpusManifest.vectors) {
     const file = join(CORPUS, `${vector.id}.json`);
     const legacy = verifyMeshData(loadDataFromFile(file) as MeshData, corpusManifest.now);
     const envelope = wrapWithoutMutating(legacy);
 
-    assert.equal(legacy.ok, vector.expected_ok, `${vector.id} must remain its authored class`);
+    assert.equal(legacy.ok, vector.expected_ok, `${vector.id} must preserve its authored expected_ok`);
+    if (vector.classification === "caught") {
+      assert.equal(legacy.ok, false, `${vector.id}: caught vectors must fail`);
+      assert.ok(legacy.findings.some((finding) => finding.severity === "error"), `${vector.id}: caught vectors need an error`);
+    } else if (vector.classification === "anomaly") {
+      assert.ok(legacy.findings.some((finding) => finding.severity === "warning"), `${vector.id}: anomalies need a warning`);
+      if (vector.expected_ok) {
+        assert.equal(legacy.ok, true, `${vector.id}: standalone anomalies must remain non-failing`);
+      }
+    } else {
+      assert.equal(legacy.ok, true, `${vector.id}: undetectable vectors must remain non-failing`);
+      assert.deepEqual(legacy.findings, [], `${vector.id}: undetectable vectors must remain empty`);
+    }
     assertExactScope(envelope);
   }
 });
