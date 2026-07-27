@@ -45,6 +45,25 @@
       ]
     },
     {
+      "id": "agent-completed-before-fleet",
+      "primary": "agent.tampered_timestamp",
+      "classification": "caught",
+      "lie": "an agent is on record as having completed before the fleet that spawned it existed",
+      "ops": [
+        {
+          "op": "delete",
+          "path": "agents|a2|started_at"
+        },
+        {
+          "op": "set",
+          "path": "agents|a2|completed_at",
+          "value": 1699999995000
+        }
+      ],
+      "expected_ok": true,
+      "expected_findings": []
+    },
+    {
       "id": "inbox-dangling-message",
       "primary": "inbox.dangling_message",
       "classification": "caught",

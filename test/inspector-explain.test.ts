@@ -64,6 +64,11 @@ test("receipt.orphan_message explains the missing message and points at the expo
   assert.match(out, /--export/, "the investigation command goes through the export surface");
 });
 
+test("agent.tampered_timestamp explains completion before fleet creation", () => {
+  const out = formatVerifyExplanation(finding("agent.tampered_timestamp"));
+  assert.match(out, /completed before (its )?fleet (was )?created/i);
+});
+
 function report(over: Partial<VerifyReport> = {}): VerifyReport {
   return {
     ok: true,

@@ -405,6 +405,36 @@ test("agent pointing at a fleet the ledger does not hold is a warning", () => {
   assert.equal(found(report, "agent.orphan_fleet")[0].severity, "warning");
 });
 
+test("agent completion before its fleet was created is an error even without a start time", () => {
+  const data = consistent();
+  data.agents.a1 = { ...agent("a1", "f1"), status: "complete", completed_at: 499 };
+
+  const report = verifyMeshData(data);
+  const timestamps = found(report, "agent.tampered_timestamp");
+  assert.equal(report.ok, false);
+  assert.equal(timestamps.length, 1);
+  assert.equal(timestamps[0].severity, "error");
+  assert.equal(timestamps[0].detail, "agent completed before fleet was created");
+});
+
+test("agent completion at or after fleet creation is clean for the fleet timestamp relation", () => {
+  for (const completed_at of [500, 501]) {
+    const data = consistent();
+    data.agents.a1 = { ...agent("a1", "f1"), status: "complete", completed_at };
+    assert.equal(found(verifyMeshData(data), "agent.tampered_timestamp").length, 0, `completed_at=${completed_at}`);
+  }
+});
+
+test("orphan agent completion does not receive a fleet timestamp error", () => {
+  const data = consistent();
+  data.agents.a9 = { ...agent("a9", "ghost-fleet"), status: "complete", completed_at: 1 };
+
+  const report = verifyMeshData(data);
+  assert.equal(found(report, "agent.tampered_timestamp").length, 0);
+  assert.equal(found(report, "agent.orphan_fleet").length, 1);
+  assert.equal(found(report, "agent.orphan_fleet")[0].severity, "warning");
+});
+
 test("capability registered for an unknown agent is a warning", () => {
   const data = consistent();
   data.capabilities = {
