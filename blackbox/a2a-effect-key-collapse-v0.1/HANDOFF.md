@@ -12,4 +12,4 @@ Resolved review defects: JavaScript EOF whitespace loop, paired-surrogate byte s
 
 Exact receipts are in `evidence/acceptance-20260727.json` and file digests in `manifest/v0.1/expected.json`. Base `041500fd9aec6e482875f6339236ffdcc46fc7ed`; routing lane rechecked clean at `5dad0c997fc7069124da2dcec8ee094ed7171207` with no path overlap. The dirty primary checkout was not edited.
 
-Local only: unmerged, unpushed, unpublished, undeployed, inactive. Claude may review and cherry-pick the final local commit under separate integration authority.
+Current branch state: pushed to `origin/codex/a2a-effect-key-collapse-v01-20260727` at `9ec4399ea33523edd4dc4b29f6fa51700a2c4cd3`; unmerged, unpublished, undeployed, inactive. The acceptance and review records retain their pre-push local-only boundary as historical receipts. Claude may review and cherry-pick the final local commit under separate integration authority.
