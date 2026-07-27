@@ -74,6 +74,16 @@ function found(report: VerifyReport, check: string) {
   return report.findings.filter((f) => f.check === check);
 }
 
+type AgentTimestampField = "started_at" | "completed_at";
+
+function withAgentTimestamp(field: AgentTimestampField, value: unknown, present = true): MeshData {
+  const data = consistent();
+  const row: Agent = { ...agent("a1", "f1"), status: "complete" };
+  if (present) (row as unknown as Record<string, unknown>)[field] = value;
+  data.agents.a1 = row;
+  return data;
+}
+
 // ---------------------------------------------------------------------------
 // The happy path: a ledger built purely through the real API verifies clean.
 // ---------------------------------------------------------------------------
@@ -403,6 +413,102 @@ test("agent pointing at a fleet the ledger does not hold is a warning", () => {
   const report = verifyMeshData(data);
   assert.equal(found(report, "agent.orphan_fleet").length, 1);
   assert.equal(found(report, "agent.orphan_fleet")[0].severity, "warning");
+});
+
+for (const field of ["started_at", "completed_at"] as const) {
+  test(`absent agent ${field} remains supported`, () => {
+    const report = verifyMeshData(withAgentTimestamp(field, undefined, false));
+    assert.equal(found(report, "agent.invalid_timestamp").length, 0);
+  });
+
+  test(`explicit undefined agent ${field} is treated as absent`, () => {
+    const report = verifyMeshData(withAgentTimestamp(field, undefined));
+    assert.equal(found(report, "agent.invalid_timestamp").length, 0);
+  });
+
+  for (const [label, value] of [["zero", 0], ["finite", 501]] as const) {
+    test(`${label} numeric agent ${field} remains a valid ordering operand`, () => {
+      const report = verifyMeshData(withAgentTimestamp(field, value));
+      assert.equal(found(report, "agent.invalid_timestamp").length, 0);
+    });
+  }
+
+  for (const [label, value] of [
+    ["null", null],
+    ["numeric string", "499"],
+    ["nonnumeric string", "bad"],
+    ["NaN", Number.NaN],
+    ["positive infinity", Number.POSITIVE_INFINITY],
+    ["negative infinity", Number.NEGATIVE_INFINITY],
+  ] as const) {
+    test(`${label} agent ${field} is invalid and cannot participate in ordering`, () => {
+      const report = verifyMeshData(withAgentTimestamp(field, value));
+      const invalid = found(report, "agent.invalid_timestamp");
+      assert.equal(report.ok, false);
+      assert.equal(invalid.length, 1);
+      assert.equal(invalid[0].severity, "error");
+      assert.equal(invalid[0].subject, "a1");
+      assert.equal(invalid[0].detail, `agent a1 has a present but non-finite ${field} timestamp`);
+      assert.equal(found(report, "agent.tampered_timestamp").length, 0);
+    });
+  }
+}
+
+test("two invalid agent timestamps produce ordered field-specific findings", () => {
+  const data = withAgentTimestamp("started_at", null);
+  (data.agents.a1 as unknown as Record<string, unknown>).completed_at = "bad";
+
+  const report = verifyMeshData(data);
+  const invalid = found(report, "agent.invalid_timestamp");
+  assert.deepEqual(
+    invalid.map(({ severity, check, subject, detail }) => ({ severity, check, subject, detail })),
+    [
+      {
+        severity: "error",
+        check: "agent.invalid_timestamp",
+        subject: "a1",
+        detail: "agent a1 has a present but non-finite started_at timestamp",
+      },
+      {
+        severity: "error",
+        check: "agent.invalid_timestamp",
+        subject: "a1",
+        detail: "agent a1 has a present but non-finite completed_at timestamp",
+      },
+    ],
+  );
+  assert.equal(found(report, "agent.tampered_timestamp").length, 0);
+});
+
+test("invalid orphan-agent timestamp is reported before the orphan warning", () => {
+  const data = consistent();
+  data.agents.a9 = { ...agent("a9", "ghost-fleet"), status: "complete", completed_at: null as unknown as number };
+
+  const report = verifyMeshData(data);
+  assert.deepEqual(
+    report.findings
+      .filter((finding) => finding.subject === "a9")
+      .map(({ severity, check, subject }) => ({ severity, check, subject })),
+    [
+      { severity: "error", check: "agent.invalid_timestamp", subject: "a9" },
+      { severity: "warning", check: "agent.orphan_fleet", subject: "a9" },
+    ],
+  );
+  assert.equal(found(report, "agent.tampered_timestamp").length, 0);
+});
+
+test("an invalid completion marker does not suppress completed-while-live", () => {
+  const data = withAgentTimestamp("completed_at", null);
+  data.agents.a1.status = "running";
+
+  const report = verifyMeshData(data);
+  assert.deepEqual(
+    report.findings
+      .filter((finding) => finding.subject === "a1")
+      .map((finding) => finding.check),
+    ["agent.invalid_timestamp", "agent.completed_while_live"],
+  );
+  assert.equal(found(report, "agent.tampered_timestamp").length, 0);
 });
 
 test("agent completion before its fleet was created is an error even without a start time", () => {

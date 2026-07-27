@@ -69,6 +69,13 @@ test("agent.tampered_timestamp explains completion before fleet creation", () =>
   assert.match(out, /completed before (its )?fleet (was )?created/i);
 });
 
+test("agent.invalid_timestamp explains finite lifecycle timestamp requirements", () => {
+  const out = formatVerifyExplanation(finding("agent.invalid_timestamp"));
+  assert.match(out, /finite number/i);
+  assert.match(out, /started_at|completed_at/i);
+  assert.match(out, /--export/, "the investigation command goes through the export surface");
+});
+
 function report(over: Partial<VerifyReport> = {}): VerifyReport {
   return {
     ok: true,

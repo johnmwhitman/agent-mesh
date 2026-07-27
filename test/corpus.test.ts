@@ -30,8 +30,9 @@ import { verifyMeshData } from "../src/verify.js";
 import { loadDataFromFile } from "../src/core.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const ROOT = join(__dirname, "..");
 const CORPUS = join(__dirname, "fixtures", "corpus");
-const SRC = join(__dirname, "..", "src");
+const SRC = join(ROOT, "src");
 
 type Finding = { severity: string; check: string; subject: string };
 type Op = { op: "set" | "delete" | "push"; path: string; value?: unknown };
@@ -292,6 +293,29 @@ test("coverage is reported in separate buckets, never as one blended total", () 
   assert.ok(caught.length >= 26, `caught bucket thinned to ${caught.length}`);
   assert.ok(anomaly.length >= 10, `anomaly bucket thinned to ${anomaly.length}`);
   assert.ok(undetectable.length >= 9, `undetectable bucket thinned to ${undetectable.length}`);
+});
+
+test("published README corpus and check counts match generated and source truth", () => {
+  const rootReadme = readFileSync(join(ROOT, "README.md"), "utf-8");
+  const corpusReadme = readFileSync(join(CORPUS, "README.md"), "utf-8");
+  const counts = {
+    caught: manifest.vectors.filter((v) => v.classification === "caught").length,
+    anomaly: manifest.vectors.filter((v) => v.classification === "anomaly").length,
+    undetectable: manifest.vectors.filter((v) => v.classification === "undetectable").length,
+  };
+  const emitted = scanEmittedChecks(readFileSync(join(SRC, "verify.ts"), "utf-8"));
+  const coreChecks = [...emitted].filter((check) => !check.startsWith("discussion.")).length;
+
+  assert.match(rootReadme, new RegExp(`corpus of ${manifest.vectors.length} deliberately`));
+  for (const [classification, count] of Object.entries(counts)) {
+    const row = `| \`${classification}\` | ${count} |`;
+    assert.ok(rootReadme.includes(row), `root README count drifted: expected ${row}`);
+    assert.ok(corpusReadme.includes(row), `corpus README count drifted: expected ${row}`);
+  }
+  assert.ok(
+    corpusReadme.includes(`name **all ${coreChecks}** checks`),
+    `corpus README emitted-check count drifted: expected ${coreChecks}`,
+  );
 });
 
 test("every caught vector is an overclaim and every anomaly vector is not", () => {
