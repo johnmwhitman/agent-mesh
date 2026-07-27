@@ -145,7 +145,7 @@ Direction, not commitment — items ship when real usage pulls them.
 - VS Code extension marketplace listing (the read-only inspector MVP already lives in `editors/vscode/`) — waiting on a publisher account, not on code.
 
 **Next**
-- P1 spawn receipts: resolved runtime agent/model banner capture is implemented. Capability `model` remains routing self-description, not proof of runtime identity; requested-vs-resolved model binding remains future work.
+- P1 spawn receipts: resolved runtime agent/model banner capture is implemented. The internal OpenCode classifier can fail-close an explicitly supplied requested-model label against that observed banner, without selecting a model or exposing a public model input. Capability `model` remains routing self-description, not proof of runtime identity; public request production and durable requested-versus-resolved receipt binding remain future work.
 - Per-entry provenance confidence bands in verify output
 
 **Recently shipped from this list** (moved here rather than deleted, so the list stays auditable)

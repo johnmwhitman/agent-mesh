@@ -105,6 +105,8 @@ before a renderer is called supported.
 | Multi-host coordinator | `deferred` | No shared remote ownership authority exists |
 | Slice 3B config renderers (generic/OpenCode/Claude/Codex) | `static-config-verified` | Canonical spec + 4 recursive-preflight renderers with deterministic tests; live client execution, Antigravity/Gemini/Grok schemas, real vendor outbound adapters, auth, network, remote relay remain unverified/deferred |
 
+An explicitly supplied internal `ExecutionSpec.requestedModel` may fail-close classification when it does not match the observed OpenCode banner model. This is a raw-label check only: it does not select a model, expose a public runtime input, authenticate a provider, or attest runtime identity.
+
 ## Evidence levels
 
 Implementations MUST label claims with one of these levels:
