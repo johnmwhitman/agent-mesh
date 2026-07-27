@@ -1,0 +1,55 @@
+{
+  "profile": "meshfleet.a2a.shared-work-object.v0.1",
+  "reviewed_at_utc": "2026-07-27T10:07:28.836Z",
+  "status": "RESOLVED",
+  "unresolved_important_findings": 0,
+  "implementation_review": {
+    "agent_id": "019fa302-0c3d-7351-8aec-0fe199b024a9",
+    "findings": [
+      {
+        "severity": "P1",
+        "finding": "Python depth-64 boundary diverged from JavaScript.",
+        "resolution": "Python now rejects depth 64; deterministic parity oracles cover depths 63, 64, and 65."
+      },
+      {
+        "severity": "P1",
+        "finding": "Python classified NaN and Infinity differently from JavaScript.",
+        "resolution": "Both classify non-finite JSON constants as MALFORMED_JSON; regression oracles cover NaN and Infinity."
+      },
+      {
+        "severity": "P2",
+        "finding": "Invalid host strings containing unpaired surrogates diverged.",
+        "resolution": "Both implementations reject invalid scalar strings as INVALID_UNICODE before UTF-8 conversion."
+      },
+      {
+        "severity": "P2",
+        "finding": "Exact replay equality depended on SHA-256 operation digests.",
+        "resolution": "Both reducers compare retained canonical operation strings exactly."
+      }
+    ],
+    "closure": "No important regression introduced by the fixes was found in static review."
+  },
+  "corpus_review": {
+    "agent_id": "019fa302-0bd8-7ed3-b914-9f1b5cc25e1b",
+    "findings": [
+      {
+        "severity": "P1",
+        "finding": "A self-derived generator could overwrite the golden corpus.",
+        "resolution": "The generator was removed; the checked-in expected projections are frozen independent targets."
+      },
+      {
+        "severity": "P2",
+        "finding": "Declared limits lacked complete inclusive-accept and exclusive-reject parity oracles.",
+        "resolution": "Cross-language controls now cover byte size, depth, safe integers, labels, fields, notes, note bodies, and operation count."
+      },
+      {
+        "severity": "P2",
+        "finding": "Finality could be misread as broader lifecycle finality.",
+        "resolution": "Contract and README limit finality to mutation of the modeled object and enumerate excluded lifecycle claims."
+      }
+    ],
+    "closure": "Frozen expectations, declared limits, and object-only finality are resolved."
+  },
+  "acceptance_basis": "Reviewer closure plus post-fix focused, differential, fuzz, build, typecheck, and 891-test repository acceptance.",
+  "authority_boundary": "Technical PASS-AS-HELD only. No merge, push, publication, deployment, activation, or live-client verdict."
+}
