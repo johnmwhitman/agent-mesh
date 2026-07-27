@@ -1,0 +1,80 @@
+{
+  "corpus_version": "v0.1",
+  "claims": {
+    "provider_availability": false,
+    "authenticated_identity": false,
+    "budget_freshness": false,
+    "persisted": false,
+    "executed": false,
+    "authorized": false,
+    "woke_agents": false,
+    "contacted_providers": false
+  },
+  "candidate_templates": [
+    {
+      "candidate_id": "lane-a",
+      "capabilities": ["code", "long_context_review"],
+      "privacy": "network_ok",
+      "locality": "any",
+      "budget": { "measured": false },
+      "requested_identity": {
+        "runtime": "ollama-cloud",
+        "model": "caller-selected-model"
+      }
+    },
+    {
+      "candidate_id": "lane-b",
+      "capabilities": ["code", "fast_patch"],
+      "privacy": "network_ok",
+      "locality": "any",
+      "budget": { "measured": false },
+      "requested_identity": {
+        "runtime": "opencode-go",
+        "model": "caller-selected-model"
+      }
+    },
+    {
+      "candidate_id": "lane-c",
+      "capabilities": ["code", "broad_model_choice"],
+      "privacy": "network_ok",
+      "locality": "any",
+      "budget": { "measured": false },
+      "requested_identity": {
+        "runtime": "kilo-pass",
+        "model": "caller-selected-model"
+      }
+    }
+  ],
+  "cases": [
+    {
+      "id": "long-context-review",
+      "task": {
+        "required_capabilities": ["code"],
+        "optional_capabilities": ["long_context_review"],
+        "privacy": "network_ok",
+        "locality": "any"
+      },
+      "expected_ranked": ["lane-a", "lane-b", "lane-c"]
+    },
+    {
+      "id": "fast-patch",
+      "task": {
+        "required_capabilities": ["code"],
+        "optional_capabilities": ["fast_patch"],
+        "privacy": "network_ok",
+        "locality": "any"
+      },
+      "expected_ranked": ["lane-b", "lane-a", "lane-c"]
+    },
+    {
+      "id": "broad-model-choice",
+      "task": {
+        "required_capabilities": ["code"],
+        "optional_capabilities": ["broad_model_choice"],
+        "privacy": "network_ok",
+        "locality": "any"
+      },
+      "expected_ranked": ["lane-c", "lane-a", "lane-b"]
+    }
+  ]
+}
