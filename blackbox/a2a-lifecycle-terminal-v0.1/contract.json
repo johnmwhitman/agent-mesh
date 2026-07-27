@@ -1,0 +1,89 @@
+{
+  "profile": "meshfleet.a2a.lifecycle-terminal.v0.1",
+  "operation": "evaluate_lifecycle_trace",
+  "maturity": "offline-blackbox-conformance",
+  "input": {
+    "trace_fields": ["profile", "case_id", "commands"],
+    "field_presence": "every listed field is required; nullable fields MUST be present with null",
+    "command_order": "array order; at values MUST be nondecreasing; equal at values retain array order",
+    "logical_time": "non-negative safe integer milliseconds supplied by each command",
+    "operations": {
+      "create": ["op", "at", "work_id", "max_attempts", "retry_base_ms", "retry_jitter"],
+      "acquire": ["op", "at", "owner_id", "lease_ms"],
+      "renew": ["op", "at", "owner_id", "owner_epoch", "lease_ms"],
+      "expire": ["op", "at"],
+      "settle": ["op", "at", "owner_id", "owner_epoch", "outcome", "result", "error"],
+      "settle_with_retry": ["op", "at", "owner_id", "owner_epoch", "outcome", "error"],
+      "cancel": ["op", "at", "reason"]
+    }
+  },
+  "semantics": {
+    "initial_attempt": "create makes attempt 1 pending with owner_epoch 0 and eligible_at equal to create.at",
+    "acquire": "only the current eligible pending attempt is leaseable; success increments owner_epoch and makes it running",
+    "lease_fence": "renew, settle, and settle_with_retry require the exact current owner_id and owner_epoch while at is strictly less than lease_until",
+    "renewal": "renew keeps owner_epoch unchanged, sets lease_until to at plus lease_ms, and emits lease_acquired",
+    "expiry_boundary": "expire is accepted exactly when at is greater than or equal to lease_until",
+    "expiry_retry": "expiry first emits lease_expired; if attempts remain it creates a distinct pending attempt and then emits attempt_retried",
+    "expiry_final": "expiry first emits lease_expired; at the attempt cap the same attempt becomes failed and attempt_failed follows",
+    "failure_retry": "settle_with_retry accepts only failure; it emits attempt_failed, then creates a distinct pending attempt and emits attempt_retried when attempts remain",
+    "plain_failure": "settle failure is terminal even when attempts remain",
+    "cancel": "cancel is unfenced, terminal, and absorbing once applied; later commands are rejected",
+    "retry_delay": "retry_base_ms * 2^(failed_or_expired_attempt_number - 1), with retry_jitter exactly false",
+    "retry_overflow": "if retry eligibility cannot be represented as a safe integer, reject with RETRY_TIME_OVERFLOW before changing attempt state or appending an event",
+    "retry_epoch": "creating a retry increments owner_epoch; acquiring that retry increments it again",
+    "rejection": "a rejected command changes no state and appends no event"
+  },
+  "rejection_precedence": [
+    "MALFORMED_TRACE",
+    "PROFILE_REJECT",
+    "MALFORMED_COMMAND for the generic command envelope",
+    "UNKNOWN_OP",
+    "MALFORMED_COMMAND for the selected known operation",
+    "INVALID_RETRY_POLICY",
+    "WORK_ALREADY_EXISTS",
+    "WORK_TERMINAL_OR_UNKNOWN",
+    "WORK_HAS_NO_CURRENT_ATTEMPT",
+    "WORK_NOT_LEASEABLE",
+    "STALE_OR_TERMINAL_LEASE",
+    "ATTEMPT_NOT_EXPIRED",
+    "RETRY_TIME_OVERFLOW"
+  ],
+  "rejection_algorithm": "validate the trace shape before profile; for each command validate op and at, reject an unknown op, validate every required field for the selected known operation, then evaluate policy and lifecycle state in the listed order",
+  "events": [
+    "attempt_created",
+    "lease_acquired",
+    "lease_expired",
+    "attempt_retried",
+    "attempt_succeeded",
+    "attempt_failed",
+    "attempt_cancelled"
+  ],
+  "canonical_json": {
+    "encoding": "UTF-8",
+    "object_keys": "lexicographic order by Unicode code point",
+    "whitespace": "none",
+    "numbers": "safe integers only; floats, negative zero, and non-finite values are rejected",
+    "strings": "valid Unicode scalar values only; lone surrogates are rejected",
+    "objects": "duplicate member names are rejected"
+  },
+  "invariants": [
+    "exactly one current attempt exists after create",
+    "attempt numbers are contiguous and never exceed max_attempts",
+    "at most one attempt is running and it is current",
+    "owner_epoch is monotonic and the work epoch equals the current attempt epoch",
+    "terminal work is absorbing",
+    "cancel wins over every command applied after it",
+    "event seq values are contiguous and event order is normative",
+    "every retry is a distinct attempt",
+    "invalid commands preserve the exact pre-command state digest"
+  ],
+  "non_claims": [
+    "no persistence or replay authority",
+    "no concurrent command scheduling",
+    "no live process or PID authority",
+    "no transport or network behavior",
+    "no authentication, authorization, credentials, or trust roots",
+    "no multi-host consensus",
+    "no production recovery guarantee"
+  ]
+}
