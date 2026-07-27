@@ -340,8 +340,10 @@ ledger before any tool dispatch; those pre-dispatch effects are unchanged by
 v2 and are outside this handler boundary.
 
 The MCP tool returns this envelope. The matching opt-in `agent-mesh inspect
---verify-v2 [file]` CLI mode remains a separate planned surface (and will emit
-the same object with `--json`):
+--verify-v2 [file]` CLI mode is implemented: it audits the supplied file, or
+the configured ledger, through the same dedicated read-only file snapshot. With
+`--json` it emits this same object; otherwise it emits one evidence-scope header
+followed by the unchanged legacy verifier text:
 
 ```json
 {

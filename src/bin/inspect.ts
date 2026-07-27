@@ -9,6 +9,7 @@
  *   npx agent-mesh inspect --events [n]      # recent events (default 20)
  *   npx agent-mesh inspect --export [file]   # dump the full ledger as JSON
  *   npx agent-mesh inspect --verify [file]   # audit ledger integrity (exit 1 on errors)
+ *   npx agent-mesh inspect --verify-v2 [file] # opt-in versioned verifier envelope (exit 1 on errors)
  *   npx agent-mesh inspect --explain         # explain each --verify finding (implies --verify)
  *   npx agent-mesh inspect --json            # JSON output for fleets / --councils / --verify
  *   npx agent-mesh inspect --help             # usage
@@ -33,6 +34,8 @@ import {
   buildCouncilsJson,
   buildFleetsJson,
   buildVerifyJson,
+  buildVerifyV2Json,
+  formatVerifyV2Report,
   INSPECT_JSON_SCHEMA,
   PROVISIONAL_NOTE,
   type AgentRow,
@@ -56,6 +59,7 @@ const USAGE = `agent-mesh inspect — CLI inspector for running fleets
   npx agent-mesh inspect --follow|-f [--fleet id]  Live-tail new P2P messages (ctrl-c to stop)
   npx agent-mesh inspect --export [file]    Dump the full ledger as JSON (stdout if no file)
   npx agent-mesh inspect --verify [file]    Audit ledger integrity (exit 1 on errors); [file] audits that ledger file read-only
+  npx agent-mesh inspect --verify-v2 [file] Opt-in versioned verifier envelope (exit 1 on errors); [file] audits that ledger file read-only
   npx agent-mesh inspect --lifecycle [fleet] Show opt-in SQLite lifecycle diagnostics (--json supported)
   npx agent-mesh inspect --explain          Explain each --verify finding: meaning, benign cause, how to investigate (implies --verify)
   npx agent-mesh inspect --json             Machine-readable output for all inspect data modes
@@ -97,6 +101,13 @@ function main(): void {
   if (args.includes('--help') || args.includes('-h')) {
     process.stdout.write(USAGE)
     process.exit(0)
+  }
+
+  const verifyV1 = args.includes('--verify')
+  const verifyV2 = args.includes('--verify-v2')
+  if (verifyV1 && verifyV2) {
+    process.stderr.write('--verify and --verify-v2 cannot be used together\n')
+    process.exit(2)
   }
 
   if (args.includes('--lifecycle')) {
@@ -142,9 +153,31 @@ function main(): void {
 
   const positional = args.filter((a) => !a.startsWith('-'))
 
+  if (verifyV2) {
+    const file = positional[0]
+    let report
+    try {
+      // v2 never calls verifyLedger(): that legacy fresh-install fallback can
+      // initialize an absent configured ledger. This is always a dedicated
+      // read-only file audit, including the configured path when no file is given.
+      report = verifyLedgerFile(file ?? resolveDbFile())
+    } catch (err) {
+      process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`)
+      process.exit(2)
+    }
+    const envelope = buildVerifyV2Json(report)
+    process.stdout.write(
+      jsonMode
+        ? JSON.stringify(envelope, null, 2) + '\n'
+        : formatVerifyV2Report(envelope, { explain }) + '\n'
+    )
+    process.exitCode = report.ok ? 0 : 1
+    return
+  }
+
   // --explain implies --verify. A positional path audits THAT ledger file
   // (zero-install: point it at a backup or an export from another machine).
-  if (args.includes('--verify') || explain) {
+  if (verifyV1 || explain) {
     const file = positional[0]
     if (file !== undefined && !existsSync(file)) {
       process.stderr.write(`Ledger file not found: ${file}\n`)

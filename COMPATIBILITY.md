@@ -92,11 +92,11 @@ Future versions will increment `CURRENT_SCHEMA_VERSION` and add a migration step
 **Promise so far**: every minor release has been additive. No tool has been removed or had its
 signature narrowed.
 
-### Implemented opt-in verifier v2 MCP contract
+### Implemented opt-in verifier v2 MCP and CLI contract
 
-The additive `verify_ledger_v2` MCP tool is implemented. The matching
-`agent-mesh inspect --verify-v2 [file]` CLI mode remains a separate planned
-opt-in surface. The MCP tool has the dedicated output envelope
+The additive `verify_ledger_v2` MCP tool and matching
+`agent-mesh inspect --verify-v2 [file]` CLI mode are implemented opt-in
+surfaces. Both have the dedicated output envelope
 `meshfleet.verify/v2`, containing exactly `schema`, `evidence_scope`, and the
 unchanged legacy `VerifyReport` as `report`. The scope profile is exactly
 `unsigned_snapshot_consistency/v1`; it says `ok` means
