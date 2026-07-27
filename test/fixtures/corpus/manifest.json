@@ -18,7 +18,7 @@
       "expected_findings": [
         {
           "severity": "error",
-          "check": "agent.tampered_timestamp",
+          "check": "agent.invalid_timestamp",
           "subject": "a2"
         }
       ]
@@ -39,12 +39,7 @@
       "expected_findings": [
         {
           "severity": "error",
-          "check": "agent.tampered_timestamp",
-          "subject": "a2"
-        },
-        {
-          "severity": "error",
-          "check": "agent.tampered_timestamp",
+          "check": "agent.invalid_timestamp",
           "subject": "a2"
         }
       ]

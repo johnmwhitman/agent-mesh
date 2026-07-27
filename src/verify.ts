@@ -232,18 +232,32 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
         `agent stored under key "${key}" but its body claims id "${a.id}" — receipts, inboxes and fleet membership all join on one of these two, so they cannot disagree`
       );
     }
+    const startedAtValid = a.started_at === undefined || Number.isFinite(a.started_at);
+    const completedAtValid = a.completed_at === undefined || Number.isFinite(a.completed_at);
+    if (!startedAtValid) {
+      error("agent.invalid_timestamp", a.id, `agent ${a.id} has a present but non-finite started_at timestamp`);
+    }
+    if (!completedAtValid) {
+      error("agent.invalid_timestamp", a.id, `agent ${a.id} has a present but non-finite completed_at timestamp`);
+    }
     if (!data.fleets[a.fleet_id]) {
       warning("agent.orphan_fleet", a.id, `agent ${a.id} references fleet ${a.fleet_id}, which this ledger does not hold`);
     } else {
       const fleet = data.fleets[a.fleet_id];
-      if (fleet && a.started_at !== undefined && a.started_at < fleet.created_at) {
+      if (fleet && startedAtValid && a.started_at !== undefined && a.started_at < fleet.created_at) {
         error("agent.tampered_timestamp", a.id, `agent started before fleet was created`);
       }
-      if (fleet && a.completed_at !== undefined && a.completed_at < fleet.created_at) {
+      if (fleet && completedAtValid && a.completed_at !== undefined && a.completed_at < fleet.created_at) {
         error("agent.tampered_timestamp", a.id, `agent completed before fleet was created`);
       }
     }
-    if (a.started_at !== undefined && a.completed_at !== undefined && a.completed_at < a.started_at) {
+    if (
+      startedAtValid &&
+      completedAtValid &&
+      a.started_at !== undefined &&
+      a.completed_at !== undefined &&
+      a.completed_at < a.started_at
+    ) {
       error("agent.tampered_timestamp", a.id, `agent completed before it started`);
     }
     // One row asserting both "still in progress" and "already finished". The

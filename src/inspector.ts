@@ -643,6 +643,11 @@ const CHECK_EXPLANATIONS: Record<string, CheckExplanation> = {
     benign: "agents copied in from another mesh, or old fleet rows pruned without their agents",
     investigate: "agent-mesh inspect --export | jq '.agents'",
   },
+  "agent.invalid_timestamp": {
+    what: "an agent's optional started_at or completed_at timestamp is present but is not a finite number, so lifecycle ordering cannot be trusted",
+    benign: "a hand-edited or partially-corrupted export",
+    investigate: "agent-mesh inspect --export | jq '.agents'",
+  },
   "agent.tampered_timestamp": {
     what: "an agent started or completed before its fleet was created, or completed before it started",
     benign: "a hand-edited export with an incorrect timestamp",
