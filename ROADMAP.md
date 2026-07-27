@@ -206,12 +206,14 @@ observable, not a daemon, dashboard, or service claim.
   or approved beyond proposal.
 - [ ] **Slice 4D: offline delivery-attempt and transport conformance** — compare
   stdio, mailbox, HTTP/SSE, and WebSocket semantic traces without live peers.
-  **4D-alpha is implemented locally as a pure fixture-verified normalizer:** it
-  binds every event to the existing canonical envelope digest, preserves
-  offer/arrival/observation/receipt/acknowledgment/retryable-failure/terminal-
-  rejection distinctions, rejects transport/control-plane field smuggling, and
-  freezes live-transport/interoperability/wake/execution/persistence claims to
-  false. This does not implement any transport or close the broader 4D row.
+  **4D-alpha is implemented locally at reference-conformance:** the pure
+  TypeScript evaluator and independent stdlib-only Python witness agree over a
+  language-neutral corpus. They bind every event to the existing canonical
+  envelope digest, preserve offer/arrival/observation/receipt/acknowledgment/
+  retryable-failure/terminal-rejection distinctions, reject transport/control-
+  plane field smuggling, and freeze live-transport/interoperability/wake/
+  execution/persistence claims to false. This does not implement any transport
+  or close the broader 4D row.
 - [ ] **Slice 4E: deterministic two-host coordinator simulation** — prove
   leases, monotonic fencing, cancellation, partition, and recovery semantics
   before operational multi-host work.

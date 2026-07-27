@@ -1,8 +1,9 @@
 # MeshFleet A2A offline delivery-trace profile v0.1
 
-**Status:** fixture-verified pure conformance profile. No live transport, public tool,
-listener, network peer, database write, authenticated principal, wake authority, provider
-call, execution, or interoperability claim.
+**Status:** reference-conformance pure profile. The TypeScript evaluator and an
+independent stdlib-only Python witness agree over the language-neutral corpus. No live
+transport, public tool, listener, network peer, database write, authenticated principal,
+wake authority, provider call, execution, or interoperability claim.
 
 ## Purpose
 
@@ -131,6 +132,10 @@ or authorization.
 
 - Pure implementation: `src/a2a/delivery-trace.ts`
 - Executable tests: `test/a2a-delivery-trace.test.ts`
+- Independent Python witness:
+  `reference/python/a2a_delivery_trace_reference.py`
+- Differential and negative witness tests:
+  `test/a2a-delivery-trace-python-reference.test.ts`
 - Language-neutral fixtures:
   `test/fixtures/a2a/delivery-trace/v0.1/corpus.json`
 
@@ -139,8 +144,11 @@ arrival without wake, retryable versus terminal failure, single-attempt ordering
 multi-recipient partial and complete acknowledgment, exact normalized summaries and
 bindings, absence of transport fields from normalized output, non-recipient rejection,
 duplicate receipt/ack rejection, successful-trace closure, and attempted wake-authority
-smuggling. The module import guard allows only the canonical A2A codec and type imports,
-excluding transport, MCP, database, runtime, provider, and execution dependencies.
+smuggling. Its portable malformed-event cases cover every event-level precedence row
+D05-D17. The witness must reject a corpus with mutated success or failure expectations,
+duplicate JSON members, or nonstandard numeric values. The module import guard allows
+only the canonical A2A codec and type imports, excluding transport, MCP, database,
+runtime, provider, and execution dependencies.
 
 ## Non-goals
 

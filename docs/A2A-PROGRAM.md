@@ -232,10 +232,12 @@ They are additive, reversible, and do not widen the current MCP surface.
    but not implemented. It would prove a local adapter path without public
    ingress, remote transport, credentials, or delivery and remains separately
    gated.
-5. **Slice 4D then 4E:** 4D-alpha now has a pure fixture-verified offline
-   delivery-trace normalizer; it implements no transport and consumes no 4C-1
-   principal or admission result. Broader 4D transport evidence and the 4E
-   deterministic two-host coordinator simulation remain unimplemented.
+5. **Slice 4D then 4E:** 4D-alpha now has a pure reference-conformance offline
+   delivery-trace normalizer; an independent stdlib-only Python witness agrees
+   with the TypeScript evaluator over the language-neutral corpus. It implements
+   no transport and consumes no 4C-1 principal or admission result. Broader 4D
+   transport evidence and the 4E deterministic two-host coordinator simulation
+   remain unimplemented.
 
 `meshfleet.a2a` v0.1 remains a codec protocol. Its process-local identity
 registry is not durable ingress identity. The public `send_a2a` tool remains

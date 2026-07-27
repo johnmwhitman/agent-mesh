@@ -136,10 +136,12 @@ attestation, or exactly-once behavior.
    active or approved beyond proposal. Its proposed proof is an adapter-derived
    local principal and semantic invocation without public ingress, remote
    transport, credentials, or delivery.
-3. **Slice 4D:** 4D-alpha now has a pure fixture-verified delivery-trace
-   normalizer. It proves that modeled stdio, mailbox, HTTP/SSE, and WebSocket
-   labels preserve one canonical binding and distinct observation stages
-   without live peers. It does not implement a transport, public tool,
+3. **Slice 4D:** 4D-alpha now has a pure reference-conformance delivery-trace
+   normalizer. An independent stdlib-only Python witness agrees with the
+   TypeScript evaluator over the language-neutral corpus, including event-level
+   precedence D05-D17. This proves only that modeled stdio, mailbox, HTTP/SSE,
+   and WebSocket labels preserve one canonical binding and distinct observation
+   stages without live peers. It does not implement a transport, public tool,
    DeliveryPort, wake path, or interoperability; broader 4D remains open.
 4. **Slice 4E:** deterministic two-host coordinator simulation. Prove leases,
    monotonic fencing, cancellation, partition, retry, and recovery semantics

@@ -188,14 +188,16 @@
   "a2a_protocol": [
     {
       "target": "offline-delivery-trace-profile-v0.1",
-      "status": "fixture-verified",
+      "status": "reference-conformance",
       "evidence": [
         "docs/A2A-DELIVERY-TRACE-PROFILE-v0.1.md",
         "src/a2a/delivery-trace.ts",
         "test/a2a-delivery-trace.test.ts",
+        "reference/python/a2a_delivery_trace_reference.py",
+        "test/a2a-delivery-trace-python-reference.test.ts",
         "test/fixtures/a2a/delivery-trace/v0.1/corpus.json"
       ],
-      "notes": "Pure normalization over modeled stdio, mailbox, HTTP/SSE, and WebSocket labels. It verifies canonical binding and stage separation only; it does not implement or claim live transport, interoperability, durable acceptance, authenticated principals, wake authority, persistence, or execution."
+      "notes": "The pure TypeScript evaluator and independent stdlib-only Python witness agree over the language-neutral corpus, including event-level precedence D05-D17. This verifies canonical binding and stage separation only; it does not implement or claim live transport, interoperability, durable acceptance, authenticated principals, wake authority, persistence, or execution."
     },
     {
       "target": "canonical-ingress-contract-v0.1",

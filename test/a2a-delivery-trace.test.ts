@@ -722,6 +722,7 @@ test("delivery-trace corpus pins equivalence, precedence, and explicit non-claim
         summary?: Record<string, number | boolean>;
         timeline_has_transport?: boolean;
         error_code?: string;
+        error_path?: string;
         precedence_row?: string;
       };
     }>;
@@ -744,6 +745,21 @@ test("delivery-trace corpus pins equivalence, precedence, and explicit non-claim
   assert.equal(
     new Set(corpus.cases.map((fixture) => fixture.id)).size,
     corpus.cases.length,
+  );
+  assert.deepEqual(
+    new Set(
+      corpus.cases.flatMap((fixture) =>
+        fixture.expected.precedence_row
+          ? [fixture.expected.precedence_row]
+          : [],
+      ),
+    ),
+    new Set(
+      Array.from(
+        { length: 13 },
+        (_, index) => `D${String(index + 5).padStart(2, "0")}`,
+      ),
+    ),
   );
 
   const equivalentResults: unknown[] = [];
@@ -774,6 +790,9 @@ test("delivery-trace corpus pins equivalence, precedence, and explicit non-claim
       }
     } else {
       assert.equal(result.error.code, fixture.expected.error_code, fixture.id);
+      if (fixture.expected.error_path) {
+        assert.equal(result.error.path, fixture.expected.error_path, fixture.id);
+      }
       assert.equal(
         result.error.precedence_row,
         fixture.expected.precedence_row,
