@@ -284,6 +284,71 @@ test("OpenCode adapter preserves observed banner identity and raw receipt output
   assert.equal(spec({ requestedModel: "different-routing-hint" }).requestedModel, "different-routing-hint");
 });
 
+test("OpenCode adapter passes the raw requested model through custom arguments and rejects a mismatching banner", async () => {
+  let customBuilderSpec: ExecutionSpec | undefined;
+  const adapter = new OpenCodeRuntimeAdapter({
+    command: process.execPath,
+    buildArgs: (request) => {
+      customBuilderSpec = request;
+      return [FIXTURE, "opencode", request.prompt];
+    },
+  });
+
+  const result = await execute(adapter, spec({
+    prompt: "review",
+    requestedAgent: "oracle",
+    requestedModel: "openai/gpt-5",
+  }));
+
+  assert.equal(customBuilderSpec?.requestedModel, "openai/gpt-5");
+  assert.equal(result.status, "failure");
+  assert.equal(result.error, "Requested model openai/gpt-5 but runtime model banner reported anthropic/claude-sonnet-4");
+  assert.deepEqual(result.identity, {
+    adapterId: "opencode-cli",
+    agent: "oracle",
+    model: "anthropic/claude-sonnet-4",
+    evidence: "observed",
+  });
+});
+
+test("OpenCode adapter accepts a requested model matching the observed banner", async () => {
+  const adapter = new OpenCodeRuntimeAdapter({
+    command: process.execPath,
+    buildArgs: (request) => [FIXTURE, "opencode", request.prompt],
+  });
+
+  const result = await execute(adapter, spec({
+    requestedAgent: "oracle",
+    requestedModel: "claude-sonnet-4",
+  }));
+
+  assert.equal(result.status, "success");
+  assert.equal(result.identity.evidence, "observed");
+  assert.equal(result.identity.model, "anthropic/claude-sonnet-4");
+});
+
+test("OpenCode adapter default argv omits the requested model while mismatch remains fail-closed", async () => {
+  let observedArgs: string[] | undefined;
+  const adapter = new OpenCodeRuntimeAdapter({
+    command: process.execPath,
+    spawnProcess: (_command, args, options) => {
+      observedArgs = [...args];
+      return spawn(process.execPath, [FIXTURE, "opencode", "review"], options);
+    },
+  });
+
+  const result = await execute(adapter, spec({
+    prompt: "review",
+    requestedAgent: "oracle",
+    requestedModel: "openai/gpt-5",
+  }));
+
+  assert.equal(result.status, "failure");
+  assert.deepEqual(observedArgs, ["run", "--agent", "oracle", "review"]);
+  assert.equal(observedArgs?.includes("--model"), false);
+  assert.equal(observedArgs?.includes("openai/gpt-5"), false);
+});
+
 test("runtime adapters reject invalid execution specs before launch", async () => {
   const adapter = local("success");
   assert.equal(adapter.validate(spec({ timeoutMs: 0 })).ok, false);

@@ -92,6 +92,7 @@ export class OpenCodeRuntimeAdapter implements RuntimeAdapter {
             stdout: raw.stdout,
             stderr: raw.stderr,
             requestedAgent: spec.requestedAgent,
+            requestedModel: spec.requestedModel,
           });
           return {
             status: classified.success ? "success" : "failure",
