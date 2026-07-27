@@ -3,6 +3,7 @@ export interface SpawnResultInput {
   stdout: string;
   stderr: string;
   requestedAgent?: string;
+  requestedModel?: string;
 }
 
 export interface SpawnResultClassification {
@@ -99,6 +100,24 @@ export function classifySpawnResult(
       ...receipt,
       success: false,
       error: `Requested agent ${input.requestedAgent} but runtime agent ${banner.agent} executed`,
+    };
+  }
+  if (input.requestedModel !== undefined && !banner) {
+    return {
+      ...receipt,
+      success: false,
+      error: "Requested model but runtime model banner is missing or unparsable",
+    };
+  }
+  if (
+    input.requestedModel !== undefined &&
+    banner &&
+    !runtimeModelsMatch(input.requestedModel, banner.model)
+  ) {
+    return {
+      ...receipt,
+      success: false,
+      error: `Requested model ${input.requestedModel} but runtime model banner reported ${banner.model}`,
     };
   }
   const diagnostics = plainStderr
