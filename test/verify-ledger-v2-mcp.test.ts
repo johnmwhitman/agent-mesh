@@ -78,7 +78,7 @@ test("verify_ledger_v2 wraps the same isolated legacy report without writing", a
   }
 });
 
-test("verify_ledger_v2 fails closed on an absent ledger without creating one", async () => {
+test("verify_ledger_v2 handler fails closed without creating a ledger when startup recovery is disabled", async () => {
   const dir = mkdtempSync(join(tmpdir(), "meshfleet-verify-v2-absent-"));
   const transport = new StdioClientTransport({
     command: process.execPath,
@@ -89,6 +89,8 @@ test("verify_ledger_v2 fails closed on an absent ledger without creating one", a
       MESHFLEET_DATA_FILE: join(dir, "absent.json"),
       MESHFLEET_EVENT_LOG_FILE: join(dir, "events.jsonl"),
       MESHFLEET_RATIFY_SWEEP_MS: "0",
+      // Child mode skips the normal parent's startup recovery/migration. This
+      // isolates the tool handler: it must fail closed without creating a ledger.
       AGENT_MESH_CHILD: "1",
     },
     stderr: "ignore",
@@ -104,7 +106,7 @@ test("verify_ledger_v2 fails closed on an absent ledger without creating one", a
     assert.deepEqual(JSON.parse(textOf(response)), {
       error: "verify_ledger_v2 unavailable: configured ledger is absent or unreadable",
     });
-    assert.deepEqual(snapshot(dir), before, "a failed v2 verification must not create a ledger or sidecar");
+    assert.deepEqual(snapshot(dir), before, "the handler must not create a ledger or sidecar");
   } finally {
     await client.close();
     rmSync(dir, { recursive: true, force: true });

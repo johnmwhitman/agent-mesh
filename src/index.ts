@@ -397,7 +397,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "verify_ledger_v2",
       description:
-        "Read-only versioned verifier output. Returns the unchanged internal-consistency report inside meshfleet.verify/v2 with an unsigned-snapshot evidence scope; it does not establish authorship, snapshot integrity, content binding, completeness, external delivery or execution, or external time.",
+        "Versioned verifier output read from a dedicated read-only file snapshot; the handler performs no ledger writes. Normal parent-server startup recovery or migration may initialize or change the configured ledger before tool dispatch. Returns the unchanged internal-consistency report inside meshfleet.verify/v2 with an unsigned-snapshot evidence scope; it does not establish authorship, snapshot integrity, content binding, completeness, external delivery or execution, or external time.",
       inputSchema: { type: "object", properties: {} },
     },
     {

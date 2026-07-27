@@ -138,8 +138,8 @@ test("README advertises the 34-tool registry including verifier v2", () => {
   );
   assert.match(
     readme,
-    /^\| `verify_ledger_v2` \| Read-only, versioned unsigned-snapshot consistency envelope around the unchanged verifier report; fails closed when the configured ledger is absent or unreadable \|$/m,
-    "README must describe verify_ledger_v2 and its fail-closed boundary",
+    /^\| `verify_ledger_v2` \| Versioned unsigned-snapshot consistency envelope around the unchanged verifier report from a dedicated read-only file snapshot; the handler performs no ledger writes \|$/m,
+    "README must describe verify_ledger_v2 at its read-only handler boundary",
   );
 });
 

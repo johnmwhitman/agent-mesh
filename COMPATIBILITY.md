@@ -111,6 +111,12 @@ unchanged legacy `VerifyReport` as `report`. The scope profile is exactly
 5. `external_delivery_and_execution`
 6. `external_time`
 
+At tool dispatch, the v2 handler reads the configured ledger through a
+dedicated read-only file snapshot and performs no ledger writes. In normal
+parent mode, startup recovery or migration may initialize or change the
+configured ledger before tool dispatch; those pre-dispatch effects are
+unchanged by v2 and outside the handler boundary.
+
 This is an output-generated ceiling, not a confidence, integrity, delivery,
 execution, authentication, content-attestation, completeness, or external-time
 claim. It does not add fields to `VerifyReport` or `VerifyFinding`, and does

@@ -237,7 +237,7 @@ watching… no messages yet  (spawn a fleet or send_message from MCP)
 | `subscribe_inbox` | Push delivery over SSE instead of polling (optional auth token) |
 | `receipt` / `get_receipts` | Write and query the witnessed-delivery ledger: who saw what, when |
 | `verify_ledger` | Audit the whole ledger's internal consistency — errors mean it asserts something its own records don't support |
-| `verify_ledger_v2` | Read-only, versioned unsigned-snapshot consistency envelope around the unchanged verifier report; fails closed when the configured ledger is absent or unreadable |
+| `verify_ledger_v2` | Versioned unsigned-snapshot consistency envelope around the unchanged verifier report from a dedicated read-only file snapshot; the handler performs no ledger writes |
 
 **Councils (quorum ratification)**
 
@@ -332,6 +332,12 @@ a new check without a fixture fails the build.
 `verify_ledger_v2` is an implemented opt-in MCP verifier surface. The existing
 `verify_ledger`, `VerifyReport`, `VerifyFinding`, `agent-mesh inspect --verify`,
 and `meshfleet.inspect/v1` remain unchanged.
+
+At tool dispatch, its handler reads the configured ledger through a dedicated
+read-only file snapshot and performs no ledger writes. In normal parent mode,
+server startup recovery or migration may initialize or change the configured
+ledger before any tool dispatch; those pre-dispatch effects are unchanged by
+v2 and are outside this handler boundary.
 
 The MCP tool returns this envelope. The matching opt-in `agent-mesh inspect
 --verify-v2 [file]` CLI mode remains a separate planned surface (and will emit
