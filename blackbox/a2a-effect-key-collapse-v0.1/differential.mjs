@@ -6,6 +6,23 @@ import { dirname, join } from "node:path";
 
 const root = dirname(fileURLToPath(import.meta.url));
 const corpus = JSON.parse(readFileSync(join(root, "corpus/v0.1/cases.json"), "utf8"));
+const expectedCorpusProfile = "meshfleet.a2a.effect-key-collapse.v0.1";
+const expectedCaseCount = 56;
+const expectedCaseIdHash = "f969c481d05467c08c7c39c0402e6ce222c850a9a3c9c8e2b55cc3fb4535c2f2";
+
+function assertCorpusIntegrity(document) {
+  if (document.profile !== expectedCorpusProfile || !Array.isArray(document.cases) || document.cases.length !== expectedCaseCount) {
+    throw new Error("corpus: frozen profile or case count mismatch");
+  }
+  const ids = document.cases.map((item) => item.id);
+  if (new Set(ids).size !== ids.length || document.cases.some((item) => item.mandatory !== true)) {
+    throw new Error("corpus: mandatory case identity mismatch");
+  }
+  const idHash = createHash("sha256").update(ids.join("\n"), "utf8").digest("hex");
+  if (idHash !== expectedCaseIdHash) throw new Error("corpus: frozen case IDs mismatch");
+}
+
+assertCorpusIntegrity(corpus);
 
 function encode(value) {
   if (value === null || typeof value === "boolean" || typeof value === "number") return JSON.stringify(value);

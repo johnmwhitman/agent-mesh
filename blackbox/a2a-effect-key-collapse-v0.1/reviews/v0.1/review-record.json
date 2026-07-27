@@ -9,7 +9,11 @@
     "Added scalar-aware Python UTF-8 length measurement and mandatory M52 for paired-surrogate effect keys.",
     "Changed JavaScript parser objects to null-prototype objects and added M53/M54 for root and declaration __proto__ members.",
     "Canonicalized valid Python surrogate pairs before duplicate-key comparison and added M55 for escaped/literal scalar equivalence.",
-    "Restricted Python JSON numeric scanning to ASCII digits and added M56 for a non-ASCII digit after an ASCII prefix."
+    "Restricted Python JSON numeric scanning to ASCII digits and added M56 for a non-ASCII digit after an ASCII prefix.",
+    "Replaced the fuzz oracle prototype-bearing objects with nested Maps and generated inherited-property-shaped valid effect keys.",
+    "Pinned frozen corpus profile, mandatory membership, count, uniqueness, and case-ID digest in the differential harness.",
+    "Made JavaScript and Python runner Base64url decoding reject malformed transport input consistently.",
+    "Made every recognized runner mode reject trailing arguments instead of silently ignoring them."
   ],
   "acceptance": {
     "state": "PASS-AS-HELD",
@@ -35,6 +39,14 @@
       "remaining_p1_p2": 0,
       "state": "APPROVE",
       "boundary": "Read-only slice approval; not integration, release, activation, or interoperability."
+    },
+    {
+      "reviewer": "Codex gstack multi-agent review",
+      "angle": "testing-maintainability-and-red-team-fix-first",
+      "verdict": "APPROVE-AFTER-REMEDIATION",
+      "remaining_p1_p2": 0,
+      "state": "APPROVE",
+      "boundary": "Read-only findings followed by focused local remediation; not integration, release, activation, or interoperability."
     }
   ]
 }

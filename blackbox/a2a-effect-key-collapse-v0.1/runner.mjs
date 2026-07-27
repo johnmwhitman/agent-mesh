@@ -14,8 +14,15 @@ function encodeExpected(value) {
   return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${encodeExpected(value[key])}`).join(",")}}`;
 }
 
+function decodeBase64url(value) {
+  if (typeof value !== "string" || !/^[A-Za-z0-9_-]*$/.test(value) || value.length % 4 === 1) {
+    throw new Error("INVALID_BASE64URL");
+  }
+  return Buffer.from(value, "base64url");
+}
+
 function rawCase(item) {
-  return Object.hasOwn(item, "raw_json") ? Buffer.from(item.raw_json, "utf8") : Buffer.from(item.raw_base64url, "base64url");
+  return Object.hasOwn(item, "raw_json") ? Buffer.from(item.raw_json, "utf8") : decodeBase64url(item.raw_base64url);
 }
 
 function assertEqual(actual, expected, label) {
@@ -42,15 +49,15 @@ function runSelf() {
 }
 
 const args = process.argv.slice(2);
-if (args[0] === "--raw-base64url") {
-  const output = evaluateBytes(Buffer.from(args[1] ?? "", "base64url"));
+if (args.length === 2 && args[0] === "--raw-base64url") {
+  const output = evaluateBytes(decodeBase64url(args[1]));
   process.stdout.write(JSON.stringify(output));
-} else if (args.length === 0 || args[0] === "--corpus") {
+} else if (args.length === 0 || (args.length === 1 && args[0] === "--corpus")) {
   process.stdout.write(JSON.stringify(runCorpus()));
-} else if (args[0] === "--hash-corpus") {
+} else if (args.length === 1 && args[0] === "--hash-corpus") {
   process.stdout.write(createHash("sha256").update(readFileSync(corpusPath)).digest("hex"));
-} else if (args[0] === "--self") {
+} else if (args.length === 1 && args[0] === "--self") {
   process.stdout.write(JSON.stringify(runSelf()));
 } else {
-  throw new Error(`unknown argument: ${args[0]}`);
+  throw new Error(`invalid arguments: ${args.join(" ")}`);
 }

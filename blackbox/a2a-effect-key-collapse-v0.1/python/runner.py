@@ -1,4 +1,5 @@
 import base64
+import binascii
 import hashlib
 import json
 import os
@@ -13,10 +14,19 @@ def encode_expected(value):
     return json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
 
 
+def decode_base64url(value):
+    if not isinstance(value, str) or any(character not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_" for character in value) or len(value) % 4 == 1:
+        raise ValueError("INVALID_BASE64URL")
+    try:
+        return base64.b64decode(value + "=" * (-len(value) % 4), altchars=b"-_", validate=True)
+    except (binascii.Error, ValueError):
+        raise ValueError("INVALID_BASE64URL") from None
+
+
 def raw_case(item):
     if "raw_json" in item:
         return item["raw_json"].encode("utf-8")
-    return base64.urlsafe_b64decode(item["raw_base64url"] + "=" * (-len(item["raw_base64url"]) % 4))
+    return decode_base64url(item["raw_base64url"])
 
 
 def assert_equal(actual, expected, label):
@@ -45,15 +55,15 @@ def run_self():
     return {"suite": "self", "cases": 3, "passed": True}
 
 
-if len(sys.argv) > 1 and sys.argv[1] == "--raw-base64url":
-    raw = base64.urlsafe_b64decode((sys.argv[2] if len(sys.argv) > 2 else "") + "=" * (-(len(sys.argv[2]) if len(sys.argv) > 2 else 0) % 4))
+if len(sys.argv) == 3 and sys.argv[1] == "--raw-base64url":
+    raw = decode_base64url(sys.argv[2])
     sys.stdout.write(json.dumps(evaluate_bytes(raw), ensure_ascii=True, separators=(",", ":")))
-elif len(sys.argv) == 1 or sys.argv[1] == "--corpus":
+elif len(sys.argv) == 1 or (len(sys.argv) == 2 and sys.argv[1] == "--corpus"):
     sys.stdout.write(json.dumps(run_corpus(), ensure_ascii=True, separators=(",", ":")))
-elif len(sys.argv) > 1 and sys.argv[1] == "--hash-corpus":
+elif len(sys.argv) == 2 and sys.argv[1] == "--hash-corpus":
     with open(CORPUS_PATH, "rb") as handle:
         sys.stdout.write(hashlib.sha256(handle.read()).hexdigest())
-elif sys.argv[1] == "--self":
+elif len(sys.argv) == 2 and sys.argv[1] == "--self":
     sys.stdout.write(json.dumps(run_self(), ensure_ascii=True, separators=(",", ":")))
 else:
-    raise ValueError("unknown argument: " + sys.argv[1])
+    raise ValueError("invalid arguments: " + " ".join(sys.argv[1:]))

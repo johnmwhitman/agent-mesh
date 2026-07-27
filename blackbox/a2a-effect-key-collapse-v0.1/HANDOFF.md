@@ -6,9 +6,9 @@ This slice is a pure unordered classifier over caller-supplied `{effect_key,effe
 
 It does not select a survivor, suppress or apply work, establish effect identity or provenance, provide replay protection or exactly-once behavior, order operations, mutate state, persist data, deliver messages, authenticate actors, authorize actions, execute tools, or establish interoperability.
 
-Acceptance: JavaScript/Python self 3 each; frozen corpus 56 each; per-raw-case differential 56 with transcript `1e73975ae1b2271071df44aa7da93c99bbbfacfed0bb1150c63eb129c13874ab`; deterministic fuzz 400 original plus 400 permutations, 5 invalid mutations, and 3 parser controls; build/typecheck pass; full repository suite 891/891; two independent reviewers report no remaining P1/P2.
+Acceptance: JavaScript/Python self 3 each; frozen corpus 56 each; per-raw-case differential 56 with transcript `1e73975ae1b2271071df44aa7da93c99bbbfacfed0bb1150c63eb129c13874ab`; deterministic fuzz 400 original plus 400 permutations, 5 invalid mutations, and 3 parser controls; build/typecheck pass; full repository suite 891/891; two initial independent reviewers plus a gstack testing/maintainability/red-team review report no remaining P1/P2 after remediation.
 
-Resolved review defects: JavaScript EOF whitespace loop, paired-surrogate byte sizing, `__proto__` schema bypass, escaped/literal scalar duplicate identity, and Python Unicode-digit numeric parsing. Each semantic defect is frozen in the corpus.
+Resolved review defects: JavaScript EOF whitespace loop, paired-surrogate byte sizing, `__proto__` schema bypass, escaped/literal scalar duplicate identity, and Python Unicode-digit numeric parsing, prototype-bearing fuzz-oracle grouping, frozen-corpus membership drift, malformed Base64url runner divergence, and ignored trailing runner arguments. Semantic evaluator defects are frozen in the corpus; harness-integrity defects are enforced directly by the runners and differential/fuzz checks.
 
 Exact receipts are in `evidence/acceptance-20260727.json` and file digests in `manifest/v0.1/expected.json`. Base `041500fd9aec6e482875f6339236ffdcc46fc7ed`; routing lane rechecked clean at `5dad0c997fc7069124da2dcec8ee094ed7171207` with no path overlap. The dirty primary checkout was not edited.
 

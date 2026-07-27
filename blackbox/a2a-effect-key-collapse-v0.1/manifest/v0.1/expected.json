@@ -1,6 +1,6 @@
 {
   "profile": "meshfleet.a2a.effect-key-collapse.v0.1",
-  "generated_at_utc": "2026-07-27T14:35:44.733Z",
+  "generated_at_utc": "2026-07-27T15:21:20.116Z",
   "base_commit": "041500fd9aec6e482875f6339236ffdcc46fc7ed",
   "status": "PASS-AS-HELD",
   "self_excluded": "manifest/v0.1/expected.json",
@@ -13,8 +13,8 @@
     },
     {
       "path": "HANDOFF.md",
-      "bytes": 1919,
-      "sha256": "019285a0bf4781bfe77f9a188e1c861a39e2c9f92267aceadc560055fa74e19a"
+      "bytes": 2249,
+      "sha256": "eb8d503364506dc92d02b5d83357f52fe09192d09a8788d00abbedc64628e2b3"
     },
     {
       "path": "README.md",
@@ -33,8 +33,8 @@
     },
     {
       "path": "differential.mjs",
-      "bytes": 2077,
-      "sha256": "0f210092d18a291c189c25f230e66e949fb0fab4667b01538212dadd9f590b5d"
+      "bytes": 2955,
+      "sha256": "3699a2b3b1b6108d2f341c2f7e6ba7c32cbb7a3f7b205e107f4feab34774a23b"
     },
     {
       "path": "evaluator.mjs",
@@ -43,13 +43,13 @@
     },
     {
       "path": "evidence/acceptance-20260727.json",
-      "bytes": 4076,
-      "sha256": "d9a7c8639e89d6fa26476250bc035a3a448b9e0bdb4ef59c0ba7737a5acf9f2c"
+      "bytes": 4749,
+      "sha256": "b8309912c4ab25ba5b0c91f2ead23c01a7a4328c8e31262fdfd48ddca0465ab2"
     },
     {
       "path": "fuzz-differential.mjs",
-      "bytes": 4578,
-      "sha256": "095d3ee429aae0c45861db81f2c86ff70904de4740bf78fc911cb5303c85d180"
+      "bytes": 4936,
+      "sha256": "74c3fa163a589c101857770db3b6e194453f7e3fd396fd13a24fce581423b831"
     },
     {
       "path": "python/evaluator.py",
@@ -58,18 +58,18 @@
     },
     {
       "path": "python/runner.py",
-      "bytes": 2741,
-      "sha256": "bd64e3fcc405011e6ce7ee9ab2bd65dad3836b9d3b615eeb832eae4e6fc5cd07"
+      "bytes": 3120,
+      "sha256": "727ad82c7cef6cab076e8ec7ac56c10b12af6bbee21fc2f272daff59cb8f99d9"
     },
     {
       "path": "reviews/v0.1/review-record.json",
-      "bytes": 1956,
-      "sha256": "2834f8636c08c05edce0e59c44eb9417efb2b388d7b873d0bbbe75859edae687"
+      "bytes": 2793,
+      "sha256": "96ce2ba7db42fb88d6de768c639478135ffb8fc8ba6fccccc135b15a4c51ed6a"
     },
     {
       "path": "runner.mjs",
-      "bytes": 2747,
-      "sha256": "cce7be1c05dc59664ebd4e19cc0b674e3c8aecb36b9c2cba742e170d4de94e0e"
+      "bytes": 3038,
+      "sha256": "da5fa4212d8798cd608951b9b15d661fb4b6ffcb8f36a3d4d026b8dc4cc29b73"
     }
   ]
 }
