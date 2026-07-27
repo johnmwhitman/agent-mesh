@@ -4,7 +4,7 @@
 
 **Goal:** Add an opt-in, versioned verifier envelope that states the narrow unsigned-snapshot consistency ceiling without changing any legacy verifier result, formatter, schema, or exit contract.
 
-**Architecture:** A pure v2 envelope builder wraps an already-computed `VerifyReport`. The new MCP tool and `inspect --verify-v2` each call the existing verifier once, then serialize or render that wrapper. Legacy paths retain their existing direct report and `meshfleet.inspect/v1` serializer.
+**Architecture:** A pure v2 envelope builder wraps an already-computed `VerifyReport`. The new MCP tool audits `resolveDbFile()` through `verifyLedgerFile()`, and `inspect --verify-v2` audits either its supplied file or `resolveDbFile()` through that same dedicated file verifier, then serializes or renders the wrapper. Legacy paths retain their existing direct report and `meshfleet.inspect/v1` serializer.
 
 **Tech Stack:** TypeScript, Node test runner, MCP SDK, SQLite fixtures.
 
@@ -13,7 +13,7 @@
 - Do not edit `VerifyReport`, `VerifyFinding`, `verifyLedger`, `verifyLedgerFile`, `verifyMeshData`, `formatVerifyReport`, `buildVerifyJson`, `INSPECT_JSON_SCHEMA`, or existing legacy tests/fixtures.
 - `meshfleet.verify/v2` has exactly `schema`, `evidence_scope`, and `report`; the scope has exactly the four fields and six ordered literals in the approved design.
 - Scope is generated after existing report aggregation. It is fresh and frozen per result, never ledger-, environment-, caller-, or finding-derived, and appears only at the envelope level.
-- The new MCP tool and CLI mode are read-only. They do not call migration, repair, writers, network, provider, credential, process, or external-clock surfaces.
+- The new MCP tool handler and CLI mode use `verifyLedgerFile()` and perform no ledger writes. They do not call migration, repair, writers, network, provider, credential, process, or external-clock surfaces. The legacy `verifyLedger()` path remains unchanged and may cold-initialize an absent configured ledger. In normal parent-server mode, existing startup migration/recovery may initialize or change that ledger before any MCP tool dispatch; those pre-dispatch effects are outside the v2 handler boundary.
 - Preserve legacy `verify_ledger`, `inspect --verify`, its `--json` `meshfleet.inspect/v1` wrapper, diagnostics, and exit behavior exactly.
 
 ---
@@ -51,7 +51,7 @@
 - [ ] Create the MCP test with the existing `test/tool-boundary-validation.test.ts` stdio `Client`/`StdioClientTransport` pattern and isolated `MESHFLEET_DB_FILE` plus `MESHFLEET_DATA_FILE` paths. Start by requiring `listTools()` to advertise `verify_ledger_v2` with the same empty object request schema as `verify_ledger`.
 - [ ] In that test, call both tools on the same fresh isolated ledger. Parse the content JSON and assert legacy `verify_ledger` remains a bare `VerifyReport`, while v2 has strict envelope/scope keys and its `report` deep-equals the legacy report. Capture database bytes/stat before and after the v2 call to prove it did not write.
 - [ ] Run `npm run build && node --import tsx --test test/verify-ledger-v2-mcp.test.ts` and confirm RED with `missing MCP tool: verify_ledger_v2`.
-- [ ] In `src/index.ts`, import the v2 builder, register `verify_ledger_v2` beside `verify_ledger` with an empty input schema and a description limited to the versioned unsigned-snapshot consistency scope plus unchanged report, then add a handler that calls `verifyLedger()` once and passes that completed report to `buildVerifyEnvelopeV2` and `jsonResult`.
+- [ ] In `src/index.ts`, import the v2 builder, `resolveDbFile`, and `verifyLedgerFile`; register `verify_ledger_v2` beside `verify_ledger` with an empty input schema and a description limited to the versioned unsigned-snapshot consistency scope plus unchanged report. The handler calls `verifyLedgerFile(resolveDbFile())` once, wraps the completed report, and returns a stable MCP error when the configured file is absent or unreadable. Do not call legacy `verifyLedger()` from v2.
 - [ ] Re-run the command and confirm GREEN; run `npm run build && node --import tsx --test test/mcp-stdio.test.ts test/tool-boundary-validation.test.ts` for existing MCP surface regression coverage.
 - [ ] Commit: `feat: expose versioned verifier MCP tool`.
 
@@ -63,7 +63,7 @@
 - [ ] In the same tests, preserve failure and compatibility behavior: `--verify-v2` with a missing/non-SQLite file exits 2 using the legacy diagnostic path; completed reports exit 0/1 from `report.ok`; `--verify` text remains header-free; legacy `--verify --json` still has `INSPECT_JSON_SCHEMA`; and existing inspect-v1 deep-equality fixtures are not changed.
 - [ ] Run `npm run build && node --import tsx --test test/verify-v2-inspect.test.ts` and confirm RED because `--verify-v2` is not a recognized verify mode and the v2 inspector helper is absent.
 - [ ] Add v2-only helpers in `src/inspector.ts`: a JSON helper that returns `buildVerifyEnvelopeV2(report)` directly and a text helper that receives that envelope and prepends exactly one profile header before the unchanged `formatVerifyReport(envelope.report, opts)` output. Do not modify `buildVerifyJson`, `INSPECT_JSON_SCHEMA`, or `formatVerifyReport`.
-- [ ] Add `--verify-v2 [file]` to `src/bin/inspect.ts` usage and a dedicated branch sharing the legacy positional validation, `verifyLedger`/`verifyLedgerFile` choice, catch-to-exit-2 behavior, and `report.ok` exit code. Build one envelope only after the report is returned; serialize that exact envelope under `--json` or pass it to the v2 text helper. Keep `--explain` usable with either selected verifier mode and reject simultaneous `--verify` and `--verify-v2` with usage exit 2.
+- [ ] Add `--verify-v2 [file]` to `src/bin/inspect.ts` usage and a dedicated branch that calls `verifyLedgerFile(file ?? resolveDbFile())`, retains catch-to-exit-2 behavior, and exits from `report.ok`. Build one envelope only after the report is returned; serialize that exact envelope under `--json` or pass it to the v2 text helper. Keep `--explain` usable with either selected verifier mode and reject simultaneous `--verify` and `--verify-v2` with usage exit 2. Do not reuse legacy `verifyLedger()` for the no-file v2 case because its fresh-install fallback may initialize SQLite.
 - [ ] Re-run `npm run build && node --import tsx --test test/verify-v2-inspect.test.ts test/inspector-json.test.ts test/inspector-verify.test.ts test/verify-file.test.ts` and confirm GREEN.
 - [ ] Commit: `feat: add versioned verifier inspect mode`.
 

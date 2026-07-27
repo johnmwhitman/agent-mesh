@@ -131,6 +131,7 @@ test("registry includes D3 plus additive routing and verifier-v2 tools (34 total
 
 test("README advertises the 34-tool registry including verifier v2", () => {
   assert.match(readme, /^## 34 MCP tools$/m, "README must advertise the 34-tool registry");
+  assert.match(readme, /^That's 34\. We counted twice this time\.$/m, "README summary must agree with the 34-tool registry");
   assert.match(
     readme,
     /^\| `compile_route_candidates` \| Pure offline projection of sanitized manifest\/observation snapshots; does not rank, persist, execute, authorize, wake, or contact providers \|$/m,

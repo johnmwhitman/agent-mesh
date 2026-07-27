@@ -125,11 +125,13 @@ snapshot.
 
 ## Generation, aggregation, and alias safety
 
-The v2 wrapper calls the existing `verifyLedger` or `verifyLedgerFile` first.
-Only after core and lifecycle findings have already been aggregated, counts
-computed, and `report.ok` calculated does it build one v2 envelope and one
-scope object. Direct `verifyMeshData`, legacy MCP, and legacy inspect paths are
-not modified.
+The pure v2 wrapper accepts an already-computed report. Both v2 surfaces obtain
+that report through `verifyLedgerFile`: MCP audits `resolveDbFile()`, while the
+CLI audits its supplied file or `resolveDbFile()`. Only after core and lifecycle
+findings have already been aggregated, counts computed, and `report.ok`
+calculated does either surface build one v2 envelope and one scope object.
+Direct `verifyMeshData`, legacy MCP, legacy `verifyLedger`, and legacy inspect
+paths are not modified.
 
 The scope is generated output. It is not parsed from the ledger, supplied by a
 caller, selected by an option, read from an environment variable, or copied
@@ -148,22 +150,28 @@ evidence for the snapshot.
 ### `verify_ledger_v2`
 
 Register a new MCP tool named `verify_ledger_v2` with the same empty request
-shape and read-only behavior as `verify_ledger`. Its description must say that
-it returns the versioned unsigned-snapshot consistency scope and unchanged
-report; it must not imply provenance, integrity, completeness, delivery,
-execution, authentication, content binding, or external time proof.
+shape as `verify_ledger`, but with a dedicated file-only verifier path. Its
+description must say that its handler performs no ledger writes, while normal
+parent-server startup migration/recovery may initialize or change the
+configured ledger before tool dispatch. It returns the versioned
+unsigned-snapshot consistency scope and unchanged report; it must not imply
+provenance, integrity, completeness, delivery, execution, authentication,
+content binding, or external time proof.
 
-The handler calls the existing verifier once and serializes `VerifyEnvelopeV2`.
-It must not call a writer, migration, repair, projection, network client,
-provider, clock authority, or process surface.
+The handler calls `verifyLedgerFile(resolveDbFile())` once and serializes
+`VerifyEnvelopeV2`; it fails closed with a stable MCP error when that file is
+absent or unreadable. It must not call legacy `verifyLedger`, a writer,
+migration, repair, projection, network client, provider, clock authority, or
+process surface.
 
 ### `inspect --verify-v2 [file]`
 
 Add a new opt-in CLI mode with the same positional-file validation and exit
 behavior as `--verify`: missing or unreadable/non-SQLite file failures retain
 their current exit behavior; a completed report exits `0` when `report.ok` is
-true and `1` otherwise. It uses the same read-only verifier path as the legacy
-flag.
+true and `1` otherwise. It always uses
+`verifyLedgerFile(file ?? resolveDbFile())`; the legacy `verifyLedger()`
+fresh-install fallback remains unchanged and is not used by v2.
 
 With `--json`, output exactly `VerifyEnvelopeV2`; do not nest it under
 `meshfleet.inspect/v1`, change `INSPECT_JSON_SCHEMA`, or reuse a generic inspect
@@ -194,10 +202,12 @@ or pseudo-finding. The `not_established` array explains why coherent forged
 authorship, payload replacement, deletion, missing delivery, and wholesale
 clock shifts can remain outside this verifier's ceiling.
 
-Neither v2 surface may create a schema, migrate a database, repair an outbox,
-convert a WAL, write a ledger, mutate a source file, launch a process, call a
-provider, access credentials, call a network endpoint, or query an external
-clock.
+Neither the v2 MCP handler nor the v2 CLI may create a schema, migrate a
+database, repair an outbox, convert a WAL, write a ledger, mutate a source file,
+launch a process, call a provider, access credentials, call a network endpoint,
+or query an external clock. In normal parent-server mode, pre-existing startup
+migration/recovery may initialize or change the configured ledger before any
+MCP dispatch; this is unchanged by v2 and outside the handler boundary.
 
 ## TDD matrix
 
