@@ -25,14 +25,15 @@ calling the transactional writer:
 3. Every indexed item is a non-null, non-array object.
 4. `from_agent_id`, `to_agent_id`, and `fleet_id` are required nonblank
    strings, matching the canonical non-self mapping's identity requirements.
-   Their batch-item schemas gain `minLength: 1` so the published contract says
-   the same thing.
+   Their batch-item schemas gain `minLength: 1` and `pattern: "\\S"` so the
+   published contract says the same thing, including whitespace-only values.
 5. `payload` is a required string; the empty string remains valid because it is
    an existing supported core and canonical-envelope behavior.
 6. `type` is exactly one of `MESSAGE_TYPES`.
 7. `correlation_id`, when present, is a nonblank string. `null` is present and
-   invalid. Its batch-item schema gains `minLength: 1`, matching the canonical
-   mapping instead of preserving the legacy self-message bypass.
+   invalid. Its batch-item schema gains `minLength: 1` and `pattern: "\\S"`,
+   matching the canonical mapping instead of preserving the legacy self-message
+   bypass.
 
 Validation is deterministic: array order, then the fixed field order above.
 The first error is returned through the existing `jsonError` surface and names

@@ -26,6 +26,7 @@ import {
   getInbox,
   listFleets,
   markAgentFinished,
+  MAX_BATCH_MESSAGES,
   MAX_PAYLOAD_BYTES,
   MESSAGE_TYPES,
   MessageType,
@@ -72,8 +73,10 @@ import {
 import {
   firstError,
   requireString,
+  requirePresentString,
   requireBoolean,
   optionalBoolean,
+  optionalNonBlankString,
   requireNumber,
   optionalNumber,
   requireStringArray,
@@ -317,16 +320,16 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         properties: {
           messages: {
             type: "array",
-            maxItems: 1000,
+            maxItems: MAX_BATCH_MESSAGES,
             items: {
               type: "object",
               properties: {
-                from_agent_id: { type: "string" },
-                to_agent_id: { type: "string", description: 'Recipient agent id, or "*" for fleet broadcast' },
-                fleet_id: { type: "string" },
+                from_agent_id: { type: "string", minLength: 1, pattern: "\\S" },
+                to_agent_id: { type: "string", minLength: 1, pattern: "\\S", description: 'Recipient agent id, or "*" for fleet broadcast' },
+                fleet_id: { type: "string", minLength: 1, pattern: "\\S" },
                 type: { type: "string", enum: [...MESSAGE_TYPES] },
                 payload: { type: "string" },
-                correlation_id: { type: "string" },
+                correlation_id: { type: "string", minLength: 1, pattern: "\\S" },
               },
               required: ["from_agent_id", "to_agent_id", "fleet_id", "type", "payload"],
             },
@@ -1269,36 +1272,70 @@ toolHandlers["send_message"] = async (args) => {
 };
 
 toolHandlers["send_messages"] = async (args) => {
-    const { messages } = args as {
-      messages: Array<{
-        from_agent_id: string;
-        to_agent_id: string;
-        fleet_id: string;
-        type: MessageType;
-        payload: string;
-        correlation_id?: string;
-      }>;
-    };
-    try {
-      const results = sendMessages(
-        messages.map((m) => ({
-          fromAgentId: m.from_agent_id,
-          toAgentId: m.to_agent_id,
-          fleetId: m.fleet_id,
-          type: m.type,
-          payload: m.payload,
-          correlationId: m.correlation_id,
-        }))
+    if (args === null || typeof args !== "object" || Array.isArray(args)) {
+      return jsonError("send_messages: arguments must be an object");
+    }
+    const { messages } = args as Record<string, unknown>;
+    if (!Array.isArray(messages)) {
+      return jsonError("send_messages: 'messages' is required and must be an array");
+    }
+    if (messages.length > MAX_BATCH_MESSAGES) {
+      return jsonError(
+        `send_messages: 'messages' must contain at most ${MAX_BATCH_MESSAGES} items, got ${messages.length}`,
       );
+    }
+
+    const batch: Array<{
+      fromAgentId: string;
+      toAgentId: string;
+      fleetId: string;
+      type: MessageType;
+      payload: string;
+      correlationId?: string;
+    }> = [];
+
+    // Validate every unknown wire item before projecting it into the typed core
+    // input. This is deliberately separate from sendMessages(): the direct core
+    // API retains its existing compatibility surface, while this MCP handler
+    // enforces the contract it publishes to remote callers.
+    for (let i = 0; i < messages.length; i++) {
+      const item = messages[i];
+      if (item === null || typeof item !== "object" || Array.isArray(item)) {
+        return jsonError(`send_messages: 'messages[${i}]' must be an object`);
+      }
+      const message = item as Record<string, unknown>;
+      const prefix = `messages[${i}]`;
+      const bad = firstError(
+        requireString("send_messages", `${prefix}.from_agent_id`, message.from_agent_id),
+        requireString("send_messages", `${prefix}.to_agent_id`, message.to_agent_id),
+        requireString("send_messages", `${prefix}.fleet_id`, message.fleet_id),
+        requirePresentString("send_messages", `${prefix}.payload`, message.payload),
+        requireEnum("send_messages", `${prefix}.type`, message.type, MESSAGE_TYPES),
+        optionalNonBlankString("send_messages", `${prefix}.correlation_id`, message.correlation_id),
+      );
+      if (bad) return jsonError(bad);
+
+      batch.push({
+        fromAgentId: message.from_agent_id as string,
+        toAgentId: message.to_agent_id as string,
+        fleetId: message.fleet_id as string,
+        type: message.type as MessageType,
+        payload: message.payload as string,
+        correlationId: message.correlation_id as string | undefined,
+      });
+    }
+
+    try {
+      const results = sendMessages(batch);
       // Same per-recipient SSE push as send_message, after the single commit.
       results.forEach(({ messageId, recipients }, i) => {
-        const src = messages[i]!;
+        const src = batch[i]!;
         for (const recipient of recipients) {
           notifySubscribers(recipient, [
             {
               type: "message",
               message_id: messageId,
-              from_agent_id: src.from_agent_id,
+              from_agent_id: src.fromAgentId,
               payload: JSON.stringify({ type: src.type, payload: src.payload }),
               timestamp: Date.now(),
             },

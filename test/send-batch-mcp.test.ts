@@ -83,6 +83,41 @@ async function inbox(client: Client, agentId = "self"): Promise<Array<Record<str
   return (JSON.parse(textOf(response)) as { messages: Array<Record<string, unknown>> }).messages;
 }
 
+test("send_messages publishes the same nonblank identity and correlation rules it enforces", async () => {
+  await withServer(async (client) => {
+    const { tools } = await client.listTools();
+    const tool = tools.find((candidate) => candidate.name === "send_messages");
+    assert.ok(tool, "send_messages must be advertised");
+    const schema = tool.inputSchema as {
+      properties: {
+        messages: {
+          maxItems: number;
+          items: {
+            properties: Record<string, { minLength?: number; pattern?: string }>;
+          };
+        };
+      };
+    };
+    const messages = schema.properties.messages;
+    assert.equal(messages.maxItems, 1000);
+    for (const field of ["from_agent_id", "to_agent_id", "fleet_id", "correlation_id"]) {
+      assert.deepEqual(
+        {
+          minLength: messages.items.properties[field]!.minLength,
+          pattern: messages.items.properties[field]!.pattern,
+        },
+        { minLength: 1, pattern: "\\S" },
+        `${field} schema must reject blank-only values just like the handler`,
+      );
+    }
+    assert.equal(
+      messages.items.properties.payload!.minLength,
+      undefined,
+      "empty payloads are protocol-valid and must remain schema-valid",
+    );
+  });
+});
+
 test("send_messages rejects a mixed batch atomically before the invalid self-message can persist", async () => {
   await withServer(async (client, dbFile) => {
     const response = await client.callTool({
@@ -117,10 +152,17 @@ test("send_messages rejects a mixed batch atomically before the invalid self-mes
 });
 
 test("send_messages accepts a supported self-message with an empty payload", async () => {
-  await withServer(async (client) => {
+  await withServer(async (client, dbFile) => {
     const response = await client.callTool({
       name: "send_messages",
-      arguments: { messages: [supportedSelfMessage({ payload: "" })] },
+      arguments: {
+        messages: [
+          supportedSelfMessage({
+            payload: "",
+            future_schema_field: "ignored for forward compatibility",
+          }),
+        ],
+      },
     });
     assert.notEqual((response as ToolResponse).isError, true, textOf(response));
 
@@ -128,6 +170,23 @@ test("send_messages accepts a supported self-message with an empty payload", asy
     assert.equal(messages.length, 1);
     assert.equal(messages[0]!.payload, "");
     assert.equal(messages[0]!.type, "handoff");
+    assert.deepEqual(
+      durableDeliveryCounts(dbFile),
+      { messages: 1, inboxes: 1 },
+      "the compatibility control must prove valid input still commits",
+    );
+  });
+});
+
+test("send_messages preserves the empty-batch no-op", async () => {
+  await withServer(async (client, dbFile) => {
+    const response = await client.callTool({
+      name: "send_messages",
+      arguments: { messages: [] },
+    });
+    assert.notEqual((response as ToolResponse).isError, true, textOf(response));
+    assert.deepEqual(JSON.parse(textOf(response)), { results: [] });
+    assert.deepEqual(durableDeliveryCounts(dbFile), { messages: 0, inboxes: 0 });
   });
 });
 

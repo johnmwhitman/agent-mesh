@@ -53,7 +53,8 @@ core writer.
   absent case is valid while `null`, empty, blank, and non-string values are
   rejected.
 - [ ] Import `MAX_BATCH_MESSAGES` into the MCP handler and add `minLength: 1`
-  to the batch schema's identity and optional correlation-id strings.
+  plus `pattern: "\\S"` to the batch schema's identity and optional
+  correlation-id strings.
 - [ ] Treat handler input as unknown and reject a non-object root, non-array
   `messages`, oversized batches, and non-object items.
 - [ ] Validate fixed indexed fields using shared helpers: three required

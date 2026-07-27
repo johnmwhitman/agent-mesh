@@ -38,6 +38,26 @@ export function requireString(tool: string, field: string, v: unknown): string |
   return null;
 }
 
+/** A required string whose empty value is meaningful (for example a payload body). */
+export function requirePresentString(tool: string, field: string, v: unknown): string | null {
+  if (typeof v !== "string") {
+    return `${tool}: '${field}' is required and must be a string, got ${got(v)}`;
+  }
+  return null;
+}
+
+/**
+ * An optional, non-blank string. Absence is valid; null is an explicitly
+ * supplied non-string value and must not silently become absence.
+ */
+export function optionalNonBlankString(tool: string, field: string, v: unknown): string | null {
+  if (v === undefined) return null;
+  if (typeof v !== "string" || v.trim().length === 0) {
+    return `${tool}: '${field}' must be a non-empty string when provided, got ${got(v)}`;
+  }
+  return null;
+}
+
 /**
  * A required real boolean. Never accept truthiness here: a string "false" is
  * truthy and a missing value is falsy, so a truthiness read silently inverts or
