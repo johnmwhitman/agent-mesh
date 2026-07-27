@@ -326,6 +326,46 @@ Together the `caught` and `anomaly` vectors name every check the verifier can em
 the `discussion.*` family, and that inventory is re-derived from source on every run — so
 a new check without a fixture fails the build.
 
+### Planned versioned evidence scope
+
+This documentation registers a future opt-in verifier surface; this commit does
+not implement or advertise an additional live MCP tool. The existing
+`verify_ledger`, `VerifyReport`, `VerifyFinding`, `agent-mesh inspect --verify`,
+and `meshfleet.inspect/v1` remain unchanged.
+
+The planned `verify_ledger_v2` MCP tool and `agent-mesh inspect --verify-v2
+[file]` CLI mode will return this envelope (the CLI emits the same object with
+`--json`):
+
+```json
+{
+  "schema": "meshfleet.verify/v2",
+  "evidence_scope": {
+    "profile": "unsigned_snapshot_consistency/v1",
+    "ok_means": "no_detected_internal_consistency_contradiction",
+    "assurance_ceiling": "internal_consistency_of_the_unsigned_snapshot_read",
+    "not_established": [
+      "authorship_and_authenticated_provenance",
+      "pre_read_snapshot_integrity_and_tamper_evidence",
+      "content_binding",
+      "completeness_and_deletion",
+      "external_delivery_and_execution",
+      "external_time"
+    ]
+  },
+  "report": "the unchanged VerifyReport"
+}
+```
+
+`report.ok` will retain its exact current meaning: no detected internal
+consistency contradiction in the unsigned snapshot read (`report.errors ===
+0`). It does not establish authorship or authenticated provenance, pre-read
+snapshot integrity or tamper evidence, content binding, completeness or absence
+of deletion, external delivery or execution, or external time. The scope is
+generated verifier output, never caller or ledger input; it is a ceiling on
+what the report establishes, not a confidence score, integrity verdict, or
+promotion.
+
 ---
 
 ## How it compares

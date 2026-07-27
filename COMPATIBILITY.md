@@ -92,6 +92,32 @@ Future versions will increment `CURRENT_SCHEMA_VERSION` and add a migration step
 **Promise so far**: every minor release has been additive. No tool has been removed or had its
 signature narrowed.
 
+### Registered opt-in verifier v2 contract (not implemented by this documentation commit)
+
+The next additive verifier surface is `verify_ledger_v2`, paired with
+`agent-mesh inspect --verify-v2 [file]`. It has the dedicated output envelope
+`meshfleet.verify/v2`, containing exactly `schema`, `evidence_scope`, and the
+unchanged legacy `VerifyReport` as `report`. The scope profile is exactly
+`unsigned_snapshot_consistency/v1`; it says `ok` means
+`no_detected_internal_consistency_contradiction`, bounded to
+`internal_consistency_of_the_unsigned_snapshot_read`, and its ordered
+`not_established` tuple is exactly:
+
+1. `authorship_and_authenticated_provenance`
+2. `pre_read_snapshot_integrity_and_tamper_evidence`
+3. `content_binding`
+4. `completeness_and_deletion`
+5. `external_delivery_and_execution`
+6. `external_time`
+
+This is an output-generated ceiling, not a confidence, integrity, delivery,
+execution, authentication, content-attestation, completeness, or external-time
+claim. It will not add fields to `VerifyReport` or `VerifyFinding`, and it will
+not alter `verify_ledger`, `inspect --verify`, `meshfleet.inspect/v1`, existing
+JSON/text output, `ok`, findings, checks, severities, counts, or exits. The
+legacy surfaces remain the compatibility baseline; v2 is opt-in and does not
+increase the currently implemented tool count until its implementation lands.
+
 **⚠️ Input handling changed in 0.16.0, and the old promise was the bug.** This table used to end
 "Tool inputs default to safe values when omitted." That was not a guarantee — it was a description
 of unvalidated handlers guessing, and the guesses were not safe. `cast_vote` recorded `approve:
