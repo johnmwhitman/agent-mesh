@@ -63,6 +63,7 @@ import {
   shouldRetry as shouldAgentRetry,
 } from "./retry.js";
 import { recordRoutingOutcome } from "./routing-feedback.js";
+import { recommendRoute, type RecommendRouteInput } from "./recommend-route.js";
 import {
   firstError,
   requireString,
@@ -483,6 +484,211 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           },
         },
         required: ["description"],
+      },
+    },
+    {
+      name: "recommend_route",
+      description:
+        "Advisory-only ranking over caller-supplied sanitized task traits and candidate snapshots. Does not persist, execute, authorize, wake agents, or contact providers.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          task: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              required_capabilities: {
+                type: "array",
+                minItems: 1,
+                maxItems: 64,
+                uniqueItems: true,
+                items: {
+                  type: "string",
+                  minLength: 1,
+                  maxLength: 64,
+                  pattern: "^[a-z0-9][a-z0-9._:-]*$",
+                },
+              },
+              optional_capabilities: {
+                type: "array",
+                maxItems: 64,
+                uniqueItems: true,
+                description:
+                  "Desirable capability tokens. Must not repeat any required_capabilities token.",
+                items: {
+                  type: "string",
+                  minLength: 1,
+                  maxLength: 64,
+                  pattern: "^[a-z0-9][a-z0-9._:-]*$",
+                },
+              },
+              privacy: {
+                type: "string",
+                enum: ["local_only", "network_ok", "unrestricted"],
+              },
+              locality: {
+                type: "string",
+                enum: ["same_host", "same_fleet", "any"],
+              },
+              coordination: {
+                type: "string",
+                enum: ["solo", "pair_discussion"],
+              },
+              policy_tags: {
+                type: "array",
+                maxItems: 64,
+                uniqueItems: true,
+                items: {
+                  type: "string",
+                  minLength: 1,
+                  maxLength: 64,
+                  pattern: "^[a-z0-9][a-z0-9._:-]*$",
+                },
+              },
+              min_context_tokens: { type: "integer", minimum: 0 },
+            },
+            required: ["required_capabilities", "privacy", "locality"],
+          },
+          candidates: {
+            type: "array",
+            minItems: 1,
+            maxItems: 256,
+            items: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                candidate_id: {
+                  type: "string",
+                  minLength: 1,
+                  maxLength: 128,
+                  description:
+                    "Opaque non-whitespace identifier; must be unique within candidates.",
+                },
+                capabilities: {
+                  type: "array",
+                  minItems: 1,
+                  maxItems: 64,
+                  uniqueItems: true,
+                  items: {
+                    type: "string",
+                    minLength: 1,
+                    maxLength: 64,
+                    pattern: "^[a-z0-9][a-z0-9._:-]*$",
+                  },
+                },
+                privacy: {
+                  type: "string",
+                  enum: ["local_only", "network_ok", "unrestricted"],
+                },
+                locality: {
+                  type: "string",
+                  enum: ["same_host", "same_fleet", "any"],
+                },
+                coordination_modes: {
+                  type: "array",
+                  minItems: 1,
+                  maxItems: 2,
+                  uniqueItems: true,
+                  items: {
+                    type: "string",
+                    enum: ["solo", "pair_discussion"],
+                  },
+                },
+                policy_tags: {
+                  type: "array",
+                  maxItems: 64,
+                  uniqueItems: true,
+                  items: {
+                    type: "string",
+                    minLength: 1,
+                    maxLength: 64,
+                    pattern: "^[a-z0-9][a-z0-9._:-]*$",
+                  },
+                },
+                context_window: { type: "integer", minimum: 0 },
+                observed_outcomes: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: {
+                    successes: {
+                      type: "integer",
+                      minimum: 0,
+                      maximum: 1_000_000,
+                    },
+                    failures: {
+                      type: "integer",
+                      minimum: 0,
+                      maximum: 1_000_000,
+                    },
+                  },
+                  required: ["successes", "failures"],
+                },
+                budget: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: {
+                    measured: { type: "boolean" },
+                    used: { type: "number", minimum: 0 },
+                    total: { type: "number", exclusiveMinimum: 0 },
+                  },
+                  required: ["measured"],
+                  allOf: [
+                    {
+                      if: {
+                        properties: { measured: { const: true } },
+                        required: ["measured"],
+                      },
+                      then: { required: ["used", "total"] },
+                    },
+                    {
+                      if: {
+                        properties: { measured: { const: false } },
+                        required: ["measured"],
+                      },
+                      then: {
+                        not: {
+                          anyOf: [
+                            { required: ["used"] },
+                            { required: ["total"] },
+                          ],
+                        },
+                      },
+                    },
+                  ],
+                },
+                requested_identity: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: {
+                    runtime: { type: "string", minLength: 1, maxLength: 256 },
+                    model: { type: "string", minLength: 1, maxLength: 256 },
+                  },
+                  anyOf: [{ required: ["runtime"] }, { required: ["model"] }],
+                },
+                observed_identity: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: {
+                    runtime: { type: "string", minLength: 1, maxLength: 256 },
+                    model: { type: "string", minLength: 1, maxLength: 256 },
+                    source: { type: "string", minLength: 1, maxLength: 256 },
+                  },
+                  required: ["source"],
+                  anyOf: [{ required: ["runtime"] }, { required: ["model"] }],
+                },
+              },
+              required: ["candidate_id", "capabilities", "privacy", "locality"],
+            },
+          },
+          top_n: {
+            type: "integer",
+            minimum: 1,
+            maximum: 256,
+            description: "Must not exceed candidates.length.",
+          },
+        },
+        required: ["task", "candidates"],
+        additionalProperties: false,
       },
     },
     {
@@ -975,6 +1181,81 @@ toolHandlers["get_inbox"] = async (args) => {
     );
     if (bad) return jsonError(bad);
     return jsonResult({ messages: getInbox(agent_id, since) });
+};
+
+toolHandlers["recommend_route"] = async (args) => {
+  const input = args as Record<string, unknown>;
+  const firstUnexpected = (
+    value: unknown,
+    allowed: ReadonlySet<string>,
+    path: string,
+  ): string | undefined => {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+    const key = Object.keys(value as Record<string, unknown>).find(
+      (candidate) => !allowed.has(candidate),
+    );
+    return key === undefined ? undefined : `${path}${key}`;
+  };
+  const topLevelUnexpected = firstUnexpected(
+    input,
+    new Set(["task", "candidates", "top_n"]),
+    "",
+  );
+  if (topLevelUnexpected) {
+    return jsonError(
+      `recommend_route: '${topLevelUnexpected}' is not allowed; supply sanitized traits only`,
+    );
+  }
+  const taskUnexpected = firstUnexpected(
+    input.task,
+    new Set([
+      "required_capabilities",
+      "optional_capabilities",
+      "privacy",
+      "locality",
+      "coordination",
+      "policy_tags",
+      "min_context_tokens",
+    ]),
+    "task.",
+  );
+  if (taskUnexpected) {
+    return jsonError(
+      `recommend_route: '${taskUnexpected}' is not allowed; supply sanitized traits only`,
+    );
+  }
+  if (Array.isArray(input.candidates)) {
+    const allowedCandidateKeys = new Set([
+      "candidate_id",
+      "capabilities",
+      "privacy",
+      "locality",
+      "coordination_modes",
+      "policy_tags",
+      "context_window",
+      "observed_outcomes",
+      "budget",
+      "requested_identity",
+      "observed_identity",
+    ]);
+    for (let index = 0; index < input.candidates.length; index++) {
+      const candidateUnexpected = firstUnexpected(
+        input.candidates[index],
+        allowedCandidateKeys,
+        `candidates[${index}].`,
+      );
+      if (candidateUnexpected) {
+        return jsonError(
+          `recommend_route: '${candidateUnexpected}' is not allowed; recommendation never executes or wakes agents`,
+        );
+      }
+    }
+  }
+  try {
+    return jsonResult(recommendRoute(args as RecommendRouteInput));
+  } catch (error) {
+    return jsonError(error instanceof Error ? error.message : String(error));
+  }
 };
 
 toolHandlers["ack_message"] = async (args) => {
