@@ -80,7 +80,8 @@ test("registry has no duplicate handler registrations", () => {
 // four Discussion tools (ask_peer, wake_agent, reply_discussion,
 // get_discussion), so the D3 baseline is 31/31 with every original name still
 // present. recommend_route is the next additive tool, bringing the live
-// registry to 32/32 without changing any pre-D3 or Discussion name.
+// registry to 32/32 without changing any pre-D3 or Discussion name. The
+// additive snapshot compiler brings the registry to 33/33.
 const PRE_D3_TOOL_NAMES = [
   "spawn_fleet",
   "fleet_status",
@@ -113,14 +114,16 @@ const PRE_D3_TOOL_NAMES = [
 
 const D3_DISCUSSION_TOOL_NAMES = ["ask_peer", "wake_agent", "reply_discussion", "get_discussion"];
 
-test("registry includes D3 plus the additive recommend_route tool (32 total)", () => {
+test("registry includes D3 plus additive routing tools (33 total)", () => {
   const declared = declaredToolNames(source);
   const registered = registeredHandlerNames(source);
 
-  assert.equal(declared.size, 32, `expected 32 advertised tools, got ${declared.size}: ${[...declared].sort().join(", ")}`);
-  assert.equal(registered.size, 32, `expected 32 registered handlers, got ${registered.size}: ${[...registered].sort().join(", ")}`);
+  assert.equal(declared.size, 33, `expected 33 advertised tools, got ${declared.size}: ${[...declared].sort().join(", ")}`);
+  assert.equal(registered.size, 33, `expected 33 registered handlers, got ${registered.size}: ${[...registered].sort().join(", ")}`);
   assert.ok(declared.has("recommend_route"));
   assert.ok(registered.has("recommend_route"));
+  assert.ok(declared.has("compile_route_candidates"));
+  assert.ok(registered.has("compile_route_candidates"));
 });
 
 test("D3: all 27 pre-existing tool names remain present in both registries", () => {

@@ -65,6 +65,10 @@ import {
 import { recordRoutingOutcome } from "./routing-feedback.js";
 import { recommendRoute, type RecommendRouteInput } from "./recommend-route.js";
 import {
+  compileRouteCandidates,
+  type CompileRouteCandidatesInput,
+} from "./compile-route-candidates.js";
+import {
   firstError,
   requireString,
   requireBoolean,
@@ -484,6 +488,141 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           },
         },
         required: ["description"],
+      },
+    },
+    {
+      name: "compile_route_candidates",
+      description:
+        "Offline projection of caller-supplied route-candidate snapshots. Does not persist, rank, execute, authorize, wake, or contact providers.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          manifest: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              version: {
+                type: "string",
+                enum: ["meshfleet.route-candidates.v0.1"],
+              },
+              candidates: {
+                type: "array",
+                minItems: 1,
+                maxItems: 256,
+                items: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: {
+                    candidate_id: { type: "string", minLength: 1, maxLength: 128 },
+                    capabilities: {
+                      type: "array",
+                      minItems: 1,
+                      maxItems: 64,
+                      uniqueItems: true,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 64,
+                        pattern: "^[a-z0-9][a-z0-9._:-]*$",
+                      },
+                    },
+                    privacy: {
+                      type: "string",
+                      enum: ["local_only", "network_ok", "unrestricted"],
+                    },
+                    locality: {
+                      type: "string",
+                      enum: ["same_host", "same_fleet", "any"],
+                    },
+                    coordination_modes: {
+                      type: "array",
+                      minItems: 1,
+                      maxItems: 2,
+                      uniqueItems: true,
+                      items: {
+                        type: "string",
+                        enum: ["solo", "pair_discussion"],
+                      },
+                    },
+                    policy_tags: {
+                      type: "array",
+                      minItems: 1,
+                      maxItems: 64,
+                      uniqueItems: true,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 64,
+                        pattern: "^[a-z0-9][a-z0-9._:-]*$",
+                      },
+                    },
+                    context_window: { type: "integer", minimum: 0 },
+                    requested_identity: {
+                      type: "object",
+                      additionalProperties: false,
+                      properties: {
+                        runtime: { type: "string", minLength: 1, maxLength: 256 },
+                        model: { type: "string", minLength: 1, maxLength: 256 },
+                      },
+                      anyOf: [{ required: ["runtime"] }, { required: ["model"] }],
+                    },
+                  },
+                  required: ["candidate_id", "capabilities", "privacy", "locality"],
+                },
+              },
+            },
+            required: ["version", "candidates"],
+          },
+          observations: {
+            type: "array",
+            minItems: 0,
+            maxItems: 256,
+            items: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                candidate_id: { type: "string", minLength: 1, maxLength: 128 },
+                status: {
+                  type: "string",
+                  enum: ["green", "degraded", "exhausted", "unconfigured"],
+                },
+                confidence: { type: "string", enum: ["measured", "assumed"] },
+                budget: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: {
+                    used: { type: "number", minimum: 0 },
+                    total: { type: "number", exclusiveMinimum: 0 },
+                  },
+                  required: ["used", "total"],
+                },
+                observed_outcomes: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: {
+                    successes: { type: "integer", minimum: 0, maximum: 1_000_000 },
+                    failures: { type: "integer", minimum: 0, maximum: 1_000_000 },
+                  },
+                  required: ["successes", "failures"],
+                },
+                observed_identity: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: {
+                    runtime: { type: "string", minLength: 1, maxLength: 256 },
+                    model: { type: "string", minLength: 1, maxLength: 256 },
+                    source: { type: "string", minLength: 1, maxLength: 256 },
+                  },
+                  required: ["source"],
+                  anyOf: [{ required: ["runtime"] }, { required: ["model"] }],
+                },
+              },
+              required: ["candidate_id", "status", "confidence"],
+            },
+          },
+        },
+        required: ["manifest"],
       },
     },
     {
@@ -1181,6 +1320,16 @@ toolHandlers["get_inbox"] = async (args) => {
     );
     if (bad) return jsonError(bad);
     return jsonResult({ messages: getInbox(agent_id, since) });
+};
+
+toolHandlers["compile_route_candidates"] = async (args) => {
+  try {
+    return jsonResult(
+      compileRouteCandidates(args as unknown as CompileRouteCandidatesInput),
+    );
+  } catch (error) {
+    return jsonError(error instanceof Error ? error.message : String(error));
+  }
 };
 
 toolHandlers["recommend_route"] = async (args) => {
