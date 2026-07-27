@@ -148,12 +148,11 @@ function validateManifest(value: unknown): CompileRouteCandidatesInput["manifest
       ]),
     );
     staticSnapshots.push({ ...candidate, budget: { measured: false } });
+    assertRouteCandidates(staticSnapshots, {
+      errorPrefix: "compile_route_candidates",
+      path: "manifest.candidates",
+    });
   }
-
-  assertRouteCandidates(staticSnapshots, {
-    errorPrefix: "compile_route_candidates",
-    path: "manifest.candidates",
-  });
   return manifest as unknown as CompileRouteCandidatesInput["manifest"];
 }
 
