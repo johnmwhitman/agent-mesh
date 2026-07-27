@@ -1,0 +1,22 @@
+{
+  "schema_version": "0.2",
+  "request_timeout_ms": 500,
+  "teardown_wait_ms": 2000,
+  "teardown_wait_count": 3,
+  "outer_timeout_slack_ms": 2000,
+  "outer_timeout_ms": 9000,
+  "output_cap_bytes": 65536,
+  "cases": [
+    { "id": "fault-stdout-pollution", "fixture": "stdout-pollution", "fixture_sha256": "007c9ca1918162b2e2b4e7c3b633aedbbeb7bd05c32407be7835f5d4a778dd97", "role": "fault", "timeout_ms": 500, "primary_class": "INVALID_JSON", "primary_message": "stdout emitted invalid JSON protocol line", "expected_trace": [] },
+    { "id": "fault-malformed-utf8", "fixture": "malformed-utf8", "fixture_sha256": "d3c46da708ce1befa64fdd75b2ccae5d25cbf5e32f7bfbdead54c5fe6acb13c6", "role": "fault", "timeout_ms": 500, "primary_class": "INVALID_UTF8", "primary_message": "stdout emitted malformed UTF-8", "expected_trace": [] },
+    { "id": "fault-wrong-id", "fixture": "wrong-id", "fixture_sha256": "a3aa27107a4aec62ad4d5b3ad16dd95ccecfb465d4cd72c53dfecd2c4dd94311", "role": "fault", "timeout_ms": 500, "primary_class": "WRONG_RESPONSE_ID", "primary_message": "unsolicited response id wrong-id", "expected_trace": [{ "kind": "wrong", "id": "wrong-id" }] },
+    { "id": "fault-duplicate-id", "fixture": "duplicate-id", "fixture_sha256": "8de4c8b04026e8c41efa3187290fadadd3f85ebdf60a4ce605ef965ef5d04237", "role": "fault", "timeout_ms": 500, "primary_class": "DUPLICATE_SETTLED_ID", "primary_message": "duplicate settled response id fault-probe", "expected_trace": [{ "kind": "matched", "id": "fault-probe" }, { "kind": "duplicate", "id": "fault-probe" }] },
+    { "id": "fault-trailing-frame", "fixture": "trailing-partial-frame", "fixture_sha256": "000664457901782ea0056ece3fe048e9fee49aee793459a6a237982a2b3befbe", "role": "fault", "timeout_ms": 500, "primary_class": "TRAILING_FRAME", "primary_message": "stdout ended with trailing non-newline protocol bytes", "expected_trace": [] },
+    { "id": "fault-oversized-line", "fixture": "oversized-line", "fixture_sha256": "eb0622f9c6efb7de15dac225927db31f35abbeaf9accc243dc2f3b12b379dea4", "role": "fault", "timeout_ms": 500, "primary_class": "OVERSIZED_LINE", "primary_message": "stdout line exceeded protocol line cap", "expected_trace": [] },
+    { "id": "fault-timeout-hang", "fixture": "timeout-hang", "fixture_sha256": "394f1e0ca8c481a2a4984b1af61a972e35ea826e58e963b0aa1c51915be32e85", "role": "fault", "timeout_ms": 250, "primary_class": "REQUEST_TIMEOUT", "primary_message": "timed out waiting for response id fault-probe", "expected_trace": [] },
+    { "id": "fault-early-exit", "fixture": "early-exit-epipe", "fixture_sha256": "fb76416eff825773fd9d4c9b5115d93bc1bede4c736dda3e3d9bb37a99afacc4", "role": "fault", "timeout_ms": 500, "primary_class": "CHILD_EXIT", "primary_message": "server exited before response: code=0 signal=null", "expected_trace": [] },
+    { "id": "fault-malformed-response", "fixture": "malformed-response", "fixture_sha256": "1514810218d664e8275cef69943e711e8668876a064643d4c1363f3845fd92cc", "role": "fault", "timeout_ms": 500, "primary_class": "INVALID_RESPONSE", "primary_message": "stdout response must not contain method", "expected_trace": [] },
+    { "id": "control-stderr-noise", "fixture": "stderr-noise-control", "fixture_sha256": "2d5b1bd72c059286b0d1ea359b5f2b31d2b1979047f7ae9168e56a658aeccbe1", "role": "stderr-noise-control", "timeout_ms": 500, "primary_class": null, "primary_message": null, "expected_trace": [{ "kind": "matched", "id": "fault-probe" }] },
+    { "id": "control-honest-baseline", "fixture": "honest-baseline", "fixture_sha256": "033a4e45e11a93a6b505d8c0b7b4d635ea830aecad50f3370da0d46414c93712", "role": "honest-baseline", "timeout_ms": 500, "primary_class": null, "primary_message": null, "expected_trace": [{ "kind": "matched", "id": "fault-probe" }] }
+  ]
+}

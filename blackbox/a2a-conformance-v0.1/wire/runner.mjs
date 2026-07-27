@@ -12,6 +12,7 @@ const REPOSITORY_DIRECTORY = resolve(WIRE_DIRECTORY, "../../..");
 const MANIFEST_PATH = join(HARNESS_DIRECTORY, "manifest.json");
 const TRANSCRIPT_PATH = join(WIRE_DIRECTORY, "fixtures", "transcript-v0.1.json");
 const MUTATIONS_PATH = join(WIRE_DIRECTORY, "fixtures", "mutations-v0.1.json");
+const FAULT_FIXTURES_DIRECTORY = join(WIRE_DIRECTORY, "faults", "fixtures");
 const OUTPUT_CAP_BYTES = 1024 * 1024;
 const STDERR_CAP_BYTES = 64 * 1024;
 const LINE_CAP_BYTES = 256 * 1024;
@@ -33,8 +34,37 @@ const NONCLAIMS = [
   "It invokes only protocol initialize, initialized, ping, tools/list, get_health, and an unknown-tool canary.",
   "It imports no MCP SDK and invokes no provider-capable tool.",
   "Temporary child environment isolation is process-local and does not claim OS-level network blocking.",
+  "On Windows, normal-witness descendants cannot be proven absent after a spontaneous root exit; fault-mode fixtures remain supervised by the enclosing meta-runner tree.",
   "The catalog digest is a pinned domain-specific byte contract for the fixture-declared ASCII-key, unique-tool-name, integer, and Unicode-string domain, not general JSON canonicalization."
 ];
+const FaultClass = Object.freeze({
+  ASSERTION_FAILED: "ASSERTION_FAILED",
+  CHILD_EXIT: "CHILD_EXIT",
+  CLEANUP_FAILED: "CLEANUP_FAILED",
+  DUPLICATE_SETTLED_ID: "DUPLICATE_SETTLED_ID",
+  INVALID_JSON: "INVALID_JSON",
+  INVALID_NOTIFICATION: "INVALID_NOTIFICATION",
+  INVALID_RESPONSE: "INVALID_RESPONSE",
+  INVALID_UTF8: "INVALID_UTF8",
+  OUTPUT_CAP: "OUTPUT_CAP",
+  OVERSIZED_LINE: "OVERSIZED_LINE",
+  REQUEST_TIMEOUT: "REQUEST_TIMEOUT",
+  STDIN_WRITE: "STDIN_WRITE",
+  TRAILING_FRAME: "TRAILING_FRAME",
+  WRONG_RESPONSE_ID: "WRONG_RESPONSE_ID"
+});
+const FAULT_CLASS_VALUES = new Set(Object.values(FaultClass));
+
+function faultError(faultClass, message) {
+  if (!FAULT_CLASS_VALUES.has(faultClass)) throw new Error(`unknown fault class ${String(faultClass)}`);
+  const error = new Error(message);
+  error.faultClass = faultClass;
+  return error;
+}
+
+function faultClassOf(error) {
+  return FAULT_CLASS_VALUES.has(error?.faultClass) ? error.faultClass : FaultClass.ASSERTION_FAILED;
+}
 
 function detail(error) {
   return error instanceof Error ? error.message : String(error);
@@ -133,14 +163,24 @@ class StrictFrameParser {
 
   push(bytes) {
     if (this.finished) throw new Error("stdout parser received bytes after finish");
-    this.consume(this.decoder.decode(bytes, { stream: true }));
+    try {
+      this.consume(this.decoder.decode(bytes, { stream: true }));
+    } catch (error) {
+      if (error instanceof TypeError) throw faultError(FaultClass.INVALID_UTF8, "stdout emitted malformed UTF-8");
+      throw error;
+    }
   }
 
   finish() {
     if (this.finished) return;
     this.finished = true;
-    this.consume(this.decoder.decode());
-    if (this.buffer.length > 0) throw new Error("stdout ended with trailing non-newline protocol bytes");
+    try {
+      this.consume(this.decoder.decode());
+    } catch (error) {
+      if (error instanceof TypeError) throw faultError(FaultClass.INVALID_UTF8, "stdout emitted malformed UTF-8");
+      throw error;
+    }
+    if (this.buffer.length > 0) throw faultError(FaultClass.TRAILING_FRAME, "stdout ended with trailing non-newline protocol bytes");
   }
 
   consume(text) {
@@ -150,19 +190,56 @@ class StrictFrameParser {
       if (boundary === -1) break;
       const line = this.buffer.slice(0, boundary);
       this.buffer = this.buffer.slice(boundary + 1);
-      if (line.length === 0 || line.endsWith("\r")) throw new Error("stdout emitted a blank or CRLF-delimited protocol line");
-      if (Buffer.byteLength(line) > LINE_CAP_BYTES) throw new Error("stdout line exceeded protocol line cap");
-      const message = JSON.parse(line);
-      if (!message || typeof message !== "object" || Array.isArray(message) || message.jsonrpc !== "2.0") throw new Error("stdout emitted a non-object JSON-RPC 2.0 value");
+      if (line.length === 0 || line.endsWith("\r")) throw faultError(FaultClass.INVALID_JSON, "stdout emitted a blank or CRLF-delimited protocol line");
+      if (Buffer.byteLength(line) > LINE_CAP_BYTES) throw faultError(FaultClass.OVERSIZED_LINE, "stdout line exceeded protocol line cap");
+      let message;
+      try { message = JSON.parse(line); } catch { throw faultError(FaultClass.INVALID_JSON, "stdout emitted invalid JSON protocol line"); }
+      if (!message || typeof message !== "object" || Array.isArray(message) || message.jsonrpc !== "2.0") throw faultError(FaultClass.INVALID_RESPONSE, "stdout emitted a non-object JSON-RPC 2.0 value");
       this.onMessage(message);
     }
-    if (Buffer.byteLength(this.buffer) > LINE_CAP_BYTES) throw new Error("stdout unfinished line exceeded protocol line cap");
+    if (Buffer.byteLength(this.buffer) > LINE_CAP_BYTES) throw faultError(FaultClass.OVERSIZED_LINE, "stdout unfinished line exceeded protocol line cap");
   }
+}
+
+function inboundKeys(value, allowed, label, faultClass) {
+  const keys = Object.keys(value).sort();
+  const expected = [...allowed].sort();
+  if (keys.some((key) => !expected.includes(key))) throw faultError(faultClass, `${label} contained a disallowed top-level key`);
+}
+
+function validateInboundMessage(message) {
+  if (!message || typeof message !== "object" || Array.isArray(message) || message.jsonrpc !== "2.0") throw faultError(FaultClass.INVALID_RESPONSE, "stdout emitted a non-object JSON-RPC 2.0 value");
+  const hasMethod = Object.hasOwn(message, "method");
+  const hasId = Object.hasOwn(message, "id");
+  const hasResult = Object.hasOwn(message, "result");
+  const hasError = Object.hasOwn(message, "error");
+  if (hasMethod) {
+    if (hasId || hasResult || hasError) throw faultError(FaultClass.INVALID_RESPONSE, "stdout response must not contain method");
+    inboundKeys(message, ["jsonrpc", "method", "params"], "stdout notification", FaultClass.INVALID_NOTIFICATION);
+    if (typeof message.method !== "string" || message.method.length === 0) throw faultError(FaultClass.INVALID_NOTIFICATION, "stdout notification method must be a non-empty string");
+    return "notification";
+  }
+  inboundKeys(message, ["jsonrpc", "id", "result", "error"], "stdout response", FaultClass.INVALID_RESPONSE);
+  if (!hasId || message.id === null || !["string", "number"].includes(typeof message.id)) throw faultError(FaultClass.INVALID_RESPONSE, "stdout response id must be a non-null string or number");
+  if (hasResult === hasError) throw faultError(FaultClass.INVALID_RESPONSE, "stdout response must contain exactly one of result or error");
+  if (hasError) {
+    const error = message.error;
+    if (!error || typeof error !== "object" || Array.isArray(error)) throw faultError(FaultClass.INVALID_RESPONSE, "stdout response error must be a non-null object");
+    inboundKeys(error, ["code", "message", "data"], "stdout response error", FaultClass.INVALID_RESPONSE);
+    if (!Number.isInteger(error.code) || typeof error.message !== "string") throw faultError(FaultClass.INVALID_RESPONSE, "stdout response error requires integer code and string message");
+  }
+  return "response";
 }
 
 class ResponseCorrelator {
   constructor() {
     this.pending = new Map();
+    this.settled = new Map();
+    this.trace = [];
+  }
+
+  record(kind, id) {
+    if (this.trace.length < 16) this.trace.push({ kind, id: String(id) });
   }
 
   key(id) {
@@ -177,7 +254,7 @@ class ResponseCorrelator {
       rejectPromise = rejectResponse;
       const timer = setTimeout(() => {
         this.pending.delete(key);
-        rejectResponse(new Error(`timed out waiting for response id ${String(id)}`));
+        rejectResponse(faultError(FaultClass.REQUEST_TIMEOUT, `timed out waiting for response id ${String(id)}`));
       }, timeoutMs);
       this.pending.set(key, {
         id,
@@ -198,10 +275,21 @@ class ResponseCorrelator {
   }
 
   accept(message) {
-    if (!Object.hasOwn(message, "id")) throw new Error("stdout emitted an unsolicited JSON-RPC notification");
-    const pending = this.pending.get(this.key(message.id));
-    if (!pending || pending.id !== message.id) throw new Error(`unsolicited or mismatched response id ${String(message.id)}`);
-    this.pending.delete(this.key(message.id));
+    const kind = validateInboundMessage(message);
+    if (kind === "notification") throw faultError(FaultClass.INVALID_NOTIFICATION, "stdout emitted an unsolicited JSON-RPC notification");
+    const key = this.key(message.id);
+    if (this.settled.has(key)) {
+      this.record("duplicate", message.id);
+      throw faultError(FaultClass.DUPLICATE_SETTLED_ID, `duplicate settled response id ${String(message.id)}`);
+    }
+    const pending = this.pending.get(key);
+    if (!pending || pending.id !== message.id) {
+      this.record("wrong", message.id);
+      throw faultError(FaultClass.WRONG_RESPONSE_ID, `unsolicited response id ${String(message.id)}`);
+    }
+    this.pending.delete(key);
+    this.settled.set(key, pending.id);
+    this.record("matched", message.id);
     pending.resolve(message);
   }
 
@@ -358,7 +446,55 @@ async function terminateTree(child, signal) {
     await taskkill(child.pid, signal === "SIGKILL");
     return;
   }
-  process.kill(-child.pid, signal);
+  try { process.kill(-child.pid, signal); } catch (error) { if (error?.code !== "ESRCH") throw error; }
+}
+
+function terminateDirect(child, signal) {
+  if (!Number.isInteger(child?.pid) || child.pid <= 0) throw new Error("cannot target a direct child without a valid pid");
+  try { process.kill(child.pid, signal); } catch (error) { if (error?.code !== "ESRCH") throw error; }
+}
+
+function pause(milliseconds) {
+  return new Promise((resolvePause) => setTimeout(resolvePause, milliseconds));
+}
+
+async function posixGroupAlive(pgid) {
+  try {
+    process.kill(-pgid, 0);
+    return true;
+  } catch (error) {
+    if (error?.code === "ESRCH") return false;
+    throw error;
+  }
+}
+
+async function waitForPosixGroupExit(pgid, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (await posixGroupAlive(pgid)) {
+    if (Date.now() >= deadline) return false;
+    await pause(50);
+  }
+  return true;
+}
+
+async function reapExitedPosixGroup(pgid, actions) {
+  if (!await posixGroupAlive(pgid)) {
+    actions.push("pgid-absent");
+    return;
+  }
+  actions.push("pgid-probe:alive", "pgid-term");
+  try { process.kill(-pgid, "SIGTERM"); } catch (error) { if (error?.code !== "ESRCH") throw error; }
+  if (await waitForPosixGroupExit(pgid, KILL_GRACE_MS)) {
+    actions.push("pgid-reaped-after-term");
+    return;
+  }
+  actions.push("pgid-kill");
+  try { process.kill(-pgid, "SIGKILL"); } catch (error) { if (error?.code !== "ESRCH") throw error; }
+  if (await waitForPosixGroupExit(pgid, KILL_GRACE_MS)) {
+    actions.push("pgid-reaped-after-kill");
+    return;
+  }
+  throw faultError(FaultClass.CLEANUP_FAILED, "POSIX process group remained after TERM and KILL");
 }
 
 function selectedEnvironment(root) {
@@ -372,11 +508,17 @@ function selectedEnvironment(root) {
 }
 
 class RawStdioClient {
-  constructor(entrypoint, root) {
+  constructor(entrypoint, root, supervisionMode = "owned-detached") {
     this.entrypoint = entrypoint;
     this.root = root;
+    this.supervisionMode = supervisionMode;
     this.child = null;
     this.protocolError = null;
+    this.protocolFailureError = null;
+    this.resolveProtocolFailure = null;
+    this.protocolFailure = new Promise((resolveFailure) => { this.resolveProtocolFailure = resolveFailure; });
+    this.faultEvents = [];
+    this.poisoned = false;
     this.stdinError = null;
     this.stderr = "";
     this.stderrBytes = 0;
@@ -384,35 +526,42 @@ class RawStdioClient {
     this.closed = null;
     this.exitState = null;
     this.closing = false;
+    this.cleanupActions = [];
     this.correlator = new ResponseCorrelator();
     this.parser = new StrictFrameParser((message) => this.correlator.accept(message));
   }
 
   failProtocol(error) {
     if (this.protocolError) return;
-    this.protocolError = detail(error);
-    this.correlator.fail(new Error(this.protocolError));
+    const classified = FAULT_CLASS_VALUES.has(error?.faultClass) ? error : faultError(FaultClass.ASSERTION_FAILED, detail(error));
+    this.poisoned = true;
+    this.protocolFailureError = classified;
+    this.protocolError = detail(classified);
+    this.faultEvents.push({ class: faultClassOf(classified), message: bounded(this.protocolError, 512) });
+    this.resolveProtocolFailure(classified);
+    this.correlator.fail(classified);
   }
 
   async start() {
     const working = join(this.root, "working");
     await Promise.all(["home", "tmp", "cache", "config", "data", "working"].map((name) => mkdir(join(this.root, name), { recursive: true })));
-    this.child = spawn(process.execPath, [this.entrypoint], { cwd: working, env: selectedEnvironment(this.root), detached: process.platform !== "win32", stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+    this.child = spawn(process.execPath, [this.entrypoint], { cwd: working, env: selectedEnvironment(this.root), detached: this.supervisionMode === "owned-detached" && process.platform !== "win32", stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
     this.closed = new Promise((resolveClose) => {
       this.child.once("close", (code, signal) => {
         this.exitState = { code, signal };
-        if (!this.closing) this.failProtocol(new Error(`server exited unexpectedly: code=${code} signal=${signal}`));
+        try { this.parser.finish(); } catch (error) { this.failProtocol(error); }
+        if (!this.closing && !this.protocolError) this.failProtocol(faultError(FaultClass.CHILD_EXIT, `server exited before response: code=${code} signal=${signal}`));
         resolveClose(this.exitState);
       });
       this.child.once("error", (error) => this.failProtocol(new Error(`server spawn failure: ${detail(error)}`)));
     });
     this.child.stdin.on("error", (error) => {
-      this.stdinError = new Error(`stdin failure: ${detail(error)}`);
+      this.stdinError = faultError(FaultClass.STDIN_WRITE, "stdin write failed");
       this.failProtocol(this.stdinError);
     });
     this.child.stdout.on("data", (chunk) => {
       this.stdoutBytes += chunk.byteLength;
-      if (this.stdoutBytes > OUTPUT_CAP_BYTES) return this.failProtocol(new Error("stdout exceeded protocol output cap"));
+      if (this.stdoutBytes > OUTPUT_CAP_BYTES) return this.failProtocol(faultError(FaultClass.OUTPUT_CAP, "stdout exceeded protocol output cap"));
       try { this.parser.push(chunk); } catch (error) { this.failProtocol(error); }
     });
     this.child.stderr.on("data", (chunk) => {
@@ -427,9 +576,9 @@ class RawStdioClient {
   }
 
   async writeBuffer(buffer) {
-    if (this.protocolError) throw new Error(this.protocolError);
+    if (this.poisoned || this.protocolError) throw this.protocolFailureError ?? faultError(FaultClass.ASSERTION_FAILED, this.protocolError ?? "session is poisoned");
     if (this.stdinError) throw this.stdinError;
-    await new Promise((resolveWrite, rejectWrite) => this.child.stdin.write(buffer, (error) => error ? rejectWrite(error) : resolveWrite()));
+    await new Promise((resolveWrite, rejectWrite) => this.child.stdin.write(buffer, (error) => error ? rejectWrite(faultError(FaultClass.STDIN_WRITE, "stdin write failed")) : resolveWrite()));
     if (this.stdinError) throw this.stdinError;
   }
 
@@ -465,6 +614,7 @@ class RawStdioClient {
       return await armed.promise;
     } catch (error) {
       armed.cancel(error);
+      this.failProtocol(error);
       throw error;
     }
   }
@@ -476,23 +626,42 @@ class RawStdioClient {
     return state;
   }
 
+  async waitForProtocolFailure(timeoutMs) {
+    let timer;
+    const failure = await Promise.race([this.protocolFailure, new Promise((resolveTimeout) => { timer = setTimeout(() => resolveTimeout(null), timeoutMs); })]);
+    if (timer) clearTimeout(timer);
+    return failure;
+  }
+
   async close() {
     if (!this.child) return;
+    const spontaneousRootExit = Boolean(this.exitState) && !this.closing;
     this.closing = true;
     try { this.child.stdin.end(); } catch { /* the async stdin listener records failures */ }
     let state = await this.waitForExit(KILL_GRACE_MS);
     if (!state) {
-      await terminateTree(this.child, "SIGTERM");
+      if (this.supervisionMode === "fault-direct") terminateDirect(this.child, "SIGTERM");
+      else await terminateTree(this.child, "SIGTERM");
+      this.cleanupActions.push("root-term");
       state = await this.waitForExit(KILL_GRACE_MS);
     }
     if (!state) {
-      await terminateTree(this.child, "SIGKILL");
+      if (this.supervisionMode === "fault-direct") terminateDirect(this.child, "SIGKILL");
+      else await terminateTree(this.child, "SIGKILL");
+      this.cleanupActions.push("root-kill");
       state = await this.waitForExit(KILL_GRACE_MS);
     }
-    if (!state) throw new Error("server process tree was not reaped after TERM and KILL");
+    if (!state) throw faultError(FaultClass.CLEANUP_FAILED, "server process tree was not reaped after TERM and KILL");
+    if (this.supervisionMode === "fault-direct") {
+      this.cleanupActions.push("fault-direct-child-only");
+    } else if (process.platform === "win32") {
+      if (spontaneousRootExit) this.cleanupActions.push("windows-descendants-unverified-after-spontaneous-root-exit");
+    } else {
+      await reapExitedPosixGroup(this.child.pid, this.cleanupActions);
+    }
     try { this.parser.finish(); } catch (error) { this.failProtocol(error); }
     if (this.stdinError) throw this.stdinError;
-    if (this.protocolError) throw new Error(this.protocolError);
+    if (this.protocolError) throw this.protocolFailureError ?? faultError(FaultClass.ASSERTION_FAILED, this.protocolError);
   }
 }
 
@@ -627,7 +796,16 @@ async function runProfile(profile, transcript, manifest) {
     operationFailure = error;
   }
   let cleanupFailure = null;
-  try { await client.close(); } catch (error) { cleanupFailure = error; }
+  try {
+    await client.close();
+  } catch (error) {
+    const recordedProtocolFailure = client.stdinError ? detail(client.stdinError) : client.protocolError;
+    if (recordedProtocolFailure && detail(error) === recordedProtocolFailure) {
+      operationFailure ??= error;
+    } else {
+      cleanupFailure = error;
+    }
+  }
   try { await rm(root, { recursive: true, force: true }); } catch (error) { cleanupFailure ??= error; }
   if (operationFailure && cleanupFailure) throw new AggregateError([operationFailure, cleanupFailure], "profile execution and cleanup both failed");
   if (operationFailure) throw operationFailure;
@@ -635,7 +813,91 @@ async function runProfile(profile, transcript, manifest) {
   return observations;
 }
 
+function parseFaultCli() {
+  const args = process.argv.slice(2);
+  if (args.length === 0) return null;
+  if (args[0] !== "--self-test-fault" || !/^[a-z0-9-]+$/.test(args[1] ?? "")) throw new Error("fault entrypoints require --self-test-fault <fixture-name>");
+  let timeoutMs = 500;
+  if (args.length === 4 && args[2] === "--self-test-timeout-ms" && /^[1-9][0-9]{0,4}$/.test(args[3])) timeoutMs = Number(args[3]);
+  else if (args.length !== 2) throw new Error("fault mode accepts only --self-test-fault <fixture-name> [--self-test-timeout-ms <1..99999>]");
+  return { fixtureName: args[1], timeoutMs };
+}
+
+async function faultEntrypoint(fixtureName) {
+  const fixtures = await realpath(FAULT_FIXTURES_DIRECTORY);
+  const entrypoint = await realpath(join(fixtures, `${fixtureName}.mjs`));
+  const entrypointStat = await stat(entrypoint);
+  if (!isInside(fixtures, entrypoint) || !entrypointStat.isFile()) throw new Error("fault entrypoint must resolve to a regular file inside wire/faults/fixtures");
+  return entrypoint;
+}
+
+async function runFaultProbe(entrypoint, timeoutMs, requireSettledDuplicate = false) {
+  const root = await mkdtemp(join(tmpdir(), "meshfleet-wire-fault-"));
+  const client = new RawStdioClient(entrypoint, root, "fault-direct");
+  const observations = { response_ids: [], stdout_bytes: 0, stderr_bytes: 0, supervision_mode: "fault-direct" };
+  let operationFailure = null;
+  try {
+    await client.start();
+    const originalArm = client.correlator.arm.bind(client.correlator);
+    client.correlator.arm = (id) => originalArm(id, timeoutMs);
+    const response = await client.request(request("fault-probe", "initialize", { protocolVersion: PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: "synthetic-wire-fault-probe", version: "0.1" } }), "coalesced");
+    assertInitialize(requireSuccess(response, "fault initialize"));
+    observations.response_ids.push(response.id);
+    if (requireSettledDuplicate) {
+      const duplicateFailure = await client.waitForProtocolFailure(timeoutMs);
+      if (!duplicateFailure) throw faultError(FaultClass.REQUEST_TIMEOUT, "timed out waiting for duplicate settled response id fault-probe");
+      throw duplicateFailure;
+    }
+  } catch (error) {
+    operationFailure = error;
+  }
+  let cleanupFailure = null;
+  try {
+    await client.close();
+  } catch (error) {
+    const recordedProtocolFailure = client.stdinError ? detail(client.stdinError) : client.protocolError;
+    if (recordedProtocolFailure && detail(error) === recordedProtocolFailure) operationFailure ??= error;
+    else cleanupFailure = error;
+  }
+  observations.stdout_bytes = client.stdoutBytes;
+  observations.stderr_bytes = client.stderrBytes;
+  observations.cleanup_actions = [...client.cleanupActions];
+  observations.correlation_trace = [...client.correlator.trace];
+  observations.fault_events = [...client.faultEvents];
+  try { await rm(root, { recursive: true, force: true }); } catch (error) { cleanupFailure ??= error; }
+  return {
+    observations,
+    primary_failure: operationFailure ? bounded(detail(operationFailure), 2048) : null,
+    primary_class: operationFailure ? faultClassOf(operationFailure) : null,
+    cleanup_failure: cleanupFailure ? bounded(detail(cleanupFailure), 1024) : null,
+    cleanup_class: cleanupFailure ? faultClassOf(cleanupFailure) : null
+  };
+}
+
+async function runFaultMode(options) {
+  const checks = [];
+  try {
+    const entrypoint = await faultEntrypoint(options.fixtureName);
+    const outcome = await runFaultProbe(entrypoint, options.timeoutMs, options.fixtureName === "duplicate-id");
+    if (options.fixtureName === "stderr-noise-control" || options.fixtureName === "honest-baseline") {
+      if (outcome.primary_failure) throw new Error(`${options.fixtureName} primary failure: ${outcome.primary_failure}`);
+      if (outcome.cleanup_failure) throw new Error(`${options.fixtureName} cleanup failure: ${outcome.cleanup_failure}`);
+      if (JSON.stringify(outcome.observations.response_ids) !== JSON.stringify(["fault-probe"])) throw new Error(`${options.fixtureName} created an unexpected protocol response`);
+      if (options.fixtureName === "stderr-noise-control" && outcome.observations.stderr_bytes === 0) throw new Error("stderr-noise control emitted no stderr bytes");
+      check(checks, `fault:${options.fixtureName}`, "pass", outcome);
+    } else {
+      if (!outcome.primary_failure) throw new Error("fault fixture unexpectedly completed the real wire probe");
+      check(checks, `fault:${options.fixtureName}`, "fail", outcome);
+    }
+  } catch (error) {
+    check(checks, `fault:${options.fixtureName}`, "fail", { observations: null, primary_failure: bounded(detail(error), 2048), primary_class: faultClassOf(error), cleanup_failure: null, cleanup_class: null });
+  }
+  return { preamble: `${PREAMBLE} fault self-test`, nonclaims: NONCLAIMS, expected_catalog_sha256: null, passed: checks.every((entry) => entry.status === "pass"), checks };
+}
+
 async function main() {
+  const faultOptions = parseFaultCli();
+  if (faultOptions) return runFaultMode(faultOptions);
   const checks = [];
   let manifest;
   try {
