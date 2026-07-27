@@ -1,0 +1,124 @@
+{
+  "schema_version": "0.1",
+  "slice": "meshfleet-python-raw-stdio-parity",
+  "observed_at_utc": "2026-07-27T05:54:40Z",
+  "branch": "codex/a2a-blackbox-conformance-v01-20260727",
+  "canonical_base_commit": "041500fd9aec6e482875f6339236ffdcc46fc7ed",
+  "parent_commit": "90932f6396f8fae3c7fea6f66da2a05972a85698",
+  "owned_scope": "blackbox/a2a-conformance-v0.1/python/**",
+  "collision_control": {
+    "lock": "codex-meshfleet-a2a-blackbox-conformance-v01-20260727",
+    "other_live_lane": "codex-meshfleet-routing-a2a-20260727",
+    "other_lane_overlap": [],
+    "primary_checkout_touched": false
+  },
+  "pins": {
+    "contract_sha256": "4bf91354d2ad4ddc989b1f534e04007ecc9686ac4103890301c0b8bd265e6e46",
+    "server_entrypoint_sha256": "0feafb7e91be814f549b49af6b089be138784cf03ef6ff8815da8fb2bd02ce78",
+    "shared_fixture_sha256": "b88f4c390528714a704e09fdc3fa17add4d03925191bf2924299a8e8dc1d222c",
+    "catalog_sha256": "4d0289400e23c57b1e43347eb9d8f9258decf7b824516e0d066380d7e6f88fa8",
+    "normalized_transcript_sha256": "1e749e5d0ab5424d85c102306159386487e465198fc9adb9e50906e90debf049"
+  },
+  "implementation_sha256": {
+    "contract.json": "4bf91354d2ad4ddc989b1f534e04007ecc9686ac4103890301c0b8bd265e6e46",
+    "differential.mjs": "61de767eaeeb095385a99ed6e8f3dd9f1bf5f48f2fcadd27a76dab43c9f4f1eb",
+    "runner.py": "5d849d2bb04d7ad475c513434cd29fcaaa436559606681adc5177330bf9296f4"
+  },
+  "acceptance": [
+    {
+      "command": "python3 blackbox/a2a-conformance-v0.1/python/runner.py --self-test",
+      "result": "PASS",
+      "checks": 15
+    },
+    {
+      "command": "node blackbox/a2a-conformance-v0.1/python/differential.mjs --self-test",
+      "result": "PASS",
+      "checks": 23
+    },
+    {
+      "command": "node blackbox/a2a-conformance-v0.1/wire/runner.mjs",
+      "result": "PASS",
+      "profiles": 2,
+      "receipt_sha256": "1bf8166ac426c4c9b653af58b9b2a27c99ef54ff133cbafade4ab5fa03143bfe"
+    },
+    {
+      "command": "python3 blackbox/a2a-conformance-v0.1/python/runner.py",
+      "result": "PASS",
+      "profiles": 2,
+      "receipt_sha256": "37c020de08aaa1b89c015588844db93f7f01fd16e38d31f0fdb6ce1c6c9cc2c5"
+    },
+    {
+      "command": "node blackbox/a2a-conformance-v0.1/python/differential.mjs <node-receipt> <python-receipt>",
+      "result": "PASS",
+      "receipt_sha256": "2991e3bda04f497c4cc75f7c9bc40d549b1abf94c0ca20ad48084ae1935c445d",
+      "provenance": "UNAUTHENTICATED_LOCAL_FILES"
+    },
+    {
+      "command": "node blackbox/a2a-conformance-v0.1/wire/faults/meta-runner.mjs",
+      "result": "PASS",
+      "checks": 11
+    },
+    {
+      "command": "npm run typecheck",
+      "result": "PASS"
+    },
+    {
+      "command": "npm test",
+      "result": "PASS",
+      "tests": 891,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "command": "git diff --check",
+      "result": "PASS"
+    }
+  ],
+  "delegation": [
+    {
+      "lane": "Grok",
+      "role": "sanitized adversarial comparator review",
+      "receipt_sha256": "6d11664bfa3c0d57b5c3d3f4052d627c11b9388eb2f58f32f36f1a11a8c7898e"
+    },
+    {
+      "lane": "MiniMax",
+      "role": "sanitized mechanical negative-case matrix",
+      "receipt_sha256": "26dad9f6953e180007db7077655de508bf32375df4b265c0129d8d9aaeaf5715"
+    }
+  ],
+  "independent_reviews": [
+    {
+      "reviewer_id": "019fa215-e3c8-7d51-b96c-9d2ab2dfc8d2",
+      "focus": "security and process safety",
+      "verdict": "PASS",
+      "unresolved_p0_p1": 0
+    },
+    {
+      "reviewer_id": "019fa215-e249-7823-8ebe-57a268b8f957",
+      "focus": "cross-platform conformance and evidence",
+      "verdict": "PASS",
+      "unresolved_p0_p1": 0
+    }
+  ],
+  "residual_limits": [
+    "Receipt files are unsigned local evidence and do not authenticate their producer.",
+    "Windows live execution is held pending Job Object supervision and native evidence.",
+    "Concurrent hostile symlink replacement is not claimed where O_NOFOLLOW is unavailable.",
+    "Named-state redirection is not an OS filesystem or network sandbox.",
+    "Coverage is local valid-path Node stdio interoperability, not full MCP/A2A, remote transport, provider, or named-client conformance."
+  ],
+  "temporary_residue": [
+    "/tmp/meshfleet-node-wire-receipt-20260727-bound.json",
+    "/tmp/meshfleet-python-wire-receipt-20260727-bound.json",
+    "/tmp/meshfleet-node-python-differential-20260727-bound.json",
+    "/tmp/meshfleet-grk-comparator-review-20260727.txt",
+    "/tmp/meshfleet-mmx-comparator-matrix-20260727.txt"
+  ],
+  "authority": {
+    "merge": false,
+    "push": false,
+    "publish": false,
+    "deploy": false,
+    "activate": false
+  }
+}
