@@ -213,7 +213,7 @@ watching… no messages yet  (spawn a fleet or send_message from MCP)
 
 ---
 
-## 32 MCP tools
+## 33 MCP tools
 
 **Fleets**
 
@@ -253,6 +253,7 @@ watching… no messages yet  (spawn a fleet or send_message from MCP)
 | `register_capability` | Self-describe role + skills for routing |
 | `route_work` | Match a task to the best agent by keyword + role overlap |
 | `recommend_route` | Advisory ranking for caller-supplied agent/runtime/model candidates, with hard privacy and capability filters |
+| `compile_route_candidates` | Pure offline projection of sanitized manifest/observation snapshots; does not rank, persist, execute, authorize, wake, or contact providers |
 | `record_routing_outcome` | Feed results back to improve routing |
 | `list_agents` | Discover 100+ premade agent personalities |
 | `get_health` / `ping` | Fleet health and liveness |
@@ -268,7 +269,7 @@ watching… no messages yet  (spawn a fleet or send_message from MCP)
 
 See [docs/discussions.md](docs/discussions.md) for the full quickstart, tool reference, and terminal-state precedence.
 
-That's 32. We counted twice this time.
+That's 33. We counted twice this time.
 
 [Advisory routing → docs/ADVISORY-ROUTING.md](docs/ADVISORY-ROUTING.md) · [Full API reference → AGENT-MESH-SPEC.md](AGENT-MESH-SPEC.md) · [P2P/receipts → SPEC-P2P.md](SPEC-P2P.md) · [Councils → SPEC-COUNCILS.md](SPEC-COUNCILS.md)
 

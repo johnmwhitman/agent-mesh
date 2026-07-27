@@ -16,6 +16,7 @@ import { dirname, join } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const source = readFileSync(join(here, "..", "src", "index.ts"), "utf8");
+const readme = readFileSync(join(here, "..", "README.md"), "utf8");
 
 // Declared tool names live in the ListToolsRequestSchema handler, i.e. between
 // the ListTools registration and the toolHandlers registry declaration.
@@ -124,6 +125,15 @@ test("registry includes D3 plus additive routing tools (33 total)", () => {
   assert.ok(registered.has("recommend_route"));
   assert.ok(declared.has("compile_route_candidates"));
   assert.ok(registered.has("compile_route_candidates"));
+});
+
+test("README advertises the 33-tool registry including the snapshot compiler", () => {
+  assert.match(readme, /^## 33 MCP tools$/m, "README must advertise the 33-tool registry");
+  assert.match(
+    readme,
+    /^\| `compile_route_candidates` \| Pure offline projection of sanitized manifest\/observation snapshots; does not rank, persist, execute, authorize, wake, or contact providers \|$/m,
+    "README must describe compile_route_candidates and its effect boundary",
+  );
 });
 
 test("D3: all 27 pre-existing tool names remain present in both registries", () => {
