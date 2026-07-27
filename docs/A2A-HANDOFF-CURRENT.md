@@ -11,7 +11,7 @@ program. Canonical behavior remains in the linked specifications and ADRs.
 
 ## Route-candidate snapshot compiler closeout
 
-- Reviewed implementation range: `0122fc2..d267a44`; implementation head before
+- Reviewed implementation range: `8d5d625..d267a44`; implementation head before
   this documentation receipt: `d267a447bdb078dd49f776632cd627f9edb450d6`.
 - Compiler files: `src/route-candidate-validation.ts`,
   `src/compile-route-candidates.ts`, `test/compile-route-candidates.test.ts`, and

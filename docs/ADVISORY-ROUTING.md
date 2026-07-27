@@ -44,9 +44,10 @@ accepted by `recommend_route`. The projection may be passed unchanged to
 
 Missing observations, and observations marked `assumed`, remain unmeasured. Measured
 caller values are copied without probing, freshness checks, normalization, or
-authentication. Observation status labels alone do not alter ranking: only the
-candidate fields copied from valid measured evidence can later be considered by
-`recommend_route`.
+authentication. Observation status labels never pass into ranking. Manifest static
+traits remain the source of declared fit and requested identity; valid caller-asserted
+measured observations only add the bounded dynamic evidence fields that
+`recommend_route` may consider.
 
 ```json
 {
