@@ -2,6 +2,65 @@
 
 All notable changes to Agent Mesh are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- 🔴 **The auditor read the fleet lattice in one direction only, so a fleet could claim finished
+  work over an agent that never finished and still verify clean.** `fleet.unreconciled_status`
+  fires when a fleet UNDERCLAIMS — still `running` while every agent has terminated — which is a
+  stale projection and correctly a warning. Nothing looked at the overclaim direction. A fleet
+  sealed `complete` while one of its own agents was still `running` produced **`ok: true` with no
+  finding at all**, and `core.ts` already argued why that is intolerable, in the comment that
+  justifies the `abandoned` status: `complete` "claims work that never happened". Now
+  `fleet.sealed_with_live_agents`, at **error** severity — the asymmetry is deliberate, because an
+  underclaim contradicts itself in the reader's favour and an overclaim does not. `abandoned` is
+  exempt by design: `attach_agent` reopens such a fleet with a live replacement agent, so flagging
+  it would put a hard error on the only recovery path the lattice offers.
+- **Four sibling holes of the same class, each confirmed by running the auditor before the fix
+  existed** — all five returned `ok: true` with zero findings, not even a warning:
+  - `message.key_mismatch` / `agent.key_mismatch` / `fleet.key_mismatch` (**error**) — a map key
+    that disagrees with the id in the row's own body. Receipts and capabilities already enforced
+    this; messages, agents and fleets did not, and receipts join on the body id while inboxes join
+    on the key, so a split identity makes one message read as two different rows.
+  - `inbox.non_recipient` (**error**) — a message queued for an agent it was never addressed to.
+    The exact dual of `receipt.non_recipient_ack`: the same false delivery claim, made through the
+    queue instead of through a receipt. Legacy broadcasts are exempt, because schema v1 predates
+    the materialized recipients field and reads as `["*"]`.
+  - `message.orphan_fleet` (**warning**) — a message naming a fleet this ledger does not hold,
+    symmetric to the existing `agent.orphan_fleet`. The timestamp check only ran when the fleet
+    existed, so a ghost `fleet_id` skipped every fleet-scoped check in silence.
+  - `message.vacuous_ack` (**error**) — `acknowledged: true` over an EMPTY recipient set. The flag
+    derives as "every addressed recipient holds an ack", and `every` over `[]` is vacuously true,
+    so the claim could stand on zero delivery evidence and the mismatch check could never fire.
+- 🔴 **`fleet.sealed_lattice_mismatch` — the sharper half of the same defect, and the one the first
+  fix walked straight past.** `fleet.sealed_with_live_agents` only fires while an agent is still
+  LIVE, so a fleet sealed `complete` over an agent that **failed** — every agent terminal, nothing
+  running — produced no finding at all. That is the ledger claiming a success its own rows deny.
+  Reported **by direction**, exactly as `message.ack_flag_mismatch` already does: sealed `complete`
+  against a lattice of `failed`/`abandoned` is an **error** (it overclaims), while sealed `failed`
+  over agents that all completed is a **warning** (it asserts an error that never occurred, which
+  is false but claims *less* than the records support). The completion lattice moved into one
+  exported `fleetLatticeOutcome`, so the writer and the auditor cannot drift — the getDb gate and
+  the migrator probe already disagreed once by each carrying its own copy of a predicate.
+- **`agent.completed_while_live`** (**error**) — one row asserting both that an agent is still
+  running and that it has already finished. The write path sets status and `completed_at` in the
+  same statement, so they cannot come apart honestly, and the fleet lattice keys on status alone:
+  such an agent holds its whole fleet open while presenting as done to anything reading timestamps.
+- **`ratification.key_mismatch`** (**error**) — a council outcome filed under a key naming a
+  different proposal than its own body. The orphan check reads the *body's* `message_id`, so a
+  wrong key still resolved to a real proposal and nothing noticed.
+- 🔴 **`ratification.invalid_quorum`** (**error**) — the open path requires a positive integer
+  quorum; verify checked only the upper bound. The lower bound is the dangerous one: at `quorum: 0`
+  the tally's `approvalWeight >= quorum` is satisfied by **zero ballots**, so a `ratified` status
+  recomputes as fully supported and `ratification.status_mismatch` never fires. The lie stops being
+  a warning and becomes completely silent.
+- Measured on a read-only copy of a real 69-fleet / 270-agent / 173-capability ledger before
+  landing: the eleven new checks introduce **two** findings on it, both warnings, and **zero** new
+  errors. The 12 abandoned fleets did not trip the sealed-fleet check, confirming that exemption
+  against real data rather than against reasoning. The one real lattice mismatch it did surface —
+  a fleet sealed `failed` whose agents all completed — is precisely the case the direction split
+  keeps out of the error bucket.
+
 ## [0.17.0] — 2026-07-26
 
 **The falsification release.** The receipts claim now ships with a published corpus that tries to

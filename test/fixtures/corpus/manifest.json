@@ -407,6 +407,11 @@
       "expected_findings": [
         {
           "severity": "error",
+          "check": "ratification.key_mismatch",
+          "subject": "m2"
+        },
+        {
+          "severity": "error",
           "check": "ratification.orphan_proposal",
           "subject": "m-ghost"
         }
@@ -770,8 +775,13 @@
           ]
         }
       ],
-      "expected_ok": true,
+      "expected_ok": false,
       "expected_findings": [
+        {
+          "severity": "error",
+          "check": "inbox.non_recipient",
+          "subject": "a-ghost:m1"
+        },
         {
           "severity": "warning",
           "check": "inbox.unknown_agent",
@@ -929,6 +939,304 @@
           "severity": "warning",
           "check": "fleet.unreconciled_status",
           "subject": "f1"
+        }
+      ]
+    },
+    {
+      "id": "fleet-sealed-with-live-agents",
+      "primary": "fleet.sealed_with_live_agents",
+      "classification": "caught",
+      "lie": "the fleet is sealed COMPLETE while one of its own agents is still running — it claims work that its own rows say never finished",
+      "ops": [
+        {
+          "op": "set",
+          "path": "agents|a3|status",
+          "value": "running"
+        },
+        {
+          "op": "delete",
+          "path": "agents|a3|completed_at"
+        }
+      ],
+      "expected_ok": false,
+      "expected_findings": [
+        {
+          "severity": "error",
+          "check": "fleet.sealed_with_live_agents",
+          "subject": "f1"
+        }
+      ]
+    },
+    {
+      "id": "fleet-key-mismatch",
+      "primary": "fleet.key_mismatch",
+      "classification": "caught",
+      "lie": "the fleet's map key and the id in its own body name different fleets",
+      "ops": [
+        {
+          "op": "set",
+          "path": "fleets|f1|id",
+          "value": "f-other"
+        }
+      ],
+      "expected_ok": false,
+      "expected_findings": [
+        {
+          "severity": "error",
+          "check": "fleet.key_mismatch",
+          "subject": "f1"
+        }
+      ]
+    },
+    {
+      "id": "agent-key-mismatch",
+      "primary": "agent.key_mismatch",
+      "classification": "caught",
+      "lie": "the agent's map key and the id in its own body name different agents",
+      "ops": [
+        {
+          "op": "set",
+          "path": "agents|a3|id",
+          "value": "a-other"
+        }
+      ],
+      "expected_ok": false,
+      "expected_findings": [
+        {
+          "severity": "error",
+          "check": "agent.key_mismatch",
+          "subject": "a3"
+        }
+      ]
+    },
+    {
+      "id": "message-key-mismatch",
+      "primary": "message.key_mismatch",
+      "classification": "caught",
+      "lie": "the message's map key and the id in its own body disagree — receipts join on one, inboxes on the other, so one message reads as two different rows",
+      "ops": [
+        {
+          "op": "set",
+          "path": "messages|m1|id",
+          "value": "m-other"
+        }
+      ],
+      "expected_ok": false,
+      "expected_findings": [
+        {
+          "severity": "error",
+          "check": "message.ack_flag_mismatch",
+          "subject": "m-other"
+        },
+        {
+          "severity": "error",
+          "check": "message.key_mismatch",
+          "subject": "m1"
+        }
+      ]
+    },
+    {
+      "id": "message-orphan-fleet",
+      "primary": "message.orphan_fleet",
+      "classification": "anomaly",
+      "lie": "a message names a fleet this ledger does not hold, so every fleet-scoped check on it silently skipped",
+      "ops": [
+        {
+          "op": "set",
+          "path": "messages|m1|fleet_id",
+          "value": "f-ghost"
+        }
+      ],
+      "expected_ok": true,
+      "expected_findings": [
+        {
+          "severity": "warning",
+          "check": "message.orphan_fleet",
+          "subject": "m1"
+        }
+      ]
+    },
+    {
+      "id": "message-vacuous-ack",
+      "primary": "message.vacuous_ack",
+      "classification": "caught",
+      "lie": "the message claims ACKNOWLEDGED while addressing nobody — `every` over an empty recipient set is vacuously true, so the claim rests on no delivery evidence at all",
+      "ops": [
+        {
+          "op": "set",
+          "path": "messages|m1|recipients",
+          "value": []
+        },
+        {
+          "op": "delete",
+          "path": "receipts|m1:a2:ack"
+        }
+      ],
+      "expected_ok": false,
+      "expected_findings": [
+        {
+          "severity": "error",
+          "check": "message.vacuous_ack",
+          "subject": "m1"
+        }
+      ]
+    },
+    {
+      "id": "inbox-non-recipient",
+      "primary": "inbox.non_recipient",
+      "classification": "caught",
+      "lie": "a message is queued for an agent it was never addressed to — the dual of a non-recipient ack, made through the queue instead of a receipt",
+      "ops": [
+        {
+          "op": "set",
+          "path": "inboxes|a1",
+          "value": [
+            "m1"
+          ]
+        }
+      ],
+      "expected_ok": false,
+      "expected_findings": [
+        {
+          "severity": "error",
+          "check": "inbox.non_recipient",
+          "subject": "a1:m1"
+        }
+      ]
+    },
+    {
+      "id": "fleet-sealed-lattice-mismatch",
+      "primary": "fleet.sealed_lattice_mismatch",
+      "classification": "caught",
+      "lie": "the fleet is sealed COMPLETE while one of its agents FAILED — it claims a success its own rows deny",
+      "ops": [
+        {
+          "op": "set",
+          "path": "agents|a3|status",
+          "value": "failed"
+        }
+      ],
+      "expected_ok": false,
+      "expected_findings": [
+        {
+          "severity": "error",
+          "check": "fleet.sealed_lattice_mismatch",
+          "subject": "f1"
+        }
+      ]
+    },
+    {
+      "id": "fleet-sealed-over-interrupted",
+      "primary": "fleet.sealed_lattice_mismatch",
+      "classification": "caught",
+      "lie": "the fleet is sealed COMPLETE over an interrupted agent — the lattice says abandoned, which is the status that exists precisely so this is not recorded as success",
+      "ops": [
+        {
+          "op": "set",
+          "path": "agents|a3|status",
+          "value": "interrupted"
+        }
+      ],
+      "expected_ok": false,
+      "expected_findings": [
+        {
+          "severity": "error",
+          "check": "fleet.sealed_lattice_mismatch",
+          "subject": "f1"
+        }
+      ]
+    },
+    {
+      "id": "fleet-sealed-failed-over-complete",
+      "primary": "fleet.sealed_lattice_mismatch",
+      "classification": "anomaly",
+      "lie": "the fleet is sealed FAILED though every agent completed — it asserts an error that never occurred, but claims LESS than its records support, so it warns rather than errors",
+      "ops": [
+        {
+          "op": "set",
+          "path": "fleets|f1|status",
+          "value": "failed"
+        }
+      ],
+      "expected_ok": true,
+      "expected_findings": [
+        {
+          "severity": "warning",
+          "check": "fleet.sealed_lattice_mismatch",
+          "subject": "f1"
+        }
+      ]
+    },
+    {
+      "id": "agent-completed-while-live",
+      "primary": "agent.completed_while_live",
+      "classification": "caught",
+      "lie": "one agent row asserts both that it is still running and that it has already finished",
+      "ops": [
+        {
+          "op": "set",
+          "path": "agents|a3|status",
+          "value": "running"
+        }
+      ],
+      "expected_ok": false,
+      "expected_findings": [
+        {
+          "severity": "error",
+          "check": "agent.completed_while_live",
+          "subject": "a3"
+        },
+        {
+          "severity": "error",
+          "check": "fleet.sealed_with_live_agents",
+          "subject": "f1"
+        }
+      ]
+    },
+    {
+      "id": "ratification-key-mismatch",
+      "primary": "ratification.key_mismatch",
+      "classification": "caught",
+      "lie": "the council outcome is filed under a key that names a different proposal than its own body does",
+      "ops": [
+        {
+          "op": "set",
+          "path": "ratifications|m2|message_id",
+          "value": "m1"
+        }
+      ],
+      "expected_ok": false,
+      "expected_findings": [
+        {
+          "severity": "error",
+          "check": "ratification.key_mismatch",
+          "subject": "m2"
+        },
+        {
+          "severity": "warning",
+          "check": "ratification.status_mismatch",
+          "subject": "m1"
+        }
+      ]
+    },
+    {
+      "id": "ratification-invalid-quorum",
+      "primary": "ratification.invalid_quorum",
+      "classification": "caught",
+      "lie": "quorum is 0, so RATIFIED recomputes as fully supported over zero ballots — the status mismatch that would otherwise warn becomes completely silent",
+      "ops": [
+        {
+          "op": "set",
+          "path": "ratifications|m2|quorum",
+          "value": 0
+        }
+      ],
+      "expected_ok": false,
+      "expected_findings": [
+        {
+          "severity": "error",
+          "check": "ratification.invalid_quorum",
+          "subject": "m2"
         }
       ]
     },

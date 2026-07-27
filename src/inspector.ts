@@ -552,6 +552,61 @@ interface CheckExplanation {
 }
 
 const CHECK_EXPLANATIONS: Record<string, CheckExplanation> = {
+  "fleet.sealed_with_live_agents": {
+    what: "a fleet is sealed as complete/failed while at least one of its own agents is still running or pending — the fleet's final word claims work its agents say never finished",
+    benign: "nothing benign produces this. Unlike an unreconciled fleet, which understates in the reader's favour, a sealed fleet overstates: no write path in this build seals a fleet while an agent is live, so the row was either hand-edited or written by a build whose completion lattice was broken. An abandoned fleet with a live agent is NOT this finding — attach_agent reopens abandoned fleets on purpose",
+    investigate: "agent-mesh inspect --export | jq '.fleets[] | select(.status == \"complete\" or .status == \"failed\") | .id'",
+  },
+  "fleet.sealed_lattice_mismatch": {
+    what: "a fleet is sealed as complete/failed, every one of its agents is terminal, but those agents recompute to a DIFFERENT outcome — most damagingly `complete` over an agent that failed or was interrupted",
+    benign: "nothing benign produces this either, and it is the sharper sibling of fleet.sealed_with_live_agents: there an agent is still running, here they have all finished and the ledger simply recorded the wrong outcome. `complete` over a failed agent claims a success the rows deny; `failed` over all-complete agents claims an error that never occurred",
+    investigate: "agent-mesh inspect --export | jq '.fleets | to_entries[] | .key as $f | {fleet: $f, status: .value.status}'",
+  },
+  "agent.completed_while_live": {
+    what: "an agent is recorded running or pending while carrying a completed_at timestamp — the same row claims it is still working and that it has already finished",
+    benign: "rarely benign: the write path sets status and completed_at in one statement and refuses an agent that already has one. A ledger hand-edited to 'reopen' an agent without clearing its completion time produces this",
+    investigate: "agent-mesh inspect --export | jq '.agents[] | select(.completed_at != null and (.status == \"running\" or .status == \"pending\"))'",
+  },
+  "ratification.key_mismatch": {
+    what: "a ratification is stored under a map key that disagrees with the proposal id in its own body",
+    benign: "as with the other key mismatches, a hand-edited export or a merge that renamed a key without rewriting the row — but note the orphan check reads the BODY's message_id, so a wrong key still resolves to a real proposal and nothing else notices",
+    investigate: "agent-mesh inspect --export | jq '.ratifications | to_entries[] | select(.key != .value.message_id)'",
+  },
+  "ratification.invalid_quorum": {
+    what: "a ratification records a quorum that is not a positive integer, which the open path forbids",
+    benign: "nothing benign produces this. It matters more than a bounds check looks: at quorum 0 the tally is satisfied by ZERO ballots, so a terminal status recomputes as fully supported and ratification.status_mismatch stays silent — the lie stops being a warning and becomes invisible",
+    investigate: "agent-mesh inspect --export | jq '.ratifications[] | select((.quorum | type) != \"number\" or .quorum < 1)'",
+  },
+  "fleet.key_mismatch": {
+    what: "a fleet is stored under a map key that disagrees with the id in its own body",
+    benign: "a hand-edited export, or a merge between two ledgers that renamed a key without rewriting the row",
+    investigate: "agent-mesh inspect --export | jq '.fleets | to_entries[] | select(.key != .value.id)'",
+  },
+  "agent.key_mismatch": {
+    what: "an agent is stored under a map key that disagrees with the id in its own body",
+    benign: "as above — but note that receipts, inboxes and fleet membership do not all join on the same one of these two, so the row will read differently depending on which reader reaches it",
+    investigate: "agent-mesh inspect --export | jq '.agents | to_entries[] | select(.key != .value.id)'",
+  },
+  "message.key_mismatch": {
+    what: "a message is stored under a map key that disagrees with the id in its own body",
+    benign: "rarely benign. Receipts join on the body id while inboxes join on the key, so a split identity makes one message behave as two different rows depending on the reader",
+    investigate: "agent-mesh inspect --export | jq '.messages | to_entries[] | select(.key != .value.id)'",
+  },
+  "message.orphan_fleet": {
+    what: "a message names a fleet_id this ledger does not hold",
+    benign: "a cross-attached fleet, or a partial copy between ledgers that brought the messages without their fleet — the same shape agent.orphan_fleet tolerates, and warning for the same reason",
+    investigate: "agent-mesh inspect --export | jq '.messages[] | select(.fleet_id as $f | (.. | objects | select(has(\"objective\"))) | not)'",
+  },
+  "message.vacuous_ack": {
+    what: "a message claims acknowledged while addressing nobody — the acknowledgement rests on an empty recipient set, so it is vacuously true and backed by no delivery evidence",
+    benign: "nothing benign produces this: the write path refuses a broadcast with no recipients outright, so an honest send cannot leave this row",
+    investigate: "agent-mesh inspect --export | jq '.messages[] | select(.acknowledged and ((.recipients // []) | length) == 0)'",
+  },
+  "inbox.non_recipient": {
+    what: "a message sits in an agent's inbox although that agent is not in the message's recipient set — a delivery claim made through the queue that the addressing contradicts",
+    benign: "a legacy broadcast is already exempt (its recipients were never materialized, so it reads as ['*']). Beyond that, an inbox written by hand or copied between ledgers without its messages",
+    investigate: "agent-mesh inspect --export | jq '.inboxes'",
+  },
   "fleet.unreconciled_status": {
     what: "a fleet is still recorded as running/pending although every one of its agents has finished",
     benign: "a ledger written before 0.16.0, or an export taken before the startup reconciler ran — starting meshfleet on this ledger repairs it and logs a fleet_reconciled event",
