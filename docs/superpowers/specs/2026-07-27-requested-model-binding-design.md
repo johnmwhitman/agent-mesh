@@ -51,9 +51,15 @@ interface SpawnResultInput {
 }
 ```
 
-When `requestedModel` is absent, classification is byte-for-byte behaviorally
-compatible with the current model-binding path: it neither requires a banner
-nor adds a new failure.
+`requestedModel` is absent only when it is exactly `undefined`. The
+implementation must use `requestedModel !== undefined`, not truthiness. Empty
+strings and ASCII or Unicode whitespace are explicit raw-label constraints;
+they are passed unchanged to the existing normalizer and fail against a normal
+parseable banner model. This slice does not trim, normalize Unicode, coerce, or
+reinterpret a supplied value as absent.
+
+When `requestedModel` is `undefined`, classification is behaviorally compatible
+with the current path: it neither requires a banner nor adds a new failure.
 
 When `requestedModel` is present, a successful classified result requires a
 parseable banner and `runtimeModelsMatch(requestedModel, banner.model)` to be
@@ -63,14 +69,22 @@ captured stdout, stderr, and any observed banner fields:
 - no parseable banner: `Requested model but runtime model banner is missing or
   unparsable`;
 - parsed banner with non-matching model: `Requested model <requested> but
-  runtime model <observed> executed`.
+  runtime model banner reported <observed>`.
 
 The existing normalizer is the binding rule, not a new identity parser:
 
 - case is ignored;
 - if both values are provider-qualified, provider and leaf must be identical;
 - if exactly one side is unqualified, identical leaves match; and
-- blank or absent values never match.
+- missing or empty values fail matching.
+
+This is a provider-neutral requested-model **label** constraint, not a provider
+identity comparison. The one-side-unqualified leaf match is existing
+compatibility behavior, not evidence that the labels name the same provider.
+The implementation must retain the current `runtimeModelsMatch()` semantics
+exactly, including its case folding and its whole-string comparison when both
+labels contain a slash. It must not add trimming, NFKC normalization, a new
+grammar, or a different multi-slash interpretation.
 
 The requested value remains a caller/runtime input and the banner remains
 observed output. A matching pair means only that these two strings matched the
@@ -81,6 +95,10 @@ was selected by Agent Mesh.
 `OpenCodeRuntimeAdapter` passes `spec.requestedModel` unchanged into
 `classifySpawnResult`. It does not place that value in `buildRunArgs`, an
 environment variable, a provider SDK call, a receipt, or a database write.
+The default `buildRunArgs` receives only prompt and agent-file data and remains
+unchanged. A caller-provided custom `buildArgs` still receives the complete
+`ExecutionSpec`, including its raw `requestedModel`; this is existing adapter
+extension behavior, not Agent Mesh model selection.
 
 ## Deterministic classification order
 
@@ -113,6 +131,10 @@ later warning or error classification.
 - `requestedModel` is not a public runtime selector. Adding an MCP field or an
   OpenCode `--model` argument would require a separate reviewed adapter
   contract, evidence for the real CLI syntax, and explicit compatibility work.
+- This slice makes no argv, selection, launch, provider-call, or execution
+  change. It may nevertheless turn an otherwise successful child result into a
+  failed classified result when an explicit label does not match the observed
+  banner.
 - Capability `model` remains routing self-description and cannot be copied into
   `requestedModel` or treated as runtime proof.
 - The local observed banner remains `observed`, not `reported`, `attested`, or
@@ -121,6 +143,10 @@ later warning or error classification.
   preserve an attempt-by-attempt identity history. Terminal agent projection,
   storage, durable lifecycle, retries, and inspection are explicitly out of
   scope.
+- It deliberately adds no input grammar or validation because no public
+  producer currently populates `requestedModel`; raw-label mismatch already
+  fails closed. Any future producer must define and test its own validation
+  deliberately rather than inheriting an accidental parser here.
 
 ## TDD matrix
 
@@ -129,14 +155,20 @@ adapter plumbing.
 
 | Test | Input | Required result |
 |---|---|---|
-| no request regression | successful bannered and bannerless results without `requestedModel` | existing behavior is unchanged |
+| undefined regression | successful bannered and bannerless results with `requestedModel: undefined` | existing behavior is unchanged |
+| explicit empty/whitespace | empty string, ASCII whitespace, and Unicode whitespace requested against a parseable banner model | each is a supplied constraint and fails matching; none is treated as absent |
 | qualified exact match | `anthropic/claude-sonnet-4` requested and observed | success |
-| one-side-qualified match | `claude-sonnet-4` requested and `anthropic/claude-sonnet-4` observed, and the converse | success |
+| case and one-side-qualified match | case variants; `claude-sonnet-4` requested and `anthropic/claude-sonnet-4` observed, and the converse | success under the existing case/leaf compatibility rule |
+| multi-slash normalizer pin | labels containing multiple slashes | retain existing whole-string behavior whenever both labels contain a slash; do not infer a trailing leaf |
 | qualified provider mismatch | `anthropic/claude-sonnet-4` requested and `openai/claude-sonnet-4` observed | fail closed with requested/observed model error |
 | leaf mismatch | distinct model leaves | fail closed with requested/observed model error |
 | missing banner | successful stdout and requested model, no parseable banner | fail closed with missing/unparseable model-banner error |
-| existing precedence | exit/empty/fallback/requested-agent failure plus requested model | original earlier failure remains the error |
+| existing precedence, bannered and bannerless | exit/empty/fallback/requested-agent failure plus requested model, with and without a parseable banner | original earlier failure remains the error; a parseable banner is still preserved as observed metadata |
+| diagnostics precedence | an otherwise matching or mismatching requested model plus primary/auxiliary diagnostics | model mismatch wins before diagnostics; matching labels retain current diagnostic behavior |
+| raw-output/meta preservation | a requested-model mismatch with banner, stdout, and stderr | fail result preserves raw stdout/stderr and parsed `runtime_agent`/`runtime_model` metadata |
 | adapter plumbing | OpenCode test double receives `ExecutionSpec.requestedModel` and emits a matching or mismatching banner | matching result succeeds; mismatch result fails through normal adapter output |
+| default argv unchanged | default OpenCode adapter with a supplied `requestedModel` | default `buildRunArgs` remains `run [--agent <file>] <prompt>`; no model argv is added |
+| custom builder visibility | custom `buildArgs` test double | it receives the original raw `ExecutionSpec.requestedModel` without selection behavior being inferred |
 
 The focused commands are:
 
@@ -145,8 +177,14 @@ node --test --import tsx test/spawn-result.test.ts test/runtime-adapter.test.ts
 npm run typecheck
 ```
 
-The normal full-suite gate remains `npm test`. No live provider, credential,
-network, or real ledger test is part of the acceptance evidence.
+The exact full verifier is:
+
+```sh
+npm run typecheck && npm run build && node scripts/run-tests.mjs
+```
+
+No live provider, credential, network, or real ledger test is part of the
+acceptance evidence.
 
 ## Deferred work and review record
 
