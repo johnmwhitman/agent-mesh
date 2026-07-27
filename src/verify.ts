@@ -22,7 +22,7 @@
  * Read-only by design: verification never mutates the ledger it audits.
  */
 import { existsSync } from "fs";
-import { BROADCAST, SEALED_FLEET_STATUSES, TERMINAL_AGENT_STATUSES, isRoutableCapability, isUsableAgentId, messageRecipients, type MeshData, type Message, type Receipt } from "./core.js";
+import { BROADCAST, SEALED_FLEET_STATUSES, TERMINAL_AGENT_STATUSES, fleetLatticeOutcome, isRoutableCapability, isUsableAgentId, messageRecipients, type MeshData, type Message, type Receipt } from "./core.js";
 import { MAX_TOTAL_WEIGHT, MAX_VOTE_WEIGHT, computeTally, parseVoteAction } from "./ratify.js";
 import { deriveDiscussion, parseEnvelope, parseReceiptAction } from "./discussion.js";
 import { readLedger } from "./db.js";
@@ -184,6 +184,31 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
           f.id,
           `fleet ${f.id} is sealed as ${f.status}, but ${live.length} of its ${fleetAgents.length} agents ${live.length === 1 ? "is" : "are"} still ${JSON.stringify(live.map((a) => a.status))} (${JSON.stringify(live.map((a) => a.id))}) — a sealed fleet claims work that its own agents say never finished`
         );
+        continue;
+      }
+      // Every agent is terminal, so the check above is silent — and that is
+      // exactly where the sharper forgery hides. A fleet sealed `complete` over
+      // a `failed` or `interrupted` agent claims SUCCESS over work its own rows
+      // say did not succeed, and the lattice that decides the write is a pure
+      // function of those same rows, so the disagreement is fully local.
+      // `core.ts` names both halves: `complete` "claims work that never
+      // happened", `failed` "claims an error that never occurred".
+      const outcome = fleetLatticeOutcome(fleetAgents);
+      if (outcome !== undefined && outcome !== f.status) {
+        const detail = `fleet ${f.id} is sealed as ${f.status}, but its own agents (${JSON.stringify(fleetAgents.map((a) => a.status))}) recompute to ${outcome}`;
+        // Split by DIRECTION, exactly as `message.ack_flag_mismatch` does, and
+        // for the same reason. Sealed `complete` over an agent that failed or
+        // was interrupted claims a success the rows deny — an overclaim, and an
+        // error. Sealed `failed` over agents that all completed asserts an
+        // error that never occurred, which is false but claims LESS than the
+        // records support; that is the understating direction, and this repo
+        // reports understatement as a warning rather than pretending the two
+        // are equally dangerous to a reader.
+        if (f.status === "complete") {
+          error("fleet.sealed_lattice_mismatch", f.id, `${detail} — a sealed success over work its own rows say did not succeed`);
+        } else {
+          warning("fleet.sealed_lattice_mismatch", f.id, `${detail} (understates; a fleet recorded ${f.status} whose agents all reached ${outcome} claims an outcome worse than its records support)`);
+        }
       }
       continue;
     }
@@ -217,6 +242,20 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
     }
     if (a.started_at !== undefined && a.completed_at !== undefined && a.completed_at < a.started_at) {
       error("agent.tampered_timestamp", a.id, `agent completed before it started`);
+    }
+    // One row asserting both "still in progress" and "already finished". The
+    // write path sets status and completed_at in the same statement and refuses
+    // to touch an agent that already has one, so the two cannot come apart
+    // honestly. This matters beyond the row itself: the fleet lattice keys on
+    // status alone, so a non-terminal agent carrying a completion timestamp
+    // holds its whole fleet open while presenting as done to anything reading
+    // timestamps.
+    if (!TERMINAL_AGENT_STATUSES.has(a.status) && a.completed_at !== undefined) {
+      error(
+        "agent.completed_while_live",
+        a.id,
+        `agent ${a.id} is recorded ${a.status} but carries completed_at=${a.completed_at} — the same row claims it is still running and that it has already finished`
+      );
     }
   }
 
@@ -461,7 +500,33 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
   }
 
   // --- ratifications ---------------------------------------------------------
-  for (const r of Object.values(ratifications)) {
+  for (const [ratKey, r] of Object.entries(ratifications)) {
+    // Ratifications are keyed by proposal id on the write path. Receipts and
+    // capabilities already refuse a key that disagrees with its body; this map
+    // did not, and its own orphan check reads the BODY's message_id — so a
+    // wrong key still resolved to a real proposal and the split stayed silent.
+    if (typeof r?.message_id === "string" && r.message_id.length > 0 && ratKey !== r.message_id) {
+      error(
+        "ratification.key_mismatch",
+        ratKey,
+        `ratification stored under key "${ratKey}" but its body names proposal "${r.message_id}" — the council outcome and the proposal it belongs to are joined by whichever of the two a reader happens to use`
+      );
+    }
+    // The open path refuses a quorum that is not a positive integer. Verify
+    // checked only the upper bound, and the lower bound is the dangerous one:
+    // with `quorum: 0` the tally's `approvalWeight >= quorum` is satisfied by
+    // ZERO votes, so a `ratified` status recomputes to `ratified` and
+    // `ratification.status_mismatch` never fires. The lie does not merely pass
+    // as a warning — it becomes completely silent. Same family as
+    // `message.vacuous_ack`: success by a comparison against an empty
+    // threshold that the write path forbids outright.
+    if (!Number.isInteger(r.quorum) || r.quorum < 1) {
+      error(
+        "ratification.invalid_quorum",
+        r.message_id,
+        `ratification ${r.message_id} records quorum ${JSON.stringify(r.quorum)}, which the open path forbids (a positive integer is required) — any quorum below 1 makes approval vacuous, so a terminal status recomputes as supported no matter how few ballots exist`
+      );
+    }
     // Config checks first — they need no proposal message, so an orphan
     // ratification still gets its weight/quorum findings reported.
     // Tiered councils: quorum reachability is a WEIGHT question when a weights

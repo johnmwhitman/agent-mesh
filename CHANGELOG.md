@@ -32,10 +32,34 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
   - `message.vacuous_ack` (**error**) — `acknowledged: true` over an EMPTY recipient set. The flag
     derives as "every addressed recipient holds an ack", and `every` over `[]` is vacuously true,
     so the claim could stand on zero delivery evidence and the mismatch check could never fire.
+- 🔴 **`fleet.sealed_lattice_mismatch` — the sharper half of the same defect, and the one the first
+  fix walked straight past.** `fleet.sealed_with_live_agents` only fires while an agent is still
+  LIVE, so a fleet sealed `complete` over an agent that **failed** — every agent terminal, nothing
+  running — produced no finding at all. That is the ledger claiming a success its own rows deny.
+  Reported **by direction**, exactly as `message.ack_flag_mismatch` already does: sealed `complete`
+  against a lattice of `failed`/`abandoned` is an **error** (it overclaims), while sealed `failed`
+  over agents that all completed is a **warning** (it asserts an error that never occurred, which
+  is false but claims *less* than the records support). The completion lattice moved into one
+  exported `fleetLatticeOutcome`, so the writer and the auditor cannot drift — the getDb gate and
+  the migrator probe already disagreed once by each carrying its own copy of a predicate.
+- **`agent.completed_while_live`** (**error**) — one row asserting both that an agent is still
+  running and that it has already finished. The write path sets status and `completed_at` in the
+  same statement, so they cannot come apart honestly, and the fleet lattice keys on status alone:
+  such an agent holds its whole fleet open while presenting as done to anything reading timestamps.
+- **`ratification.key_mismatch`** (**error**) — a council outcome filed under a key naming a
+  different proposal than its own body. The orphan check reads the *body's* `message_id`, so a
+  wrong key still resolved to a real proposal and nothing noticed.
+- 🔴 **`ratification.invalid_quorum`** (**error**) — the open path requires a positive integer
+  quorum; verify checked only the upper bound. The lower bound is the dangerous one: at `quorum: 0`
+  the tally's `approvalWeight >= quorum` is satisfied by **zero ballots**, so a `ratified` status
+  recomputes as fully supported and `ratification.status_mismatch` never fires. The lie stops being
+  a warning and becomes completely silent.
 - Measured on a read-only copy of a real 69-fleet / 270-agent / 173-capability ledger before
-  landing: the new checks introduce **one** finding on it, a warning, and **zero** new errors. The
-  12 abandoned fleets did not trip the sealed-fleet check, confirming that exemption against real
-  data rather than against reasoning.
+  landing: the eleven new checks introduce **two** findings on it, both warnings, and **zero** new
+  errors. The 12 abandoned fleets did not trip the sealed-fleet check, confirming that exemption
+  against real data rather than against reasoning. The one real lattice mismatch it did surface —
+  a fleet sealed `failed` whose agents all completed — is precisely the case the direction split
+  keeps out of the error bucket.
 
 ## [0.17.0] — 2026-07-26
 

@@ -577,6 +577,30 @@ export function createFleet(fleetId: string): Fleet {
  * old-running fleet as STUCK. The read and write models now agree: an empty
  * fleet is not finished, it is stuck, and nothing here will close it.
  */
+/**
+ * The fleet completion lattice, as a pure function of its agents.
+ *
+ * `undefined` means the lattice has nothing to say: an empty fleet is stuck
+ * rather than finished (and `[].every(...)` would answer `complete` vacuously),
+ * and a fleet with any live agent has not reached an outcome yet.
+ *
+ * Extracted so the writer and the auditor cannot drift. `_checkFleetCompletion`
+ * decides what to WRITE and `verify` decides whether a stored status is
+ * SUPPORTED, and those two answering differently is precisely the class of bug
+ * this repo has already paid for once — the getDb adoption gate and the
+ * migrator's probe disagreed about the same ledger because each carried its own
+ * copy of the predicate. One normalization, both readers.
+ */
+export function fleetLatticeOutcome(agents: Agent[]): Fleet["status"] | undefined {
+  if (agents.length === 0) return undefined;
+  if (!agents.every((a) => TERMINAL_AGENT_STATUSES.has(a.status))) return undefined;
+  return agents.some((a) => a.status === "failed")
+    ? "failed"
+    : agents.some((a) => a.status === "interrupted")
+      ? "abandoned"
+      : "complete";
+}
+
 export function _checkFleetCompletion(
   data: MeshData,
   fleetId: string
@@ -588,14 +612,8 @@ export function _checkFleetCompletion(
   if (SEALED_FLEET_STATUSES.has(fleet.status)) return undefined;
 
   const agents = Object.values(data.agents).filter((a) => a.fleet_id === fleetId);
-  if (agents.length === 0) return undefined;
-  if (!agents.every((a) => TERMINAL_AGENT_STATUSES.has(a.status))) return undefined;
-
-  const next: Fleet["status"] = agents.some((a) => a.status === "failed")
-    ? "failed"
-    : agents.some((a) => a.status === "interrupted")
-      ? "abandoned"
-      : "complete";
+  const next = fleetLatticeOutcome(agents);
+  if (next === undefined) return undefined;
   if (fleet.status === next) return undefined;
 
   const from = fleet.status;

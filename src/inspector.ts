@@ -557,6 +557,26 @@ const CHECK_EXPLANATIONS: Record<string, CheckExplanation> = {
     benign: "nothing benign produces this. Unlike an unreconciled fleet, which understates in the reader's favour, a sealed fleet overstates: no write path in this build seals a fleet while an agent is live, so the row was either hand-edited or written by a build whose completion lattice was broken. An abandoned fleet with a live agent is NOT this finding — attach_agent reopens abandoned fleets on purpose",
     investigate: "agent-mesh inspect --export | jq '.fleets[] | select(.status == \"complete\" or .status == \"failed\") | .id'",
   },
+  "fleet.sealed_lattice_mismatch": {
+    what: "a fleet is sealed as complete/failed, every one of its agents is terminal, but those agents recompute to a DIFFERENT outcome — most damagingly `complete` over an agent that failed or was interrupted",
+    benign: "nothing benign produces this either, and it is the sharper sibling of fleet.sealed_with_live_agents: there an agent is still running, here they have all finished and the ledger simply recorded the wrong outcome. `complete` over a failed agent claims a success the rows deny; `failed` over all-complete agents claims an error that never occurred",
+    investigate: "agent-mesh inspect --export | jq '.fleets | to_entries[] | .key as $f | {fleet: $f, status: .value.status}'",
+  },
+  "agent.completed_while_live": {
+    what: "an agent is recorded running or pending while carrying a completed_at timestamp — the same row claims it is still working and that it has already finished",
+    benign: "rarely benign: the write path sets status and completed_at in one statement and refuses an agent that already has one. A ledger hand-edited to 'reopen' an agent without clearing its completion time produces this",
+    investigate: "agent-mesh inspect --export | jq '.agents[] | select(.completed_at != null and (.status == \"running\" or .status == \"pending\"))'",
+  },
+  "ratification.key_mismatch": {
+    what: "a ratification is stored under a map key that disagrees with the proposal id in its own body",
+    benign: "as with the other key mismatches, a hand-edited export or a merge that renamed a key without rewriting the row — but note the orphan check reads the BODY's message_id, so a wrong key still resolves to a real proposal and nothing else notices",
+    investigate: "agent-mesh inspect --export | jq '.ratifications | to_entries[] | select(.key != .value.message_id)'",
+  },
+  "ratification.invalid_quorum": {
+    what: "a ratification records a quorum that is not a positive integer, which the open path forbids",
+    benign: "nothing benign produces this. It matters more than a bounds check looks: at quorum 0 the tally is satisfied by ZERO ballots, so a terminal status recomputes as fully supported and ratification.status_mismatch stays silent — the lie stops being a warning and becomes invisible",
+    investigate: "agent-mesh inspect --export | jq '.ratifications[] | select((.quorum | type) != \"number\" or .quorum < 1)'",
+  },
   "fleet.key_mismatch": {
     what: "a fleet is stored under a map key that disagrees with the id in its own body",
     benign: "a hand-edited export, or a merge between two ledgers that renamed a key without rewriting the row",

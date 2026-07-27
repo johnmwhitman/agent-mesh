@@ -249,3 +249,163 @@ test("CONTROL: acknowledged:false over an empty recipient set is not flagged", (
   });
   assert.ok(!checks(data, "error").includes("message.vacuous_ack"));
 });
+
+// --- 6. a sealed fleet whose outcome is not the one its agents support ------
+//
+// Found by an adversarial lane pointed at the fix above, and it is the sharper
+// half of the same defect: `fleet.sealed_with_live_agents` only fires while an
+// agent is still LIVE, so a fleet sealed `complete` over a `failed` agent —
+// every agent terminal, nothing running — walked straight past it. That is the
+// ledger claiming success over work its own rows say failed.
+
+test("a fleet sealed complete over a failed agent is an error", () => {
+  const data = mesh({
+    fleets: { F: fleet("F", "complete") },
+    agents: { A: agent("A", "F", "failed") },
+  });
+  assert.ok(
+    checks(data, "error").includes("fleet.sealed_lattice_mismatch"),
+    "all agents are terminal, so the live-agent check is silent — this is where the sharper forgery hides"
+  );
+});
+
+test("a fleet sealed complete over an interrupted agent is an error (lattice says abandoned)", () => {
+  const data = mesh({
+    fleets: { F: fleet("F", "complete") },
+    agents: { A: agent("A", "F", "interrupted") },
+  });
+  assert.ok(checks(data, "error").includes("fleet.sealed_lattice_mismatch"));
+});
+
+test("a fleet sealed FAILED over agents that all completed is a WARNING, not an error", () => {
+  // The understating direction: it asserts an error that never occurred, which
+  // is false but claims less than the rows support. Same split the
+  // ack_flag_mismatch pair already makes. A real ledger carries exactly this
+  // shape from an older build's lattice, and reporting it as an error would
+  // put a hard failure on a legacy artifact that overclaims nothing.
+  const data = mesh({
+    fleets: { F: fleet("F", "failed") },
+    agents: { A: agent("A", "F", "complete"), B: agent("B", "F", "complete") },
+  });
+  assert.ok(checks(data, "warning").includes("fleet.sealed_lattice_mismatch"));
+  assert.ok(!checks(data, "error").includes("fleet.sealed_lattice_mismatch"));
+});
+
+test("CONTROL: a fleet sealed failed over a failed agent is the supported outcome", () => {
+  const data = mesh({
+    fleets: { F: fleet("F", "failed") },
+    agents: { A: agent("A", "F", "failed"), B: agent("B", "F", "complete") },
+  });
+  assert.ok(!checks(data, "error").includes("fleet.sealed_lattice_mismatch"));
+});
+
+// --- 7. an agent row that is both finished and not ------------------------
+
+test("an agent recorded running while carrying completed_at is an error", () => {
+  const data = mesh({
+    fleets: { F: fleet("F", "running", 500) },
+    agents: {
+      A: { ...agent("A", "F", "running"), started_at: 1000, completed_at: 2000 } as MeshData["agents"][string],
+    },
+  });
+  assert.ok(checks(data, "error").includes("agent.completed_while_live"));
+});
+
+test("CONTROL: a complete agent carrying completed_at is clean", () => {
+  const data = mesh({
+    fleets: { F: fleet("F", "complete", 500) },
+    agents: {
+      A: { ...agent("A", "F", "complete"), started_at: 1000, completed_at: 2000 } as MeshData["agents"][string],
+    },
+  });
+  assert.ok(!checks(data, "error").includes("agent.completed_while_live"));
+});
+
+// --- 8. ratification identity and a vacuous threshold ---------------------
+
+const ratScaffold = (): Partial<MeshData> => ({
+  fleets: { f1: fleet("f1", "running", 500) },
+  agents: { a1: agent("a1", "f1", "running"), a2: agent("a2", "f1", "running") },
+  messages: {
+    p1: {
+      id: "p1",
+      from_agent_id: "a1",
+      to_agent_id: "*",
+      fleet_id: "f1",
+      type: "question",
+      payload: "x",
+      timestamp: 1000,
+      acknowledged: false,
+      recipients: ["a2"],
+    } as unknown as MeshData["messages"][string],
+  },
+});
+
+test("a ratification whose key disagrees with the proposal in its body is an error", () => {
+  const data = mesh({
+    ...ratScaffold(),
+    ratifications: {
+      "p-public": {
+        message_id: "p1",
+        proposer: "a1",
+        fleet_id: "f1",
+        subject: "s",
+        quorum: 1,
+        voters: ["a2"],
+        required_signoffs: [],
+        opened_at: 1000,
+        silence_policy: "abstain",
+        status: "open",
+      } as unknown as MeshData["ratifications"][string],
+    },
+  });
+  assert.ok(checks(data, "error").includes("ratification.key_mismatch"));
+});
+
+test("quorum 0 is an error — it makes a terminal status recompute as supported over zero ballots", () => {
+  // The dangerous shape: with quorum 0 the tally's `approvalWeight >= quorum`
+  // is satisfied by NO votes, so `ratified` recomputes to `ratified` and
+  // ratification.status_mismatch stays silent. The lie does not merely pass as
+  // a warning; it produces no finding at all.
+  const data = mesh({
+    ...ratScaffold(),
+    ratifications: {
+      p1: {
+        message_id: "p1",
+        proposer: "a1",
+        fleet_id: "f1",
+        subject: "s",
+        quorum: 0,
+        voters: ["a2"],
+        required_signoffs: [],
+        opened_at: 1000,
+        silence_policy: "abstain",
+        status: "ratified",
+        resolved_at: 3000,
+      } as unknown as MeshData["ratifications"][string],
+    },
+  });
+  assert.ok(checks(data, "error").includes("ratification.invalid_quorum"));
+  assert.equal(verifyMeshData(data).ok, false);
+});
+
+test("CONTROL: quorum 1 over one voter is not flagged", () => {
+  const data = mesh({
+    ...ratScaffold(),
+    ratifications: {
+      p1: {
+        message_id: "p1",
+        proposer: "a1",
+        fleet_id: "f1",
+        subject: "s",
+        quorum: 1,
+        voters: ["a2"],
+        required_signoffs: [],
+        opened_at: 1000,
+        silence_policy: "abstain",
+        status: "open",
+      } as unknown as MeshData["ratifications"][string],
+    },
+  });
+  assert.ok(!checks(data, "error").includes("ratification.invalid_quorum"));
+});

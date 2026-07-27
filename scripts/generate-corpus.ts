@@ -207,6 +207,28 @@ const V: Vector[] = [
     lie: "a message is queued for an agent it was never addressed to — the dual of a non-recipient ack, made through the queue instead of a receipt",
     ops: [{ op: "set", path: "inboxes|a1", value: ["m1"] }] },
 
+  // The sharper half of the sealed-fleet defect: every agent is TERMINAL here,
+  // so the live-agent check is silent, and the fleet simply recorded an outcome
+  // its own rows do not support.
+  { id: "fleet-sealed-lattice-mismatch", primary: "fleet.sealed_lattice_mismatch", classification: "caught",
+    lie: "the fleet is sealed COMPLETE while one of its agents FAILED — it claims a success its own rows deny",
+    ops: [{ op: "set", path: "agents|a3|status", value: "failed" }] },
+  { id: "fleet-sealed-over-interrupted", primary: "fleet.sealed_lattice_mismatch", classification: "caught",
+    lie: "the fleet is sealed COMPLETE over an interrupted agent — the lattice says abandoned, which is the status that exists precisely so this is not recorded as success",
+    ops: [{ op: "set", path: "agents|a3|status", value: "interrupted" }] },
+  { id: "fleet-sealed-failed-over-complete", primary: "fleet.sealed_lattice_mismatch", classification: "anomaly",
+    lie: "the fleet is sealed FAILED though every agent completed — it asserts an error that never occurred, but claims LESS than its records support, so it warns rather than errors",
+    ops: [{ op: "set", path: "fleets|f1|status", value: "failed" }] },
+  { id: "agent-completed-while-live", primary: "agent.completed_while_live", classification: "caught",
+    lie: "one agent row asserts both that it is still running and that it has already finished",
+    ops: [{ op: "set", path: "agents|a3|status", value: "running" }] },
+  { id: "ratification-key-mismatch", primary: "ratification.key_mismatch", classification: "caught",
+    lie: "the council outcome is filed under a key that names a different proposal than its own body does",
+    ops: [{ op: "set", path: "ratifications|m2|message_id", value: "m1" }] },
+  { id: "ratification-invalid-quorum", primary: "ratification.invalid_quorum", classification: "caught",
+    lie: "quorum is 0, so RATIFIED recomputes as fully supported over zero ballots — the status mismatch that would otherwise warn becomes completely silent",
+    ops: [{ op: "set", path: "ratifications|m2|quorum", value: 0 }] },
+
   // ===================== UNDETECTABLE: the honest boundary (ZERO findings) =====================
   { id: "undetectable-forged-seen-receipt", primary: "", classification: "undetectable",
     lie: "a3 is on record as having SEEN the incident alert. It never did. 'seen' is an annotation any third party may legitimately write, so no contradiction exists to detect.",

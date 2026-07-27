@@ -407,6 +407,11 @@
       "expected_findings": [
         {
           "severity": "error",
+          "check": "ratification.key_mismatch",
+          "subject": "m2"
+        },
+        {
+          "severity": "error",
           "check": "ratification.orphan_proposal",
           "subject": "m-ghost"
         }
@@ -1096,6 +1101,142 @@
           "severity": "error",
           "check": "inbox.non_recipient",
           "subject": "a1:m1"
+        }
+      ]
+    },
+    {
+      "id": "fleet-sealed-lattice-mismatch",
+      "primary": "fleet.sealed_lattice_mismatch",
+      "classification": "caught",
+      "lie": "the fleet is sealed COMPLETE while one of its agents FAILED — it claims a success its own rows deny",
+      "ops": [
+        {
+          "op": "set",
+          "path": "agents|a3|status",
+          "value": "failed"
+        }
+      ],
+      "expected_ok": false,
+      "expected_findings": [
+        {
+          "severity": "error",
+          "check": "fleet.sealed_lattice_mismatch",
+          "subject": "f1"
+        }
+      ]
+    },
+    {
+      "id": "fleet-sealed-over-interrupted",
+      "primary": "fleet.sealed_lattice_mismatch",
+      "classification": "caught",
+      "lie": "the fleet is sealed COMPLETE over an interrupted agent — the lattice says abandoned, which is the status that exists precisely so this is not recorded as success",
+      "ops": [
+        {
+          "op": "set",
+          "path": "agents|a3|status",
+          "value": "interrupted"
+        }
+      ],
+      "expected_ok": false,
+      "expected_findings": [
+        {
+          "severity": "error",
+          "check": "fleet.sealed_lattice_mismatch",
+          "subject": "f1"
+        }
+      ]
+    },
+    {
+      "id": "fleet-sealed-failed-over-complete",
+      "primary": "fleet.sealed_lattice_mismatch",
+      "classification": "anomaly",
+      "lie": "the fleet is sealed FAILED though every agent completed — it asserts an error that never occurred, but claims LESS than its records support, so it warns rather than errors",
+      "ops": [
+        {
+          "op": "set",
+          "path": "fleets|f1|status",
+          "value": "failed"
+        }
+      ],
+      "expected_ok": true,
+      "expected_findings": [
+        {
+          "severity": "warning",
+          "check": "fleet.sealed_lattice_mismatch",
+          "subject": "f1"
+        }
+      ]
+    },
+    {
+      "id": "agent-completed-while-live",
+      "primary": "agent.completed_while_live",
+      "classification": "caught",
+      "lie": "one agent row asserts both that it is still running and that it has already finished",
+      "ops": [
+        {
+          "op": "set",
+          "path": "agents|a3|status",
+          "value": "running"
+        }
+      ],
+      "expected_ok": false,
+      "expected_findings": [
+        {
+          "severity": "error",
+          "check": "agent.completed_while_live",
+          "subject": "a3"
+        },
+        {
+          "severity": "error",
+          "check": "fleet.sealed_with_live_agents",
+          "subject": "f1"
+        }
+      ]
+    },
+    {
+      "id": "ratification-key-mismatch",
+      "primary": "ratification.key_mismatch",
+      "classification": "caught",
+      "lie": "the council outcome is filed under a key that names a different proposal than its own body does",
+      "ops": [
+        {
+          "op": "set",
+          "path": "ratifications|m2|message_id",
+          "value": "m1"
+        }
+      ],
+      "expected_ok": false,
+      "expected_findings": [
+        {
+          "severity": "error",
+          "check": "ratification.key_mismatch",
+          "subject": "m2"
+        },
+        {
+          "severity": "warning",
+          "check": "ratification.status_mismatch",
+          "subject": "m1"
+        }
+      ]
+    },
+    {
+      "id": "ratification-invalid-quorum",
+      "primary": "ratification.invalid_quorum",
+      "classification": "caught",
+      "lie": "quorum is 0, so RATIFIED recomputes as fully supported over zero ballots — the status mismatch that would otherwise warn becomes completely silent",
+      "ops": [
+        {
+          "op": "set",
+          "path": "ratifications|m2|quorum",
+          "value": 0
+        }
+      ],
+      "expected_ok": false,
+      "expected_findings": [
+        {
+          "severity": "error",
+          "check": "ratification.invalid_quorum",
+          "subject": "m2"
         }
       ]
     },
