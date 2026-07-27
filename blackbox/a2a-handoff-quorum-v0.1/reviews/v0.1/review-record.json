@@ -1,0 +1,56 @@
+{
+  "schema_version": "meshfleet.a2a.review-record.v0.1",
+  "profile": "meshfleet.a2a.handoff-quorum.v0.1",
+  "recorded_at": "2026-07-27T14:19:00Z",
+  "status": "REVIEW-HOLD",
+  "delegated_reviews": [
+    {
+      "role": "adversarial-reviewer",
+      "model_observed": "grok-4.3",
+      "scope": "sanitized project-blind architecture and failure analysis",
+      "disposition": "addressed",
+      "findings": [
+        "Define quorum threshold, replay behavior, rejection immutability, and strict cross-language evidence.",
+        "Do not imply transport, authentication, persistence, execution, or broad A2A conformance."
+      ],
+      "resolution": "The executable contract now fixes weighted threshold semantics, receipt replay conflict rules, rejected-action state digests, parser controls, and explicit nonclaims."
+    },
+    {
+      "role": "protocol-architect",
+      "model_observed": "grok-4.3",
+      "scope": "sanitized project-blind boundary and overlap analysis",
+      "disposition": "addressed-with-narrowing",
+      "findings": [
+        "Avoid creating a second coordinator or importing lifecycle and routing state.",
+        "Treat terminality and strict JSON as package-local semantic inputs rather than production integration claims."
+      ],
+      "resolution": "The profile is explicitly one modeled authority, imports no production source, and excludes lifecycle, routing, transport, and coordination implementation."
+    },
+    {
+      "role": "corpus-council",
+      "model_observed": "grok-4.3",
+      "scope": "sanitized project-blind quorum terminology and evidence challenge",
+      "disposition": "accepted-as-scope-correction",
+      "findings": [
+        "The word quorum can falsely imply distributed agreement, failure tolerance, intersection, view changes, or atomic handoff.",
+        "Receipt validity and the participant failure model must be stated."
+      ],
+      "resolution": "README, contract, and handoff now call this a single-authority ratification tally, define receipt validity as syntactic/profile-local, declare no modeled participant failure behavior, and disclaim quorum intersection, equivocation defense, consensus, and atomic handoff."
+    }
+  ],
+  "independent_source_review": {
+    "status": "BLOCKED-BY-DISCLOSURE-BOUNDARY",
+    "reason": "The external source-review dispatch was rejected because repository-source disclosure to those destinations was not explicitly authorized.",
+    "local_fallback": "Unavailable: local Ollama exposes only nomic-embed-text and no generative review model.",
+    "compensating_evidence": [
+      "Independent JavaScript and Python implementations with byte-identical corpus receipts.",
+      "Thirty-case raw parser differential.",
+      "Three-hundred-case deterministic generated differential with rejection, event, partition, and terminality properties.",
+      "Full repository build, typecheck, and 891-test acceptance run."
+    ],
+    "acceptance_effect": "The package remains REVIEW-HOLD and is not accepted or release-ready."
+  },
+  "unresolved_important_findings": [
+    "Independent implementation/source review is still required before acceptance."
+  ]
+}
