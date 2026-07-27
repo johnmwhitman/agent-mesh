@@ -1,11 +1,19 @@
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, stat } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const PACKAGE_DIRECTORY = dirname(fileURLToPath(import.meta.url));
-const REPOSITORY_DIRECTORY = resolve(PACKAGE_DIRECTORY, "../..");
+const PACKAGE_ROOT_OPTION_INDEX = process.argv.indexOf("--package-root");
+const PACKAGE_ROOT = PACKAGE_ROOT_OPTION_INDEX === -1
+  ? resolve(PACKAGE_DIRECTORY, "../..")
+  : process.argv[PACKAGE_ROOT_OPTION_INDEX + 1];
+const SDK_ROOT_OPTION_INDEX = process.argv.indexOf("--sdk-root");
+const SDK_ROOT = SDK_ROOT_OPTION_INDEX === -1
+  ? PACKAGE_ROOT
+  : process.argv[SDK_ROOT_OPTION_INDEX + 1];
 const MANIFEST_PATH = join(PACKAGE_DIRECTORY, "manifest.json");
 const PREAMBLE = "Meshfleet stdio catalog-boundary conformance v0.1";
 const NONCLAIMS = [
@@ -28,6 +36,11 @@ const FAMILY_NAMES = [
 
 function issue(error) {
   return error instanceof Error ? error.message : String(error);
+}
+
+function isInside(parent, candidate) {
+  const value = relative(parent, candidate);
+  return value === "" || (value !== ".." && !value.startsWith(`..${sep}`) && !isAbsolute(value));
 }
 
 function canonicalize(value, arrayKind = "preserve") {
@@ -187,10 +200,20 @@ async function unknownToolOutcome(client, toolName) {
   }
 }
 
-async function loadSdk() {
+async function loadSdk(sdkRoot) {
+  const resolvedSdkRoot = await realpath(sdkRoot);
+  const resolvedSdkNodeModules = await realpath(join(resolvedSdkRoot, "node_modules"));
+  const sdkRequire = createRequire(join(resolvedSdkRoot, "package.json"));
+  const [clientPath, transportPath] = await Promise.all([
+    realpath(sdkRequire.resolve("@modelcontextprotocol/sdk/client/index.js")),
+    realpath(sdkRequire.resolve("@modelcontextprotocol/sdk/client/stdio.js"))
+  ]);
+  if (!isInside(resolvedSdkNodeModules, clientPath) || !isInside(resolvedSdkNodeModules, transportPath)) {
+    throw new Error("configured SDK root must resolve both MCP client modules inside sdk-root/node_modules");
+  }
   const [clientModule, transportModule] = await Promise.all([
-    import("@modelcontextprotocol/sdk/client/index.js"),
-    import("@modelcontextprotocol/sdk/client/stdio.js")
+    import(pathToFileURL(clientPath).href),
+    import(pathToFileURL(transportPath).href)
   ]);
   if (typeof clientModule.Client !== "function" || typeof transportModule.StdioClientTransport !== "function") {
     throw new Error("installed official MCP SDK lacks the required stdio client exports");
@@ -198,7 +221,7 @@ async function loadSdk() {
   return { Client: clientModule.Client, StdioClientTransport: transportModule.StdioClientTransport };
 }
 
-async function runProfile(profile, manifest, sdk) {
+async function runProfile(profile, manifest, sdk, serverPath) {
   const root = await mkdtemp(join(tmpdir(), "meshfleet-catalog-boundary-"));
   let client;
   try {
@@ -241,7 +264,7 @@ async function runProfile(profile, manifest, sdk) {
     if (process.platform === "win32" && process.env.SystemRoot) childEnvironment.SystemRoot = process.env.SystemRoot;
     const transport = new sdk.StdioClientTransport({
       command: process.execPath,
-      args: [resolve(REPOSITORY_DIRECTORY, manifest.server_entrypoint)],
+      args: [serverPath],
       cwd: root,
       env: childEnvironment,
       stderr: "ignore"
@@ -290,11 +313,27 @@ async function main() {
   addCheck(checks, "manifest.validate", manifestErrors.length === 0 ? "pass" : "fail", manifestErrors.length === 0 ? "manifest is structurally valid" : manifestErrors);
   if (manifestErrors.length > 0) return checks;
 
-  const serverPath = resolve(REPOSITORY_DIRECTORY, manifest.server_entrypoint);
+  if (PACKAGE_ROOT_OPTION_INDEX !== -1 && (typeof PACKAGE_ROOT !== "string" || !isAbsolute(PACKAGE_ROOT))) {
+    addCheck(checks, "package-root.argument", "fail", "--package-root requires an absolute package directory");
+    return checks;
+  }
+  if (SDK_ROOT_OPTION_INDEX !== -1 && (typeof SDK_ROOT !== "string" || !isAbsolute(SDK_ROOT))) {
+    addCheck(checks, "sdk-root.argument", "fail", "--sdk-root requires an absolute dependency root");
+    return checks;
+  }
+  const serverPath = resolve(PACKAGE_ROOT, manifest.server_entrypoint);
   try {
-    const entrypoint = await stat(serverPath);
+    const [entrypoint, resolvedPackageRoot, resolvedServerPath] = await Promise.all([
+      stat(serverPath),
+      realpath(PACKAGE_ROOT),
+      realpath(serverPath)
+    ]);
     if (!entrypoint.isFile() || basename(serverPath) !== "index.js") throw new Error("server entrypoint is not a local dist/index.js file");
+    if (!isInside(resolvedPackageRoot, resolvedServerPath) || resolvedServerPath !== join(resolvedPackageRoot, manifest.server_entrypoint)) {
+      throw new Error("server entrypoint must resolve to package-root/dist/index.js");
+    }
     addCheck(checks, "local-built-server", "pass", "required local dist/index.js is present");
+    addCheck(checks, "server-entrypoint-package-boundary", "pass", "resolved server entrypoint is package-root/dist/index.js");
   } catch (error) {
     addCheck(checks, "local-built-server", "fail", `required local artifact unavailable: ${issue(error)}`);
     return checks;
@@ -302,8 +341,8 @@ async function main() {
 
   let sdk;
   try {
-    sdk = await loadSdk();
-    addCheck(checks, "local-official-sdk", "pass", "installed official MCP SDK loaded locally");
+    sdk = await loadSdk(SDK_ROOT);
+    addCheck(checks, "local-official-sdk", "pass", "official MCP SDK resolved from the configured dependency root");
   } catch (error) {
     addCheck(checks, "local-official-sdk", "fail", `local SDK unavailable: ${issue(error)}`);
     return checks;
@@ -312,7 +351,7 @@ async function main() {
   const profiles = [];
   for (const profile of manifest.synthetic_profiles) {
     try {
-      profiles.push(await runProfile(profile, manifest, sdk));
+      profiles.push(await runProfile(profile, manifest, sdk, serverPath));
       addCheck(checks, `profile.${profile}`, "pass", "connected, listed catalog, and completed read-only checks");
     } catch (error) {
       addCheck(checks, `profile.${profile}`, "fail", issue(error));
