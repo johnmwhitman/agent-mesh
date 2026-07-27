@@ -644,7 +644,7 @@ const CHECK_EXPLANATIONS: Record<string, CheckExplanation> = {
     investigate: "agent-mesh inspect --export | jq '.agents'",
   },
   "agent.tampered_timestamp": {
-    what: "an agent started before its fleet was created, or completed before it started",
+    what: "an agent started or completed before its fleet was created, or completed before it started",
     benign: "a hand-edited export with an incorrect timestamp",
     investigate: "agent-mesh inspect --export | jq '.agents'",
   },

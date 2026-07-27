@@ -60,8 +60,14 @@
           "value": 1699999995000
         }
       ],
-      "expected_ok": true,
-      "expected_findings": []
+      "expected_ok": false,
+      "expected_findings": [
+        {
+          "severity": "error",
+          "check": "agent.tampered_timestamp",
+          "subject": "a2"
+        }
+      ]
     },
     {
       "id": "inbox-dangling-message",

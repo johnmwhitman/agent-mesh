@@ -239,6 +239,9 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
       if (fleet && a.started_at !== undefined && a.started_at < fleet.created_at) {
         error("agent.tampered_timestamp", a.id, `agent started before fleet was created`);
       }
+      if (fleet && a.completed_at !== undefined && a.completed_at < fleet.created_at) {
+        error("agent.tampered_timestamp", a.id, `agent completed before fleet was created`);
+      }
     }
     if (a.started_at !== undefined && a.completed_at !== undefined && a.completed_at < a.started_at) {
       error("agent.tampered_timestamp", a.id, `agent completed before it started`);
