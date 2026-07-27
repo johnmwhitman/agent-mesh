@@ -213,7 +213,7 @@ watching… no messages yet  (spawn a fleet or send_message from MCP)
 
 ---
 
-## 33 MCP tools
+## 34 MCP tools
 
 **Fleets**
 
@@ -237,6 +237,7 @@ watching… no messages yet  (spawn a fleet or send_message from MCP)
 | `subscribe_inbox` | Push delivery over SSE instead of polling (optional auth token) |
 | `receipt` / `get_receipts` | Write and query the witnessed-delivery ledger: who saw what, when |
 | `verify_ledger` | Audit the whole ledger's internal consistency — errors mean it asserts something its own records don't support |
+| `verify_ledger_v2` | Read-only, versioned unsigned-snapshot consistency envelope around the unchanged verifier report; fails closed when the configured ledger is absent or unreadable |
 
 **Councils (quorum ratification)**
 
@@ -326,16 +327,15 @@ Together the `caught` and `anomaly` vectors name every check the verifier can em
 the `discussion.*` family, and that inventory is re-derived from source on every run — so
 a new check without a fixture fails the build.
 
-### Planned versioned evidence scope
+### Implemented versioned evidence scope
 
-This documentation registers a future opt-in verifier surface; this commit does
-not implement or advertise an additional live MCP tool. The existing
+`verify_ledger_v2` is an implemented opt-in MCP verifier surface. The existing
 `verify_ledger`, `VerifyReport`, `VerifyFinding`, `agent-mesh inspect --verify`,
 and `meshfleet.inspect/v1` remain unchanged.
 
-The planned `verify_ledger_v2` MCP tool and `agent-mesh inspect --verify-v2
-[file]` CLI mode will return this envelope (the CLI emits the same object with
-`--json`):
+The MCP tool returns this envelope. The matching opt-in `agent-mesh inspect
+--verify-v2 [file]` CLI mode remains a separate planned surface (and will emit
+the same object with `--json`):
 
 ```json
 {
@@ -357,7 +357,7 @@ The planned `verify_ledger_v2` MCP tool and `agent-mesh inspect --verify-v2
 }
 ```
 
-`report.ok` will retain its exact current meaning: no detected internal
+`report.ok` retains its exact current meaning: no detected internal
 consistency contradiction in the unsigned snapshot read (`report.errors ===
 0`). It does not establish authorship or authenticated provenance, pre-read
 snapshot integrity or tamper evidence, content binding, completeness or absence

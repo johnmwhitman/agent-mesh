@@ -129,12 +129,17 @@ test("registry includes D3 plus additive routing and verifier-v2 tools (34 total
   assert.ok(registered.has("verify_ledger_v2"));
 });
 
-test("README advertises the 33-tool registry including the snapshot compiler", () => {
-  assert.match(readme, /^## 33 MCP tools$/m, "README must advertise the 33-tool registry");
+test("README advertises the 34-tool registry including verifier v2", () => {
+  assert.match(readme, /^## 34 MCP tools$/m, "README must advertise the 34-tool registry");
   assert.match(
     readme,
     /^\| `compile_route_candidates` \| Pure offline projection of sanitized manifest\/observation snapshots; does not rank, persist, execute, authorize, wake, or contact providers \|$/m,
     "README must describe compile_route_candidates and its effect boundary",
+  );
+  assert.match(
+    readme,
+    /^\| `verify_ledger_v2` \| Read-only, versioned unsigned-snapshot consistency envelope around the unchanged verifier report; fails closed when the configured ledger is absent or unreadable \|$/m,
+    "README must describe verify_ledger_v2 and its fail-closed boundary",
   );
 });
 

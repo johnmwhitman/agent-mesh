@@ -92,10 +92,11 @@ Future versions will increment `CURRENT_SCHEMA_VERSION` and add a migration step
 **Promise so far**: every minor release has been additive. No tool has been removed or had its
 signature narrowed.
 
-### Registered opt-in verifier v2 contract (not implemented by this documentation commit)
+### Implemented opt-in verifier v2 MCP contract
 
-The next additive verifier surface is `verify_ledger_v2`, paired with
-`agent-mesh inspect --verify-v2 [file]`. It has the dedicated output envelope
+The additive `verify_ledger_v2` MCP tool is implemented. The matching
+`agent-mesh inspect --verify-v2 [file]` CLI mode remains a separate planned
+opt-in surface. The MCP tool has the dedicated output envelope
 `meshfleet.verify/v2`, containing exactly `schema`, `evidence_scope`, and the
 unchanged legacy `VerifyReport` as `report`. The scope profile is exactly
 `unsigned_snapshot_consistency/v1`; it says `ok` means
@@ -112,11 +113,11 @@ unchanged legacy `VerifyReport` as `report`. The scope profile is exactly
 
 This is an output-generated ceiling, not a confidence, integrity, delivery,
 execution, authentication, content-attestation, completeness, or external-time
-claim. It will not add fields to `VerifyReport` or `VerifyFinding`, and it will
+claim. It does not add fields to `VerifyReport` or `VerifyFinding`, and does
 not alter `verify_ledger`, `inspect --verify`, `meshfleet.inspect/v1`, existing
 JSON/text output, `ok`, findings, checks, severities, counts, or exits. The
-legacy surfaces remain the compatibility baseline; v2 is opt-in and does not
-increase the currently implemented tool count until its implementation lands.
+legacy surfaces remain the compatibility baseline; v2 MCP is opt-in and raises
+the implemented MCP tool count to 34.
 
 **⚠️ Input handling changed in 0.16.0, and the old promise was the bug.** This table used to end
 "Tool inputs default to safe values when omitted." That was not a guarantee — it was a description

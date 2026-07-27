@@ -77,3 +77,36 @@ test("verify_ledger_v2 wraps the same isolated legacy report without writing", a
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("verify_ledger_v2 fails closed on an absent ledger without creating one", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "meshfleet-verify-v2-absent-"));
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: ["--import", "tsx", join(repoRoot, "src", "index.ts")],
+    env: {
+      ...(process.env as Record<string, string>),
+      MESHFLEET_DB_FILE: join(dir, "absent.db"),
+      MESHFLEET_DATA_FILE: join(dir, "absent.json"),
+      MESHFLEET_EVENT_LOG_FILE: join(dir, "events.jsonl"),
+      MESHFLEET_RATIFY_SWEEP_MS: "0",
+      AGENT_MESH_CHILD: "1",
+    },
+    stderr: "ignore",
+  });
+  const client = new Client({ name: "verify-ledger-v2-absent-test", version: "1.0.0" });
+
+  try {
+    await client.connect(transport);
+    const before = snapshot(dir);
+    assert.deepEqual(before, [], "the isolated directory must begin empty");
+    const response = await client.callTool({ name: "verify_ledger_v2", arguments: {} });
+    assert.equal((response as { isError?: boolean }).isError, true);
+    assert.deepEqual(JSON.parse(textOf(response)), {
+      error: "verify_ledger_v2 unavailable: configured ledger is absent or unreadable",
+    });
+    assert.deepEqual(snapshot(dir), before, "a failed v2 verification must not create a ledger or sidecar");
+  } finally {
+    await client.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

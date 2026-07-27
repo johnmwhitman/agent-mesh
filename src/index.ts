@@ -37,7 +37,7 @@ import {
   sendMessages,
   setFleetTimeout,
 } from "./core.js";
-import { readLedger, withLedger } from "./db.js";
+import { readLedger, resolveDbFile, withLedger } from "./db.js";
 import { migrateJsonToSqlite } from "./migrate.js";
 import { checkRateLimit, getHealth, ping } from "./health.js";
 import {
@@ -53,7 +53,7 @@ import {
   resolveRatification,
   sweepRatifications,
 } from "./ratify.js";
-import { verifyLedger } from "./verify.js";
+import { verifyLedger, verifyLedgerFile } from "./verify.js";
 import { buildVerifyEnvelopeV2 } from "./verify-envelope-v2.js";
 import { notifySubscribers } from "./realtime.js";
 import { isSseServerRunning, startSseServer, stopSseServer, subscribeInboxUrl } from "./sse-server.js";
@@ -1470,7 +1470,11 @@ toolHandlers["verify_ledger"] = async () => {
 };
 
 toolHandlers["verify_ledger_v2"] = async () => {
-    return jsonResult(buildVerifyEnvelopeV2(verifyLedger()));
+    try {
+      return jsonResult(buildVerifyEnvelopeV2(verifyLedgerFile(resolveDbFile())));
+    } catch {
+      return jsonError("verify_ledger_v2 unavailable: configured ledger is absent or unreadable");
+    }
 };
 
 toolHandlers["open_ratification"] = async (args) => {
