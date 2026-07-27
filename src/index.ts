@@ -547,7 +547,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
                     },
                     policy_tags: {
                       type: "array",
-                      minItems: 1,
+                      minItems: 0,
                       maxItems: 64,
                       uniqueItems: true,
                       items: {

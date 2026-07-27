@@ -120,6 +120,8 @@ test("compile_route_candidates advertises a closed snapshot compiler schema", as
     assert.equal(input.properties.observations.maxItems, 256);
     assert.equal(candidate.properties.capabilities.minItems, 1);
     assert.equal(candidate.properties.capabilities.maxItems, 64);
+    assert.equal(candidate.properties.policy_tags.minItems, 0);
+    assert.equal(candidate.properties.policy_tags.maxItems, 64);
     assert.equal(candidate.properties.coordination_modes.minItems, 1);
     assert.equal(candidate.properties.coordination_modes.maxItems, 2);
     assert.equal(candidate.properties.candidate_id.maxLength, 128);
