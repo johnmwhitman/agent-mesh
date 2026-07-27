@@ -1,0 +1,731 @@
+{
+  "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+  "frozen_expectations": "exact-output-v0.1",
+  "cases": [
+    {
+      "id": "M01-empty",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.proposal-base-match.v0.1\",\"comparison_revision\":\"R\",\"proposals\":[]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "classified",
+        "classification": "empty",
+        "matching_proposal_ids": [],
+        "nonmatching_proposal_ids": []
+      }
+    },
+    {
+      "id": "M02-single-match",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.proposal-base-match.v0.1\",\"comparison_revision\":\"R\",\"proposals\":[{\"proposal_id\":\"P\",\"base_revision\":\"R\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "classified",
+        "classification": "single_match",
+        "matching_proposal_ids": [
+          "P"
+        ],
+        "nonmatching_proposal_ids": []
+      }
+    },
+    {
+      "id": "M03-multiple-match",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.proposal-base-match.v0.1\",\"comparison_revision\":\"R\",\"proposals\":[{\"proposal_id\":\"P2\",\"base_revision\":\"R\"},{\"proposal_id\":\"P1\",\"base_revision\":\"R\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "classified",
+        "classification": "multiple_match",
+        "matching_proposal_ids": [
+          "P1",
+          "P2"
+        ],
+        "nonmatching_proposal_ids": []
+      }
+    },
+    {
+      "id": "M04-no-match",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.proposal-base-match.v0.1\",\"comparison_revision\":\"R\",\"proposals\":[{\"proposal_id\":\"P\",\"base_revision\":\"X\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "classified",
+        "classification": "no_match",
+        "matching_proposal_ids": [],
+        "nonmatching_proposal_ids": [
+          "P"
+        ]
+      }
+    },
+    {
+      "id": "M05-mixed-match",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.proposal-base-match.v0.1\",\"comparison_revision\":\"R\",\"proposals\":[{\"proposal_id\":\"P2\",\"base_revision\":\"X\"},{\"proposal_id\":\"P1\",\"base_revision\":\"R\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "classified",
+        "classification": "mixed_match",
+        "matching_proposal_ids": [
+          "P1"
+        ],
+        "nonmatching_proposal_ids": [
+          "P2"
+        ]
+      }
+    },
+    {
+      "id": "M06-permuted-mixed",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.proposal-base-match.v0.1\",\"comparison_revision\":\"R\",\"proposals\":[{\"proposal_id\":\"P1\",\"base_revision\":\"R\"},{\"proposal_id\":\"P2\",\"base_revision\":\"X\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "classified",
+        "classification": "mixed_match",
+        "matching_proposal_ids": [
+          "P1"
+        ],
+        "nonmatching_proposal_ids": [
+          "P2"
+        ]
+      }
+    },
+    {
+      "id": "M07-ascii-id-order",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.proposal-base-match.v0.1\",\"comparison_revision\":\"R\",\"proposals\":[{\"proposal_id\":\"Aa\",\"base_revision\":\"R\"},{\"proposal_id\":\"A_\",\"base_revision\":\"R\"},{\"proposal_id\":\"A.\",\"base_revision\":\"R\"},{\"proposal_id\":\"A-\",\"base_revision\":\"R\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "classified",
+        "classification": "multiple_match",
+        "matching_proposal_ids": [
+          "A-",
+          "A.",
+          "A_",
+          "Aa"
+        ],
+        "nonmatching_proposal_ids": []
+      }
+    },
+    {
+      "id": "M08-case-mismatch",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.proposal-base-match.v0.1\",\"comparison_revision\":\"RevA\",\"proposals\":[{\"proposal_id\":\"P\",\"base_revision\":\"Reva\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "classified",
+        "classification": "no_match",
+        "matching_proposal_ids": [],
+        "nonmatching_proposal_ids": [
+          "P"
+        ]
+      }
+    },
+    {
+      "id": "M09-prefix-mismatch",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.proposal-base-match.v0.1\",\"comparison_revision\":\"RevA\",\"proposals\":[{\"proposal_id\":\"P\",\"base_revision\":\"RevA1\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "classified",
+        "classification": "no_match",
+        "matching_proposal_ids": [],
+        "nonmatching_proposal_ids": [
+          "P"
+        ]
+      }
+    },
+    {
+      "id": "M10-punctuation-mismatch",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.proposal-base-match.v0.1\",\"comparison_revision\":\"Rev:A\",\"proposals\":[{\"proposal_id\":\"P\",\"base_revision\":\"Rev-A\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "classified",
+        "classification": "no_match",
+        "matching_proposal_ids": [],
+        "nonmatching_proposal_ids": [
+          "P"
+        ]
+      }
+    },
+    {
+      "id": "M11-duplicate-id",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.proposal-base-match.v0.1\",\"comparison_revision\":\"R\",\"proposals\":[{\"proposal_id\":\"P\",\"base_revision\":\"R\"},{\"proposal_id\":\"P\",\"base_revision\":\"X\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "rejected",
+        "error_code": "DUPLICATE_PROPOSAL_ID"
+      }
+    },
+    {
+      "id": "M12-root-not-object",
+      "mandatory": true,
+      "raw_json": "[]",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "rejected",
+        "error_code": "ROOT_NOT_OBJECT"
+      }
+    },
+    {
+      "id": "M13-root-unknown-before-missing",
+      "mandatory": true,
+      "raw_json": "{\"unexpected\":true}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "rejected",
+        "error_code": "UNKNOWN_ROOT_FIELD"
+      }
+    },
+    {
+      "id": "M14-root-missing",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.proposal-base-match.v0.1\",\"comparison_revision\":\"R\"}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "rejected",
+        "error_code": "MISSING_ROOT_FIELD"
+      }
+    },
+    {
+      "id": "M15-profile-type",
+      "mandatory": true,
+      "raw_json": "{\"profile\":1,\"comparison_revision\":\"R\",\"proposals\":[]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "rejected",
+        "error_code": "INVALID_PROFILE_TYPE"
+      }
+    },
+    {
+      "id": "M16-comparison-type",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.proposal-base-match.v0.1\",\"comparison_revision\":1,\"proposals\":[]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "rejected",
+        "error_code": "INVALID_COMPARISON_REVISION_TYPE"
+      }
+    },
+    {
+      "id": "M17-proposals-type",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.proposal-base-match.v0.1\",\"comparison_revision\":\"R\",\"proposals\":{}}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "rejected",
+        "error_code": "PROPOSALS_NOT_ARRAY"
+      }
+    },
+    {
+      "id": "M18-profile-unsupported",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.other.v0.1\",\"comparison_revision\":\"R\",\"proposals\":[]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "rejected",
+        "error_code": "UNSUPPORTED_PROFILE"
+      }
+    },
+    {
+      "id": "M19-comparison-128",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.proposal-base-match.v0.1\",\"comparison_revision\":\"Raaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"proposals\":[]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "classified",
+        "classification": "empty",
+        "matching_proposal_ids": [],
+        "nonmatching_proposal_ids": []
+      }
+    },
+    {
+      "id": "M20-comparison-129",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.proposal-base-match.v0.1\",\"comparison_revision\":\"Raaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"proposals\":[]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "rejected",
+        "error_code": "COMPARISON_REVISION_TOO_LONG"
+      }
+    },
+    {
+      "id": "M21-comparison-grammar",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.proposal-base-match.v0.1\",\"comparison_revision\":\"1revision\",\"proposals\":[]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "rejected",
+        "error_code": "INVALID_COMPARISON_REVISION"
+      }
+    },
+    {
+      "id": "M22-proposal-not-object",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.proposal-base-match.v0.1\",\"comparison_revision\":\"R\",\"proposals\":[null]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "rejected",
+        "error_code": "PROPOSAL_NOT_OBJECT"
+      }
+    },
+    {
+      "id": "M23-proposal-unknown-before-missing",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.proposal-base-match.v0.1\",\"comparison_revision\":\"R\",\"proposals\":[{\"unexpected\":true}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "rejected",
+        "error_code": "UNKNOWN_PROPOSAL_FIELD"
+      }
+    },
+    {
+      "id": "M24-proposal-missing",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.proposal-base-match.v0.1\",\"comparison_revision\":\"R\",\"proposals\":[{}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "rejected",
+        "error_code": "MISSING_PROPOSAL_FIELD"
+      }
+    },
+    {
+      "id": "M25-proposal-id-type",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.proposal-base-match.v0.1\",\"comparison_revision\":\"R\",\"proposals\":[{\"proposal_id\":1,\"base_revision\":\"R\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "rejected",
+        "error_code": "INVALID_PROPOSAL_ID_TYPE"
+      }
+    },
+    {
+      "id": "M26-base-revision-type",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.proposal-base-match.v0.1\",\"comparison_revision\":\"R\",\"proposals\":[{\"proposal_id\":\"P\",\"base_revision\":1}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "rejected",
+        "error_code": "INVALID_BASE_REVISION_TYPE"
+      }
+    },
+    {
+      "id": "M27-proposal-id-128",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.proposal-base-match.v0.1\",\"comparison_revision\":\"R\",\"proposals\":[{\"proposal_id\":\"Paaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"base_revision\":\"R\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "classified",
+        "classification": "single_match",
+        "matching_proposal_ids": [
+          "Paaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        ],
+        "nonmatching_proposal_ids": []
+      }
+    },
+    {
+      "id": "M28-proposal-id-129",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.proposal-base-match.v0.1\",\"comparison_revision\":\"R\",\"proposals\":[{\"proposal_id\":\"Paaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"base_revision\":\"R\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "rejected",
+        "error_code": "PROPOSAL_ID_TOO_LONG"
+      }
+    },
+    {
+      "id": "M29-proposal-id-grammar",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.proposal-base-match.v0.1\",\"comparison_revision\":\"R\",\"proposals\":[{\"proposal_id\":\"1P\",\"base_revision\":\"R\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "rejected",
+        "error_code": "INVALID_PROPOSAL_ID"
+      }
+    },
+    {
+      "id": "M30-base-revision-129",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.proposal-base-match.v0.1\",\"comparison_revision\":\"R\",\"proposals\":[{\"proposal_id\":\"P\",\"base_revision\":\"Raaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "rejected",
+        "error_code": "BASE_REVISION_TOO_LONG"
+      }
+    },
+    {
+      "id": "M31-base-revision-grammar",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.proposal-base-match.v0.1\",\"comparison_revision\":\"R\",\"proposals\":[{\"proposal_id\":\"P\",\"base_revision\":\"1R\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "rejected",
+        "error_code": "INVALID_BASE_REVISION"
+      }
+    },
+    {
+      "id": "M32-proposal-count-32",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.proposal-base-match.v0.1\",\"comparison_revision\":\"R\",\"proposals\":[{\"proposal_id\":\"P00\",\"base_revision\":\"R\"},{\"proposal_id\":\"P01\",\"base_revision\":\"R\"},{\"proposal_id\":\"P02\",\"base_revision\":\"R\"},{\"proposal_id\":\"P03\",\"base_revision\":\"R\"},{\"proposal_id\":\"P04\",\"base_revision\":\"R\"},{\"proposal_id\":\"P05\",\"base_revision\":\"R\"},{\"proposal_id\":\"P06\",\"base_revision\":\"R\"},{\"proposal_id\":\"P07\",\"base_revision\":\"R\"},{\"proposal_id\":\"P08\",\"base_revision\":\"R\"},{\"proposal_id\":\"P09\",\"base_revision\":\"R\"},{\"proposal_id\":\"P10\",\"base_revision\":\"R\"},{\"proposal_id\":\"P11\",\"base_revision\":\"R\"},{\"proposal_id\":\"P12\",\"base_revision\":\"R\"},{\"proposal_id\":\"P13\",\"base_revision\":\"R\"},{\"proposal_id\":\"P14\",\"base_revision\":\"R\"},{\"proposal_id\":\"P15\",\"base_revision\":\"R\"},{\"proposal_id\":\"P16\",\"base_revision\":\"R\"},{\"proposal_id\":\"P17\",\"base_revision\":\"R\"},{\"proposal_id\":\"P18\",\"base_revision\":\"R\"},{\"proposal_id\":\"P19\",\"base_revision\":\"R\"},{\"proposal_id\":\"P20\",\"base_revision\":\"R\"},{\"proposal_id\":\"P21\",\"base_revision\":\"R\"},{\"proposal_id\":\"P22\",\"base_revision\":\"R\"},{\"proposal_id\":\"P23\",\"base_revision\":\"R\"},{\"proposal_id\":\"P24\",\"base_revision\":\"R\"},{\"proposal_id\":\"P25\",\"base_revision\":\"R\"},{\"proposal_id\":\"P26\",\"base_revision\":\"R\"},{\"proposal_id\":\"P27\",\"base_revision\":\"R\"},{\"proposal_id\":\"P28\",\"base_revision\":\"R\"},{\"proposal_id\":\"P29\",\"base_revision\":\"R\"},{\"proposal_id\":\"P30\",\"base_revision\":\"R\"},{\"proposal_id\":\"P31\",\"base_revision\":\"R\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "classified",
+        "classification": "multiple_match",
+        "matching_proposal_ids": [
+          "P00",
+          "P01",
+          "P02",
+          "P03",
+          "P04",
+          "P05",
+          "P06",
+          "P07",
+          "P08",
+          "P09",
+          "P10",
+          "P11",
+          "P12",
+          "P13",
+          "P14",
+          "P15",
+          "P16",
+          "P17",
+          "P18",
+          "P19",
+          "P20",
+          "P21",
+          "P22",
+          "P23",
+          "P24",
+          "P25",
+          "P26",
+          "P27",
+          "P28",
+          "P29",
+          "P30",
+          "P31"
+        ],
+        "nonmatching_proposal_ids": []
+      }
+    },
+    {
+      "id": "M33-proposal-count-33",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.proposal-base-match.v0.1\",\"comparison_revision\":\"R\",\"proposals\":[{\"proposal_id\":\"P00\",\"base_revision\":\"R\"},{\"proposal_id\":\"P01\",\"base_revision\":\"R\"},{\"proposal_id\":\"P02\",\"base_revision\":\"R\"},{\"proposal_id\":\"P03\",\"base_revision\":\"R\"},{\"proposal_id\":\"P04\",\"base_revision\":\"R\"},{\"proposal_id\":\"P05\",\"base_revision\":\"R\"},{\"proposal_id\":\"P06\",\"base_revision\":\"R\"},{\"proposal_id\":\"P07\",\"base_revision\":\"R\"},{\"proposal_id\":\"P08\",\"base_revision\":\"R\"},{\"proposal_id\":\"P09\",\"base_revision\":\"R\"},{\"proposal_id\":\"P10\",\"base_revision\":\"R\"},{\"proposal_id\":\"P11\",\"base_revision\":\"R\"},{\"proposal_id\":\"P12\",\"base_revision\":\"R\"},{\"proposal_id\":\"P13\",\"base_revision\":\"R\"},{\"proposal_id\":\"P14\",\"base_revision\":\"R\"},{\"proposal_id\":\"P15\",\"base_revision\":\"R\"},{\"proposal_id\":\"P16\",\"base_revision\":\"R\"},{\"proposal_id\":\"P17\",\"base_revision\":\"R\"},{\"proposal_id\":\"P18\",\"base_revision\":\"R\"},{\"proposal_id\":\"P19\",\"base_revision\":\"R\"},{\"proposal_id\":\"P20\",\"base_revision\":\"R\"},{\"proposal_id\":\"P21\",\"base_revision\":\"R\"},{\"proposal_id\":\"P22\",\"base_revision\":\"R\"},{\"proposal_id\":\"P23\",\"base_revision\":\"R\"},{\"proposal_id\":\"P24\",\"base_revision\":\"R\"},{\"proposal_id\":\"P25\",\"base_revision\":\"R\"},{\"proposal_id\":\"P26\",\"base_revision\":\"R\"},{\"proposal_id\":\"P27\",\"base_revision\":\"R\"},{\"proposal_id\":\"P28\",\"base_revision\":\"R\"},{\"proposal_id\":\"P29\",\"base_revision\":\"R\"},{\"proposal_id\":\"P30\",\"base_revision\":\"R\"},{\"proposal_id\":\"P31\",\"base_revision\":\"R\"},{\"proposal_id\":\"P33\",\"base_revision\":\"R\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "rejected",
+        "error_code": "PROPOSAL_COUNT_LIMIT"
+      }
+    },
+    {
+      "id": "M34-depth-16",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.proposal-base-match.v0.1\",\"comparison_revision\":\"R\",\"proposals\":[],\"x\":[[[[[[[[[[[[[[[0]]]]]]]]]]]]]]]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "rejected",
+        "error_code": "UNKNOWN_ROOT_FIELD"
+      }
+    },
+    {
+      "id": "M35-depth-17",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.proposal-base-match.v0.1\",\"comparison_revision\":\"R\",\"proposals\":[],\"x\":[[[[[[[[[[[[[[[[0]]]]]]]]]]]]]]]]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "rejected",
+        "error_code": "JSON_DEPTH_LIMIT"
+      }
+    },
+    {
+      "id": "M36-bom",
+      "mandatory": true,
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "rejected",
+        "error_code": "BOM_NOT_ALLOWED"
+      },
+      "raw_base64url": "77u_eyJwcm9maWxlIjoibWVzaGZsZWV0LmEyYS5wcm9wb3NhbC1iYXNlLW1hdGNoLnYwLjEiLCJjb21wYXJpc29uX3JldmlzaW9uIjoiUiIsInByb3Bvc2FscyI6W119"
+    },
+    {
+      "id": "M37-invalid-utf8",
+      "mandatory": true,
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "rejected",
+        "error_code": "INVALID_UTF8"
+      },
+      "raw_base64url": "_w"
+    },
+    {
+      "id": "M38-duplicate-decoded-key",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.proposal-base-match.v0.1\",\"comparison_revision\":\"R\",\"proposals\":[],\"pro\\u0066ile\":\"meshfleet.a2a.proposal-base-match.v0.1\"}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "rejected",
+        "error_code": "DUPLICATE_JSON_KEY"
+      }
+    },
+    {
+      "id": "M39-trailing-json",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.proposal-base-match.v0.1\",\"comparison_revision\":\"R\",\"proposals\":[]} trailing",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "rejected",
+        "error_code": "MALFORMED_JSON"
+      }
+    },
+    {
+      "id": "M40-unpaired-surrogate",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.proposal-base-match.v0.1\",\"comparison_revision\":\"\\ud800\",\"proposals\":[]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "rejected",
+        "error_code": "INVALID_UNICODE"
+      }
+    },
+    {
+      "id": "M41-safe-integer",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.proposal-base-match.v0.1\",\"comparison_revision\":\"R\",\"proposals\":[],\"n\":9007199254740991}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "rejected",
+        "error_code": "UNKNOWN_ROOT_FIELD"
+      }
+    },
+    {
+      "id": "M42-unsafe-integer",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.proposal-base-match.v0.1\",\"comparison_revision\":\"R\",\"proposals\":[],\"n\":9007199254740992}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "rejected",
+        "error_code": "UNSAFE_INTEGER"
+      }
+    },
+    {
+      "id": "M43-noncanonical-integer",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.proposal-base-match.v0.1\",\"comparison_revision\":\"R\",\"proposals\":[],\"n\":1.0}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "rejected",
+        "error_code": "NON_CANONICAL_INTEGER"
+      }
+    },
+    {
+      "id": "M44-base-revision-128-accepted",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.proposal-base-match.v0.1\",\"comparison_revision\":\"Rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"proposals\":[{\"proposal_id\":\"B128\",\"base_revision\":\"Rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "classified",
+        "classification": "single_match",
+        "matching_proposal_ids": [
+          "B128"
+        ],
+        "nonmatching_proposal_ids": []
+      }
+    },
+    {
+      "id": "M45-no-match-permutation-left",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.proposal-base-match.v0.1\",\"comparison_revision\":\"R\",\"proposals\":[{\"proposal_id\":\"a\",\"base_revision\":\"X\"},{\"proposal_id\":\"A\",\"base_revision\":\"Y\"},{\"proposal_id\":\"P-1\",\"base_revision\":\"Z\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "classified",
+        "classification": "no_match",
+        "matching_proposal_ids": [],
+        "nonmatching_proposal_ids": [
+          "A",
+          "P-1",
+          "a"
+        ]
+      }
+    },
+    {
+      "id": "M46-no-match-permutation-right",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.proposal-base-match.v0.1\",\"comparison_revision\":\"R\",\"proposals\":[{\"proposal_id\":\"P-1\",\"base_revision\":\"Z\"},{\"proposal_id\":\"A\",\"base_revision\":\"Y\"},{\"proposal_id\":\"a\",\"base_revision\":\"X\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "classified",
+        "classification": "no_match",
+        "matching_proposal_ids": [],
+        "nonmatching_proposal_ids": [
+          "A",
+          "P-1",
+          "a"
+        ]
+      }
+    },
+    {
+      "id": "M47-proposal-count-32-shuffled-ascii",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.proposal-base-match.v0.1\",\"comparison_revision\":\"R\",\"proposals\":[{\"proposal_id\":\"P27\",\"base_revision\":\"R\"},{\"proposal_id\":\"P25\",\"base_revision\":\"R\"},{\"proposal_id\":\"P23\",\"base_revision\":\"R\"},{\"proposal_id\":\"P21\",\"base_revision\":\"R\"},{\"proposal_id\":\"P19\",\"base_revision\":\"R\"},{\"proposal_id\":\"P17\",\"base_revision\":\"R\"},{\"proposal_id\":\"P15\",\"base_revision\":\"R\"},{\"proposal_id\":\"P13\",\"base_revision\":\"R\"},{\"proposal_id\":\"P11\",\"base_revision\":\"R\"},{\"proposal_id\":\"P09\",\"base_revision\":\"R\"},{\"proposal_id\":\"P07\",\"base_revision\":\"R\"},{\"proposal_id\":\"P05\",\"base_revision\":\"R\"},{\"proposal_id\":\"P03\",\"base_revision\":\"R\"},{\"proposal_id\":\"P01\",\"base_revision\":\"R\"},{\"proposal_id\":\"b\",\"base_revision\":\"R\"},{\"proposal_id\":\"A\",\"base_revision\":\"R\"},{\"proposal_id\":\"P26\",\"base_revision\":\"R\"},{\"proposal_id\":\"P24\",\"base_revision\":\"R\"},{\"proposal_id\":\"P22\",\"base_revision\":\"R\"},{\"proposal_id\":\"P20\",\"base_revision\":\"R\"},{\"proposal_id\":\"P18\",\"base_revision\":\"R\"},{\"proposal_id\":\"P16\",\"base_revision\":\"R\"},{\"proposal_id\":\"P14\",\"base_revision\":\"R\"},{\"proposal_id\":\"P12\",\"base_revision\":\"R\"},{\"proposal_id\":\"P10\",\"base_revision\":\"R\"},{\"proposal_id\":\"P08\",\"base_revision\":\"R\"},{\"proposal_id\":\"P06\",\"base_revision\":\"R\"},{\"proposal_id\":\"P04\",\"base_revision\":\"R\"},{\"proposal_id\":\"P02\",\"base_revision\":\"R\"},{\"proposal_id\":\"P00\",\"base_revision\":\"R\"},{\"proposal_id\":\"Z\",\"base_revision\":\"R\"},{\"proposal_id\":\"a\",\"base_revision\":\"R\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "classified",
+        "classification": "multiple_match",
+        "matching_proposal_ids": [
+          "A",
+          "P00",
+          "P01",
+          "P02",
+          "P03",
+          "P04",
+          "P05",
+          "P06",
+          "P07",
+          "P08",
+          "P09",
+          "P10",
+          "P11",
+          "P12",
+          "P13",
+          "P14",
+          "P15",
+          "P16",
+          "P17",
+          "P18",
+          "P19",
+          "P20",
+          "P21",
+          "P22",
+          "P23",
+          "P24",
+          "P25",
+          "P26",
+          "P27",
+          "Z",
+          "a",
+          "b"
+        ],
+        "nonmatching_proposal_ids": []
+      }
+    },
+    {
+      "id": "M48-proposal-escaped-duplicate-key",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.proposal-base-match.v0.1\",\"comparison_revision\":\"R\",\"proposals\":[{\"proposal_id\":\"P\",\"propos\\u0061l_id\":\"Q\",\"base_revision\":\"R\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "rejected",
+        "error_code": "DUPLICATE_JSON_KEY"
+      }
+    },
+    {
+      "id": "M49-truncated-json",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.proposal-base-match.v0.1\",\"comparison_revision\":\"R\",\"proposals\":[",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "rejected",
+        "error_code": "MALFORMED_JSON"
+      }
+    },
+    {
+      "id": "M50-root-competing-invalid-types",
+      "mandatory": true,
+      "raw_json": "{\"profile\":1,\"comparison_revision\":2,\"proposals\":{}}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "rejected",
+        "error_code": "INVALID_PROFILE_TYPE"
+      }
+    },
+    {
+      "id": "M51-proposal-competing-invalid-types",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.proposal-base-match.v0.1\",\"comparison_revision\":\"R\",\"proposals\":[{\"proposal_id\":1,\"base_revision\":2}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "rejected",
+        "error_code": "INVALID_PROPOSAL_ID_TYPE"
+      }
+    },
+    {
+      "id": "M52-proposal-unknown-before-invalid-type",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.proposal-base-match.v0.1\",\"comparison_revision\":\"R\",\"proposals\":[{\"proposal_id\":1,\"base_revision\":2,\"unexpected\":true}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "rejected",
+        "error_code": "UNKNOWN_PROPOSAL_FIELD"
+      }
+    },
+    {
+      "id": "M53-root-unknown-before-invalid-type",
+      "mandatory": true,
+      "raw_json": "{\"profile\":1,\"comparison_revision\":2,\"proposals\":{},\"unexpected\":true}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "rejected",
+        "error_code": "UNKNOWN_ROOT_FIELD"
+      }
+    },
+    {
+      "id": "M54-noncanonical-value-before-duplicate",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.proposal-base-match.v0.1\",\"profile\":1.0,\"comparison_revision\":\"R\",\"proposals\":[]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "rejected",
+        "error_code": "NON_CANONICAL_INTEGER"
+      }
+    },
+    {
+      "id": "M55-duplicate-before-invalid-unicode",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.proposal-base-match.v0.1\",\"profile\":\"\\ud800\",\"comparison_revision\":\"R\",\"proposals\":[]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "rejected",
+        "error_code": "DUPLICATE_JSON_KEY"
+      }
+    },
+    {
+      "id": "M56-depth-in-duplicate-value-before-duplicate",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.proposal-base-match.v0.1\",\"profile\":[[[[[[[[[[[[[[[[[0]]]]]]]]]]]]]]]]],\"comparison_revision\":\"R\",\"proposals\":[]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "rejected",
+        "error_code": "JSON_DEPTH_LIMIT"
+      }
+    },
+    {
+      "id": "M57-duplicate-before-later-noncanonical-member",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.proposal-base-match.v0.1\",\"profile\":\"meshfleet.a2a.proposal-base-match.v0.1\",\"comparison_revision\":1.0,\"proposals\":[]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "rejected",
+        "error_code": "DUPLICATE_JSON_KEY"
+      }
+    },
+    {
+      "id": "M58-extreme-depth-bounded",
+      "mandatory": true,
+      "raw_json": "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[0]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+      "expected_output": {
+        "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+        "outcome": "rejected",
+        "error_code": "JSON_DEPTH_LIMIT"
+      }
+    }
+  ],
+  "boundary_notes": [
+    "M44 accepts exact 128-byte comparison and proposal base revisions.",
+    "M45-M47 freeze no-match permutation and shuffled 32-proposal ASCII ordering.",
+    "M48-M53 freeze proposal-level duplicate parsing, truncation, and competing-error precedence.",
+    "M54-M56 freeze competing parser precedence: numeric lexical errors before duplicates; duplicates before post-parse Unicode and depth checks.",
+    "M56-M58 freeze streaming depth and duplicate timing: depth inside a duplicate value wins; a completed duplicate wins before later members; extreme nesting is bounded deterministically."
+  ]
+}

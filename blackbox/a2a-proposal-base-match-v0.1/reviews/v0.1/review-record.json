@@ -1,0 +1,46 @@
+{
+  "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+  "status": "PASS-AS-HELD",
+  "implementation_review": null,
+  "corpus_review": null,
+  "known_findings": [],
+  "acceptance": {
+    "state": "PASS-AS-HELD",
+    "focused": "JS/Python self 2 each; corpus 58 each; per-raw-case differential 58 plus self 2; fuzz 400 original plus 400 permutations, 2 invalid mutations, 5 parser controls.",
+    "build": true,
+    "typecheck": true,
+    "full_suite": "891/891",
+    "remaining_boundary": "Local-only, unmerged, unpushed, unpublished, undeployed, inactive."
+  },
+  "reviewers": [
+    {
+      "angle": "implementation-and-semantics",
+      "reviewer": "Pasteur / gpt-5.6-terra",
+      "state": "APPROVE",
+      "remaining_p1_p2": 0,
+      "boundary": "Read-only slice approval; not integration, release, activation, or interoperability."
+    },
+    {
+      "angle": "corpus-and-oracles",
+      "reviewer": "Dalton / gpt-5.6-terra",
+      "state": "APPROVE",
+      "remaining_p1_p2": 0,
+      "boundary": "Read-only closure based on supplied receipts; no independent test rerun."
+    }
+  ],
+  "remediation": {
+    "differential": "Replaced aggregate summary comparison with per-raw-case JS/Python/frozen-oracle equality and transcript hash.",
+    "oracle_independence": "Pending implementation reviewer confirmation that JS and Python share no evaluator, parser, validation, or classification helper.",
+    "coverage": [
+      "Fuzz cardinalities widened through 32 with mandatory 0/1/2/31/32 seeds.",
+      "Shuffled 32-proposal ASCII witness added.",
+      "Paired multi-proposal no-match permutations added.",
+      "Proposal escaped duplicate and truncated JSON added.",
+      "Root/proposal competing-error precedence cases added."
+    ],
+    "parser_precedence": "JS now parses each member value before duplicate detection, then performs post-parse Unicode and depth checks in the same precedence as Python; M54-M56 freeze competing failures.",
+    "fuzz_permutations": "Every one of 400 generated scenarios now evaluates both original and independently shuffled proposal arrays against the same full projection.",
+    "independence_review": "Pasteur confirmed JS and Python share no evaluator, parser, validation, classification helper, generated schema, or serializer; the parser-precedence and permutation findings remain pending closure rereview.",
+    "streaming_parser": "Python json.loads/object_pairs_hook replaced by an independent handwritten strict parser. Both parsers now enforce depth on container entry and parse each member value before duplicate detection; M56-M58 cover the previously divergent timing and extreme depth."
+  }
+}
