@@ -1,0 +1,32 @@
+{
+  "schema_version": "0.1",
+  "protocol_version": "2025-11-25",
+  "profiles": [
+    {
+      "name": "synthetic-wire-profile-01-rocket-🚀",
+      "initialize_write": "fragmented",
+      "post_initialize_write": "coalesced"
+    },
+    {
+      "name": "synthetic-wire-profile-02",
+      "initialize_write": "coalesced",
+      "post_initialize_write": "fragmented"
+    }
+  ],
+  "operations": [
+    "initialize",
+    "notifications/initialized",
+    "ping",
+    "tools/list",
+    "tools/call:get_health",
+    "tools/call:unknown"
+  ],
+  "unknown_tool_expected_message": "Unknown tool: __meshfleet_catalog_boundary_unknown_tool__",
+  "catalog_digest_domain": {
+    "object_keys": "ASCII keys sorted by code unit",
+    "top_level_tools": "unique ASCII names sorted by code unit",
+    "arrays": "preserved in source order",
+    "numbers": "finite safe integers only, excluding negative zero, base-10",
+    "strings": "no lone surrogates; quote, backslash, and U+0000-U+001F explicitly escaped; other Unicode preserved as UTF-8"
+  }
+}
