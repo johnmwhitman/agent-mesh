@@ -1,3 +1,5 @@
+import { assertRouteCandidates } from "./route-candidate-validation.js";
+
 export type RoutePrivacy = "local_only" | "network_ok" | "unrestricted";
 export type RouteLocality = "same_host" | "same_fleet" | "any";
 export type RouteCoordination = "solo" | "pair_discussion";
@@ -94,8 +96,6 @@ const LOCALITY_ORDER: Record<RouteLocality, number> = {
   same_fleet: 1,
   any: 2,
 };
-
-const MAX_OUTCOME_COUNT = 1_000_000;
 
 function invalid(path: string, detail: string): never {
   throw new Error(`recommend_route: '${path}' ${detail}`);
@@ -227,180 +227,14 @@ function validateRecommendRouteInput(value: unknown): asserts value is Recommend
     requireFiniteInteger(task.min_context_tokens, "task.min_context_tokens", 0);
   }
 
-  if (!Array.isArray(input.candidates) || input.candidates.length < 1 || input.candidates.length > 256) {
-    invalid("candidates", "must be an array with 1..256 items");
-  }
+  assertRouteCandidates(input.candidates, {
+    errorPrefix: "recommend_route",
+    path: "candidates",
+  });
   if (input.top_n !== undefined) {
     requireFiniteInteger(input.top_n, "top_n", 1);
     if (input.top_n > input.candidates.length) {
       invalid("top_n", "cannot exceed candidates.length");
-    }
-  }
-
-  const candidateIds = new Set<string>();
-  for (let index = 0; index < input.candidates.length; index++) {
-    const path = `candidates[${index}]`;
-    const candidate = requireRecord(input.candidates[index], path);
-    requireAllowedKeys(
-      candidate,
-      path,
-      new Set([
-        "candidate_id",
-        "capabilities",
-        "privacy",
-        "locality",
-        "coordination_modes",
-        "policy_tags",
-        "context_window",
-        "observed_outcomes",
-        "budget",
-        "requested_identity",
-        "observed_identity",
-      ]),
-    );
-    requireString(candidate.candidate_id, `${path}.candidate_id`);
-    const candidateId = candidate.candidate_id as string;
-    if (candidateIds.has(candidateId)) {
-      invalid(`${path}.candidate_id`, `is a duplicate candidate_id '${candidateId}'`);
-    }
-    candidateIds.add(candidateId);
-    requireTokenArray(candidate.capabilities, `${path}.capabilities`, { minItems: 1 });
-    if (!["local_only", "network_ok", "unrestricted"].includes(candidate.privacy as string)) {
-      invalid(`${path}.privacy`, "must be local_only, network_ok, or unrestricted");
-    }
-    if (!["same_host", "same_fleet", "any"].includes(candidate.locality as string)) {
-      invalid(`${path}.locality`, "must be same_host, same_fleet, or any");
-    }
-    if (candidate.coordination_modes !== undefined) {
-      if (
-        !Array.isArray(candidate.coordination_modes) ||
-        candidate.coordination_modes.length < 1 ||
-        candidate.coordination_modes.length > 2
-      ) {
-        invalid(
-          `${path}.coordination_modes`,
-          "must be an array with 1..2 items",
-        );
-      }
-      const modes = new Set<unknown>();
-      for (let modeIndex = 0; modeIndex < candidate.coordination_modes.length; modeIndex++) {
-        const mode = candidate.coordination_modes[modeIndex];
-        if (!["solo", "pair_discussion"].includes(mode as string)) {
-          invalid(
-            `${path}.coordination_modes[${modeIndex}]`,
-            "must be solo or pair_discussion",
-          );
-        }
-        if (modes.has(mode)) {
-          invalid(`${path}.coordination_modes`, `contains duplicate mode '${String(mode)}'`);
-        }
-        modes.add(mode);
-      }
-    }
-    if (candidate.policy_tags !== undefined) {
-      requireTokenArray(candidate.policy_tags, `${path}.policy_tags`);
-    }
-    if (candidate.context_window !== undefined) {
-      requireFiniteInteger(candidate.context_window, `${path}.context_window`, 0);
-    }
-
-    if (candidate.observed_outcomes !== undefined) {
-      const outcomes = requireRecord(
-        candidate.observed_outcomes,
-        `${path}.observed_outcomes`,
-      );
-      requireAllowedKeys(
-        outcomes,
-        `${path}.observed_outcomes`,
-        new Set(["successes", "failures"]),
-      );
-      requireFiniteInteger(
-        outcomes.successes,
-        `${path}.observed_outcomes.successes`,
-        0,
-        MAX_OUTCOME_COUNT,
-      );
-      requireFiniteInteger(
-        outcomes.failures,
-        `${path}.observed_outcomes.failures`,
-        0,
-        MAX_OUTCOME_COUNT,
-      );
-    }
-
-    if (candidate.budget !== undefined) {
-      const budget = requireRecord(candidate.budget, `${path}.budget`);
-      requireAllowedKeys(
-        budget,
-        `${path}.budget`,
-        new Set(["measured", "used", "total"]),
-      );
-      if (typeof budget.measured !== "boolean") {
-        invalid(`${path}.budget.measured`, "must be a boolean");
-      }
-      if (budget.measured) {
-        if (!Number.isFinite(budget.used) || (budget.used as number) < 0) {
-          invalid(`${path}.budget.used`, "must be a finite number >= 0");
-        }
-        if (!Number.isFinite(budget.total) || (budget.total as number) <= 0) {
-          invalid(`${path}.budget.total`, "must be a finite number > 0");
-        }
-      } else if (budget.used !== undefined || budget.total !== undefined) {
-        invalid(
-          `${path}.budget`,
-          "must omit used and total when measured is false",
-        );
-      }
-    }
-
-    if (candidate.requested_identity !== undefined) {
-      const requested = requireRecord(
-        candidate.requested_identity,
-        `${path}.requested_identity`,
-      );
-      const unknown = Object.keys(requested).find(
-        (key) => key !== "runtime" && key !== "model",
-      );
-      if (unknown) invalid(`${path}.requested_identity.${unknown}`, "is not allowed");
-      if (requested.runtime === undefined && requested.model === undefined) {
-        invalid(
-          `${path}.requested_identity`,
-          "must name at least one of runtime or model",
-        );
-      }
-      if (requested.runtime !== undefined) {
-        requireString(
-          requested.runtime,
-          `${path}.requested_identity.runtime`,
-          256,
-        );
-      }
-      if (requested.model !== undefined) {
-        requireString(requested.model, `${path}.requested_identity.model`, 256);
-      }
-    }
-    if (candidate.observed_identity !== undefined) {
-      const observed = requireRecord(
-        candidate.observed_identity,
-        `${path}.observed_identity`,
-      );
-      const unknown = Object.keys(observed).find(
-        (key) => key !== "runtime" && key !== "model" && key !== "source",
-      );
-      if (unknown) invalid(`${path}.observed_identity.${unknown}`, "is not allowed");
-      if (observed.runtime === undefined && observed.model === undefined) {
-        invalid(
-          `${path}.observed_identity`,
-          "must name at least one of runtime or model",
-        );
-      }
-      if (observed.runtime !== undefined) {
-        requireString(observed.runtime, `${path}.observed_identity.runtime`, 256);
-      }
-      if (observed.model !== undefined) {
-        requireString(observed.model, `${path}.observed_identity.model`, 256);
-      }
-      requireString(observed.source, `${path}.observed_identity.source`, 256);
     }
   }
 }
