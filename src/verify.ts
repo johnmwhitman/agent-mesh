@@ -22,7 +22,7 @@
  * Read-only by design: verification never mutates the ledger it audits.
  */
 import { existsSync } from "fs";
-import { BROADCAST, TERMINAL_AGENT_STATUSES, isRoutableCapability, isUsableAgentId, messageRecipients, type MeshData, type Message, type Receipt } from "./core.js";
+import { BROADCAST, SEALED_FLEET_STATUSES, TERMINAL_AGENT_STATUSES, isRoutableCapability, isUsableAgentId, messageRecipients, type MeshData, type Message, type Receipt } from "./core.js";
 import { MAX_TOTAL_WEIGHT, MAX_VOTE_WEIGHT, computeTally, parseVoteAction } from "./ratify.js";
 import { deriveDiscussion, parseEnvelope, parseReceiptAction } from "./discussion.js";
 import { readLedger } from "./db.js";
@@ -106,6 +106,18 @@ export interface VerifyReport {
 }
 
 /** True when every addressed recipient of `msg` holds an 'ack' receipt — the same derivation _writeReceipt uses. */
+/**
+ * Does this row carry an identity of its own to compare its map key against?
+ *
+ * Guarded rather than assumed: a row whose `id` is absent or blank has not made
+ * a competing claim, so there is nothing to disagree with. Reporting a mismatch
+ * there would turn every legitimately id-less legacy row into a hard error —
+ * the same false-positive shape the capability checks already normalize around.
+ */
+function hasUsableId(row: { id?: unknown } | undefined): row is { id: string } {
+  return typeof row?.id === "string" && row.id.length > 0;
+}
+
 function derivedAcknowledged(msg: Message, validatedAckReceipts: ReadonlySet<string>): boolean {
   return messageRecipients(msg).every((r) => validatedAckReceipts.has(`${msg.id}:${r}:ack`));
 }
@@ -134,13 +146,50 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
   // Warning, not error: the rows are internally consistent and nothing is
   // overclaimed by them — the fleet's own agents state the truth plainly. It is
   // a stale projection, not a forged one.
-  for (const f of Object.values(data.fleets)) {
-    if (f.status !== "running" && f.status !== "pending") continue;
+  for (const [key, f] of Object.entries(data.fleets)) {
+    if (hasUsableId(f) && key !== f.id) {
+      error(
+        "fleet.key_mismatch",
+        key,
+        `fleet stored under key "${key}" but its body claims id "${f.id}" — the map name and the row's own identity are different facts, and every join in this ledger picks one of them`
+      );
+    }
     const fleetAgents = Object.values(data.agents).filter((a) => a.fleet_id === f.id);
-    // An EMPTY fleet is deliberately excluded: `[].every(...)` is vacuously true,
-    // and such a fleet is stuck rather than finished. health.ts makes the same
-    // distinction, and the two must not disagree.
+    // An EMPTY fleet is deliberately excluded from BOTH directions below:
+    // `[].every(...)` is vacuously true, and such a fleet is stuck rather than
+    // finished. health.ts makes the same distinction, and the two must not
+    // disagree.
     if (fleetAgents.length === 0) continue;
+
+    // The OVERCLAIM direction. `complete` and `failed` are sealed — a recompute
+    // must never rewrite them — so a sealed fleet is the ledger's final word on
+    // that work. If one of its agents is still live, that word is false, and
+    // `core.ts` makes the argument itself in the comment that justifies the
+    // `abandoned` status: `complete` "claims work that never happened".
+    //
+    // Error, not warning, and this is the asymmetry that matters: the
+    // underclaim below is a stale projection the fleet's own agents contradict
+    // in the reader's favour, while this asserts finished work over an agent
+    // that has not finished. An evidence product cannot report that clean.
+    //
+    // `abandoned` is deliberately NOT in this set. `attach_agent` reopens an
+    // abandoned fleet and injects a live replacement, so `abandoned` alongside
+    // a running agent is a legitimate transient state — flagging it would put a
+    // hard error on the only recovery path the lattice offers.
+    if (SEALED_FLEET_STATUSES.has(f.status)) {
+      const live = fleetAgents.filter((a) => !TERMINAL_AGENT_STATUSES.has(a.status));
+      if (live.length > 0) {
+        error(
+          "fleet.sealed_with_live_agents",
+          f.id,
+          `fleet ${f.id} is sealed as ${f.status}, but ${live.length} of its ${fleetAgents.length} agents ${live.length === 1 ? "is" : "are"} still ${JSON.stringify(live.map((a) => a.status))} (${JSON.stringify(live.map((a) => a.id))}) — a sealed fleet claims work that its own agents say never finished`
+        );
+      }
+      continue;
+    }
+
+    // The UNDERCLAIM direction: still open while every agent has finished.
+    if (f.status !== "running" && f.status !== "pending") continue;
     if (!fleetAgents.every((a) => TERMINAL_AGENT_STATUSES.has(a.status))) continue;
     warning(
       "fleet.unreconciled_status",
@@ -150,7 +199,14 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
   }
 
   // --- agents ---------------------------------------------------------------
-  for (const a of Object.values(data.agents)) {
+  for (const [key, a] of Object.entries(data.agents)) {
+    if (hasUsableId(a) && key !== a.id) {
+      error(
+        "agent.key_mismatch",
+        key,
+        `agent stored under key "${key}" but its body claims id "${a.id}" — receipts, inboxes and fleet membership all join on one of these two, so they cannot disagree`
+      );
+    }
     if (!data.fleets[a.fleet_id]) {
       warning("agent.orphan_fleet", a.id, `agent ${a.id} references fleet ${a.fleet_id}, which this ledger does not hold`);
     } else {
@@ -237,7 +293,14 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
   }
 
   const invalidMessageTimestamps = new Set<string>();
-  for (const msg of Object.values(data.messages)) {
+  for (const [key, msg] of Object.entries(data.messages)) {
+    if (hasUsableId(msg) && key !== msg.id) {
+      error(
+        "message.key_mismatch",
+        key,
+        `message stored under key "${key}" but its body claims id "${msg.id}" — receipts join on the body id while inboxes join on the key, so a split identity makes the same message two different rows`
+      );
+    }
     if (!Number.isFinite(msg.timestamp)) {
       error("message.invalid_timestamp", msg.id, `message ${msg.id} has a missing or non-finite timestamp`);
       invalidMessageTimestamps.add(msg.id);
@@ -325,6 +388,34 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
     if (f && msg.timestamp < f.created_at) {
       error("message.tampered_timestamp", msg.id, `message timestamp is before fleet creation`);
     }
+    // Symmetric to `agent.orphan_fleet`, and warning for the same reason: a
+    // cross-attached fleet can legitimately leave a message naming a fleet this
+    // ledger never held. Silence was the odd one out — the timestamp check
+    // above only runs when the fleet EXISTS, so a ghost fleet_id skipped every
+    // fleet-scoped check without a word.
+    if (!f) {
+      warning(
+        "message.orphan_fleet",
+        msg.id,
+        `message ${msg.id} references fleet ${JSON.stringify(msg.fleet_id)}, which this ledger does not hold`
+      );
+    }
+
+    // `acknowledged` derives as "every addressed recipient holds an ack". Over
+    // an empty address set `every` is vacuously true, so the flag could claim
+    // acknowledgement backed by zero delivery evidence and the mismatch check
+    // below could never fire. The write path refuses a broadcast with no
+    // recipients outright, so this row cannot be produced honestly. Same
+    // precedent as the empty fleet above: a vacuous "all done" is not a
+    // finished claim.
+    if (msg.acknowledged && messageRecipients(msg).length === 0) {
+      error(
+        "message.vacuous_ack",
+        msg.id,
+        `message ${msg.id} claims acknowledged with an empty recipient set — nobody was addressed, so the claim rests on no delivery evidence at all`
+      );
+      continue;
+    }
 
     const derived = derivedAcknowledged(msg, validatedAckReceipts);
     if (msg.acknowledged && !derived) {
@@ -345,6 +436,26 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
       }
       if (validatedAckReceipts.has(`${id}:${agentId}:ack`)) {
         error("inbox.acked_still_queued", `${agentId}:${id}`, `message ${id} is still in the inbox of ${agentId}, but ${agentId} holds an 'ack' receipt on it — ack consumes`);
+      }
+      // The dual of `receipt.non_recipient_ack`. That check catches a false
+      // delivery claim made through a receipt; this one catches the same claim
+      // made through the queue. Inbox membership asserts "queued for this
+      // agent", addressing asserts who may receive — a non-recipient queue is a
+      // contradiction between two rows both present here, not incompleteness.
+      //
+      // Legacy broadcasts are exempt: schema v1 predates the materialized
+      // recipients field, so `messageRecipients` falls back to `["*"]` and no
+      // real inbox owner appears in it. That is the same edge the v1→v2
+      // migration backfills `${id}:*:ack` for. Without this exemption the check
+      // would fire on every pre-v2 ledger that ever broadcast.
+      const recipients = messageRecipients(msg);
+      const isLegacyBroadcast = recipients.length === 1 && recipients[0] === BROADCAST;
+      if (!isLegacyBroadcast && !recipients.includes(agentId)) {
+        error(
+          "inbox.non_recipient",
+          `${agentId}:${id}`,
+          `message ${id} is queued for ${agentId}, but it was addressed to ${JSON.stringify(recipients)} — a queue entry for a non-recipient asserts a delivery that was never addressed`
+        );
       }
     }
   }
