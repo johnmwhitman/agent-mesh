@@ -1,0 +1,81 @@
+{
+  "profile": "meshfleet.a2a.effect-key-collapse.v0.1",
+  "operation": "classify_effect_key_declarations(raw_utf8_json_bytes)",
+  "maturity": "offline-reference-conformance-only",
+  "input": {
+    "root_fields": ["profile", "declarations"],
+    "declaration_fields": ["effect_key", "effect_digest"],
+    "effect_key": "ASCII ^[A-Za-z][A-Za-z0-9._:-]{0,127}$ and at most 128 UTF-8 bytes",
+    "effect_digest": "opaque syntax-only ^[0-9a-f]{64}$"
+  },
+  "limits": {
+    "max_utf8_bytes": 65536,
+    "max_depth": 16,
+    "max_declarations": 64,
+    "safe_integer_max": 9007199254740991
+  },
+  "parser": {
+    "input": "one UTF-8 JSON value with no BOM or trailing content",
+    "integer_policy": "canonical safe integers only; decimal, exponent, negative zero, and unsafe values reject",
+    "duplicate_member_policy": "each member value is parsed before duplicate decoded-key detection",
+    "depth_policy": "container entry is bounded before recursive descent",
+    "unicode_policy": "decoded strings are checked for Unicode scalar validity after parsing"
+  },
+  "closed_precedence": [
+    "DOCUMENT_TOO_LARGE",
+    "BOM_NOT_ALLOWED",
+    "INVALID_UTF8",
+    "strict parser errors",
+    "ROOT_NOT_OBJECT",
+    "root unknown fields before missing fields",
+    "root field types profile then declarations",
+    "UNSUPPORTED_PROFILE",
+    "declarations array then DECLARATION_COUNT_LIMIT",
+    "declarations in input order: object, unknown before missing, effect_key type then effect_digest type, key byte length then key grammar, digest grammar",
+    "grouping and classification"
+  ],
+  "parser_errors": [
+    "MALFORMED_JSON",
+    "DUPLICATE_JSON_KEY",
+    "NON_CANONICAL_INTEGER",
+    "UNSAFE_INTEGER",
+    "INVALID_UNICODE",
+    "JSON_DEPTH_LIMIT"
+  ],
+  "validation_errors": [
+    "ROOT_NOT_OBJECT",
+    "UNKNOWN_ROOT_FIELD",
+    "MISSING_ROOT_FIELD",
+    "INVALID_PROFILE_TYPE",
+    "DECLARATIONS_NOT_ARRAY",
+    "UNSUPPORTED_PROFILE",
+    "DECLARATION_COUNT_LIMIT",
+    "DECLARATION_NOT_OBJECT",
+    "UNKNOWN_DECLARATION_FIELD",
+    "MISSING_DECLARATION_FIELD",
+    "INVALID_EFFECT_KEY_TYPE",
+    "INVALID_EFFECT_DIGEST_TYPE",
+    "EFFECT_KEY_TOO_LONG",
+    "INVALID_EFFECT_KEY",
+    "INVALID_EFFECT_DIGEST"
+  ],
+  "output": {
+    "classified": "{profile,outcome:'classified',groups:[{effect_key,classification,digests:[{effect_digest,declaration_count}]}]}",
+    "rejected": "{profile,outcome:'rejected',error_code}",
+    "classification_values": ["single_digest", "digest_conflict"],
+    "ordering": "groups ASCII-sort by effect_key; digest entries ASCII-sort by effect_digest"
+  },
+  "invariants": [
+    "identical declarations are valid and counted",
+    "array order is never authoritative",
+    "effect_key and effect_digest equality are exact ASCII sequence equality",
+    "the digest is never recomputed, interpreted, or trusted as content or provenance",
+    "the evaluator has no side effects"
+  ],
+  "non_claims": [
+    "no exactly-once behavior, replay protection, replay store, deletion, suppression, application, selection, or winner",
+    "no ordering, mutation, persistence, delivery, retry, envelope, receipt, or operation-state behavior",
+    "no revision, lifecycle, authority, policy, identity, authentication, authorization, trust, provenance, digest verification, or content binding",
+    "no filesystem, artifact, execution, runtime, provider, integration, deployment, publication, or interoperability claim"
+  ]
+}

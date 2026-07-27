@@ -1,0 +1,40 @@
+{
+  "profile": "meshfleet.a2a.effect-key-collapse.v0.1",
+  "status": "PASS-AS-HELD",
+  "open_findings": [],
+  "resolved_findings": [
+    "Corrected JavaScript whitespace scanning at end of input to avoid an EOF loop.",
+    "Made no-argument runner invocation execute the corpus, retained explicit --self, and made unknown arguments fail closed.",
+    "Corrected the lone-surrogate raw fixture so it exercises one JSON Unicode escape.",
+    "Added scalar-aware Python UTF-8 length measurement and mandatory M52 for paired-surrogate effect keys.",
+    "Changed JavaScript parser objects to null-prototype objects and added M53/M54 for root and declaration __proto__ members.",
+    "Canonicalized valid Python surrogate pairs before duplicate-key comparison and added M55 for escaped/literal scalar equivalence.",
+    "Restricted Python JSON numeric scanning to ASCII digits and added M56 for a non-ASCII digit after an ASCII prefix."
+  ],
+  "acceptance": {
+    "state": "PASS-AS-HELD",
+    "focused": "JS/Python self 3 each; corpus 56 each; per-raw-case differential 56; fuzz 400 original plus 400 permutations, 5 invalid mutations, 3 parser controls.",
+    "build": true,
+    "typecheck": true,
+    "full_suite": "891/891",
+    "remaining_boundary": "Local-only, unmerged, unpushed, unpublished, undeployed, inactive."
+  },
+  "reviewers": [
+    {
+      "reviewer": "Hooke / gpt-5.6-terra",
+      "angle": "implementation-semantics-and-parser-adversarial",
+      "verdict": "APPROVE",
+      "remaining_p1_p2": 0,
+      "state": "APPROVE",
+      "boundary": "Read-only slice approval; not integration, release, activation, or interoperability."
+    },
+    {
+      "reviewer": "Euclid / gpt-5.6-terra",
+      "angle": "corpus-oracle-and-boundary-completeness",
+      "verdict": "APPROVE",
+      "remaining_p1_p2": 0,
+      "state": "APPROVE",
+      "boundary": "Read-only slice approval; not integration, release, activation, or interoperability."
+    }
+  ]
+}
