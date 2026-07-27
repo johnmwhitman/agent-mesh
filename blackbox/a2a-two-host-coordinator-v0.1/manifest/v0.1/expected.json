@@ -1,0 +1,163 @@
+{
+  "profile": "meshfleet.a2a.two-host-coordinator.v0.1",
+  "case_receipts": {
+    "M01-basic-renew-success-replay": "9a1da92297e14703f1dcfef91fabade40721b1e1ff675d03385c5abaa909fe9b",
+    "M02-equal-time-first-acquire-wins": "fedbb029e8b911c1d571812c416916a992a8dea00af85a29188d8eb6c6e43048",
+    "M03-partition-drops-authority-command": "5fde02283827edd5a49c07d8091c6d41eeaff3432b3ae4132e217d39772e3088",
+    "M04-stale-settlement-fenced-after-recovery": "1982ca554fc449c36faf673067c98b2577c8fd8750424c3fae614f77158c2461",
+    "M05-stale-renewal-fenced": "cd8238820fd2d91690a7944d9f5ee7fd0c44bbb12023dc95840196f5b3ebc43a",
+    "M06-exact-lease-boundary-rejects-settlement": "0bbc36f9b55c67cb97534053d43f03b3856600d721088547eaecb938ae406bbf",
+    "M07-recovery-before-and-at-boundary": "d5974ea14833e7db7d637c4c77b5511954f3a3aa5ee384bf267c118bb979b911",
+    "M08-failure-retry-eligibility-and-distinct-identity": "508847e5e5056834ce98afcb66dbc7221140398b7e52478844bd3c4a9fe1fb01",
+    "M09-retry-time-overflow-preflight": "c474645cae129c87d17e0243c6f4af9e75d424953969cf86ac284b6113933399",
+    "M10-lease-time-overflow-preflight": "b2714503e23ae7acf3ccfb04383fae65eaa877670eba74251a394714d136ac78",
+    "M11-cancellation-finality": "84bb736a57f25469f001ba0f729f21e6b1e4532b3614f3356d1eafa4b45a407e",
+    "M12-partitioned-cancel-rejected-then-connected-cancel": "a4f3578a976fe3f67022f16f0bd5a7536be6610690bf6f62092dc3cfbad9b694",
+    "M13-max-attempt-expiry-terminal": "6dca149be97fff64cee33ca43b38c68bd2f04aaed11ae48d9963b2360c30901b",
+    "M14-max-attempt-failure-terminal": "2fed84e30238ec79a652ffdfc7d2bb7d240b67d512b4b9a08fd3f101dbc1fedf",
+    "M15-heal-does-not-refresh-stale-token": "4a948584c02cfe1db66648934b6cf6040f9facf8889936eb657ae8fe284ee8b2",
+    "M16-total-partition-no-split-brain": "669c226801adfec31d3124927b58b2ac5feadcae84be1615b3c6dab727bfe929",
+    "S01-command-before-create": "2f9c5ba8e7c113e58fa1f3821359e973c0804cc971ad2add0d1106e358b44cc2",
+    "S02-duplicate-create": "a141367db5832de93a46c9bb24820c10229afa08a4b400fc2d93a39b8caa01f0",
+    "S03-no-local-token": "bca578fddcd168bf2bb7cc12c2990517f9f04791877a49a3f0e56e05c12b7036",
+    "S04-terminal-success-all-authority-mutations": "cf2761f67c1ab6dc7884d7f0229e5b26725f91d97c640d665067d38d76bdfd10",
+    "S05-multiple-retries-monotonic-epochs": "88029fedac8d94e539f807dc9fd66d034535a6479e09dc47f8189295ac619ef2",
+    "S06-renewal-at-boundary": "af384464d0dd149123dedef6f5e3d1021c7129d3df9e496aeb5f7a8468e1d8cd",
+    "S07-cancel-without-token": "0322844b259c686a6d23c658763192d734c49fe36c1bb385cf6135f5991fa663",
+    "S08-partitioned-authority-operation-family": "41164b8739213353fba1f12738390008f3bd094f2972ecbdd44fe6d17bc208a7"
+  },
+  "controls": [
+    {
+      "error_code": "NON_MONOTONIC_TIME",
+      "error_path": "$.commands[1].at",
+      "id": "V01-nonmonotonic-time",
+      "input_sha256": "2659ec0f20c18f05dcd32586ee6fc31eef4619a83f0d2e97c5f57d4929ae17f8"
+    },
+    {
+      "error_code": "UNKNOWN_HOST",
+      "error_path": "$.commands[0].host",
+      "id": "V02-unknown-third-host",
+      "input_sha256": "733904a21a99dbf738a4cacf677408fd0e83c6cea7517c4a5bd7c8f0837ba8dc"
+    },
+    {
+      "error_code": "UNKNOWN_FIELD",
+      "error_path": "$.commands[0].extra",
+      "id": "V03-unknown-field",
+      "input_sha256": "3d69a95156a5b7178171652778b182256be187f3c374a30de5d13ce71f243ed0"
+    },
+    {
+      "error_code": "INVALID_SCENARIO",
+      "error_path": "$.profile",
+      "id": "V04-invalid-scenario-profile",
+      "input_sha256": "ca7fe2df06ebc641d86a9dd2cfe6f8a79aae9ad28fae8d44d87cf5e4325a4d07"
+    },
+    {
+      "error_code": "MISSING_FIELD",
+      "error_path": "$.commands",
+      "id": "V05-missing-root-field",
+      "input_sha256": "c07c8dcd324d8a565fd21f6375e86133476512a1ba8d6c3ecaec993159c9654e"
+    },
+    {
+      "error_code": "UNKNOWN_OP",
+      "error_path": "$.commands[0].op",
+      "id": "V06-unknown-operation",
+      "input_sha256": "bab938e27bc2fa836a7ad1bc744e7d30740f573e333968dd332d4f74f6b5c61b"
+    },
+    {
+      "error_code": "INVALID_FIELD",
+      "error_path": "$.commands",
+      "id": "V07-invalid-command-field",
+      "input_sha256": "b06232a5f03d1c89fefb6413e8b1f097591ee9dabbefeee2d222c016e575e27d"
+    },
+    {
+      "error_code": "DEPTH_LIMIT",
+      "error_path": "$",
+      "id": "V08-depth-limit",
+      "input_sha256": "f0244ae1938270f711155b0a26a4307cde7050495140dd858a88a1cfc378cf40"
+    },
+    {
+      "error_code": "MALFORMED_JSON",
+      "error_path": "$",
+      "id": "P01-malformed",
+      "input_sha256": "021fb596db81e6d02bf3d2586ee3981fe519f275c0ac9ca76bbcf2ebb4097d96"
+    },
+    {
+      "error_code": "DUPLICATE_MEMBER",
+      "error_path": "$",
+      "id": "P02-duplicate-member",
+      "input_sha256": "2f40d84deb3aaa6e557cc547bca9012ae954effddbfa39c412677bfb9499983f"
+    },
+    {
+      "error_code": "NON_CANONICAL_INTEGER",
+      "error_path": "$",
+      "id": "P03-negative-zero",
+      "input_sha256": "998149bada43f38f48dce464c5fc334fd4720e9247fafcd50eb05d31686b57fd"
+    },
+    {
+      "error_code": "NON_CANONICAL_INTEGER",
+      "error_path": "$",
+      "id": "P04-decimal",
+      "input_sha256": "8644c23046f8543a622baedfda7d6234bf34c1424d5d78185c08410e0e625b6f"
+    },
+    {
+      "error_code": "NON_CANONICAL_INTEGER",
+      "error_path": "$",
+      "id": "P05-exponent",
+      "input_sha256": "52d0bb26f83ecdbfe642967da82f6ae639e7995b4e413848d5270a08fc3fdace"
+    },
+    {
+      "error_code": "UNSAFE_INTEGER",
+      "error_path": "$",
+      "id": "P06-unsafe-integer",
+      "input_sha256": "ccd643f19dde5ad56b09fa662830043996a1f4d03056599949f198a6826e2b99"
+    },
+    {
+      "error_code": "MALFORMED_JSON",
+      "error_path": "$",
+      "id": "P07-trailing-data",
+      "input_sha256": "82985617ce795510ad965737efe6b5a76411b26a6d7453ff4ba680e856377bc8"
+    },
+    {
+      "error_code": "MALFORMED_JSON",
+      "error_path": "$",
+      "id": "P08-non-json-whitespace",
+      "input_sha256": "31684aef345377e888144bdc4ab6b90e305dcd3d436dad626ba440178cbf45c9"
+    },
+    {
+      "error_code": "MALFORMED_JSON",
+      "error_path": "$",
+      "id": "P09-lone-surrogate",
+      "input_sha256": "7f3c6b6b4a88409efe4d2fba1cb3cf2b79b682fe4387678cba2e6b9645b58221"
+    },
+    {
+      "error_code": "NON_CANONICAL_INTEGER",
+      "error_path": "$",
+      "id": "P10-invalid-scalar-precedes-duplicate",
+      "input_sha256": "b6354ec7ed0fdb52b15d36ac2cc9e743f0bccb2c0054ff38597b0ce9d40fa89a"
+    },
+    {
+      "error_code": "INVALID_UTF8",
+      "error_path": "$",
+      "id": "P11-invalid-utf8-byte",
+      "input_sha256": "a8100ae6aa1940d0b663bb31cd466142ebbdbd5187131b92d93818987832eb89"
+    },
+    {
+      "error_code": "DUPLICATE_MEMBER",
+      "error_path": "$",
+      "id": "P12-duplicate-precedes-postparse-depth",
+      "input_sha256": "2b6e4cce0d5e6924a3acc4345926b97ae61256ea6b7ba2d04ea383a5da6e226d"
+    },
+    {
+      "error_code": "DUPLICATE_MEMBER",
+      "error_path": "$",
+      "id": "P13-duplicate-precedes-postparse-surrogate",
+      "input_sha256": "d78c4e9d975ab3f76deeb01b4d3c2f594c4e1cb811d4ed7ee5447692e1d0a9ec"
+    },
+    {
+      "error_code": "DUPLICATE_MEMBER",
+      "error_path": "$",
+      "id": "P14-recursion-independent-duplicate-precedence",
+      "input_sha256": "e0c3622bd9a7b74c5fc111747389c654312e676979af673ee57e3e4d2fc4468f"
+    }
+  ]
+}
