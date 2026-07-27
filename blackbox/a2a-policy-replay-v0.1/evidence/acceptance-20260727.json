@@ -1,0 +1,39 @@
+{
+  "schema_version": "meshfleet.a2a.policy-replay.acceptance.v0.1",
+  "profile": "meshfleet.a2a.policy-replay.v0.1",
+  "recorded_at": "2026-07-27T09:05:00Z",
+  "source_base": "041500fd9aec6e482875f6339236ffdcc46fc7ed",
+  "worktree": "/private/tmp/agent-mesh-codex-a2a-policy-replay-v01-20260727",
+  "owned_path": "blackbox/a2a-policy-replay-v0.1/**",
+  "focused": {
+    "javascript_self_test": {"parser_controls":13,"validation_controls":8,"mutation_controls":3,"status":"PASS"},
+    "python_self_test": {"parser_controls":13,"validation_controls":8,"mutation_controls":3,"status":"PASS"},
+    "corpus": {"total_cases":22,"mandatory_cases":18,"corpus_sha256":"7672d1117fb16a0287f28781527738862524c1583015f1856c2d1f8d83850a52","status":"PASS"},
+    "corpus_differential": {"transcript_sha256":"d3a137c5e8e851ec2926928c701ead36db2e405168db2059b08b9dd2865d7414","status":"PASS"},
+    "parser_differential": {"cases":30,"transcript_sha256":"a84476fa11eb344a02282c7fce735f0bb6a669aae1ad545e59748bb63be69dc6","status":"PASS"},
+    "generated_differential": {"cases":300,"seed":"0x51a4c0de","transcript_sha256":"d4fcfe26f8ef4ddf149b654b23d08e4c6e9c01d262d626f1ea1db09850e8417f","status":"PASS"}
+  },
+  "repository": {
+    "build": "PASS",
+    "typecheck": "PASS",
+    "full_test": {"passed":891,"failed":0,"status":"PASS"},
+    "sandbox_note": "The first full-suite attempt failed only because sandbox policy denied loopback listen on 127.0.0.1. The authorized loopback-capable rerun passed 891/891."
+  },
+  "corrections_from_testing": [
+    "Fixed JavaScript strict-parser end-of-input handling that could loop at trailing whitespace.",
+    "Fixed root-integer classification that confused end-of-input with a float marker.",
+    "Removed timestamp-monotonicity validation because action-list order is authoritative and delayed exact retries retain their original timestamp.",
+    "Added recorded NAMESPACE_MISMATCH denial before rule matching."
+  ],
+  "collision_check": {
+    "routing_branch": "codex/routing-a2a-20260727",
+    "routing_head": "a4c43427e1f1eb73233a32d38c6085bebee358a8",
+    "owned_path_overlap": false
+  },
+  "review_status": "REVIEW-HOLD",
+  "remaining_gate": "Independent source review and external manifest digest custody are not yet established.",
+  "nonclaims": [
+    "No authentication, credential, cryptographic, durable replay, transport, consensus, production authorization, enforcement, execution, deployment, publication, or release claim.",
+    "No merge, rebase, push, pull request, npm publication, or activation authority."
+  ]
+}

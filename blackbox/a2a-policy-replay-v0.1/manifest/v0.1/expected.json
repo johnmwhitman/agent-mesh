@@ -1,0 +1,147 @@
+{
+  "schema_version": "meshfleet.a2a.policy-replay.manifest.v0.1",
+  "profile": "meshfleet.a2a.policy-replay.v0.1",
+  "source_base": "041500fd9aec6e482875f6339236ffdcc46fc7ed",
+  "generated_at": "2026-07-27T09:05:52.281Z",
+  "maturity": "candidate-review-hold",
+  "artifacts": [
+    {
+      "path": ".gitignore",
+      "bytes": 35,
+      "sha256": "b81d9ce42418e05e42caec2e86d24263a94230271382c6d7eeab6b99938f3899"
+    },
+    {
+      "path": "HANDOFF.md",
+      "bytes": 2695,
+      "sha256": "36016206dfee2458fe57727f762d0981ec231a0758e031ce6c0e0bdcf6c032e2"
+    },
+    {
+      "path": "README.md",
+      "bytes": 2760,
+      "sha256": "8050503d7a74920e11022c7b8b00dfb53c791ab552e5209ee35f2afdfdf0eb70"
+    },
+    {
+      "path": "contract.json",
+      "bytes": 5495,
+      "sha256": "5331a1dba8b54dad0f3448efdfce2734b003181b3634df8469a0b7a6fbd0eec1"
+    },
+    {
+      "path": "corpus/v0.1/cases.json",
+      "bytes": 16631,
+      "sha256": "7f985f377658dca2e538a5519444e8d25decc91f56efa95883d850090cd0e71d"
+    },
+    {
+      "path": "differential.mjs",
+      "bytes": 1053,
+      "sha256": "abea0e8931b370d7f05d71cce8a0dfe99192d8dbde5c7bddab16d1ca1363d170"
+    },
+    {
+      "path": "evaluator.mjs",
+      "bytes": 18520,
+      "sha256": "7a73b8107606961d5b864540deb8c730c87b18306ac2b428f10497c9646db735"
+    },
+    {
+      "path": "evidence/acceptance-20260727.json",
+      "bytes": 2560,
+      "sha256": "87dd02a374ddd5e6a1afc46c165b0d59edd2feff38c084215724ba16e2b1c16b"
+    },
+    {
+      "path": "fuzz-differential.mjs",
+      "bytes": 5909,
+      "sha256": "7fc509f2d821cd2f7e3c019e89ecb4eb65e10ab930ff3af06ff26fc0855a3c4a"
+    },
+    {
+      "path": "python/evaluator.py",
+      "bytes": 15815,
+      "sha256": "c0d9904cdd96a0800cbb19d6991567bdf5fd0f3b86d7b84bc04756093029a7cd"
+    },
+    {
+      "path": "python/runner.py",
+      "bytes": 6355,
+      "sha256": "2083eaf87085fbe2e829b0998cfe07d7f397feff1202a81cc0b6a98fac5163ce"
+    },
+    {
+      "path": "reviews/v0.1/review-record.json",
+      "bytes": 3358,
+      "sha256": "6a9cb526ebd31a549192d8361594b6606024dfacbba4f4d3ef5b1b1a10cb648c"
+    },
+    {
+      "path": "runner.mjs",
+      "bytes": 5500,
+      "sha256": "80a61aa58922240d99bf40192dce4a8b8d0c06f813dc9984bd3d6427020b8831"
+    }
+  ],
+  "expected": {
+    "corpus_sha256": "7672d1117fb16a0287f28781527738862524c1583015f1856c2d1f8d83850a52",
+    "corpus_cases": 22,
+    "mandatory_cases": 18,
+    "parser_controls_per_language": 13,
+    "validation_controls_per_language": 8,
+    "mutation_controls_per_language": 3,
+    "corpus_transcript_sha256": "d3a137c5e8e851ec2926928c701ead36db2e405168db2059b08b9dd2865d7414",
+    "parser_differential_cases": 30,
+    "parser_transcript_sha256": "a84476fa11eb344a02282c7fce735f0bb6a669aae1ad545e59748bb63be69dc6",
+    "generated_differential_cases": 300,
+    "generated_transcript_sha256": "d4fcfe26f8ef4ddf149b654b23d08e4c6e9c01d262d626f1ea1db09850e8417f",
+    "full_repository_tests": {
+      "passed": 891,
+      "failed": 0
+    },
+    "build": "PASS",
+    "typecheck": "PASS"
+  },
+  "command_receipts": {
+    "javascript_self_test": {
+      "path": "/private/tmp/a2a4g-js-self.json",
+      "bytes": 124,
+      "sha256": "27e63cfed200f1146697f4e3c28dceaf1777644342e869de5f940983199d3e9b"
+    },
+    "python_self_test": {
+      "path": "/private/tmp/a2a4g-py-self.json",
+      "bytes": 124,
+      "sha256": "27e63cfed200f1146697f4e3c28dceaf1777644342e869de5f940983199d3e9b"
+    },
+    "javascript_corpus": {
+      "path": "/private/tmp/a2a4g-js-corpus.json",
+      "bytes": 9921,
+      "sha256": "ef2ee93fbbe5f86dbb118f46531aa89c58d340a05931bc11846144a3af427ad6"
+    },
+    "python_corpus": {
+      "path": "/private/tmp/a2a4g-py-corpus.json",
+      "bytes": 9921,
+      "sha256": "ef2ee93fbbe5f86dbb118f46531aa89c58d340a05931bc11846144a3af427ad6"
+    },
+    "corpus_differential": {
+      "path": "/private/tmp/a2a4g-differential.json",
+      "bytes": 182,
+      "sha256": "113dbf0cbaf9452257d2810c6675b651045586079daf291cd8d1aa03a04914c9"
+    },
+    "generated_differential": {
+      "path": "/private/tmp/a2a4g-fuzz.json",
+      "bytes": 312,
+      "sha256": "0afa8c2e8808af05321a832585efd31db6761083e1ec1afd4f6fd8d674e0faa6"
+    },
+    "build_log": {
+      "path": "/private/tmp/a2a4g-build.log",
+      "bytes": 146,
+      "sha256": "138cfb17434721bec3538b9ecc76a52561061b95772c5e79c3cca47eefcc77c6"
+    },
+    "typecheck_log": {
+      "path": "/private/tmp/a2a4g-typecheck.log",
+      "bytes": 46,
+      "sha256": "5a862f20195baa92a43d9cf02b903eace2643a8ac54936b60b3cb9826c19f514"
+    },
+    "full_test_log": {
+      "path": "/private/tmp/a2a4g-full-test.log",
+      "bytes": 86318,
+      "sha256": "d95a33f846a11f44b59276a23a1597d059bd49c0578dbeafdde812630b7f4a47"
+    }
+  },
+  "review_status": "REVIEW-HOLD",
+  "external_digest_required": true,
+  "nonclaims": [
+    "No external manifest digest is established by this file itself.",
+    "No independent source review is claimed.",
+    "No authentication, credential, cryptographic, durable replay, transport, consensus, production authorization, execution, deployment, publication, or release claim."
+  ]
+}

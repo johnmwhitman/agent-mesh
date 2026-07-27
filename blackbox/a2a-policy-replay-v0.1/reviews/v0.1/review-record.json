@@ -1,0 +1,60 @@
+{
+  "schema_version": "meshfleet.a2a.review-record.v0.1",
+  "profile": "meshfleet.a2a.policy-replay.v0.1",
+  "recorded_at": "2026-07-27T08:50:00Z",
+  "status": "REVIEW-HOLD",
+  "delegated_reviews": [
+    {
+      "role": "protocol-architect",
+      "model_observed": "grok-4.5",
+      "scope": "sanitized project-blind policy and replay architecture",
+      "disposition": "addressed-with-changes",
+      "findings": [
+        "Freeze concrete rule syntax, deny-overrides, default denial, logical-time boundaries, revocation epochs, and Unicode scalar diagnostics.",
+        "Do not treat opaque principal or capability labels as identity or credential proof.",
+        "Make replay scope and exact-request identity explicit."
+      ],
+      "resolution": "The executable contract fixes all fields and precedence, uses one global namespace nonce scope, and states label-only and security nonclaims."
+    },
+    {
+      "role": "cross-language-differential-designer",
+      "model_observed": "grok-4.3",
+      "scope": "sanitized project-blind parser and parity design",
+      "disposition": "addressed-with-correction",
+      "findings": [
+        "Use strict duplicate-key rejection, safe integers, raw Unicode scalar semantics, generated differential cases, and rejection mutation checks.",
+        "An informal identical action tuple is insufficient for replay classification."
+      ],
+      "resolution": "The request fingerprint is a canonical, enumerated field set and both language implementations include strict raw parsers and generated parity."
+    }
+  ],
+  "executable_evidence": {
+    "javascript_self_test": {"parser_controls":13,"validation_controls":8,"mutation_controls":3},
+    "python_self_test": {"parser_controls":13,"validation_controls":8,"mutation_controls":3},
+    "corpus": {"total_cases":22,"mandatory_cases":18,"corpus_sha256":"7672d1117fb16a0287f28781527738862524c1583015f1856c2d1f8d83850a52"},
+    "corpus_differential_sha256": "d3a137c5e8e851ec2926928c701ead36db2e405168db2059b08b9dd2865d7414",
+    "parser_differential": {"cases":30,"transcript_sha256":"a84476fa11eb344a02282c7fce735f0bb6a669aae1ad545e59748bb63be69dc6"},
+    "generated_differential": {"cases":300,"transcript_sha256":"d4fcfe26f8ef4ddf149b654b23d08e4c6e9c01d262d626f1ea1db09850e8417f"},
+    "repository_build": "PASS",
+    "repository_typecheck": "PASS",
+    "full_repository_tests": {"passed":891,"failed":0}
+  },
+  "independent_source_review": {
+    "status": "BLOCKED-BY-DISCLOSURE-BOUNDARY",
+    "reason": "Only sanitized contract prompts were authorized; repository source was not sent to external reviewers.",
+    "compensating_evidence": [
+      "Independent JavaScript and Python implementations with byte-identical corpus receipts.",
+      "Thirty-case raw parser differential.",
+      "Three-hundred-case deterministic generated differential with replay, rejection, sequence, and state-mutation properties.",
+      "Repository build, typecheck, and 891-test acceptance run."
+    ],
+    "acceptance_effect": "The package remains REVIEW-HOLD and is not accepted or release-ready."
+  },
+  "pending_gates": [
+    "independent implementation and corpus source review",
+    "hash-bound manifest and external digest custody"
+  ],
+  "unresolved_important_findings": [
+    "Independent implementation/source review is still required before acceptance."
+  ]
+}

@@ -1,0 +1,171 @@
+{
+  "profile": "meshfleet.a2a.policy-replay.v0.1",
+  "policies": {
+    "base": {
+      "namespace": "mesh.demo",
+      "snapshot_id": "snapshot-2",
+      "revocation_epoch": 2,
+      "rules": [
+        {"rule_id":"allow-read","effect":"allow","principal":"alice","resource":"doc","action":"read","required_capabilities":["agent.read"],"not_before":10,"expires_at":100},
+        {"rule_id":"deny-write","effect":"deny","principal":"alice","resource":"doc","action":"write","required_capabilities":[],"not_before":null,"expires_at":null},
+        {"rule_id":"allow-write","effect":"allow","principal":"alice","resource":"doc","action":"write","required_capabilities":["agent.write"],"not_before":null,"expires_at":null},
+        {"rule_id":"allow-bob","effect":"allow","principal":"bob","resource":"doc","action":"read","required_capabilities":[],"not_before":null,"expires_at":null},
+        {"rule_id":"allow-public","effect":"allow","principal":"*","resource":"public","action":"view","required_capabilities":[],"not_before":0,"expires_at":null}
+      ]
+    },
+    "unicode-label": {
+      "namespace": "mesh.demo",
+      "snapshot_id": "unicode-label",
+      "revocation_epoch": 0,
+      "rules": [
+        {"rule_id":"composed","effect":"allow","principal":"\u00e9","resource":"doc","action":"read","required_capabilities":[],"not_before":null,"expires_at":null}
+      ]
+    },
+    "unicode-order": {
+      "namespace": "mesh.demo",
+      "snapshot_id": "unicode-order",
+      "revocation_epoch": 0,
+      "rules": [
+        {"rule_id":"\ud83d\ude00","effect":"deny","principal":"*","resource":"doc","action":"read","required_capabilities":[],"not_before":null,"expires_at":null},
+        {"rule_id":"\ufffd","effect":"deny","principal":"*","resource":"doc","action":"read","required_capabilities":[],"not_before":null,"expires_at":null}
+      ]
+    }
+  },
+  "cases": [
+    {
+      "id":"M01-first-use-allow","mandatory":true,"policy_ref":"base",
+      "actions":[{"request_id":"q1","nonce":"n1","namespace":"mesh.demo","principal":"alice","resource":"doc","action":"read","capabilities":["agent.read"],"policy_epoch":2,"at":10}],
+      "expect":{"case_id":"M01-first-use-allow","decisions":[{"accepted":true,"outcome":"decided","decision":"allow","reason":"ALLOW_RULE","error":null,"matched_rule_id":"allow-read","state_mutated":true}],"receipt_count":1,"event_kinds":["decision_recorded"]}
+    },
+    {
+      "id":"M02-deny-overrides","mandatory":true,"policy_ref":"base",
+      "actions":[{"request_id":"q2","nonce":"n2","namespace":"mesh.demo","principal":"alice","resource":"doc","action":"write","capabilities":["agent.write"],"policy_epoch":2,"at":10}],
+      "expect":{"case_id":"M02-deny-overrides","decisions":[{"accepted":true,"outcome":"decided","decision":"deny","reason":"DENY_RULE","error":null,"matched_rule_id":"deny-write","state_mutated":true}],"receipt_count":1,"event_kinds":["decision_recorded"]}
+    },
+    {
+      "id":"M03-default-deny","mandatory":true,"policy_ref":"base",
+      "actions":[{"request_id":"q3","nonce":"n3","namespace":"mesh.demo","principal":"carol","resource":"doc","action":"read","capabilities":[],"policy_epoch":2,"at":10}],
+      "expect":{"case_id":"M03-default-deny","decisions":[{"accepted":true,"outcome":"decided","decision":"deny","reason":"NO_MATCH","error":null,"matched_rule_id":null,"state_mutated":true}],"receipt_count":1,"event_kinds":["decision_recorded"]}
+    },
+    {
+      "id":"M04-capability-missing","mandatory":true,"policy_ref":"base",
+      "actions":[{"request_id":"q4","nonce":"n4","namespace":"mesh.demo","principal":"alice","resource":"doc","action":"read","capabilities":[],"policy_epoch":2,"at":10}],
+      "expect":{"case_id":"M04-capability-missing","decisions":[{"accepted":true,"outcome":"decided","decision":"deny","reason":"CAPABILITY_MISSING","error":null,"matched_rule_id":null,"state_mutated":true}],"receipt_count":1,"event_kinds":["decision_recorded"]}
+    },
+    {
+      "id":"M05-capability-superset","mandatory":true,"policy_ref":"base",
+      "actions":[{"request_id":"q5","nonce":"n5","namespace":"mesh.demo","principal":"alice","resource":"doc","action":"read","capabilities":["extra","agent.read"],"policy_epoch":2,"at":10}],
+      "expect":{"case_id":"M05-capability-superset","decisions":[{"accepted":true,"outcome":"decided","decision":"allow","reason":"ALLOW_RULE","error":null,"matched_rule_id":"allow-read","state_mutated":true}],"receipt_count":1,"event_kinds":["decision_recorded"]}
+    },
+    {
+      "id":"M06-not-before-inclusive","mandatory":true,"policy_ref":"base",
+      "actions":[{"request_id":"q6","nonce":"n6","namespace":"mesh.demo","principal":"alice","resource":"doc","action":"read","capabilities":["agent.read"],"policy_epoch":2,"at":9}],
+      "expect":{"case_id":"M06-not-before-inclusive","decisions":[{"accepted":true,"outcome":"decided","decision":"deny","reason":"NOT_YET_VALID","error":null,"matched_rule_id":null,"state_mutated":true}],"receipt_count":1,"event_kinds":["decision_recorded"]}
+    },
+    {
+      "id":"M07-expiry-exclusive","mandatory":true,"policy_ref":"base",
+      "actions":[{"request_id":"q7","nonce":"n7","namespace":"mesh.demo","principal":"alice","resource":"doc","action":"read","capabilities":["agent.read"],"policy_epoch":2,"at":100}],
+      "expect":{"case_id":"M07-expiry-exclusive","decisions":[{"accepted":true,"outcome":"decided","decision":"deny","reason":"EXPIRED","error":null,"matched_rule_id":null,"state_mutated":true}],"receipt_count":1,"event_kinds":["decision_recorded"]}
+    },
+    {
+      "id":"M08-stale-epoch-deny","mandatory":true,"policy_ref":"base",
+      "actions":[{"request_id":"q8","nonce":"n8","namespace":"mesh.demo","principal":"alice","resource":"doc","action":"read","capabilities":["agent.read"],"policy_epoch":1,"at":10}],
+      "expect":{"case_id":"M08-stale-epoch-deny","decisions":[{"accepted":true,"outcome":"decided","decision":"deny","reason":"REVOCATION_EPOCH_STALE","error":null,"matched_rule_id":null,"state_mutated":true}],"receipt_count":1,"event_kinds":["decision_recorded"]}
+    },
+    {
+      "id":"M09-future-epoch-reject","mandatory":true,"policy_ref":"base",
+      "actions":[{"request_id":"q9","nonce":"n9","namespace":"mesh.demo","principal":"alice","resource":"doc","action":"read","capabilities":["agent.read"],"policy_epoch":3,"at":10}],
+      "expect":{"case_id":"M09-future-epoch-reject","decisions":[{"accepted":false,"outcome":"rejected","decision":null,"reason":null,"error":"POLICY_EPOCH_AHEAD","matched_rule_id":null,"state_mutated":false}],"receipt_count":0,"event_kinds":[]}
+    },
+    {
+      "id":"M10-exact-allow-replay","mandatory":true,"policy_ref":"base",
+      "actions":[
+        {"request_id":"q10","nonce":"n10","namespace":"mesh.demo","principal":"alice","resource":"doc","action":"read","capabilities":["agent.read"],"policy_epoch":2,"at":10},
+        {"request_id":"q10","nonce":"n10","namespace":"mesh.demo","principal":"alice","resource":"doc","action":"read","capabilities":["agent.read"],"policy_epoch":2,"at":10}
+      ],
+      "expect":{"case_id":"M10-exact-allow-replay","decisions":[{"accepted":true,"outcome":"decided","decision":"allow","reason":"ALLOW_RULE","error":null,"matched_rule_id":"allow-read","state_mutated":true},{"accepted":true,"outcome":"replayed","decision":"allow","reason":"ALLOW_RULE","error":null,"matched_rule_id":"allow-read","state_mutated":false}],"receipt_count":1,"event_kinds":["decision_recorded"]}
+    },
+    {
+      "id":"M11-exact-deny-replay","mandatory":true,"policy_ref":"base",
+      "actions":[
+        {"request_id":"q11","nonce":"n11","namespace":"mesh.demo","principal":"alice","resource":"doc","action":"write","capabilities":["agent.write"],"policy_epoch":2,"at":10},
+        {"request_id":"q11","nonce":"n11","namespace":"mesh.demo","principal":"alice","resource":"doc","action":"write","capabilities":["agent.write"],"policy_epoch":2,"at":10}
+      ],
+      "expect":{"case_id":"M11-exact-deny-replay","decisions":[{"accepted":true,"outcome":"decided","decision":"deny","reason":"DENY_RULE","error":null,"matched_rule_id":"deny-write","state_mutated":true},{"accepted":true,"outcome":"replayed","decision":"deny","reason":"DENY_RULE","error":null,"matched_rule_id":"deny-write","state_mutated":false}],"receipt_count":1,"event_kinds":["decision_recorded"]}
+    },
+    {
+      "id":"M12-request-id-conflict","mandatory":true,"policy_ref":"base",
+      "actions":[
+        {"request_id":"q12a","nonce":"n12","namespace":"mesh.demo","principal":"bob","resource":"doc","action":"read","capabilities":[],"policy_epoch":2,"at":10},
+        {"request_id":"q12b","nonce":"n12","namespace":"mesh.demo","principal":"bob","resource":"doc","action":"read","capabilities":[],"policy_epoch":2,"at":10}
+      ],
+      "expect":{"case_id":"M12-request-id-conflict","decisions":[{"accepted":true,"outcome":"decided","decision":"allow","reason":"ALLOW_RULE","error":null,"matched_rule_id":"allow-bob","state_mutated":true},{"accepted":false,"outcome":"rejected","decision":null,"reason":null,"error":"NONCE_REPLAY_CONFLICT","matched_rule_id":null,"state_mutated":false}],"receipt_count":1,"event_kinds":["decision_recorded"]}
+    },
+    {
+      "id":"M13-capability-order-exact","mandatory":true,"policy_ref":"base",
+      "actions":[
+        {"request_id":"q13","nonce":"n13","namespace":"mesh.demo","principal":"alice","resource":"doc","action":"read","capabilities":["z","agent.read"],"policy_epoch":2,"at":10},
+        {"request_id":"q13","nonce":"n13","namespace":"mesh.demo","principal":"alice","resource":"doc","action":"read","capabilities":["agent.read","z"],"policy_epoch":2,"at":10}
+      ],
+      "expect":{"case_id":"M13-capability-order-exact","decisions":[{"accepted":true,"outcome":"decided","decision":"allow","reason":"ALLOW_RULE","error":null,"matched_rule_id":"allow-read","state_mutated":true},{"accepted":true,"outcome":"replayed","decision":"allow","reason":"ALLOW_RULE","error":null,"matched_rule_id":"allow-read","state_mutated":false}],"receipt_count":1,"event_kinds":["decision_recorded"]}
+    },
+    {
+      "id":"M14-global-nonce-principal-conflict","mandatory":true,"policy_ref":"base",
+      "actions":[
+        {"request_id":"q14a","nonce":"n14","namespace":"mesh.demo","principal":"bob","resource":"doc","action":"read","capabilities":[],"policy_epoch":2,"at":10},
+        {"request_id":"q14b","nonce":"n14","namespace":"mesh.demo","principal":"alice","resource":"doc","action":"read","capabilities":["agent.read"],"policy_epoch":2,"at":10}
+      ],
+      "expect":{"case_id":"M14-global-nonce-principal-conflict","decisions":[{"accepted":true,"outcome":"decided","decision":"allow","reason":"ALLOW_RULE","error":null,"matched_rule_id":"allow-bob","state_mutated":true},{"accepted":false,"outcome":"rejected","decision":null,"reason":null,"error":"NONCE_REPLAY_CONFLICT","matched_rule_id":null,"state_mutated":false}],"receipt_count":1,"event_kinds":["decision_recorded"]}
+    },
+    {
+      "id":"M15-conflict-does-not-overwrite","mandatory":true,"policy_ref":"base",
+      "actions":[
+        {"request_id":"q15","nonce":"n15","namespace":"mesh.demo","principal":"bob","resource":"doc","action":"read","capabilities":[],"policy_epoch":2,"at":10},
+        {"request_id":"q15-conflict","nonce":"n15","namespace":"mesh.demo","principal":"alice","resource":"doc","action":"write","capabilities":["agent.write"],"policy_epoch":3,"at":11},
+        {"request_id":"q15","nonce":"n15","namespace":"mesh.demo","principal":"bob","resource":"doc","action":"read","capabilities":[],"policy_epoch":2,"at":10}
+      ],
+      "expect":{"case_id":"M15-conflict-does-not-overwrite","decisions":[{"accepted":true,"outcome":"decided","decision":"allow","reason":"ALLOW_RULE","error":null,"matched_rule_id":"allow-bob","state_mutated":true},{"accepted":false,"outcome":"rejected","decision":null,"reason":null,"error":"NONCE_REPLAY_CONFLICT","matched_rule_id":null,"state_mutated":false},{"accepted":true,"outcome":"replayed","decision":"allow","reason":"ALLOW_RULE","error":null,"matched_rule_id":"allow-bob","state_mutated":false}],"receipt_count":1,"event_kinds":["decision_recorded"]}
+    },
+    {
+      "id":"M16-no-unicode-normalization","mandatory":true,"policy_ref":"unicode-label",
+      "actions":[{"request_id":"q16","nonce":"n16","namespace":"mesh.demo","principal":"e\u0301","resource":"doc","action":"read","capabilities":[],"policy_epoch":0,"at":0}],
+      "expect":{"case_id":"M16-no-unicode-normalization","decisions":[{"accepted":true,"outcome":"decided","decision":"deny","reason":"NO_MATCH","error":null,"matched_rule_id":null,"state_mutated":true}],"receipt_count":1,"event_kinds":["decision_recorded"]}
+    },
+    {
+      "id":"M17-unicode-scalar-rule-order","mandatory":true,"policy_ref":"unicode-order",
+      "actions":[{"request_id":"q17","nonce":"n17","namespace":"mesh.demo","principal":"alice","resource":"doc","action":"read","capabilities":[],"policy_epoch":0,"at":0}],
+      "expect":{"case_id":"M17-unicode-scalar-rule-order","decisions":[{"accepted":true,"outcome":"decided","decision":"deny","reason":"DENY_RULE","error":null,"matched_rule_id":"\ufffd","state_mutated":true}],"receipt_count":1,"event_kinds":["decision_recorded"]}
+    },
+    {
+      "id":"M18-wildcard-allow","mandatory":true,"policy_ref":"base",
+      "actions":[{"request_id":"q18","nonce":"n18","namespace":"mesh.demo","principal":"any-client","resource":"public","action":"view","capabilities":[],"policy_epoch":2,"at":0}],
+      "expect":{"case_id":"M18-wildcard-allow","decisions":[{"accepted":true,"outcome":"decided","decision":"allow","reason":"ALLOW_RULE","error":null,"matched_rule_id":"allow-public","state_mutated":true}],"receipt_count":1,"event_kinds":["decision_recorded"]}
+    },
+    {
+      "id":"O01-reject-does-not-consume","mandatory":false,"policy_ref":"base",
+      "actions":[
+        {"request_id":"future","nonce":"shared","namespace":"mesh.demo","principal":"bob","resource":"doc","action":"read","capabilities":[],"policy_epoch":3,"at":10},
+        {"request_id":"valid","nonce":"shared","namespace":"mesh.demo","principal":"bob","resource":"doc","action":"read","capabilities":[],"policy_epoch":2,"at":10}
+      ],
+      "expect":{"case_id":"O01-reject-does-not-consume","decisions":[{"accepted":false,"outcome":"rejected","decision":null,"reason":null,"error":"POLICY_EPOCH_AHEAD","matched_rule_id":null,"state_mutated":false},{"accepted":true,"outcome":"decided","decision":"allow","reason":"ALLOW_RULE","error":null,"matched_rule_id":"allow-bob","state_mutated":true}],"receipt_count":1,"event_kinds":["decision_recorded"]}
+    },
+    {
+      "id":"O02-stale-deny-replay","mandatory":false,"policy_ref":"base",
+      "actions":[
+        {"request_id":"stale","nonce":"stale-nonce","namespace":"mesh.demo","principal":"bob","resource":"doc","action":"read","capabilities":[],"policy_epoch":1,"at":10},
+        {"request_id":"stale","nonce":"stale-nonce","namespace":"mesh.demo","principal":"bob","resource":"doc","action":"read","capabilities":[],"policy_epoch":1,"at":10}
+      ],
+      "expect":{"case_id":"O02-stale-deny-replay","decisions":[{"accepted":true,"outcome":"decided","decision":"deny","reason":"REVOCATION_EPOCH_STALE","error":null,"matched_rule_id":null,"state_mutated":true},{"accepted":true,"outcome":"replayed","decision":"deny","reason":"REVOCATION_EPOCH_STALE","error":null,"matched_rule_id":null,"state_mutated":false}],"receipt_count":1,"event_kinds":["decision_recorded"]}
+    },
+    {
+      "id":"O03-capability-precedes-time","mandatory":false,"policy_ref":"base",
+      "actions":[{"request_id":"both-miss","nonce":"both-miss","namespace":"mesh.demo","principal":"alice","resource":"doc","action":"read","capabilities":[],"policy_epoch":2,"at":9}],
+      "expect":{"case_id":"O03-capability-precedes-time","decisions":[{"accepted":true,"outcome":"decided","decision":"deny","reason":"CAPABILITY_MISSING","error":null,"matched_rule_id":null,"state_mutated":true}],"receipt_count":1,"event_kinds":["decision_recorded"]}
+    },
+    {
+      "id":"O04-namespace-is-selector-input","mandatory":false,"policy_ref":"base",
+      "actions":[{"request_id":"wrong-namespace","nonce":"wrong-namespace","namespace":"other","principal":"bob","resource":"doc","action":"read","capabilities":[],"policy_epoch":2,"at":10}],
+      "expect":{"case_id":"O04-namespace-is-selector-input","decisions":[{"accepted":true,"outcome":"decided","decision":"deny","reason":"NAMESPACE_MISMATCH","error":null,"matched_rule_id":null,"state_mutated":true}],"receipt_count":1,"event_kinds":["decision_recorded"]}
+    }
+  ]
+}
