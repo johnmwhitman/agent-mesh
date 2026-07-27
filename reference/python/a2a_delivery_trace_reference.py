@@ -206,14 +206,14 @@ def evaluate_delivery_trace(input_value: Any) -> Dict[str, Any]:
             return failure("ORDER_VIOLATION", path, "D13")
         if index > 0 and kind == "message_offered":
             return failure("ORDER_VIOLATION", path, "D15")
-        if successfully_completed:
-            return failure("ORDER_VIOLATION", path, "D17")
         if requires_agent and kind != "message_arrived" and agent_key(agent) not in arrived:
             return failure("ORDER_VIOLATION", path, "D14")
         if kind == "acknowledgment" and agent_key(agent) in acknowledged:
             return failure("ORDER_VIOLATION", path, "D16")
         if kind == "receipt_recorded" and receipt_key(agent, raw["receipt_action"]) in recorded_receipts:
             return failure("ORDER_VIOLATION", path, "D16")
+        if successfully_completed:
+            return failure("ORDER_VIOLATION", path, "D17")
 
         if kind == "message_arrived":
             arrived.add(agent_key(agent))

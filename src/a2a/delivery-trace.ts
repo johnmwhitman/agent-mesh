@@ -347,9 +347,6 @@ export function evaluateDeliveryTrace(input: unknown): DeliveryTraceResult {
     if (index > 0 && kind === "message_offered") {
       return failure("ORDER_VIOLATION", path, "D15");
     }
-    if (successfullyCompleted) {
-      return failure("ORDER_VIOLATION", path, "D17");
-    }
     if (requiresAgent && kind !== "message_arrived") {
       const key = agentKey(agent as AgentRef);
       if (!arrived.has(key)) {
@@ -369,6 +366,9 @@ export function evaluateDeliveryTrace(input: unknown): DeliveryTraceResult {
       )
     ) {
       return failure("ORDER_VIOLATION", path, "D16");
+    }
+    if (successfullyCompleted) {
+      return failure("ORDER_VIOLATION", path, "D17");
     }
 
     if (kind === "message_arrived") {

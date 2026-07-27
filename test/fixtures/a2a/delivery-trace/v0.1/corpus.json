@@ -239,6 +239,17 @@
       "expected": { "ok": false, "error_code": "ORDER_VIOLATION", "precedence_row": "D16" }
     },
     {
+      "id": "duplicate-complete-ack-rejected-before-closure",
+      "envelope": "single",
+      "events": [
+        { "sequence": 0, "transport": "stdio", "kind": "message_offered", "message_id": "corpus-msg", "envelope_digest": "meshfleet.a2a.fingerprint.v1:sha256:a004686eccce8c69bf7cfc8219604f77e1849199f47874bd33d3ff83d5001295" },
+        { "sequence": 1, "transport": "mailbox", "kind": "message_arrived", "message_id": "corpus-msg", "envelope_digest": "meshfleet.a2a.fingerprint.v1:sha256:a004686eccce8c69bf7cfc8219604f77e1849199f47874bd33d3ff83d5001295", "agent": { "namespace": "mesh-local", "agent_id": "recipient" } },
+        { "sequence": 2, "transport": "http_sse", "kind": "acknowledgment", "message_id": "corpus-msg", "envelope_digest": "meshfleet.a2a.fingerprint.v1:sha256:a004686eccce8c69bf7cfc8219604f77e1849199f47874bd33d3ff83d5001295", "agent": { "namespace": "mesh-local", "agent_id": "recipient" } },
+        { "sequence": 3, "transport": "websocket", "kind": "acknowledgment", "message_id": "corpus-msg", "envelope_digest": "meshfleet.a2a.fingerprint.v1:sha256:a004686eccce8c69bf7cfc8219604f77e1849199f47874bd33d3ff83d5001295", "agent": { "namespace": "mesh-local", "agent_id": "recipient" } }
+      ],
+      "expected": { "ok": false, "error_code": "ORDER_VIOLATION", "precedence_row": "D16" }
+    },
+    {
       "id": "event-after-complete-ack-rejected",
       "envelope": "single",
       "events": [
