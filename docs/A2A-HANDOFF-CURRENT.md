@@ -9,6 +9,16 @@ interoperability evidence.
 This is the rolling successor handoff for the provider-neutral Agent Mesh A2A
 program. Canonical behavior remains in the linked specifications and ADRs.
 
+## Subscription-lane snapshot evidence
+
+- Portable corpus: `test/fixtures/routing/subscription-lanes/v0.1/corpus.json`.
+- Executable evidence: `test/recommend-route-subscription-lanes.test.ts` and the
+  real-MCP contract coverage in `test/recommend-route-mcp.test.ts`.
+- Boundary: wrappers provide sanitized offline candidate snapshots only; gateways
+  retain catalogs, credentials, execution, failover, and metering. The corpus and
+  tests do not prove provider availability, authentication, freshness, or any
+  non-advisory maturity claim.
+
 ## Exact Slice 4B closeout
 
 - Branch: `codex/a2a-seamless-foundation`

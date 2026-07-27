@@ -58,6 +58,11 @@ Inbound MCP process compatibility does not imply outbound runtime neutrality,
 authenticated principal binding, lifecycle durability, or multi-host support.
 Those claims require the evidence gates in the canonical program.
 
+Subscription-lane routing has a portable v0.1 offline snapshot corpus and a real MCP
+contract test for sanitized candidate ranking and provider/control-plane rejection.
+It remains advisory-only: the evidence does not establish provider availability,
+authentication, catalog access, execution, failover, or metering.
+
 ## Shipped
 
 | Version | Theme | Highlights |

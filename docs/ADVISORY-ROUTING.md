@@ -35,6 +35,18 @@ not affect score or confer authority. The `claim_match` and `claim_mismatch` sta
 compare only those caller-supplied claims; `evidence_only: true` prevents them from
 being mistaken for MeshFleet-attested runtime identity.
 
+## Subscription-lane snapshots
+
+Wrappers supply one sanitized candidate for each selectable lane/model pairing.
+Capabilities, context, and policy describe fit. Provider, runtime, and model strings
+are opaque evidence: they never score, establish availability, or authenticate an
+identity. Unknown budget is the correct result when freshness cannot be established.
+
+Gateways retain provider catalogs, credentials, execution, failover, and metering.
+The portable subscription-lane corpus is evidence only that an offline snapshot
+conforms to this advisory contract; it is not provider availability, live gateway,
+authentication, execution, or authorization evidence.
+
 ## A2A coordination
 
 A task may request `coordination: "pair_discussion"`. A candidate must then declare

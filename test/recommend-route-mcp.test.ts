@@ -18,6 +18,24 @@ const repoRoot = join(fileURLToPath(new URL(".", import.meta.url)), "..");
 const textOf = (response: unknown): string =>
   (response as { content: Array<{ text: string }> }).content[0]!.text;
 
+const subscriptionLaneCorpus = JSON.parse(
+  readFileSync(
+    join(
+      repoRoot,
+      "test",
+      "fixtures",
+      "routing",
+      "subscription-lanes",
+      "v0.1",
+      "corpus.json",
+    ),
+    "utf8",
+  ),
+) as {
+  candidate_templates: Array<Record<string, unknown>>;
+  cases: Array<{ id: string; task: Record<string, unknown> }>;
+};
+
 async function withServer(
   fn: (client: Client, dataDir: string) => Promise<void>,
 ): Promise<void> {
@@ -195,6 +213,46 @@ test("recommend_route refuses raw-prompt and authority-shaped fields", async () 
       },
     ];
 
+    for (const key of [
+      "provider",
+      "subscription",
+      "availability",
+      "authenticated",
+      "quota_reset_at",
+      "endpoint",
+      "credentials",
+      "dispatch",
+    ]) {
+      cases.push({
+        name: key,
+        arguments: {
+          ...base,
+          candidates: [{ ...base.candidates[0], [key]: "forbidden" }],
+        },
+        expected: new RegExp(key),
+      });
+    }
+    for (const parent of ["budget", "requested_identity"] as const) {
+      for (const key of ["fresh", "availability", "authenticated"]) {
+        cases.push({
+          name: `${parent} ${key} smuggling`,
+          arguments: {
+            ...base,
+            candidates: [
+              {
+                ...base.candidates[0],
+                [parent]:
+                  parent === "budget"
+                    ? { measured: false, [key]: "forbidden" }
+                    : { runtime: "caller-selected-runtime", [key]: "forbidden" },
+              },
+            ],
+          },
+          expected: new RegExp(`${parent}\\.${key}`),
+        });
+      }
+    }
+
     for (const fixture of cases) {
       const response = await client.callTool({
         name: "recommend_route",
@@ -207,6 +265,62 @@ test("recommend_route refuses raw-prompt and authority-shaped fields", async () 
       );
       assert.match(textOf(response), fixture.expected);
     }
+  });
+});
+
+test("recommend_route accepts sanitized subscription-lane snapshots without provider authority", async () => {
+  await withServer(async (client, dataDir) => {
+    const snapshot = (): Array<[string, string]> =>
+      readdirSync(dataDir)
+        .sort()
+        .map((name) => [name, readFileSync(join(dataDir, name)).toString("base64")]);
+    const filesBefore = snapshot();
+    const fastPatch = subscriptionLaneCorpus.cases.find(
+      ({ id }) => id === "fast-patch",
+    );
+    assert.ok(fastPatch, "subscription-lane corpus must provide the fast-patch fixture");
+
+    const response = await client.callTool({
+      name: "recommend_route",
+      arguments: {
+        task: fastPatch.task,
+        candidates: subscriptionLaneCorpus.candidate_templates,
+        top_n: subscriptionLaneCorpus.candidate_templates.length,
+      },
+    });
+    assert.equal((response as { isError?: boolean }).isError, undefined);
+    const body = JSON.parse(textOf(response)) as {
+      effects: {
+        persisted: boolean;
+        executed: boolean;
+        authorized: boolean;
+        woke_agents: boolean;
+        contacted_providers: boolean;
+      };
+      ranked: Array<{
+        candidate_id: string;
+        identity: Record<string, unknown>;
+      }>;
+    };
+
+    assert.deepEqual(body.effects, {
+      persisted: false,
+      executed: false,
+      authorized: false,
+      woke_agents: false,
+      contacted_providers: false,
+    });
+    assert.deepEqual(body.ranked.map(({ candidate_id }) => candidate_id), [
+      "lane-b",
+      "lane-a",
+      "lane-c",
+    ]);
+    for (const { candidate_id, identity } of body.ranked) {
+      assert.equal(identity.evidence_only, true, `${candidate_id} identity is evidence only`);
+      assert.equal("availability" in identity, false, `${candidate_id} must not claim availability`);
+      assert.equal("authenticated" in identity, false, `${candidate_id} must not claim authentication`);
+    }
+    assert.deepEqual(snapshot(), filesBefore);
   });
 });
 
