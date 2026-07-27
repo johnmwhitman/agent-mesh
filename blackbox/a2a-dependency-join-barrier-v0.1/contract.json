@@ -1,0 +1,97 @@
+{
+  "profile": "meshfleet.a2a.dependency-join-barrier.v0.1",
+  "operation": "evaluate_dependency_join_barrier",
+  "maturity": "offline-reference-conformance-only",
+  "model": {
+    "state": "one caller-supplied immutable member-state snapshot",
+    "member_states": [
+      "open",
+      "success",
+      "failure",
+      "cancelled"
+    ],
+    "modes": [
+      "all_success",
+      "any_success",
+      "k_of_n_success",
+      "all_terminal"
+    ],
+    "outcomes": [
+      "waiting",
+      "satisfied",
+      "unsatisfiable"
+    ],
+    "admitted": "true exactly when outcome is satisfied"
+  },
+  "limits": {
+    "max_utf8_bytes": 131072,
+    "max_depth": 64,
+    "max_members": 128,
+    "max_label_utf8_bytes": 256,
+    "safe_integer_max": 9007199254740991
+  },
+  "parser_errors": [
+    "SIZE_LIMIT",
+    "INVALID_UTF8",
+    "MALFORMED_JSON",
+    "DUPLICATE_MEMBER",
+    "NON_CANONICAL_INTEGER",
+    "UNSAFE_INTEGER",
+    "INVALID_UNICODE",
+    "DEPTH_LIMIT"
+  ],
+  "validation_errors": [
+    "PROFILE_REJECT",
+    "MISSING_FIELD",
+    "UNKNOWN_FIELD",
+    "INVALID_FIELD",
+    "LIMIT_EXCEEDED",
+    "DUPLICATE_MEMBER",
+    "UNKNOWN_MEMBER",
+    "MISSING_MEMBER",
+    "K_OUT_OF_RANGE",
+    "K_FORBIDDEN"
+  ],
+  "validation_precedence": [
+    "raw bytes: size, fatal UTF-8, BOM rejection, strict JSON syntax, duplicate keys, canonical safe integers, Unicode scalars, and depth",
+    "root object, required profile, profile value, required root fields, and root unknown fields",
+    "collection and label limits",
+    "member and child-state record shapes, strings, and state enum values",
+    "duplicate member declarations and duplicate child-state members",
+    "unknown child-state members, then missing child-state members",
+    "mode type and enum, then mode-specific k presence, absence, type, and inclusive range",
+    "total pure evaluation of a valid snapshot"
+  ],
+  "semantics": {
+    "all_success": "satisfied iff every member is success; unsatisfiable if any member is failure or cancelled; otherwise waiting",
+    "any_success": "satisfied if any member is success; unsatisfiable iff every member is terminal and none is success; otherwise waiting",
+    "k_of_n_success": "satisfied iff success count is at least k; unsatisfiable iff success count plus open count is less than k; otherwise waiting",
+    "all_terminal": "satisfied iff open count is zero; otherwise waiting; it is never unsatisfiable",
+    "evidence": "one fact per member, sorted by code then member using Unicode scalar ordering",
+    "ordering": "members and child_states are semantic sets; their input permutations cannot change output bytes"
+  },
+  "invariants": [
+    "members is nonempty and unique",
+    "child_states has exactly one record for every member and no extras",
+    "all valid scenarios yield one total outcome and sorted evidence",
+    "admitted is true iff outcome is satisfied",
+    "all_terminal cannot yield unsatisfiable",
+    "the evaluator is a pure function and never mutates supplied input",
+    "JavaScript and Python canonical projections must be byte-identical"
+  ],
+  "non_claims": [
+    "no lifecycle transition, cancellation action, recovery, retry, or task-state authority",
+    "no execution, scheduling, dispatch, transport, delivery, receipt, acknowledgement, or side effect",
+    "no replay, idempotency key, deduplication, persistence, database, event log, or cache",
+    "no time, deadline, clock, lease, authority, quorum, weighted voting, policy, or authorization",
+    "no identity proof, authentication, credential, signature, trust, consensus, runtime, or provider behavior",
+    "no named-client capability, production interoperability, merge, publication, deployment, activation, or release claim"
+  ],
+  "bom_policy": "A leading UTF-8 BOM is rejected as MALFORMED_JSON in both witnesses.",
+  "evidence_layers": {
+    "frozen_corpus": "independently reviewable fixed expectations",
+    "self_test": "byte/parser and declared limit boundaries",
+    "fuzz_differential": "deterministic JS/Python rejection, Unicode, permutation, and generated-scenario parity"
+  },
+  "k_type_policy": "JSON floats are rejected during strict parsing as NON_CANONICAL_INTEGER. For parsed values, non-safe-integer k values including booleans and strings reject as K_OUT_OF_RANGE."
+}

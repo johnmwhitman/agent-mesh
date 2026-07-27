@@ -1,0 +1,1297 @@
+{
+  "profile": "meshfleet.a2a.dependency-join-barrier.v0.1",
+  "frozen_expectations": "Independent review targets. Semantic and precedence projections are manually declared; evaluators and runners must not regenerate or overwrite this corpus.",
+  "cases": [
+    {
+      "id": "M01-all-success-satisfied",
+      "mandatory": true,
+      "input": {
+        "profile": "meshfleet.a2a.dependency-join-barrier.v0.1",
+        "members": [
+          "a",
+          "b"
+        ],
+        "child_states": [
+          {
+            "member": "a",
+            "state": "success"
+          },
+          {
+            "member": "b",
+            "state": "success"
+          }
+        ],
+        "mode": "all_success"
+      },
+      "expected": {
+        "admitted": true,
+        "counts": {
+          "cancelled": 0,
+          "failure": 0,
+          "open": 0,
+          "success": 2
+        },
+        "evidence": [
+          {
+            "code": "SUCCESS_MEMBER",
+            "member": "a"
+          },
+          {
+            "code": "SUCCESS_MEMBER",
+            "member": "b"
+          }
+        ],
+        "members": [
+          "a",
+          "b"
+        ],
+        "mode": "all_success",
+        "outcome": "satisfied",
+        "required_successes": null
+      }
+    },
+    {
+      "id": "M02-all-success-waiting",
+      "mandatory": true,
+      "input": {
+        "profile": "meshfleet.a2a.dependency-join-barrier.v0.1",
+        "members": [
+          "a",
+          "b"
+        ],
+        "child_states": [
+          {
+            "member": "a",
+            "state": "success"
+          },
+          {
+            "member": "b",
+            "state": "open"
+          }
+        ],
+        "mode": "all_success"
+      },
+      "expected": {
+        "admitted": false,
+        "counts": {
+          "cancelled": 0,
+          "failure": 0,
+          "open": 1,
+          "success": 1
+        },
+        "evidence": [
+          {
+            "code": "OPEN_MEMBER",
+            "member": "b"
+          },
+          {
+            "code": "SUCCESS_MEMBER",
+            "member": "a"
+          }
+        ],
+        "members": [
+          "a",
+          "b"
+        ],
+        "mode": "all_success",
+        "outcome": "waiting",
+        "required_successes": null
+      }
+    },
+    {
+      "id": "M03-all-success-unsatisfiable",
+      "mandatory": true,
+      "input": {
+        "profile": "meshfleet.a2a.dependency-join-barrier.v0.1",
+        "members": [
+          "a",
+          "b"
+        ],
+        "child_states": [
+          {
+            "member": "a",
+            "state": "success"
+          },
+          {
+            "member": "b",
+            "state": "cancelled"
+          }
+        ],
+        "mode": "all_success"
+      },
+      "expected": {
+        "admitted": false,
+        "counts": {
+          "cancelled": 1,
+          "failure": 0,
+          "open": 0,
+          "success": 1
+        },
+        "evidence": [
+          {
+            "code": "CANCELLED_MEMBER",
+            "member": "b"
+          },
+          {
+            "code": "SUCCESS_MEMBER",
+            "member": "a"
+          }
+        ],
+        "members": [
+          "a",
+          "b"
+        ],
+        "mode": "all_success",
+        "outcome": "unsatisfiable",
+        "required_successes": null
+      }
+    },
+    {
+      "id": "M04-any-success-waiting",
+      "mandatory": true,
+      "input": {
+        "profile": "meshfleet.a2a.dependency-join-barrier.v0.1",
+        "members": [
+          "a",
+          "b",
+          "c"
+        ],
+        "child_states": [
+          {
+            "member": "a",
+            "state": "cancelled"
+          },
+          {
+            "member": "b",
+            "state": "failure"
+          },
+          {
+            "member": "c",
+            "state": "open"
+          }
+        ],
+        "mode": "any_success"
+      },
+      "expected": {
+        "admitted": false,
+        "counts": {
+          "cancelled": 1,
+          "failure": 1,
+          "open": 1,
+          "success": 0
+        },
+        "evidence": [
+          {
+            "code": "CANCELLED_MEMBER",
+            "member": "a"
+          },
+          {
+            "code": "FAILURE_MEMBER",
+            "member": "b"
+          },
+          {
+            "code": "OPEN_MEMBER",
+            "member": "c"
+          }
+        ],
+        "members": [
+          "a",
+          "b",
+          "c"
+        ],
+        "mode": "any_success",
+        "outcome": "waiting",
+        "required_successes": null
+      }
+    },
+    {
+      "id": "M05-any-success-unsatisfiable",
+      "mandatory": true,
+      "input": {
+        "profile": "meshfleet.a2a.dependency-join-barrier.v0.1",
+        "members": [
+          "a",
+          "b"
+        ],
+        "child_states": [
+          {
+            "member": "a",
+            "state": "failure"
+          },
+          {
+            "member": "b",
+            "state": "cancelled"
+          }
+        ],
+        "mode": "any_success"
+      },
+      "expected": {
+        "admitted": false,
+        "counts": {
+          "cancelled": 1,
+          "failure": 1,
+          "open": 0,
+          "success": 0
+        },
+        "evidence": [
+          {
+            "code": "CANCELLED_MEMBER",
+            "member": "b"
+          },
+          {
+            "code": "FAILURE_MEMBER",
+            "member": "a"
+          }
+        ],
+        "members": [
+          "a",
+          "b"
+        ],
+        "mode": "any_success",
+        "outcome": "unsatisfiable",
+        "required_successes": null
+      }
+    },
+    {
+      "id": "M06-k-satisfied",
+      "mandatory": true,
+      "input": {
+        "profile": "meshfleet.a2a.dependency-join-barrier.v0.1",
+        "members": [
+          "a",
+          "b",
+          "c"
+        ],
+        "child_states": [
+          {
+            "member": "a",
+            "state": "success"
+          },
+          {
+            "member": "b",
+            "state": "success"
+          },
+          {
+            "member": "c",
+            "state": "failure"
+          }
+        ],
+        "mode": "k_of_n_success",
+        "k": 2
+      },
+      "expected": {
+        "admitted": true,
+        "counts": {
+          "cancelled": 0,
+          "failure": 1,
+          "open": 0,
+          "success": 2
+        },
+        "evidence": [
+          {
+            "code": "FAILURE_MEMBER",
+            "member": "c"
+          },
+          {
+            "code": "SUCCESS_MEMBER",
+            "member": "a"
+          },
+          {
+            "code": "SUCCESS_MEMBER",
+            "member": "b"
+          }
+        ],
+        "members": [
+          "a",
+          "b",
+          "c"
+        ],
+        "mode": "k_of_n_success",
+        "outcome": "satisfied",
+        "required_successes": 2
+      }
+    },
+    {
+      "id": "M07-k-waiting",
+      "mandatory": true,
+      "input": {
+        "profile": "meshfleet.a2a.dependency-join-barrier.v0.1",
+        "members": [
+          "a",
+          "b",
+          "c"
+        ],
+        "child_states": [
+          {
+            "member": "a",
+            "state": "success"
+          },
+          {
+            "member": "b",
+            "state": "open"
+          },
+          {
+            "member": "c",
+            "state": "open"
+          }
+        ],
+        "mode": "k_of_n_success",
+        "k": 2
+      },
+      "expected": {
+        "admitted": false,
+        "counts": {
+          "cancelled": 0,
+          "failure": 0,
+          "open": 2,
+          "success": 1
+        },
+        "evidence": [
+          {
+            "code": "OPEN_MEMBER",
+            "member": "b"
+          },
+          {
+            "code": "OPEN_MEMBER",
+            "member": "c"
+          },
+          {
+            "code": "SUCCESS_MEMBER",
+            "member": "a"
+          }
+        ],
+        "members": [
+          "a",
+          "b",
+          "c"
+        ],
+        "mode": "k_of_n_success",
+        "outcome": "waiting",
+        "required_successes": 2
+      }
+    },
+    {
+      "id": "M08-k-unsatisfiable",
+      "mandatory": true,
+      "input": {
+        "profile": "meshfleet.a2a.dependency-join-barrier.v0.1",
+        "members": [
+          "a",
+          "b",
+          "c",
+          "d"
+        ],
+        "child_states": [
+          {
+            "member": "a",
+            "state": "success"
+          },
+          {
+            "member": "b",
+            "state": "failure"
+          },
+          {
+            "member": "c",
+            "state": "cancelled"
+          },
+          {
+            "member": "d",
+            "state": "open"
+          }
+        ],
+        "mode": "k_of_n_success",
+        "k": 3
+      },
+      "expected": {
+        "admitted": false,
+        "counts": {
+          "cancelled": 1,
+          "failure": 1,
+          "open": 1,
+          "success": 1
+        },
+        "evidence": [
+          {
+            "code": "CANCELLED_MEMBER",
+            "member": "c"
+          },
+          {
+            "code": "FAILURE_MEMBER",
+            "member": "b"
+          },
+          {
+            "code": "OPEN_MEMBER",
+            "member": "d"
+          },
+          {
+            "code": "SUCCESS_MEMBER",
+            "member": "a"
+          }
+        ],
+        "members": [
+          "a",
+          "b",
+          "c",
+          "d"
+        ],
+        "mode": "k_of_n_success",
+        "outcome": "unsatisfiable",
+        "required_successes": 3
+      }
+    },
+    {
+      "id": "M09-all-terminal-satisfied",
+      "mandatory": true,
+      "input": {
+        "profile": "meshfleet.a2a.dependency-join-barrier.v0.1",
+        "members": [
+          "a",
+          "b"
+        ],
+        "child_states": [
+          {
+            "member": "a",
+            "state": "failure"
+          },
+          {
+            "member": "b",
+            "state": "cancelled"
+          }
+        ],
+        "mode": "all_terminal"
+      },
+      "expected": {
+        "admitted": true,
+        "counts": {
+          "cancelled": 1,
+          "failure": 1,
+          "open": 0,
+          "success": 0
+        },
+        "evidence": [
+          {
+            "code": "CANCELLED_MEMBER",
+            "member": "b"
+          },
+          {
+            "code": "FAILURE_MEMBER",
+            "member": "a"
+          }
+        ],
+        "members": [
+          "a",
+          "b"
+        ],
+        "mode": "all_terminal",
+        "outcome": "satisfied",
+        "required_successes": null
+      }
+    },
+    {
+      "id": "M10-all-terminal-waiting",
+      "mandatory": true,
+      "input": {
+        "profile": "meshfleet.a2a.dependency-join-barrier.v0.1",
+        "members": [
+          "a",
+          "b"
+        ],
+        "child_states": [
+          {
+            "member": "a",
+            "state": "success"
+          },
+          {
+            "member": "b",
+            "state": "open"
+          }
+        ],
+        "mode": "all_terminal"
+      },
+      "expected": {
+        "admitted": false,
+        "counts": {
+          "cancelled": 0,
+          "failure": 0,
+          "open": 1,
+          "success": 1
+        },
+        "evidence": [
+          {
+            "code": "OPEN_MEMBER",
+            "member": "b"
+          },
+          {
+            "code": "SUCCESS_MEMBER",
+            "member": "a"
+          }
+        ],
+        "members": [
+          "a",
+          "b"
+        ],
+        "mode": "all_terminal",
+        "outcome": "waiting",
+        "required_successes": null
+      }
+    },
+    {
+      "id": "M11-permutation-and-unicode-order",
+      "mandatory": true,
+      "input": {
+        "profile": "meshfleet.a2a.dependency-join-barrier.v0.1",
+        "members": [
+          "z",
+          "a",
+          "",
+          "𐀀"
+        ],
+        "child_states": [
+          {
+            "member": "z",
+            "state": "success"
+          },
+          {
+            "member": "a",
+            "state": "failure"
+          },
+          {
+            "member": "𐀀",
+            "state": "success"
+          },
+          {
+            "member": "",
+            "state": "open"
+          }
+        ],
+        "mode": "any_success"
+      },
+      "expected": {
+        "admitted": true,
+        "counts": {
+          "cancelled": 0,
+          "failure": 1,
+          "open": 1,
+          "success": 2
+        },
+        "evidence": [
+          {
+            "code": "FAILURE_MEMBER",
+            "member": "a"
+          },
+          {
+            "code": "OPEN_MEMBER",
+            "member": ""
+          },
+          {
+            "code": "SUCCESS_MEMBER",
+            "member": "z"
+          },
+          {
+            "code": "SUCCESS_MEMBER",
+            "member": "𐀀"
+          }
+        ],
+        "members": [
+          "a",
+          "z",
+          "",
+          "𐀀"
+        ],
+        "mode": "any_success",
+        "outcome": "satisfied",
+        "required_successes": null
+      },
+      "permutation_pair": "M11-M15"
+    },
+    {
+      "id": "M12-k-boundary-one",
+      "mandatory": true,
+      "input": {
+        "profile": "meshfleet.a2a.dependency-join-barrier.v0.1",
+        "members": [
+          "a"
+        ],
+        "child_states": [
+          {
+            "member": "a",
+            "state": "success"
+          }
+        ],
+        "mode": "k_of_n_success",
+        "k": 1
+      },
+      "expected": {
+        "admitted": true,
+        "counts": {
+          "cancelled": 0,
+          "failure": 0,
+          "open": 0,
+          "success": 1
+        },
+        "evidence": [
+          {
+            "code": "SUCCESS_MEMBER",
+            "member": "a"
+          }
+        ],
+        "members": [
+          "a"
+        ],
+        "mode": "k_of_n_success",
+        "outcome": "satisfied",
+        "required_successes": 1
+      }
+    },
+    {
+      "id": "S01-duplicate-members",
+      "mandatory": true,
+      "input": {
+        "profile": "meshfleet.a2a.dependency-join-barrier.v0.1",
+        "members": [
+          "a",
+          "a"
+        ],
+        "child_states": [
+          {
+            "member": "a",
+            "state": "open"
+          }
+        ],
+        "mode": "all_success"
+      },
+      "expected_error": "DUPLICATE_MEMBER"
+    },
+    {
+      "id": "S02-duplicate-child-state",
+      "mandatory": true,
+      "input": {
+        "profile": "meshfleet.a2a.dependency-join-barrier.v0.1",
+        "members": [
+          "a"
+        ],
+        "child_states": [
+          {
+            "member": "a",
+            "state": "open"
+          },
+          {
+            "member": "a",
+            "state": "success"
+          }
+        ],
+        "mode": "all_success"
+      },
+      "expected_error": "DUPLICATE_MEMBER"
+    },
+    {
+      "id": "S03-extra-child",
+      "mandatory": true,
+      "input": {
+        "profile": "meshfleet.a2a.dependency-join-barrier.v0.1",
+        "members": [
+          "a"
+        ],
+        "child_states": [
+          {
+            "member": "a",
+            "state": "open"
+          },
+          {
+            "member": "b",
+            "state": "open"
+          }
+        ],
+        "mode": "all_success"
+      },
+      "expected_error": "UNKNOWN_MEMBER"
+    },
+    {
+      "id": "S04-missing-child",
+      "mandatory": true,
+      "input": {
+        "profile": "meshfleet.a2a.dependency-join-barrier.v0.1",
+        "members": [
+          "a",
+          "b"
+        ],
+        "child_states": [
+          {
+            "member": "a",
+            "state": "open"
+          }
+        ],
+        "mode": "all_success"
+      },
+      "expected_error": "MISSING_MEMBER"
+    },
+    {
+      "id": "S05-k-missing",
+      "mandatory": true,
+      "input": {
+        "profile": "meshfleet.a2a.dependency-join-barrier.v0.1",
+        "members": [
+          "a"
+        ],
+        "child_states": [
+          {
+            "member": "a",
+            "state": "open"
+          }
+        ],
+        "mode": "k_of_n_success"
+      },
+      "expected_error": "MISSING_FIELD"
+    },
+    {
+      "id": "S06-k-zero",
+      "mandatory": true,
+      "input": {
+        "profile": "meshfleet.a2a.dependency-join-barrier.v0.1",
+        "members": [
+          "a"
+        ],
+        "child_states": [
+          {
+            "member": "a",
+            "state": "open"
+          }
+        ],
+        "mode": "k_of_n_success",
+        "k": 0
+      },
+      "expected_error": "K_OUT_OF_RANGE"
+    },
+    {
+      "id": "S07-k-too-large",
+      "mandatory": true,
+      "input": {
+        "profile": "meshfleet.a2a.dependency-join-barrier.v0.1",
+        "members": [
+          "a"
+        ],
+        "child_states": [
+          {
+            "member": "a",
+            "state": "open"
+          }
+        ],
+        "mode": "k_of_n_success",
+        "k": 2
+      },
+      "expected_error": "K_OUT_OF_RANGE"
+    },
+    {
+      "id": "S08-k-forbidden",
+      "mandatory": true,
+      "input": {
+        "profile": "meshfleet.a2a.dependency-join-barrier.v0.1",
+        "members": [
+          "a"
+        ],
+        "child_states": [
+          {
+            "member": "a",
+            "state": "open"
+          }
+        ],
+        "mode": "all_success",
+        "k": 1
+      },
+      "expected_error": "K_FORBIDDEN"
+    },
+    {
+      "id": "S09-root-unknown",
+      "mandatory": true,
+      "input": {
+        "profile": "meshfleet.a2a.dependency-join-barrier.v0.1",
+        "members": [
+          "a"
+        ],
+        "child_states": [
+          {
+            "member": "a",
+            "state": "open"
+          }
+        ],
+        "mode": "all_success",
+        "extra": true
+      },
+      "expected_error": "UNKNOWN_FIELD"
+    },
+    {
+      "id": "P01-duplicate-json-key",
+      "mandatory": true,
+      "raw_base64": "eyJwcm9maWxlIjoieCIsInByb2ZpbGUiOiJ5In0=",
+      "expected_error": "DUPLICATE_MEMBER"
+    },
+    {
+      "id": "P02-invalid-utf8",
+      "mandatory": true,
+      "raw_base64": "/w==",
+      "expected_error": "INVALID_UTF8"
+    },
+    {
+      "id": "P03-unsafe-integer",
+      "mandatory": true,
+      "raw_base64": "eyJ4Ijo5MDA3MTk5MjU0NzQwOTkyfQ==",
+      "expected_error": "UNSAFE_INTEGER"
+    },
+    {
+      "id": "P04-invalid-unicode",
+      "mandatory": true,
+      "raw_base64": "eyJ4IjoiXHVkODAwIn0=",
+      "expected_error": "INVALID_UNICODE"
+    },
+    {
+      "id": "M13-all-success-failure-only",
+      "mandatory": true,
+      "input": {
+        "profile": "meshfleet.a2a.dependency-join-barrier.v0.1",
+        "members": [
+          "a"
+        ],
+        "child_states": [
+          {
+            "member": "a",
+            "state": "failure"
+          }
+        ],
+        "mode": "all_success"
+      },
+      "expected": {
+        "admitted": false,
+        "counts": {
+          "cancelled": 0,
+          "failure": 1,
+          "open": 0,
+          "success": 0
+        },
+        "evidence": [
+          {
+            "code": "FAILURE_MEMBER",
+            "member": "a"
+          }
+        ],
+        "members": [
+          "a"
+        ],
+        "mode": "all_success",
+        "outcome": "unsatisfiable",
+        "required_successes": null
+      }
+    },
+    {
+      "id": "M14-any-success-satisfied",
+      "mandatory": true,
+      "input": {
+        "profile": "meshfleet.a2a.dependency-join-barrier.v0.1",
+        "members": [
+          "a",
+          "b",
+          "c"
+        ],
+        "child_states": [
+          {
+            "member": "a",
+            "state": "failure"
+          },
+          {
+            "member": "b",
+            "state": "success"
+          },
+          {
+            "member": "c",
+            "state": "open"
+          }
+        ],
+        "mode": "any_success"
+      },
+      "expected": {
+        "admitted": true,
+        "counts": {
+          "cancelled": 0,
+          "failure": 1,
+          "open": 1,
+          "success": 1
+        },
+        "evidence": [
+          {
+            "code": "FAILURE_MEMBER",
+            "member": "a"
+          },
+          {
+            "code": "OPEN_MEMBER",
+            "member": "c"
+          },
+          {
+            "code": "SUCCESS_MEMBER",
+            "member": "b"
+          }
+        ],
+        "members": [
+          "a",
+          "b",
+          "c"
+        ],
+        "mode": "any_success",
+        "outcome": "satisfied",
+        "required_successes": null
+      }
+    },
+    {
+      "id": "M15-paired-permutation",
+      "mandatory": true,
+      "input": {
+        "profile": "meshfleet.a2a.dependency-join-barrier.v0.1",
+        "members": [
+          "𐀀",
+          "",
+          "a",
+          "z"
+        ],
+        "child_states": [
+          {
+            "member": "",
+            "state": "open"
+          },
+          {
+            "member": "𐀀",
+            "state": "success"
+          },
+          {
+            "member": "a",
+            "state": "failure"
+          },
+          {
+            "member": "z",
+            "state": "success"
+          }
+        ],
+        "mode": "any_success"
+      },
+      "expected": {
+        "admitted": true,
+        "counts": {
+          "cancelled": 0,
+          "failure": 1,
+          "open": 1,
+          "success": 2
+        },
+        "evidence": [
+          {
+            "code": "FAILURE_MEMBER",
+            "member": "a"
+          },
+          {
+            "code": "OPEN_MEMBER",
+            "member": ""
+          },
+          {
+            "code": "SUCCESS_MEMBER",
+            "member": "z"
+          },
+          {
+            "code": "SUCCESS_MEMBER",
+            "member": "𐀀"
+          }
+        ],
+        "members": [
+          "a",
+          "z",
+          "",
+          "𐀀"
+        ],
+        "mode": "any_success",
+        "outcome": "satisfied",
+        "required_successes": null
+      },
+      "permutation_pair": "M11-M15"
+    },
+    {
+      "id": "M16-unicode-scalar-vs-utf16",
+      "mandatory": true,
+      "input": {
+        "profile": "meshfleet.a2a.dependency-join-barrier.v0.1",
+        "members": [
+          "𐀀",
+          ""
+        ],
+        "child_states": [
+          {
+            "member": "𐀀",
+            "state": "success"
+          },
+          {
+            "member": "",
+            "state": "success"
+          }
+        ],
+        "mode": "all_success"
+      },
+      "expected": {
+        "admitted": true,
+        "counts": {
+          "cancelled": 0,
+          "failure": 0,
+          "open": 0,
+          "success": 2
+        },
+        "evidence": [
+          {
+            "code": "SUCCESS_MEMBER",
+            "member": ""
+          },
+          {
+            "code": "SUCCESS_MEMBER",
+            "member": "𐀀"
+          }
+        ],
+        "members": [
+          "",
+          "𐀀"
+        ],
+        "mode": "all_success",
+        "outcome": "satisfied",
+        "required_successes": null
+      }
+    },
+    {
+      "id": "S10-empty-members",
+      "mandatory": true,
+      "input": {
+        "profile": "meshfleet.a2a.dependency-join-barrier.v0.1",
+        "members": [],
+        "child_states": [],
+        "mode": "all_terminal"
+      },
+      "expected_error": "INVALID_FIELD"
+    },
+    {
+      "id": "S11-invalid-state",
+      "mandatory": true,
+      "input": {
+        "profile": "meshfleet.a2a.dependency-join-barrier.v0.1",
+        "members": [
+          "a"
+        ],
+        "child_states": [
+          {
+            "member": "a",
+            "state": "done"
+          }
+        ],
+        "mode": "all_terminal"
+      },
+      "expected_error": "INVALID_FIELD"
+    },
+    {
+      "id": "S12-unknown-before-empty",
+      "mandatory": true,
+      "input": {
+        "profile": "meshfleet.a2a.dependency-join-barrier.v0.1",
+        "members": [],
+        "child_states": [],
+        "mode": "all_terminal",
+        "extra": true
+      },
+      "expected_error": "UNKNOWN_FIELD"
+    },
+    {
+      "id": "S13-duplicate-before-invalid-mode",
+      "mandatory": true,
+      "input": {
+        "profile": "meshfleet.a2a.dependency-join-barrier.v0.1",
+        "members": [
+          "a",
+          "a"
+        ],
+        "child_states": [
+          {
+            "member": "a",
+            "state": "open"
+          }
+        ],
+        "mode": "bogus"
+      },
+      "expected_error": "DUPLICATE_MEMBER"
+    },
+    {
+      "id": "S14-k-bool",
+      "mandatory": true,
+      "input": {
+        "profile": "meshfleet.a2a.dependency-join-barrier.v0.1",
+        "members": [
+          "a"
+        ],
+        "child_states": [
+          {
+            "member": "a",
+            "state": "open"
+          }
+        ],
+        "mode": "k_of_n_success",
+        "k": true
+      },
+      "expected_error": "K_OUT_OF_RANGE"
+    },
+    {
+      "id": "P05-malformed-json",
+      "mandatory": true,
+      "raw_base64": "eyJwcm9maWxlIjo=",
+      "expected_error": "MALFORMED_JSON"
+    },
+    {
+      "id": "P06-bom-rejected",
+      "mandatory": true,
+      "raw_base64": "77u/e30=",
+      "expected_error": "MALFORMED_JSON"
+    },
+    {
+      "id": "S15-k-string",
+      "mandatory": true,
+      "input": {
+        "profile": "meshfleet.a2a.dependency-join-barrier.v0.1",
+        "members": [
+          "a"
+        ],
+        "child_states": [
+          {
+            "member": "a",
+            "state": "open"
+          }
+        ],
+        "mode": "k_of_n_success",
+        "k": "1"
+      },
+      "expected_error": "K_OUT_OF_RANGE"
+    },
+    {
+      "id": "S16-state-numeric",
+      "mandatory": true,
+      "input": {
+        "profile": "meshfleet.a2a.dependency-join-barrier.v0.1",
+        "members": [
+          "a"
+        ],
+        "child_states": [
+          {
+            "member": "a",
+            "state": 1
+          }
+        ],
+        "mode": "all_terminal"
+      },
+      "expected_error": "INVALID_FIELD"
+    },
+    {
+      "id": "P07-k-float-parser-precedence",
+      "mandatory": true,
+      "raw_base64": "eyJwcm9maWxlIjoibWVzaGZsZWV0LmEyYS5kZXBlbmRlbmN5LWpvaW4tYmFycmllci52MC4xIiwibWVtYmVycyI6WyJhIl0sImNoaWxkX3N0YXRlcyI6W3sibWVtYmVyIjoiYSIsInN0YXRlIjoib3BlbiJ9XSwibW9kZSI6Imtfb2Zfbl9zdWNjZXNzIiwiayI6MS41fQ==",
+      "expected_error": "NON_CANONICAL_INTEGER"
+    },
+    {
+      "id": "O01-opaque-client-labels",
+      "mandatory": false,
+      "input": {
+        "profile": "meshfleet.a2a.dependency-join-barrier.v0.1",
+        "members": [
+          "Codex",
+          "Claude Code",
+          "OpenCode",
+          "Antigravity",
+          "Grok",
+          "MiniMax",
+          "generic MCP"
+        ],
+        "child_states": [
+          {
+            "member": "Codex",
+            "state": "success"
+          },
+          {
+            "member": "Claude Code",
+            "state": "open"
+          },
+          {
+            "member": "OpenCode",
+            "state": "failure"
+          },
+          {
+            "member": "Antigravity",
+            "state": "cancelled"
+          },
+          {
+            "member": "Grok",
+            "state": "open"
+          },
+          {
+            "member": "MiniMax",
+            "state": "open"
+          },
+          {
+            "member": "generic MCP",
+            "state": "open"
+          }
+        ],
+        "mode": "any_success"
+      },
+      "expected": {
+        "admitted": true,
+        "counts": {
+          "cancelled": 1,
+          "failure": 1,
+          "open": 4,
+          "success": 1
+        },
+        "evidence": [
+          {
+            "code": "CANCELLED_MEMBER",
+            "member": "Antigravity"
+          },
+          {
+            "code": "FAILURE_MEMBER",
+            "member": "OpenCode"
+          },
+          {
+            "code": "OPEN_MEMBER",
+            "member": "Claude Code"
+          },
+          {
+            "code": "OPEN_MEMBER",
+            "member": "Grok"
+          },
+          {
+            "code": "OPEN_MEMBER",
+            "member": "MiniMax"
+          },
+          {
+            "code": "OPEN_MEMBER",
+            "member": "generic MCP"
+          },
+          {
+            "code": "SUCCESS_MEMBER",
+            "member": "Codex"
+          }
+        ],
+        "members": [
+          "Antigravity",
+          "Claude Code",
+          "Codex",
+          "Grok",
+          "MiniMax",
+          "OpenCode",
+          "generic MCP"
+        ],
+        "mode": "any_success",
+        "outcome": "satisfied",
+        "required_successes": null
+      }
+    }
+  ],
+  "coverage": {
+    "frozen_corpus": "semantic truth table, exact membership, paired permutation, Unicode scalar ordering, selected parser rejections, and validation precedence",
+    "self_test": "15 byte/parser/limit controls",
+    "fuzz": "deterministic generated, parser, validation, Unicode, boundary, and two-order JS/Python parity"
+  }
+}

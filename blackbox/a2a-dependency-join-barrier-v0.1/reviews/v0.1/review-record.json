@@ -1,0 +1,61 @@
+{
+  "profile": "meshfleet.a2a.dependency-join-barrier.v0.1",
+  "status": "RESOLVED",
+  "reviewers": [
+    {
+      "agent_id": "019fa31f-9ef8-7493-8a08-e7be0a817677",
+      "scope": "implementation, parser parity, and harness",
+      "initial_findings": [
+        "BOM divergence",
+        "valid astral Unicode rejection",
+        "differential rejection gap",
+        "ASCII-only and non-reproducible fuzz"
+      ],
+      "remediation": "implemented; focused rerun pending after corpus expansion"
+    },
+    {
+      "agent_id": "019fa31f-a085-77f0-893c-35cfa830dcb8",
+      "scope": "contract and frozen corpus",
+      "initial_findings": [
+        "oracle provenance absent",
+        "precedence under-tested",
+        "truth-table and limits gaps",
+        "unpaired permutation",
+        "Unicode ordering not discriminated"
+      ],
+      "remediation": "semantic, precedence, permutation, Unicode, and parser cases added; exact limits are also pinned by self-test/fuzz; independent rereview pending"
+    }
+  ],
+  "authority_boundary": "No acceptance, merge, push, publication, deployment, activation, or interoperability claim.",
+  "executable_evidence": {
+    "self_test": {
+      "controls": 15,
+      "js_python_byte_identical": true,
+      "sha256": "53c01d05c97617cb5a1f7ae933296ad9728509050789a27bae4fd59779a34c8d"
+    },
+    "fuzz": {
+      "transcript_cases": 274,
+      "generated": 128,
+      "js_python_two_order_byte_identical": true,
+      "sha256": "64adb23dec9f821aac345dfa6d5e8d3d19b5811749e24243308b8eb0614a1194"
+    }
+  },
+  "explicit_deferral": {
+    "finding": "Duplicate every inclusive/exclusive size, depth, member-count, and label boundary in the frozen semantic corpus.",
+    "rationale": "Those byte-heavy boundaries are already exact cross-language oracles in the 15-control self-test and 274-case deterministic fuzz witness. Duplicating generated 128-member and 131072-byte fixtures into the hand-reviewed semantic corpus would reduce reviewability without adding an independent oracle.",
+    "impact": "Limit evidence remains executable and hash-bound rather than manually line-reviewed in cases.json.",
+    "residual_risk": "A reviewer must inspect harness construction; implementation reviewer did so and reported no remaining P0-P2."
+  },
+  "closed_at_utc": "2026-07-27T10:48:51.675Z",
+  "unresolved_p0_p2": 0,
+  "closures": [
+    {
+      "agent_id": "019fa31f-9ef8-7493-8a08-e7be0a817677",
+      "result": "RESOLVED: no remaining P0-P2"
+    },
+    {
+      "agent_id": "019fa31f-a085-77f0-893c-35cfa830dcb8",
+      "result": "RESOLVED: no remaining P0-P2"
+    }
+  ]
+}
