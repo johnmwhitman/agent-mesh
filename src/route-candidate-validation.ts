@@ -237,7 +237,9 @@ export function assertRouteCandidates(
       const unknown = Object.keys(requested).find(
         (key) => key !== "runtime" && key !== "model",
       );
-      if (unknown) failValidation(`${path}.requested_identity.${unknown}`, "is not allowed");
+      if (unknown !== undefined) {
+        failValidation(`${path}.requested_identity.${unknown}`, "is not allowed");
+      }
       if (requested.runtime === undefined && requested.model === undefined) {
         failValidation(`${path}.requested_identity`, "must name at least one of runtime or model");
       }
@@ -257,7 +259,9 @@ export function assertRouteCandidates(
       const unknown = Object.keys(observed).find(
         (key) => key !== "runtime" && key !== "model" && key !== "source",
       );
-      if (unknown) failValidation(`${path}.observed_identity.${unknown}`, "is not allowed");
+      if (unknown !== undefined) {
+        failValidation(`${path}.observed_identity.${unknown}`, "is not allowed");
+      }
       if (observed.runtime === undefined && observed.model === undefined) {
         failValidation(`${path}.observed_identity`, "must name at least one of runtime or model");
       }

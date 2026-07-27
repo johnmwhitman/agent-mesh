@@ -108,10 +108,32 @@ test("assertRouteCandidates rejects invalid closed candidate snapshots", () => {
         /'manifest\.candidates\[0\]\.requested_identity' must name at least one of runtime or model/,
     },
     {
+      name: "requested identities with empty unknown keys",
+      value: [
+        {
+          ...valid,
+          requested_identity: { runtime: "x", "": "smuggled" },
+        },
+      ],
+      expected:
+        /'manifest\.candidates\[0\]\.requested_identity\.' is not allowed/,
+    },
+    {
       name: "observed identities without a source",
       value: [{ ...valid, observed_identity: { runtime: "opencode" } }],
       expected:
         /'manifest\.candidates\[0\]\.observed_identity\.source' must be a non-empty string no longer than 256 characters/,
+    },
+    {
+      name: "observed identities with empty unknown keys",
+      value: [
+        {
+          ...valid,
+          observed_identity: { runtime: "x", source: "receipt", "": "smuggled" },
+        },
+      ],
+      expected:
+        /'manifest\.candidates\[0\]\.observed_identity\.' is not allowed/,
     },
   ];
 
