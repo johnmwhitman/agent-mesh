@@ -1,0 +1,274 @@
+{
+  "profile": "meshfleet.a2a.capability-compat.v0.1",
+  "requirements": {
+    "base": {
+      "requester_label": "fixture-requester",
+      "protocol": {"id":"mesh.a2a","version_range":{"min_inclusive":"1.2.0","max_exclusive":"2.0.0"}},
+      "capabilities": [
+        {"id":"policy.replay","version_range":{"min_inclusive":"1.0.0","max_exclusive":"1.5.0"}},
+        {"id":"handoff.ratify","version_range":{"min_inclusive":"1.0.0","max_exclusive":"2.0.0"}}
+      ],
+      "interaction_modes_any": ["stream","request-response"],
+      "content_types_any": ["application/json","application/a2a+json"],
+      "tools": [
+        {"id":"search","version_range":{"min_inclusive":"2.0.0","max_exclusive":"3.0.0"},"input_schema_id":"schema.search.in.v1","output_schema_id":"schema.search.out.v1"}
+      ],
+      "extensions": {}
+    },
+    "unicode-single": {
+      "requester_label": "unicode-requester",
+      "protocol": {"id":"mesh.a2a","version_range":{"min_inclusive":"1.0.0","max_exclusive":"2.0.0"}},
+      "capabilities": [{"id":"\u00e9","version_range":{"min_inclusive":"1.0.0","max_exclusive":"2.0.0"}}],
+      "interaction_modes_any": [],
+      "content_types_any": [],
+      "tools": [],
+      "extensions": {}
+    },
+    "unicode-order": {
+      "requester_label": "unicode-order-requester",
+      "protocol": {"id":"mesh.a2a","version_range":{"min_inclusive":"1.0.0","max_exclusive":"2.0.0"}},
+      "capabilities": [
+        {"id":"\ud83d\ude00","version_range":{"min_inclusive":"1.0.0","max_exclusive":"2.0.0"}},
+        {"id":"\ufffd","version_range":{"min_inclusive":"1.0.0","max_exclusive":"2.0.0"}}
+      ],
+      "interaction_modes_any": [],
+      "content_types_any": [],
+      "tools": [],
+      "extensions": {}
+    }
+  },
+  "advertisements": {
+    "base": {
+      "advertiser_label": "fixture-advertiser",
+      "completeness": "complete",
+      "protocol": {"id":"mesh.a2a","version":"1.3.0"},
+      "capabilities": [
+        {"id":"extra","version":"9.0.0"},
+        {"id":"policy.replay","version":"1.2.0"},
+        {"id":"handoff.ratify","version":"1.1.0"}
+      ],
+      "interaction_modes": ["event","stream"],
+      "content_types": ["text/plain","application/a2a+json"],
+      "tools": [
+        {"id":"other","version":"9.0.0","input_schema_id":"other.in","output_schema_id":"other.out"},
+        {"id":"search","version":"2.4.0","input_schema_id":"schema.search.in.v1","output_schema_id":"schema.search.out.v1"}
+      ],
+      "extensions": {}
+    },
+    "protocol-id-mismatch": {
+      "advertiser_label":"fixture-advertiser","completeness":"complete","protocol":{"id":"other","version":"1.3.0"},
+      "capabilities":[{"id":"policy.replay","version":"1.2.0"},{"id":"handoff.ratify","version":"1.1.0"}],
+      "interaction_modes":["stream"],"content_types":["application/a2a+json"],
+      "tools":[{"id":"search","version":"2.4.0","input_schema_id":"schema.search.in.v1","output_schema_id":"schema.search.out.v1"}],"extensions":{}
+    },
+    "protocol-below": {
+      "advertiser_label":"fixture-advertiser","completeness":"complete","protocol":{"id":"mesh.a2a","version":"1.1.9"},
+      "capabilities":[{"id":"policy.replay","version":"1.2.0"},{"id":"handoff.ratify","version":"1.1.0"}],
+      "interaction_modes":["stream"],"content_types":["application/a2a+json"],
+      "tools":[{"id":"search","version":"2.4.0","input_schema_id":"schema.search.in.v1","output_schema_id":"schema.search.out.v1"}],"extensions":{}
+    },
+    "protocol-min": {
+      "advertiser_label":"fixture-advertiser","completeness":"complete","protocol":{"id":"mesh.a2a","version":"1.2.0"},
+      "capabilities":[{"id":"policy.replay","version":"1.2.0"},{"id":"handoff.ratify","version":"1.1.0"}],
+      "interaction_modes":["stream"],"content_types":["application/a2a+json"],
+      "tools":[{"id":"search","version":"2.4.0","input_schema_id":"schema.search.in.v1","output_schema_id":"schema.search.out.v1"}],"extensions":{}
+    },
+    "protocol-max": {
+      "advertiser_label":"fixture-advertiser","completeness":"complete","protocol":{"id":"mesh.a2a","version":"2.0.0"},
+      "capabilities":[{"id":"policy.replay","version":"1.2.0"},{"id":"handoff.ratify","version":"1.1.0"}],
+      "interaction_modes":["stream"],"content_types":["application/a2a+json"],
+      "tools":[{"id":"search","version":"2.4.0","input_schema_id":"schema.search.in.v1","output_schema_id":"schema.search.out.v1"}],"extensions":{}
+    },
+    "cap-missing-complete": {
+      "advertiser_label":"fixture-advertiser","completeness":"complete","protocol":{"id":"mesh.a2a","version":"1.3.0"},
+      "capabilities":[{"id":"handoff.ratify","version":"1.1.0"}],"interaction_modes":["stream"],
+      "content_types":["application/a2a+json"],"tools":[{"id":"search","version":"2.4.0","input_schema_id":"schema.search.in.v1","output_schema_id":"schema.search.out.v1"}],"extensions":{}
+    },
+    "cap-missing-partial": {
+      "advertiser_label":"fixture-advertiser","completeness":"partial","protocol":{"id":"mesh.a2a","version":"1.3.0"},
+      "capabilities":[{"id":"handoff.ratify","version":"1.1.0"}],"interaction_modes":["stream"],
+      "content_types":["application/a2a+json"],"tools":[{"id":"search","version":"2.4.0","input_schema_id":"schema.search.in.v1","output_schema_id":"schema.search.out.v1"}],"extensions":{}
+    },
+    "cap-old": {
+      "advertiser_label":"fixture-advertiser","completeness":"complete","protocol":{"id":"mesh.a2a","version":"1.3.0"},
+      "capabilities":[{"id":"policy.replay","version":"0.9.0"},{"id":"handoff.ratify","version":"1.1.0"}],
+      "interaction_modes":["stream"],"content_types":["application/a2a+json"],
+      "tools":[{"id":"search","version":"2.4.0","input_schema_id":"schema.search.in.v1","output_schema_id":"schema.search.out.v1"}],"extensions":{}
+    },
+    "reordered": {
+      "advertiser_label":"fixture-advertiser","completeness":"complete","protocol":{"id":"mesh.a2a","version":"1.3.0"},
+      "capabilities":[{"id":"handoff.ratify","version":"1.1.0"},{"id":"policy.replay","version":"1.2.0"},{"id":"extra","version":"9.0.0"}],
+      "interaction_modes":["stream","event"],"content_types":["application/a2a+json","text/plain"],
+      "tools":[{"id":"search","version":"2.4.0","input_schema_id":"schema.search.in.v1","output_schema_id":"schema.search.out.v1"},{"id":"other","version":"9.0.0","input_schema_id":"other.in","output_schema_id":"other.out"}],"extensions":{}
+    },
+    "mode-disjoint-complete": {
+      "advertiser_label":"fixture-advertiser","completeness":"complete","protocol":{"id":"mesh.a2a","version":"1.3.0"},
+      "capabilities":[{"id":"policy.replay","version":"1.2.0"},{"id":"handoff.ratify","version":"1.1.0"}],
+      "interaction_modes":["event","batch"],"content_types":["application/a2a+json"],
+      "tools":[{"id":"search","version":"2.4.0","input_schema_id":"schema.search.in.v1","output_schema_id":"schema.search.out.v1"}],"extensions":{}
+    },
+    "mode-disjoint-partial": {
+      "advertiser_label":"fixture-advertiser","completeness":"partial","protocol":{"id":"mesh.a2a","version":"1.3.0"},
+      "capabilities":[{"id":"policy.replay","version":"1.2.0"},{"id":"handoff.ratify","version":"1.1.0"}],
+      "interaction_modes":["event","batch"],"content_types":["application/a2a+json"],
+      "tools":[{"id":"search","version":"2.4.0","input_schema_id":"schema.search.in.v1","output_schema_id":"schema.search.out.v1"}],"extensions":{}
+    },
+    "content-disjoint": {
+      "advertiser_label":"fixture-advertiser","completeness":"complete","protocol":{"id":"mesh.a2a","version":"1.3.0"},
+      "capabilities":[{"id":"policy.replay","version":"1.2.0"},{"id":"handoff.ratify","version":"1.1.0"}],
+      "interaction_modes":["stream"],"content_types":["text/plain"],
+      "tools":[{"id":"search","version":"2.4.0","input_schema_id":"schema.search.in.v1","output_schema_id":"schema.search.out.v1"}],"extensions":{}
+    },
+    "content-disjoint-partial": {
+      "advertiser_label":"fixture-advertiser","completeness":"partial","protocol":{"id":"mesh.a2a","version":"1.3.0"},
+      "capabilities":[{"id":"policy.replay","version":"1.2.0"},{"id":"handoff.ratify","version":"1.1.0"}],
+      "interaction_modes":["stream"],"content_types":["text/plain"],
+      "tools":[{"id":"search","version":"2.4.0","input_schema_id":"schema.search.in.v1","output_schema_id":"schema.search.out.v1"}],"extensions":{}
+    },
+    "tool-missing-complete": {
+      "advertiser_label":"fixture-advertiser","completeness":"complete","protocol":{"id":"mesh.a2a","version":"1.3.0"},
+      "capabilities":[{"id":"policy.replay","version":"1.2.0"},{"id":"handoff.ratify","version":"1.1.0"}],
+      "interaction_modes":["stream"],"content_types":["application/a2a+json"],"tools":[],"extensions":{}
+    },
+    "tool-missing-partial": {
+      "advertiser_label":"fixture-advertiser","completeness":"partial","protocol":{"id":"mesh.a2a","version":"1.3.0"},
+      "capabilities":[{"id":"policy.replay","version":"1.2.0"},{"id":"handoff.ratify","version":"1.1.0"}],
+      "interaction_modes":["stream"],"content_types":["application/a2a+json"],"tools":[],"extensions":{}
+    },
+    "tool-old": {
+      "advertiser_label":"fixture-advertiser","completeness":"complete","protocol":{"id":"mesh.a2a","version":"1.3.0"},
+      "capabilities":[{"id":"policy.replay","version":"1.2.0"},{"id":"handoff.ratify","version":"1.1.0"}],
+      "interaction_modes":["stream"],"content_types":["application/a2a+json"],
+      "tools":[{"id":"search","version":"1.9.9","input_schema_id":"schema.search.in.v1","output_schema_id":"schema.search.out.v1"}],"extensions":{}
+    },
+    "tool-input-mismatch": {
+      "advertiser_label":"fixture-advertiser","completeness":"complete","protocol":{"id":"mesh.a2a","version":"1.3.0"},
+      "capabilities":[{"id":"policy.replay","version":"1.2.0"},{"id":"handoff.ratify","version":"1.1.0"}],
+      "interaction_modes":["stream"],"content_types":["application/a2a+json"],
+      "tools":[{"id":"search","version":"2.4.0","input_schema_id":"schema.search.in.v2","output_schema_id":"schema.search.out.v1"}],"extensions":{}
+    },
+    "tool-output-mismatch": {
+      "advertiser_label":"fixture-advertiser","completeness":"complete","protocol":{"id":"mesh.a2a","version":"1.3.0"},
+      "capabilities":[{"id":"policy.replay","version":"1.2.0"},{"id":"handoff.ratify","version":"1.1.0"}],
+      "interaction_modes":["stream"],"content_types":["application/a2a+json"],
+      "tools":[{"id":"search","version":"2.4.0","input_schema_id":"schema.search.in.v1","output_schema_id":"schema.search.out.v2"}],"extensions":{}
+    },
+    "unicode-decomposed": {
+      "advertiser_label":"unicode-advertiser","completeness":"complete","protocol":{"id":"mesh.a2a","version":"1.0.0"},
+      "capabilities":[{"id":"e\u0301","version":"1.0.0"}],"interaction_modes":[],"content_types":[],"tools":[],"extensions":{}
+    },
+    "unicode-empty": {
+      "advertiser_label":"unicode-order-advertiser","completeness":"complete","protocol":{"id":"mesh.a2a","version":"1.0.0"},
+      "capabilities":[],"interaction_modes":[],"content_types":[],"tools":[],"extensions":{}
+    },
+    "extension-rich": {
+      "advertiser_label":"fixture-advertiser","completeness":"complete","protocol":{"id":"mesh.a2a","version":"1.3.0"},
+      "capabilities":[{"id":"policy.replay","version":"1.2.0"},{"id":"handoff.ratify","version":"1.1.0"}],
+      "interaction_modes":["stream"],"content_types":["application/a2a+json"],
+      "tools":[{"id":"search","version":"2.4.0","input_schema_id":"schema.search.in.v1","output_schema_id":"schema.search.out.v1"}],
+      "extensions":{"__proto__":null,"route":"opaque","priority":999,"nested":{"ignored":true}}
+    }
+  },
+  "cases": [
+    {
+      "id":"M01-compatible-base","mandatory":true,"requirement_ref":"base","advertisement_ref":"base",
+      "expect":{"case_id":"M01-compatible-base","result":"compatible","reasons":[],"mismatch_facts":[],"requester_label":"fixture-requester","advertiser_label":"fixture-advertiser","matched_capability_ids":["handoff.ratify","policy.replay"],"matched_interaction_modes":["stream"],"matched_content_types":["application/a2a+json"],"matched_tool_ids":["search"]}
+    },
+    {
+      "id":"M02-protocol-id-mismatch","mandatory":true,"requirement_ref":"base","advertisement_ref":"protocol-id-mismatch",
+      "expect":{"case_id":"M02-protocol-id-mismatch","result":"incompatible","reasons":["PROTOCOL_ID_MISMATCH"],"mismatch_facts":["PROTOCOL_ID_MISMATCH|advertisement.protocol.id|mesh.a2a|other|definite"],"requester_label":"fixture-requester","advertiser_label":"fixture-advertiser","matched_capability_ids":["handoff.ratify","policy.replay"],"matched_interaction_modes":["stream"],"matched_content_types":["application/a2a+json"],"matched_tool_ids":["search"]}
+    },
+    {
+      "id":"M03-protocol-version-below","mandatory":true,"requirement_ref":"base","advertisement_ref":"protocol-below",
+      "expect":{"case_id":"M03-protocol-version-below","result":"incompatible","reasons":["PROTOCOL_VERSION_MISMATCH"],"mismatch_facts":["PROTOCOL_VERSION_MISMATCH|advertisement.protocol.version|>=1.2.0 <2.0.0|1.1.9|definite"],"requester_label":"fixture-requester","advertiser_label":"fixture-advertiser","matched_capability_ids":["handoff.ratify","policy.replay"],"matched_interaction_modes":["stream"],"matched_content_types":["application/a2a+json"],"matched_tool_ids":["search"]}
+    },
+    {
+      "id":"M04-min-inclusive","mandatory":true,"requirement_ref":"base","advertisement_ref":"protocol-min",
+      "expect":{"case_id":"M04-min-inclusive","result":"compatible","reasons":[],"mismatch_facts":[],"requester_label":"fixture-requester","advertiser_label":"fixture-advertiser","matched_capability_ids":["handoff.ratify","policy.replay"],"matched_interaction_modes":["stream"],"matched_content_types":["application/a2a+json"],"matched_tool_ids":["search"]}
+    },
+    {
+      "id":"M05-max-exclusive","mandatory":true,"requirement_ref":"base","advertisement_ref":"protocol-max",
+      "expect":{"case_id":"M05-max-exclusive","result":"incompatible","reasons":["PROTOCOL_VERSION_MISMATCH"],"mismatch_facts":["PROTOCOL_VERSION_MISMATCH|advertisement.protocol.version|>=1.2.0 <2.0.0|2.0.0|definite"],"requester_label":"fixture-requester","advertiser_label":"fixture-advertiser","matched_capability_ids":["handoff.ratify","policy.replay"],"matched_interaction_modes":["stream"],"matched_content_types":["application/a2a+json"],"matched_tool_ids":["search"]}
+    },
+    {
+      "id":"M06-capability-missing-complete","mandatory":true,"requirement_ref":"base","advertisement_ref":"cap-missing-complete",
+      "expect":{"case_id":"M06-capability-missing-complete","result":"incompatible","reasons":["CAPABILITY_MISSING"],"mismatch_facts":["CAPABILITY_MISSING|advertisement.capabilities|policy.replay||definite"],"requester_label":"fixture-requester","advertiser_label":"fixture-advertiser","matched_capability_ids":["handoff.ratify"],"matched_interaction_modes":["stream"],"matched_content_types":["application/a2a+json"],"matched_tool_ids":["search"]}
+    },
+    {
+      "id":"M07-capability-undeclared-partial","mandatory":true,"requirement_ref":"base","advertisement_ref":"cap-missing-partial",
+      "expect":{"case_id":"M07-capability-undeclared-partial","result":"indeterminate","reasons":["CAPABILITY_UNDECLARED"],"mismatch_facts":["CAPABILITY_UNDECLARED|advertisement.capabilities|policy.replay||unknown"],"requester_label":"fixture-requester","advertiser_label":"fixture-advertiser","matched_capability_ids":["handoff.ratify"],"matched_interaction_modes":["stream"],"matched_content_types":["application/a2a+json"],"matched_tool_ids":["search"]}
+    },
+    {
+      "id":"M08-capability-version-mismatch","mandatory":true,"requirement_ref":"base","advertisement_ref":"cap-old",
+      "expect":{"case_id":"M08-capability-version-mismatch","result":"incompatible","reasons":["CAPABILITY_VERSION_MISMATCH"],"mismatch_facts":["CAPABILITY_VERSION_MISMATCH|advertisement.capabilities[policy.replay].version|>=1.0.0 <1.5.0|0.9.0|definite"],"requester_label":"fixture-requester","advertiser_label":"fixture-advertiser","matched_capability_ids":["handoff.ratify"],"matched_interaction_modes":["stream"],"matched_content_types":["application/a2a+json"],"matched_tool_ids":["search"]}
+    },
+    {
+      "id":"M09-set-order-invariant","mandatory":true,"requirement_ref":"base","advertisement_ref":"reordered",
+      "expect":{"case_id":"M09-set-order-invariant","result":"compatible","reasons":[],"mismatch_facts":[],"requester_label":"fixture-requester","advertiser_label":"fixture-advertiser","matched_capability_ids":["handoff.ratify","policy.replay"],"matched_interaction_modes":["stream"],"matched_content_types":["application/a2a+json"],"matched_tool_ids":["search"]}
+    },
+    {
+      "id":"M10-mode-missing-complete","mandatory":true,"requirement_ref":"base","advertisement_ref":"mode-disjoint-complete",
+      "expect":{"case_id":"M10-mode-missing-complete","result":"incompatible","reasons":["INTERACTION_MODE_MISSING"],"mismatch_facts":["INTERACTION_MODE_MISSING|advertisement.interaction_modes|request-response,stream|batch,event|definite"],"requester_label":"fixture-requester","advertiser_label":"fixture-advertiser","matched_capability_ids":["handoff.ratify","policy.replay"],"matched_interaction_modes":[],"matched_content_types":["application/a2a+json"],"matched_tool_ids":["search"]}
+    },
+    {
+      "id":"M11-mode-undeclared-partial","mandatory":true,"requirement_ref":"base","advertisement_ref":"mode-disjoint-partial",
+      "expect":{"case_id":"M11-mode-undeclared-partial","result":"indeterminate","reasons":["INTERACTION_MODE_UNDECLARED"],"mismatch_facts":["INTERACTION_MODE_UNDECLARED|advertisement.interaction_modes|request-response,stream|batch,event|unknown"],"requester_label":"fixture-requester","advertiser_label":"fixture-advertiser","matched_capability_ids":["handoff.ratify","policy.replay"],"matched_interaction_modes":[],"matched_content_types":["application/a2a+json"],"matched_tool_ids":["search"]}
+    },
+    {
+      "id":"M12-content-type-missing","mandatory":true,"requirement_ref":"base","advertisement_ref":"content-disjoint",
+      "expect":{"case_id":"M12-content-type-missing","result":"incompatible","reasons":["CONTENT_TYPE_MISSING"],"mismatch_facts":["CONTENT_TYPE_MISSING|advertisement.content_types|application/a2a+json,application/json|text/plain|definite"],"requester_label":"fixture-requester","advertiser_label":"fixture-advertiser","matched_capability_ids":["handoff.ratify","policy.replay"],"matched_interaction_modes":["stream"],"matched_content_types":[],"matched_tool_ids":["search"]}
+    },
+    {
+      "id":"M13-tool-missing-complete","mandatory":true,"requirement_ref":"base","advertisement_ref":"tool-missing-complete",
+      "expect":{"case_id":"M13-tool-missing-complete","result":"incompatible","reasons":["TOOL_MISSING"],"mismatch_facts":["TOOL_MISSING|advertisement.tools|search||definite"],"requester_label":"fixture-requester","advertiser_label":"fixture-advertiser","matched_capability_ids":["handoff.ratify","policy.replay"],"matched_interaction_modes":["stream"],"matched_content_types":["application/a2a+json"],"matched_tool_ids":[]}
+    },
+    {
+      "id":"M14-tool-undeclared-partial","mandatory":true,"requirement_ref":"base","advertisement_ref":"tool-missing-partial",
+      "expect":{"case_id":"M14-tool-undeclared-partial","result":"indeterminate","reasons":["TOOL_UNDECLARED"],"mismatch_facts":["TOOL_UNDECLARED|advertisement.tools|search||unknown"],"requester_label":"fixture-requester","advertiser_label":"fixture-advertiser","matched_capability_ids":["handoff.ratify","policy.replay"],"matched_interaction_modes":["stream"],"matched_content_types":["application/a2a+json"],"matched_tool_ids":[]}
+    },
+    {
+      "id":"M15-tool-version-mismatch","mandatory":true,"requirement_ref":"base","advertisement_ref":"tool-old",
+      "expect":{"case_id":"M15-tool-version-mismatch","result":"incompatible","reasons":["TOOL_VERSION_MISMATCH"],"mismatch_facts":["TOOL_VERSION_MISMATCH|advertisement.tools[search].version|>=2.0.0 <3.0.0|1.9.9|definite"],"requester_label":"fixture-requester","advertiser_label":"fixture-advertiser","matched_capability_ids":["handoff.ratify","policy.replay"],"matched_interaction_modes":["stream"],"matched_content_types":["application/a2a+json"],"matched_tool_ids":[]}
+    },
+    {
+      "id":"M16-tool-input-schema","mandatory":true,"requirement_ref":"base","advertisement_ref":"tool-input-mismatch",
+      "expect":{"case_id":"M16-tool-input-schema","result":"incompatible","reasons":["TOOL_INPUT_SCHEMA_MISMATCH"],"mismatch_facts":["TOOL_INPUT_SCHEMA_MISMATCH|advertisement.tools[search].input_schema_id|schema.search.in.v1|schema.search.in.v2|definite"],"requester_label":"fixture-requester","advertiser_label":"fixture-advertiser","matched_capability_ids":["handoff.ratify","policy.replay"],"matched_interaction_modes":["stream"],"matched_content_types":["application/a2a+json"],"matched_tool_ids":[]}
+    },
+    {
+      "id":"M17-tool-output-schema","mandatory":true,"requirement_ref":"base","advertisement_ref":"tool-output-mismatch",
+      "expect":{"case_id":"M17-tool-output-schema","result":"incompatible","reasons":["TOOL_OUTPUT_SCHEMA_MISMATCH"],"mismatch_facts":["TOOL_OUTPUT_SCHEMA_MISMATCH|advertisement.tools[search].output_schema_id|schema.search.out.v1|schema.search.out.v2|definite"],"requester_label":"fixture-requester","advertiser_label":"fixture-advertiser","matched_capability_ids":["handoff.ratify","policy.replay"],"matched_interaction_modes":["stream"],"matched_content_types":["application/a2a+json"],"matched_tool_ids":[]}
+    },
+    {
+      "id":"M18-no-unicode-normalization","mandatory":true,"requirement_ref":"unicode-single","advertisement_ref":"unicode-decomposed",
+      "expect":{"case_id":"M18-no-unicode-normalization","result":"incompatible","reasons":["CAPABILITY_MISSING"],"mismatch_facts":["CAPABILITY_MISSING|advertisement.capabilities|\u00e9||definite"],"requester_label":"unicode-requester","advertiser_label":"unicode-advertiser","matched_capability_ids":[],"matched_interaction_modes":[],"matched_content_types":[],"matched_tool_ids":[]}
+    },
+    {
+      "id":"M19-unicode-scalar-fact-order","mandatory":true,"requirement_ref":"unicode-order","advertisement_ref":"unicode-empty",
+      "expect":{"case_id":"M19-unicode-scalar-fact-order","result":"incompatible","reasons":["CAPABILITY_MISSING"],"mismatch_facts":["CAPABILITY_MISSING|advertisement.capabilities|\ufffd||definite","CAPABILITY_MISSING|advertisement.capabilities|\ud83d\ude00||definite"],"requester_label":"unicode-order-requester","advertiser_label":"unicode-order-advertiser","matched_capability_ids":[],"matched_interaction_modes":[],"matched_content_types":[],"matched_tool_ids":[]}
+    },
+    {
+      "id":"M20-extensions-ignored","mandatory":true,"requirement_ref":"base","advertisement_ref":"extension-rich",
+      "expect":{"case_id":"M20-extensions-ignored","result":"compatible","reasons":[],"mismatch_facts":[],"requester_label":"fixture-requester","advertiser_label":"fixture-advertiser","matched_capability_ids":["handoff.ratify","policy.replay"],"matched_interaction_modes":["stream"],"matched_content_types":["application/a2a+json"],"matched_tool_ids":["search"]}
+    },
+    {
+      "id":"M21-content-type-undeclared-partial","mandatory":true,"requirement_ref":"base","advertisement_ref":"content-disjoint-partial",
+      "expect":{"case_id":"M21-content-type-undeclared-partial","result":"indeterminate","reasons":["CONTENT_TYPE_UNDECLARED"],"mismatch_facts":["CONTENT_TYPE_UNDECLARED|advertisement.content_types|application/a2a+json,application/json|text/plain|unknown"],"requester_label":"fixture-requester","advertiser_label":"fixture-advertiser","matched_capability_ids":["handoff.ratify","policy.replay"],"matched_interaction_modes":["stream"],"matched_content_types":[],"matched_tool_ids":["search"]}
+    },
+    {
+      "id":"O01-codex-claude-code","mandatory":false,"requirement_ref":"base","advertisement_ref":"base","requester_label":"client:codex","advertiser_label":"client:claude-code",
+      "expect":{"case_id":"O01-codex-claude-code","result":"compatible","reasons":[],"mismatch_facts":[],"requester_label":"client:codex","advertiser_label":"client:claude-code","matched_capability_ids":["handoff.ratify","policy.replay"],"matched_interaction_modes":["stream"],"matched_content_types":["application/a2a+json"],"matched_tool_ids":["search"]}
+    },
+    {
+      "id":"O02-opencode-antigravity","mandatory":false,"requirement_ref":"base","advertisement_ref":"base","requester_label":"client:opencode","advertiser_label":"client:antigravity",
+      "expect":{"case_id":"O02-opencode-antigravity","result":"compatible","reasons":[],"mismatch_facts":[],"requester_label":"client:opencode","advertiser_label":"client:antigravity","matched_capability_ids":["handoff.ratify","policy.replay"],"matched_interaction_modes":["stream"],"matched_content_types":["application/a2a+json"],"matched_tool_ids":["search"]}
+    },
+    {
+      "id":"O03-grok-minimax","mandatory":false,"requirement_ref":"base","advertisement_ref":"base","requester_label":"client:grok","advertiser_label":"client:minimax",
+      "expect":{"case_id":"O03-grok-minimax","result":"compatible","reasons":[],"mismatch_facts":[],"requester_label":"client:grok","advertiser_label":"client:minimax","matched_capability_ids":["handoff.ratify","policy.replay"],"matched_interaction_modes":["stream"],"matched_content_types":["application/a2a+json"],"matched_tool_ids":["search"]}
+    },
+    {
+      "id":"O04-generic-mcp-codex","mandatory":false,"requirement_ref":"base","advertisement_ref":"base","requester_label":"client:generic-mcp","advertiser_label":"client:codex",
+      "expect":{"case_id":"O04-generic-mcp-codex","result":"compatible","reasons":[],"mismatch_facts":[],"requester_label":"client:generic-mcp","advertiser_label":"client:codex","matched_capability_ids":["handoff.ratify","policy.replay"],"matched_interaction_modes":["stream"],"matched_content_types":["application/a2a+json"],"matched_tool_ids":["search"]}
+    }
+  ]
+}

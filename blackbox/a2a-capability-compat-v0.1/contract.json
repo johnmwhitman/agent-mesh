@@ -1,0 +1,122 @@
+{
+  "profile": "meshfleet.a2a.capability-compat.v0.1",
+  "operation": "evaluate_capability_compatibility",
+  "maturity": "offline-reference-conformance-only",
+  "model": {
+    "state": "none",
+    "inputs": "one immutable requirement and one immutable advertisement",
+    "outcome": "compatible, incompatible, or indeterminate",
+    "compatibility_meaning": "fixture-level structural compatibility only",
+    "client_labels": "opaque illustrative strings, not assertions about named products"
+  },
+  "limits": {
+    "max_utf8_bytes": 131072,
+    "max_depth": 64,
+    "max_entries_per_list": 128,
+    "max_label_utf8_bytes": 256,
+    "safe_integer_max": 9007199254740991,
+    "version_component_max": 999999
+  },
+  "version_grammar": {
+    "syntax": "major.minor.patch",
+    "components": "canonical decimal integers 0..999999 with no leading zeroes",
+    "range": "min_inclusive is required; max_exclusive is nullable",
+    "excluded": "no prerelease, build metadata, wildcard, caret, tilde, alias, or inferred compatibility"
+  },
+  "result_precedence": [
+    "any definite mismatch produces incompatible",
+    "otherwise any unknown absence produces indeterminate",
+    "otherwise compatible"
+  ],
+  "mismatch_codes": [
+    "PROTOCOL_ID_MISMATCH",
+    "PROTOCOL_VERSION_MISMATCH",
+    "CAPABILITY_MISSING",
+    "CAPABILITY_UNDECLARED",
+    "CAPABILITY_VERSION_MISMATCH",
+    "INTERACTION_MODE_MISSING",
+    "INTERACTION_MODE_UNDECLARED",
+    "CONTENT_TYPE_MISSING",
+    "CONTENT_TYPE_UNDECLARED",
+    "TOOL_MISSING",
+    "TOOL_UNDECLARED",
+    "TOOL_VERSION_MISMATCH",
+    "TOOL_INPUT_SCHEMA_MISMATCH",
+    "TOOL_OUTPUT_SCHEMA_MISMATCH"
+  ],
+  "parser_errors": [
+    "SIZE_LIMIT",
+    "INVALID_UTF8",
+    "MALFORMED_JSON",
+    "DUPLICATE_MEMBER",
+    "NON_CANONICAL_INTEGER",
+    "UNSAFE_INTEGER",
+    "INVALID_UNICODE",
+    "DEPTH_LIMIT"
+  ],
+  "validation_errors": [
+    "PROFILE_REJECT",
+    "MISSING_FIELD",
+    "UNKNOWN_FIELD",
+    "INVALID_FIELD",
+    "DUPLICATE_ENTRY",
+    "INVALID_VERSION",
+    "INVALID_VERSION_RANGE",
+    "LIMIT_EXCEEDED"
+  ],
+  "canonicalization_errors": [
+    "INVALID_SCENARIO"
+  ],
+  "semantics": {
+    "protocol": "protocol ID is exact and the advertised version must fall in the required range",
+    "capabilities": "every required ID must exist at a satisfying advertised version",
+    "interaction_modes_any": "empty means unconstrained; otherwise at least one exact label must intersect",
+    "content_types_any": "empty means unconstrained; otherwise at least one exact label must intersect",
+    "tools": "every required tool ID must satisfy version and exact input/output schema labels",
+    "partial": "absence is unknown only when advertisement.completeness is partial; present contradictory facts remain definite",
+    "extensions": "explicit extension objects are retained as inputs but ignored by evaluation",
+    "extras": "extra advertised capabilities, tools, modes, and content types are ignored",
+    "ordering": "input list order never affects the verdict; output facts use Unicode scalar ordering"
+  },
+  "canonical_json": {
+    "encoding": "UTF-8",
+    "object_keys": "lexicographic Unicode scalar-value order",
+    "whitespace": "none",
+    "numbers": "safe integers only; floats, exponent forms, negative zero, and non-finite values reject",
+    "strings": "valid Unicode scalar values only; no normalization or locale folding",
+    "objects": "duplicate decoded member names reject"
+  },
+  "invariants": [
+    "evaluation is a pure function of the supplied scenario",
+    "no output contains a score, rank, route, provider choice, or dispatch decision",
+    "definite mismatch dominates unknown absence",
+    "partial completeness changes absence only, never a positive contradiction",
+    "matched output lists are sorted and duplicate-free",
+    "mismatch facts are sorted by code, path, expected, actual, and certainty",
+    "permuting semantically set-like input lists cannot change the canonical output"
+  ],
+  "generated_differential": {
+    "seed": "0x6ca9b17e",
+    "parser_cases": 35,
+    "validation_cases": 12,
+    "logical_scenarios": 300,
+    "generated_scenarios": 600,
+    "requirements": [
+      "JavaScript and Python parser classifications independently match golden expected codes",
+      "JavaScript and Python validation classifications independently match golden expected codes, including label and list limits",
+      "JavaScript and Python complete verdicts are byte-identical",
+      "paired set-like input permutations produce byte-identical projections",
+      "all mismatch facts are canonically ordered",
+      "all normalized matched lists are ordered and duplicate-free",
+      "result precedence agrees with mismatch certainty"
+    ]
+  },
+  "non_claims": [
+    "no live discovery, registry, directory, cache, freshness, TTL, or network behavior",
+    "no ranking, scoring, preference, candidate compilation, route selection, provider/model priority, dispatch, or budget behavior",
+    "no transport, delivery, batching, acknowledgment, receipt, quorum, transcript, or lifecycle behavior",
+    "no identity proof, authentication, credential, signature, evidence, trust, policy authorization, or enforcement claim",
+    "no tool invocation, runtime execution, side effect, production compatibility, or product capability claim",
+    "no merge, publication, deployment, activation, or release authority"
+  ]
+}
