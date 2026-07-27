@@ -35,6 +35,48 @@ not affect score or confer authority. The `claim_match` and `claim_mismatch` sta
 compare only those caller-supplied claims; `evidence_only: true` prevents them from
 being mistaken for MeshFleet-attested runtime identity.
 
+## Candidate compilation
+
+`compile_route_candidates` accepts a sanitized versioned manifest and optional bounded
+caller observations, then deterministically projects them into the candidate shape
+accepted by `recommend_route`. The projection may be passed unchanged to
+`recommend_route`; compilation itself does not rank candidates.
+
+Missing observations, and observations marked `assumed`, remain unmeasured. Measured
+caller values are copied without probing, freshness checks, normalization, or
+authentication. Observation status labels alone do not alter ranking: only the
+candidate fields copied from valid measured evidence can later be considered by
+`recommend_route`.
+
+```json
+{
+  "manifest": {
+    "version": "meshfleet.route-candidates.v0.1",
+    "candidates": [
+      {
+        "candidate_id": "lane-a",
+        "capabilities": ["code"],
+        "privacy": "network_ok",
+        "locality": "any"
+      }
+    ]
+  },
+  "observations": [
+    {
+      "candidate_id": "lane-a",
+      "status": "degraded",
+      "confidence": "measured",
+      "budget": { "used": 6, "total": 10 }
+    }
+  ]
+}
+```
+
+Gateways retain catalogs, credentials, health and freshness policy, execution, retry,
+failover, and metering. The compiler does not read wrappers or RoutePlane, and its
+output is not availability, authentication, freshness, execution, or authority
+evidence.
+
 ## Subscription-lane snapshots
 
 Wrappers supply one sanitized candidate for each selectable lane/model pairing.

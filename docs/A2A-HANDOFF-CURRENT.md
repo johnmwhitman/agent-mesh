@@ -9,6 +9,33 @@ interoperability evidence.
 This is the rolling successor handoff for the provider-neutral Agent Mesh A2A
 program. Canonical behavior remains in the linked specifications and ADRs.
 
+## Route-candidate snapshot compiler closeout
+
+- Reviewed implementation range: `0122fc2..d267a44`; implementation head before
+  this documentation receipt: `d267a447bdb078dd49f776632cd627f9edb450d6`.
+- Compiler files: `src/route-candidate-validation.ts`,
+  `src/compile-route-candidates.ts`, `test/compile-route-candidates.test.ts`, and
+  `test/fixtures/routing/route-candidate-snapshots/v0.1/corpus.json`.
+- Additive MCP tool: `compile_route_candidates` is registered in `src/index.ts` and
+  covered by `test/compile-route-candidates-mcp.test.ts` plus
+  `test/dispatch-registry.test.ts`.
+- Focused pure receipt:
+  `node --import tsx --test test/route-candidate-validation.test.ts test/compile-route-candidates.test.ts test/recommend-route.test.ts test/recommend-route-subscription-lanes.test.ts` — `20` tests passed; `0` failed, cancelled, skipped, or todo.
+- Focused MCP receipt:
+  `node --import tsx --test test/compile-route-candidates-mcp.test.ts test/dispatch-registry.test.ts test/recommend-route-mcp.test.ts test/compile-route-candidates.test.ts` — `17` tests passed; `0` failed, cancelled, skipped, or todo.
+- Full receipt:
+  `npm run typecheck && npm run build && node scripts/run-tests.mjs` — typecheck
+  exited `0`; clean build exited `0`; `942` tests passed with `0` failed, `0`
+  cancelled, `0` skipped, and `0` todo (`duration_ms 39929.413708`). This receipt
+  was observed with normal host permission for the lifecycle test's configured
+  event-log path; it is not a product-failure claim.
+- Every compiler result reports `persisted: false`, `executed: false`,
+  `authorized: false`, `woke_agents: false`, and `contacted_providers: false`.
+- There is no provider, wrapper, or RoutePlane integration claim. The compiler reads
+  only its caller-supplied input; asserted measured values are neither freshness,
+  availability, nor authentication evidence.
+- No merge, push, publish, deploy, activation, or live-ledger mutation occurred.
+
 ## Subscription-lane snapshot evidence
 
 - Portable corpus: `test/fixtures/routing/subscription-lanes/v0.1/corpus.json`.
