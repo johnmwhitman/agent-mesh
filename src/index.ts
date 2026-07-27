@@ -54,6 +54,7 @@ import {
   sweepRatifications,
 } from "./ratify.js";
 import { verifyLedger } from "./verify.js";
+import { buildVerifyEnvelopeV2 } from "./verify-envelope-v2.js";
 import { notifySubscribers } from "./realtime.js";
 import { isSseServerRunning, startSseServer, stopSseServer, subscribeInboxUrl } from "./sse-server.js";
 import { createHeartbeat } from "./heartbeat.js";
@@ -391,6 +392,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       name: "verify_ledger",
       description:
         "Audit the ledger's internal consistency: every receipt points at a real message and honors the idempotency key, acknowledged flags are supported by ack receipts, inboxes hold no consumed or dangling messages, and ratification tallies (quorum, signoffs, vote polarity, terminal status) recompute from the receipts. Read-only. Returns ok, error/warning counts, and per-finding detail — errors mean the ledger asserts something its own records do not support.",
+      inputSchema: { type: "object", properties: {} },
+    },
+    {
+      name: "verify_ledger_v2",
+      description:
+        "Read-only versioned verifier output. Returns the unchanged internal-consistency report inside meshfleet.verify/v2 with an unsigned-snapshot evidence scope; it does not establish authorship, snapshot integrity, content binding, completeness, external delivery or execution, or external time.",
       inputSchema: { type: "object", properties: {} },
     },
     {
@@ -1460,6 +1467,10 @@ toolHandlers["get_receipts"] = async (args) => {
 
 toolHandlers["verify_ledger"] = async () => {
     return jsonResult(verifyLedger());
+};
+
+toolHandlers["verify_ledger_v2"] = async () => {
+    return jsonResult(buildVerifyEnvelopeV2(verifyLedger()));
 };
 
 toolHandlers["open_ratification"] = async (args) => {

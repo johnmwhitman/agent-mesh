@@ -115,16 +115,18 @@ const PRE_D3_TOOL_NAMES = [
 
 const D3_DISCUSSION_TOOL_NAMES = ["ask_peer", "wake_agent", "reply_discussion", "get_discussion"];
 
-test("registry includes D3 plus additive routing tools (33 total)", () => {
+test("registry includes D3 plus additive routing and verifier-v2 tools (34 total)", () => {
   const declared = declaredToolNames(source);
   const registered = registeredHandlerNames(source);
 
-  assert.equal(declared.size, 33, `expected 33 advertised tools, got ${declared.size}: ${[...declared].sort().join(", ")}`);
-  assert.equal(registered.size, 33, `expected 33 registered handlers, got ${registered.size}: ${[...registered].sort().join(", ")}`);
+  assert.equal(declared.size, 34, `expected 34 advertised tools, got ${declared.size}: ${[...declared].sort().join(", ")}`);
+  assert.equal(registered.size, 34, `expected 34 registered handlers, got ${registered.size}: ${[...registered].sort().join(", ")}`);
   assert.ok(declared.has("recommend_route"));
   assert.ok(registered.has("recommend_route"));
   assert.ok(declared.has("compile_route_candidates"));
   assert.ok(registered.has("compile_route_candidates"));
+  assert.ok(declared.has("verify_ledger_v2"));
+  assert.ok(registered.has("verify_ledger_v2"));
 });
 
 test("README advertises the 33-tool registry including the snapshot compiler", () => {
