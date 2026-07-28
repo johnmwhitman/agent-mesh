@@ -1,5 +1,16 @@
 # Budget-aware routing
 
+There are now two routing surfaces:
+
+- `route_work` ranks capabilities already registered in the local MeshFleet ledger and
+  uses the in-process provider-budget bindings described below.
+- `recommend_route` is pure and stateless. The caller supplies sanitized task traits and
+  agent/runtime/model candidate snapshots, including any budget evidence it has. See
+  [ADVISORY-ROUTING.md](ADVISORY-ROUTING.md).
+
+Both preserve the same asymmetry: budget can demote or exclude, but never promote.
+Unknown budget is neutral and visibly unmeasured.
+
 ## Why
 
 `route_work` scored agents on capability match and past success. Neither answers the

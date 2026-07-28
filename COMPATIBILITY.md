@@ -47,8 +47,11 @@ descriptive prose, not a status label.
 | Outbound worker execution | `coupled` | Current worker launch and parsing remain OpenCode-specific | `src/index.ts`, `src/spawn-result.ts` |
 | `meshfleet.a2a` v0.1 codec and interoperability profile | `reference-conformance` | Pure provider-neutral validation and an independent offline Python witness agree with the language-neutral corpora; the mutated-corpus negative test detects a false expected outcome; public, durable, and authenticated ingress are not implemented | `docs/A2A-PROTOCOL-v0.1.md`, `reference/python/a2a_reference.py`, `test/a2a-reference-python.test.ts` |
 | Canonical ingress contract v0.1 | `fixture-verified` | Deterministic fixtures exercise the designed ordering and stable external result vocabulary; this is not a production store, policy engine, delivery path, or public tool | `docs/A2A-INGRESS-CONTRACT-v0.1.md`, `test/fixtures/a2a/ingress/v0.1/corpus.json` |
+| Offline A2A delivery-trace profile v0.1 | `reference-conformance` | The pure TypeScript evaluator and independent stdlib-only Python witness agree over the language-neutral corpus, including event-level precedence D05-D17, while preserving canonical identity and explicit non-claims. This implements no live transport, DeliveryPort, authenticated principal, wake authority, persistence, execution, or interoperability. | `docs/A2A-DELIVERY-TRACE-PROFILE-v0.1.md`, `src/a2a/delivery-trace.ts`, `reference/python/a2a_delivery_trace_reference.py`, `test/a2a-delivery-trace-python-reference.test.ts`, `test/fixtures/a2a/delivery-trace/v0.1/corpus.json` |
 | Durable attempt lifecycle | `recovery-verified` | Durable-mode `spawn_fleet` and `attach_agent` preserve MCP shapes while using one SQLite authority for leases, deterministic retry, launch-intent quarantine, scheduled recovery, recorded-PID containment only, fenced projections, and sequence-ordered repairable event outbox | `docs/A2A-NEXT-SLICE.md`, `src/lifecycle-execution.ts`, `test/lifecycle-integration-adversarial.test.ts` |
 | Provider-neutral runtime adapters | `runtime-launch-verified` | Isolated RuntimeAdapter SPI, OpenCode adapter, and deterministic local-process adapter are verified; public runtime selection and vendor adapters are deferred | `docs/ADAPTER-CONTRACT.md`, `src/runtime`, `test/runtime-adapter.test.ts` |
+| Advisory subscription-lane snapshots | `fixture-verified` | The portable v0.1 corpus and real MCP stdio contract test verify sanitized offline snapshot ranking and rejection of provider/control-plane smuggling. This remains advisory-only and does not prove provider availability, authentication, catalog access, execution, or metering. | `test/fixtures/routing/subscription-lanes/v0.1/corpus.json`, `test/recommend-route-subscription-lanes.test.ts`, `test/recommend-route-mcp.test.ts` |
+| Offline route-candidate snapshot compiler | `fixture-verified` | The pure compiler and real MCP contract deterministically project sanitized caller evidence without I/O or authority. This is not provider availability, authentication, budget freshness, execution, failover, or metering evidence. | `src/compile-route-candidates.ts`, `test/fixtures/routing/route-candidate-snapshots/v0.1/corpus.json`, `test/compile-route-candidates.test.ts`, `test/compile-route-candidates-mcp.test.ts` |
 | Dormant durable acceptance journal (**writer deleted from `main` 2026-07-25**; the physical SQLite v4 tables remain, unused) | `dormant-internal-durable-verified` | Branch `codex/a2a-seamless-foundation` implements and locally verifies physical SQLite v4, three private append-only tables, exact schema validation, pre-tokenized keyed identities, request-first replay/conflict ordering, and accepted-only local receipts. It remains unmerged, unpublished, inactive, and has no public ingress, auth provider, delivery, or execution claim. | `docs/A2A-DURABLE-ACCEPTANCE-v0.1.md`, `docs/adr/0005-dormant-durable-acceptance-journal.md`, `acc4090..f1f98fb` |
 | Slice 4C-0 capability profile and evidence taxonomy | `reference-conformance` | Offline/dormant semantic foundation implemented at `ea69cb9` over `234cd55..ea69cb9`; 363 exact five-operation cases, 363/363 direct TypeScript/Python byte differential, 530/530 full tests, passed typecheck, and two APPROVED independent reviews. Translation evidence is `static-translation-verified`. No public ingress, auth, runtime selection, network, persistence, provider call, delivery, execution, cryptographic verification, durable registry, release, or activation claim. | `docs/A2A-CAPABILITY-PROFILE-v0.1.md`, `docs/adr/0006-capability-evidence-is-not-authority.md`, `reference/python/a2a_capability_profile_reference.py`, `234cd55..ea69cb9` |
 | Multi-host coordination | `deferred` | No shared remote ownership authority exists | `docs/A2A-PROGRAM.md` |
@@ -85,9 +88,65 @@ Future versions will increment `CURRENT_SCHEMA_VERSION` and add a migration step
 | 0.8.1 – 0.13.x | (no new tools; skill taxonomy is a library module, not a tool yet) | — |
 | 0.14.0 – 0.15.x | (no new tools; stdio handshake and host-neutral launch configuration are covered by integration tests) | — |
 | 0.16.0 | + ask_peer, wake_agent, reply_discussion, get_discussion (Discussions) | see the input-validation note below |
+| unreleased | + compile_route_candidates, recommend_route, verify_ledger_v2 (all advisory or read-only; no write authority) | ⚠️ `send_messages` batch-item schema tightened and `verify_ledger` findings strengthened — see the narrowing note below |
 
-**Promise so far**: every minor release has been additive. No tool has been removed or had its
-signature narrowed.
+**Promise so far**: every minor release has been additive. No tool has been removed. One
+signature has been tightened once — `send_messages` batch items, unreleased — deliberately and
+documented in the narrowing note below: the wire shapes it now refuses were violations of the
+contract the schema already claimed to enforce.
+
+### ⚠️ `send_messages` narrowing and stricter `verify_ledger` findings (unreleased)
+
+`send_messages` always advertised five required string fields per item and a closed `type` enum,
+but the handler did not enforce them. A legacy self-message projection could durably commit a
+batch item with an unsupported `type` and report success — contradicting the advertised "one
+invalid message rejects the whole batch" rule. The batch-item schema now carries `minLength: 1`
+and `pattern: "\\S"` on `from_agent_id`, `to_agent_id`, `fleet_id`, and `correlation_id`, and the
+handler validates the complete batch **before** the transactional writer runs. Blank or
+whitespace-only identities, `correlation_id: null` or blank, and non-enum `type` values refuse
+with an error naming the indexed field (e.g. `messages[1].type`) and write nothing. Empty
+`payload` strings and empty batches remain valid; unknown properties remain accepted and ignored.
+The singular `send_message` boundary is deliberately out of scope for this slice.
+
+`verify_ledger` (and therefore `inspect --verify`) is also stricter on the same release: a
+present but non-finite `started_at`/`completed_at` now yields `agent.invalid_timestamp`, and a
+`completed_at` earlier than the fleet's `created_at` yields `agent.tampered_timestamp` even when
+`started_at` is absent. A ledger that previously verified `ok: true` can now fail — that is the
+point: the previous pass was a false clean over data no evidence product could be built on. The
+report *shape* (`VerifyReport`/`VerifyFinding`) is unchanged.
+
+### Implemented opt-in verifier v2 MCP and CLI contract
+
+The additive `verify_ledger_v2` MCP tool and matching
+`agent-mesh inspect --verify-v2 [file]` CLI mode are implemented opt-in
+surfaces. Both have the dedicated output envelope
+`meshfleet.verify/v2`, containing exactly `schema`, `evidence_scope`, and the
+unchanged legacy `VerifyReport` as `report`. The scope profile is exactly
+`unsigned_snapshot_consistency/v1`; it says `ok` means
+`no_detected_internal_consistency_contradiction`, bounded to
+`internal_consistency_of_the_unsigned_snapshot_read`, and its ordered
+`not_established` tuple is exactly:
+
+1. `authorship_and_authenticated_provenance`
+2. `pre_read_snapshot_integrity_and_tamper_evidence`
+3. `content_binding`
+4. `completeness_and_deletion`
+5. `external_delivery_and_execution`
+6. `external_time`
+
+At tool dispatch, the v2 handler reads the configured ledger through a
+dedicated read-only file snapshot and performs no ledger writes. In normal
+parent mode, startup recovery or migration may initialize or change the
+configured ledger before tool dispatch; those pre-dispatch effects are
+unchanged by v2 and outside the handler boundary.
+
+This is an output-generated ceiling, not a confidence, integrity, delivery,
+execution, authentication, content-attestation, completeness, or external-time
+claim. It does not add fields to `VerifyReport` or `VerifyFinding`, and does
+not alter `verify_ledger`, `inspect --verify`, `meshfleet.inspect/v1`, existing
+JSON/text output, `ok`, findings, checks, severities, counts, or exits. The
+legacy surfaces remain the compatibility baseline; v2 MCP is opt-in and raises
+the implemented MCP tool count to 34.
 
 **⚠️ Input handling changed in 0.16.0, and the old promise was the bug.** This table used to end
 "Tool inputs default to safe values when omitted." That was not a guarantee — it was a description

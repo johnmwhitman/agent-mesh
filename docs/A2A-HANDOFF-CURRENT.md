@@ -9,6 +9,43 @@ interoperability evidence.
 This is the rolling successor handoff for the provider-neutral Agent Mesh A2A
 program. Canonical behavior remains in the linked specifications and ADRs.
 
+## Route-candidate snapshot compiler closeout
+
+- Reviewed implementation range: `8d5d625..d267a44`; implementation head before
+  this documentation receipt: `d267a447bdb078dd49f776632cd627f9edb450d6`.
+- Compiler files: `src/route-candidate-validation.ts`,
+  `src/compile-route-candidates.ts`, `test/compile-route-candidates.test.ts`, and
+  `test/fixtures/routing/route-candidate-snapshots/v0.1/corpus.json`.
+- Additive MCP tool: `compile_route_candidates` is registered in `src/index.ts` and
+  covered by `test/compile-route-candidates-mcp.test.ts` plus
+  `test/dispatch-registry.test.ts`.
+- Focused pure receipt:
+  `node --import tsx --test test/route-candidate-validation.test.ts test/compile-route-candidates.test.ts test/recommend-route.test.ts test/recommend-route-subscription-lanes.test.ts` — `20` tests passed; `0` failed, cancelled, skipped, or todo.
+- Focused MCP receipt:
+  `node --import tsx --test test/compile-route-candidates-mcp.test.ts test/dispatch-registry.test.ts test/recommend-route-mcp.test.ts test/compile-route-candidates.test.ts` — `17` tests passed; `0` failed, cancelled, skipped, or todo.
+- Full receipt:
+  `npm run typecheck && npm run build && node scripts/run-tests.mjs` — typecheck
+  exited `0`; clean build exited `0`; `942` tests passed with `0` failed, `0`
+  cancelled, `0` skipped, and `0` todo (`duration_ms 39929.413708`). This receipt
+  was observed with normal host permission for the lifecycle test's configured
+  event-log path; it is not a product-failure claim.
+- Every compiler result reports `persisted: false`, `executed: false`,
+  `authorized: false`, `woke_agents: false`, and `contacted_providers: false`.
+- There is no provider, wrapper, or RoutePlane integration claim. The compiler reads
+  only its caller-supplied input; asserted measured values are neither freshness,
+  availability, nor authentication evidence.
+- No merge, push, publish, deploy, activation, or live-ledger mutation occurred.
+
+## Subscription-lane snapshot evidence
+
+- Portable corpus: `test/fixtures/routing/subscription-lanes/v0.1/corpus.json`.
+- Executable evidence: `test/recommend-route-subscription-lanes.test.ts` and the
+  real-MCP contract coverage in `test/recommend-route-mcp.test.ts`.
+- Boundary: wrappers provide sanitized offline candidate snapshots only; gateways
+  retain catalogs, credentials, execution, failover, and metering. The corpus and
+  tests do not prove provider availability, authentication, freshness, or any
+  non-advisory maturity claim.
+
 ## Exact Slice 4B closeout
 
 - Branch: `codex/a2a-seamless-foundation`
@@ -136,9 +173,13 @@ attestation, or exactly-once behavior.
    active or approved beyond proposal. Its proposed proof is an adapter-derived
    local principal and semantic invocation without public ingress, remote
    transport, credentials, or delivery.
-3. **Slice 4D:** offline delivery-attempt and transport conformance. Prove
-   normalized semantic traces across stdio, mailbox, HTTP/SSE, and WebSocket
-   harnesses without live peers.
+3. **Slice 4D:** 4D-alpha now has a pure reference-conformance delivery-trace
+   normalizer. An independent stdlib-only Python witness agrees with the
+   TypeScript evaluator over the language-neutral corpus, including event-level
+   precedence D05-D17. This proves only that modeled stdio, mailbox, HTTP/SSE,
+   and WebSocket labels preserve one canonical binding and distinct observation
+   stages without live peers. It does not implement a transport, public tool,
+   DeliveryPort, wake path, or interoperability; broader 4D remains open.
 4. **Slice 4E:** deterministic two-host coordinator simulation. Prove leases,
    monotonic fencing, cancellation, partition, retry, and recovery semantics
    before any operational multi-host work.
@@ -171,13 +212,16 @@ The next implementation boundary, if separately approved, is the pure
 TypeScript/Python one-operation witness and shared corpus. It is not active or
 approved by this design closeout.
 
-## Next proposed implementation boundary
+## Remaining implementation boundaries
 
-Slice 4C-1 is the proposed next program slice: a principal-bound
-authenticated-local semantic path that remains offline and separately gated.
-Planning it does not authorize implementation, activation, merge, push,
-publication, deployment, process restart, credentials, spend, network access,
-provider calls, or private-data transmission.
+Slice 4C-1 remains a designed-only principal-bound authenticated-local semantic
+path and is separately gated. Slice 4D-alpha does not consume or satisfy it:
+the trace evaluator accepts only canonical envelope bindings and modeled
+observations, never principals or admission decisions. Broader 4D evidence and
+4E deterministic two-host simulation remain open. Planning any of them does
+not authorize activation, merge, push, publication, deployment, process
+restart, credentials, spend, network access, provider calls, or private-data
+transmission.
 
 ## Operational observation outside Slice 4C-0
 

@@ -70,12 +70,24 @@ function applyOps(data: any, ops: Op[]): void {
 
 const V: Vector[] = [
   // ===================== CAUGHT: overclaims (error, ok:false) =====================
+  { id: "agent-invalid-started-at", primary: "agent.invalid_timestamp", classification: "caught",
+    lie: "an agent start time is present but not a finite number, so its lifecycle ordering cannot be audited",
+    ops: [{ op: "set", path: "agents|a2|started_at", value: null }] },
+  { id: "agent-invalid-completed-at", primary: "agent.invalid_timestamp", classification: "caught",
+    lie: "an agent completion time is present but not a finite number, so its terminal state cannot be ordered",
+    ops: [{ op: "set", path: "agents|a2|completed_at", value: null }] },
   { id: "agent-tampered-timestamp", primary: "agent.tampered_timestamp", classification: "caught",
     lie: "an agent is on record as having started before the fleet that spawned it existed",
     ops: [{ op: "set", path: "agents|a2|started_at", value: T0 - 5000 }] },
   { id: "agent-completed-before-started", primary: "agent.tampered_timestamp", classification: "caught",
     lie: "an agent finished before it started — a duration fabricated from an impossible interval",
     ops: [{ op: "set", path: "agents|a2|completed_at", value: T0 + 5 }] },
+  { id: "agent-completed-before-fleet", primary: "agent.tampered_timestamp", classification: "caught",
+    lie: "an agent is on record as having completed before the fleet that spawned it existed",
+    ops: [
+      { op: "delete", path: "agents|a2|started_at" },
+      { op: "set", path: "agents|a2|completed_at", value: T0 - 5000 },
+    ] },
   { id: "inbox-dangling-message", primary: "inbox.dangling_message", classification: "caught",
     lie: "an agent's queue names a work item that does not exist anywhere in the ledger",
     ops: [{ op: "push", path: "inboxes|a2", value: "m-ghost" }] },

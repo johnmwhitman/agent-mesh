@@ -20,6 +20,7 @@ import {
   type Ratification,
 } from './core.js'
 import type { VerifyFinding, VerifyReport } from './verify.js'
+import { buildVerifyEnvelopeV2, type VerifyEnvelopeV2 } from './verify-envelope-v2.js'
 import { computeTally, parseVoteAction } from './ratify.js'
 
 // ---------------------------------------------------------------------------
@@ -535,6 +536,11 @@ export function formatVerifyReport(report: VerifyReport, opts: { explain?: boole
   return [head, ...lines].join("\n");
 }
 
+/** Render the opt-in verifier-v2 text header without changing legacy report text. */
+export function formatVerifyV2Report(envelope: VerifyEnvelopeV2, opts: { explain?: boolean } = {}): string {
+  return `Evidence scope: ${envelope.evidence_scope.profile}\n${formatVerifyReport(envelope.report, opts)}`
+}
+
 // ---------------------------------------------------------------------------
 // Verify triage — one explanation per check id in src/verify.ts.
 //
@@ -637,8 +643,13 @@ const CHECK_EXPLANATIONS: Record<string, CheckExplanation> = {
     benign: "agents copied in from another mesh, or old fleet rows pruned without their agents",
     investigate: "agent-mesh inspect --export | jq '.agents'",
   },
+  "agent.invalid_timestamp": {
+    what: "an agent's optional started_at or completed_at timestamp is present but is not a finite number, so lifecycle ordering cannot be trusted",
+    benign: "a hand-edited or partially-corrupted export",
+    investigate: "agent-mesh inspect --export | jq '.agents'",
+  },
   "agent.tampered_timestamp": {
-    what: "an agent started before its fleet was created, or completed before it started",
+    what: "an agent started or completed before its fleet was created, or completed before it started",
     benign: "a hand-edited export with an incorrect timestamp",
     investigate: "agent-mesh inspect --export | jq '.agents'",
   },
@@ -853,6 +864,11 @@ export function buildVerifyJson(
       }
     : report;
   return { schema: INSPECT_JSON_SCHEMA, kind: "verify", data };
+}
+
+/** The v2 verifier has its own closed envelope, not the generic inspect-v1 wrapper. */
+export function buildVerifyV2Json(report: VerifyReport): VerifyEnvelopeV2 {
+  return buildVerifyEnvelopeV2(report)
 }
 
 export function buildFleetsJson(fleets: FleetSummary[]): InspectJsonEnvelope<"fleets", FleetSummary[]> {

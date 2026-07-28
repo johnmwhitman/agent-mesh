@@ -228,12 +228,16 @@ They are additive, reversible, and do not widen the current MCP surface.
 3. **Slice 4C-0: capability profile and evidence taxonomy.** Implemented and
    independently verified as an offline/dormant semantic foundation at
    `ea69cb9`; capability claims and model banners do not grant authorization.
-4. **Slice 4C-1: principal-bound authenticated-local semantic path.** Proposed
-   next slice only. It would prove a local adapter path without public ingress,
-   remote transport, credentials, or delivery and remains separately gated.
-5. **Slice 4D then 4E:** offline delivery-attempt/transport conformance
-   followed by a deterministic two-host coordinator simulation; both remain
-   unimplemented.
+4. **Slice 4C-1: principal-bound authenticated-local semantic path.** Designed
+   but not implemented. It would prove a local adapter path without public
+   ingress, remote transport, credentials, or delivery and remains separately
+   gated.
+5. **Slice 4D then 4E:** 4D-alpha now has a pure reference-conformance offline
+   delivery-trace normalizer; an independent stdlib-only Python witness agrees
+   with the TypeScript evaluator over the language-neutral corpus. It implements
+   no transport and consumes no 4C-1 principal or admission result. Broader 4D
+   transport evidence and the 4E deterministic two-host coordinator simulation
+   remain unimplemented.
 
 `meshfleet.a2a` v0.1 remains a codec protocol. Its process-local identity
 registry is not durable ingress identity. The public `send_a2a` tool remains
@@ -279,7 +283,7 @@ generation.
 This closeout authorizes no public ingress, `send_a2a`, principal provider,
 provider call, runtime selection, transport, persistence, durable registry,
 delivery, execution, cryptographic verification, credentials, network, deploy,
-publish, merge, push, or activation. Slice 4C-1 is the proposed next program
-slice for a principal-bound authenticated-local semantic path; it remains
-offline, inactive, and separately gated rather than approved for implementation
-or activation by this closeout.
+publish, merge, push, or activation. Slice 4C-1 remains offline, inactive,
+designed-only, and separately gated. The later 4D-alpha fixture normalizer does
+not satisfy, bypass, consume, or activate 4C-1; it only proves that modeled
+transport labels normalize to the same closed delivery-observation vocabulary.

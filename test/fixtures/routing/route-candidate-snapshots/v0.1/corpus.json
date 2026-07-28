@@ -1,0 +1,117 @@
+{
+  "corpus_version": "meshfleet.route-candidates.v0.1",
+  "claims": {
+    "provider_availability": false,
+    "authenticated_identity": false,
+    "budget_freshness": false,
+    "persisted": false,
+    "executed": false,
+    "authorized": false,
+    "woke_agents": false,
+    "contacted_providers": false
+  },
+  "manifest": {
+    "version": "meshfleet.route-candidates.v0.1",
+    "candidates": [
+      {
+        "candidate_id": "lane-c",
+        "capabilities": ["code", "broad_model_choice"],
+        "privacy": "network_ok",
+        "locality": "any",
+        "requested_identity": {
+          "runtime": "opaque-runtime-c",
+          "model": "opaque-model-c"
+        }
+      },
+      {
+        "candidate_id": "lane-a",
+        "capabilities": ["code", "long_context_review"],
+        "privacy": "network_ok",
+        "locality": "any"
+      },
+      {
+        "candidate_id": "lane-b",
+        "capabilities": ["code", "fast_patch"],
+        "privacy": "network_ok",
+        "locality": "any"
+      }
+    ]
+  },
+  "cases": [
+    {
+      "id": "missing-observations-are-neutral",
+      "input": {},
+      "expected_candidates": [
+        {"candidate_id": "lane-a", "capabilities": ["code", "long_context_review"], "privacy": "network_ok", "locality": "any", "budget": {"measured": false}},
+        {"candidate_id": "lane-b", "capabilities": ["code", "fast_patch"], "privacy": "network_ok", "locality": "any", "budget": {"measured": false}},
+        {"candidate_id": "lane-c", "capabilities": ["code", "broad_model_choice"], "privacy": "network_ok", "locality": "any", "requested_identity": {"runtime": "opaque-runtime-c", "model": "opaque-model-c"}, "budget": {"measured": false}}
+      ],
+      "expected_diagnostics": [
+        {"candidate_id": "lane-a", "reason_codes": ["OBSERVATION_MISSING", "BUDGET_UNMEASURED"]},
+        {"candidate_id": "lane-b", "reason_codes": ["OBSERVATION_MISSING", "BUDGET_UNMEASURED"]},
+        {"candidate_id": "lane-c", "reason_codes": ["OBSERVATION_MISSING", "BUDGET_UNMEASURED"]}
+      ]
+    },
+    {
+      "id": "assumed-observation-is-neutral",
+      "input": {
+        "observations": [
+          {"candidate_id": "lane-b", "status": "green", "confidence": "assumed"}
+        ]
+      },
+      "expected_candidates": [
+        {"candidate_id": "lane-a", "capabilities": ["code", "long_context_review"], "privacy": "network_ok", "locality": "any", "budget": {"measured": false}},
+        {"candidate_id": "lane-b", "capabilities": ["code", "fast_patch"], "privacy": "network_ok", "locality": "any", "budget": {"measured": false}},
+        {"candidate_id": "lane-c", "capabilities": ["code", "broad_model_choice"], "privacy": "network_ok", "locality": "any", "requested_identity": {"runtime": "opaque-runtime-c", "model": "opaque-model-c"}, "budget": {"measured": false}}
+      ],
+      "expected_diagnostics": [
+        {"candidate_id": "lane-a", "reason_codes": ["OBSERVATION_MISSING", "BUDGET_UNMEASURED"]},
+        {"candidate_id": "lane-b", "reason_codes": ["OBSERVATION_ASSUMED", "BUDGET_UNMEASURED"]},
+        {"candidate_id": "lane-c", "reason_codes": ["OBSERVATION_MISSING", "BUDGET_UNMEASURED"]}
+      ]
+    },
+    {
+      "id": "measured-evidence-copies-exactly",
+      "input": {
+        "observations": [
+          {
+            "candidate_id": "lane-c",
+            "status": "degraded",
+            "confidence": "measured",
+            "budget": {"used": 6, "total": 10},
+            "observed_outcomes": {"successes": 7, "failures": 2},
+            "observed_identity": {"runtime": "opaque-observed-runtime", "model": "opaque-observed-model", "source": "opaque-receipt"}
+          }
+        ]
+      },
+      "expected_candidates": [
+        {"candidate_id": "lane-a", "capabilities": ["code", "long_context_review"], "privacy": "network_ok", "locality": "any", "budget": {"measured": false}},
+        {"candidate_id": "lane-b", "capabilities": ["code", "fast_patch"], "privacy": "network_ok", "locality": "any", "budget": {"measured": false}},
+        {"candidate_id": "lane-c", "capabilities": ["code", "broad_model_choice"], "privacy": "network_ok", "locality": "any", "requested_identity": {"runtime": "opaque-runtime-c", "model": "opaque-model-c"}, "observed_outcomes": {"successes": 7, "failures": 2}, "observed_identity": {"runtime": "opaque-observed-runtime", "model": "opaque-observed-model", "source": "opaque-receipt"}, "budget": {"measured": true, "used": 6, "total": 10}}
+      ],
+      "expected_diagnostics": [
+        {"candidate_id": "lane-a", "reason_codes": ["OBSERVATION_MISSING", "BUDGET_UNMEASURED"]},
+        {"candidate_id": "lane-b", "reason_codes": ["OBSERVATION_MISSING", "BUDGET_UNMEASURED"]},
+        {"candidate_id": "lane-c", "reason_codes": []}
+      ]
+    },
+    {
+      "id": "exact-exhaustion-is-evidence",
+      "input": {
+        "observations": [
+          {"candidate_id": "lane-c", "status": "exhausted", "confidence": "measured", "budget": {"used": 10, "total": 10}}
+        ]
+      },
+      "expected_candidates": [
+        {"candidate_id": "lane-a", "capabilities": ["code", "long_context_review"], "privacy": "network_ok", "locality": "any", "budget": {"measured": false}},
+        {"candidate_id": "lane-b", "capabilities": ["code", "fast_patch"], "privacy": "network_ok", "locality": "any", "budget": {"measured": false}},
+        {"candidate_id": "lane-c", "capabilities": ["code", "broad_model_choice"], "privacy": "network_ok", "locality": "any", "requested_identity": {"runtime": "opaque-runtime-c", "model": "opaque-model-c"}, "budget": {"measured": true, "used": 10, "total": 10}}
+      ],
+      "expected_diagnostics": [
+        {"candidate_id": "lane-a", "reason_codes": ["OBSERVATION_MISSING", "BUDGET_UNMEASURED"]},
+        {"candidate_id": "lane-b", "reason_codes": ["OBSERVATION_MISSING", "BUDGET_UNMEASURED"]},
+        {"candidate_id": "lane-c", "reason_codes": ["BUDGET_EXHAUSTED_EVIDENCE"]}
+      ]
+    }
+  ]
+}

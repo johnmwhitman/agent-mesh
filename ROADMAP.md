@@ -58,6 +58,13 @@ Inbound MCP process compatibility does not imply outbound runtime neutrality,
 authenticated principal binding, lifecycle durability, or multi-host support.
 Those claims require the evidence gates in the canonical program.
 
+The subscription-lane program now has a versioned offline route-candidate snapshot
+compiler in addition to its portable v0.1 corpus and real MCP contract test. It
+deterministically projects sanitized caller evidence for advisory routing and rejects
+provider/control-plane smuggling. It remains advisory-only: this is not provider
+availability, authentication, budget freshness, catalog access, execution, failover,
+or metering evidence.
+
 ## Shipped
 
 | Version | Theme | Highlights |
@@ -138,7 +145,7 @@ Direction, not commitment — items ship when real usage pulls them.
 - VS Code extension marketplace listing (the read-only inspector MVP already lives in `editors/vscode/`) — waiting on a publisher account, not on code.
 
 **Next**
-- P1 spawn receipts: resolved runtime agent/model banner capture is implemented. Capability `model` remains routing self-description, not proof of runtime identity; requested-vs-resolved model binding remains future work.
+- P1 spawn receipts: resolved runtime agent/model banner capture is implemented. The internal OpenCode classifier can fail-close an explicitly supplied requested-model label against that observed banner, without selecting a model or exposing a public model input. Capability `model` remains routing self-description, not proof of runtime identity; public request production and durable requested-versus-resolved receipt binding remain future work.
 - Per-entry provenance confidence bands in verify output
 
 **Recently shipped from this list** (moved here rather than deleted, so the list stays auditable)
@@ -206,6 +213,14 @@ observable, not a daemon, dashboard, or service claim.
   or approved beyond proposal.
 - [ ] **Slice 4D: offline delivery-attempt and transport conformance** — compare
   stdio, mailbox, HTTP/SSE, and WebSocket semantic traces without live peers.
+  **4D-alpha is implemented locally at reference-conformance:** the pure
+  TypeScript evaluator and independent stdlib-only Python witness agree over a
+  language-neutral corpus. They bind every event to the existing canonical
+  envelope digest, preserve offer/arrival/observation/receipt/acknowledgment/
+  retryable-failure/terminal-rejection distinctions, reject transport/control-
+  plane field smuggling, and freeze live-transport/interoperability/wake/
+  execution/persistence claims to false. This does not implement any transport
+  or close the broader 4D row.
 - [ ] **Slice 4E: deterministic two-host coordinator simulation** — prove
   leases, monotonic fencing, cancellation, partition, and recovery semantics
   before operational multi-host work.

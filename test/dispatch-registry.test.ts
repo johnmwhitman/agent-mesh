@@ -16,6 +16,7 @@ import { dirname, join } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const source = readFileSync(join(here, "..", "src", "index.ts"), "utf8");
+const readme = readFileSync(join(here, "..", "README.md"), "utf8");
 
 // Declared tool names live in the ListToolsRequestSchema handler, i.e. between
 // the ListTools registration and the toolHandlers registry declaration.
@@ -78,8 +79,10 @@ test("registry has no duplicate handler registrations", () => {
 // D3 (blueprint §8 "Tool-count reconciliation" + errata item 8): the pre-D3
 // baseline was 27 advertised tools / 27 registered handlers; D3 adds exactly
 // four Discussion tools (ask_peer, wake_agent, reply_discussion,
-// get_discussion), so the post-D3 baseline is 31/31 with every original name
-// still present.
+// get_discussion), so the D3 baseline is 31/31 with every original name still
+// present. recommend_route is the next additive tool, bringing the live
+// registry to 32/32 without changing any pre-D3 or Discussion name. The
+// additive snapshot compiler brings the registry to 33/33.
 const PRE_D3_TOOL_NAMES = [
   "spawn_fleet",
   "fleet_status",
@@ -112,12 +115,33 @@ const PRE_D3_TOOL_NAMES = [
 
 const D3_DISCUSSION_TOOL_NAMES = ["ask_peer", "wake_agent", "reply_discussion", "get_discussion"];
 
-test("D3: advertised and handler tool counts are both exactly 31", () => {
+test("registry includes D3 plus additive routing and verifier-v2 tools (34 total)", () => {
   const declared = declaredToolNames(source);
   const registered = registeredHandlerNames(source);
 
-  assert.equal(declared.size, 31, `expected 31 advertised tools, got ${declared.size}: ${[...declared].sort().join(", ")}`);
-  assert.equal(registered.size, 31, `expected 31 registered handlers, got ${registered.size}: ${[...registered].sort().join(", ")}`);
+  assert.equal(declared.size, 34, `expected 34 advertised tools, got ${declared.size}: ${[...declared].sort().join(", ")}`);
+  assert.equal(registered.size, 34, `expected 34 registered handlers, got ${registered.size}: ${[...registered].sort().join(", ")}`);
+  assert.ok(declared.has("recommend_route"));
+  assert.ok(registered.has("recommend_route"));
+  assert.ok(declared.has("compile_route_candidates"));
+  assert.ok(registered.has("compile_route_candidates"));
+  assert.ok(declared.has("verify_ledger_v2"));
+  assert.ok(registered.has("verify_ledger_v2"));
+});
+
+test("README advertises the 34-tool registry including verifier v2", () => {
+  assert.match(readme, /^## 34 MCP tools$/m, "README must advertise the 34-tool registry");
+  assert.match(readme, /^That's 34\. We counted twice this time\.$/m, "README summary must agree with the 34-tool registry");
+  assert.match(
+    readme,
+    /^\| `compile_route_candidates` \| Pure offline projection of sanitized manifest\/observation snapshots; does not rank, persist, execute, authorize, wake, or contact providers \|$/m,
+    "README must describe compile_route_candidates and its effect boundary",
+  );
+  assert.match(
+    readme,
+    /^\| `verify_ledger_v2` \| Versioned unsigned-snapshot consistency envelope around the unchanged verifier report from a dedicated read-only file snapshot; the handler performs no ledger writes \|$/m,
+    "README must describe verify_ledger_v2 at its read-only handler boundary",
+  );
 });
 
 test("D3: all 27 pre-existing tool names remain present in both registries", () => {

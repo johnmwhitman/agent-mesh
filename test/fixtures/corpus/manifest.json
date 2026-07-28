@@ -3,6 +3,48 @@
   "baseline": "baseline.json",
   "vectors": [
     {
+      "id": "agent-invalid-started-at",
+      "primary": "agent.invalid_timestamp",
+      "classification": "caught",
+      "lie": "an agent start time is present but not a finite number, so its lifecycle ordering cannot be audited",
+      "ops": [
+        {
+          "op": "set",
+          "path": "agents|a2|started_at",
+          "value": null
+        }
+      ],
+      "expected_ok": false,
+      "expected_findings": [
+        {
+          "severity": "error",
+          "check": "agent.invalid_timestamp",
+          "subject": "a2"
+        }
+      ]
+    },
+    {
+      "id": "agent-invalid-completed-at",
+      "primary": "agent.invalid_timestamp",
+      "classification": "caught",
+      "lie": "an agent completion time is present but not a finite number, so its terminal state cannot be ordered",
+      "ops": [
+        {
+          "op": "set",
+          "path": "agents|a2|completed_at",
+          "value": null
+        }
+      ],
+      "expected_ok": false,
+      "expected_findings": [
+        {
+          "severity": "error",
+          "check": "agent.invalid_timestamp",
+          "subject": "a2"
+        }
+      ]
+    },
+    {
       "id": "agent-tampered-timestamp",
       "primary": "agent.tampered_timestamp",
       "classification": "caught",
@@ -33,6 +75,31 @@
           "op": "set",
           "path": "agents|a2|completed_at",
           "value": 1700000000005
+        }
+      ],
+      "expected_ok": false,
+      "expected_findings": [
+        {
+          "severity": "error",
+          "check": "agent.tampered_timestamp",
+          "subject": "a2"
+        }
+      ]
+    },
+    {
+      "id": "agent-completed-before-fleet",
+      "primary": "agent.tampered_timestamp",
+      "classification": "caught",
+      "lie": "an agent is on record as having completed before the fleet that spawned it existed",
+      "ops": [
+        {
+          "op": "delete",
+          "path": "agents|a2|started_at"
+        },
+        {
+          "op": "set",
+          "path": "agents|a2|completed_at",
+          "value": 1699999995000
         }
       ],
       "expected_ok": false,

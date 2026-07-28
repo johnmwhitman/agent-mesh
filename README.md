@@ -213,7 +213,7 @@ watching… no messages yet  (spawn a fleet or send_message from MCP)
 
 ---
 
-## 31 MCP tools
+## 34 MCP tools
 
 **Fleets**
 
@@ -237,6 +237,7 @@ watching… no messages yet  (spawn a fleet or send_message from MCP)
 | `subscribe_inbox` | Push delivery over SSE instead of polling (optional auth token) |
 | `receipt` / `get_receipts` | Write and query the witnessed-delivery ledger: who saw what, when |
 | `verify_ledger` | Audit the whole ledger's internal consistency — errors mean it asserts something its own records don't support |
+| `verify_ledger_v2` | Versioned unsigned-snapshot consistency envelope around the unchanged verifier report from a dedicated read-only file snapshot; the handler performs no ledger writes |
 
 **Councils (quorum ratification)**
 
@@ -252,6 +253,8 @@ watching… no messages yet  (spawn a fleet or send_message from MCP)
 |---|---|
 | `register_capability` | Self-describe role + skills for routing |
 | `route_work` | Match a task to the best agent by keyword + role overlap |
+| `recommend_route` | Advisory ranking for caller-supplied agent/runtime/model candidates, with hard privacy and capability filters |
+| `compile_route_candidates` | Pure offline projection of sanitized manifest/observation snapshots; does not rank, persist, execute, authorize, wake, or contact providers |
 | `record_routing_outcome` | Feed results back to improve routing |
 | `list_agents` | Discover 100+ premade agent personalities |
 | `get_health` / `ping` | Fleet health and liveness |
@@ -267,9 +270,9 @@ watching… no messages yet  (spawn a fleet or send_message from MCP)
 
 See [docs/discussions.md](docs/discussions.md) for the full quickstart, tool reference, and terminal-state precedence.
 
-That's 31. We counted twice this time.
+That's 34. We counted twice this time.
 
-[Full API reference → AGENT-MESH-SPEC.md](AGENT-MESH-SPEC.md) · [P2P/receipts → SPEC-P2P.md](SPEC-P2P.md) · [Councils → SPEC-COUNCILS.md](SPEC-COUNCILS.md)
+[Advisory routing → docs/ADVISORY-ROUTING.md](docs/ADVISORY-ROUTING.md) · [Architecture orientation → AGENT-MESH-SPEC.md](AGENT-MESH-SPEC.md) · [P2P/receipts → SPEC-P2P.md](SPEC-P2P.md) · [Councils → SPEC-COUNCILS.md](SPEC-COUNCILS.md)
 
 ---
 
@@ -301,14 +304,14 @@ That's 31. We counted twice this time.
 ## What the verifier catches — and what it can't
 
 "Prove it" is a claim about detection, so it ships with the evidence:
-[`test/fixtures/corpus/`](test/fixtures/corpus/README.md) is a corpus of 46 deliberately
+[`test/fixtures/corpus/`](test/fixtures/corpus/README.md) is a corpus of 62 deliberately
 falsified ledgers, each one a clean baseline plus **one declared change**. Results are
 reported in three separate buckets, never blended into a single coverage number:
 
 | Bucket | N | What it means |
 |---|---|---|
-| `caught` | 26 | An overclaim — the ledger asserts something its own records don't support. Raises an error and fails the ledger. |
-| `anomaly` | 10 | Surprising, but claims no more than the records support. Warning only, and deliberately *not* counted as caught. |
+| `caught` | 40 | An overclaim — the ledger asserts something its own records don't support. Raises an error and fails the ledger. |
+| `anomaly` | 12 | Surprising, but claims no more than the records support. Warning only, and deliberately *not* counted as caught. |
 | `undetectable` | 10 | The unsigned local core structurally cannot see it. Produces zero findings. |
 
 **That third bucket is published on purpose.** The core polices internal coherence; it
@@ -323,6 +326,53 @@ signatures are what make those vectors detectable, and signatures are not in thi
 Together the `caught` and `anomaly` vectors name every check the verifier can emit outside
 the `discussion.*` family, and that inventory is re-derived from source on every run — so
 a new check without a fixture fails the build.
+
+### Implemented versioned evidence scope
+
+`verify_ledger_v2` is an implemented opt-in MCP verifier surface. The existing
+`verify_ledger`, `VerifyReport`, `VerifyFinding`, `agent-mesh inspect --verify`,
+and `meshfleet.inspect/v1` remain unchanged.
+
+At tool dispatch, its handler reads the configured ledger through a dedicated
+read-only file snapshot and performs no ledger writes. In normal parent mode,
+server startup recovery or migration may initialize or change the configured
+ledger before any tool dispatch; those pre-dispatch effects are unchanged by
+v2 and are outside this handler boundary.
+
+The MCP tool returns this envelope. The matching opt-in `agent-mesh inspect
+--verify-v2 [file]` CLI mode is implemented: it audits the supplied file, or
+the configured ledger, through the same dedicated read-only file snapshot. With
+`--json` it emits this same object; otherwise it emits one evidence-scope header
+followed by the unchanged legacy verifier text:
+
+```json
+{
+  "schema": "meshfleet.verify/v2",
+  "evidence_scope": {
+    "profile": "unsigned_snapshot_consistency/v1",
+    "ok_means": "no_detected_internal_consistency_contradiction",
+    "assurance_ceiling": "internal_consistency_of_the_unsigned_snapshot_read",
+    "not_established": [
+      "authorship_and_authenticated_provenance",
+      "pre_read_snapshot_integrity_and_tamper_evidence",
+      "content_binding",
+      "completeness_and_deletion",
+      "external_delivery_and_execution",
+      "external_time"
+    ]
+  },
+  "report": "the unchanged VerifyReport"
+}
+```
+
+`report.ok` retains its exact current meaning: no detected internal
+consistency contradiction in the unsigned snapshot read (`report.errors ===
+0`). It does not establish authorship or authenticated provenance, pre-read
+snapshot integrity or tamper evidence, content binding, completeness or absence
+of deletion, external delivery or execution, or external time. The scope is
+generated verifier output, never caller or ledger input; it is a ceiling on
+what the report establishes, not a confidence score, integrity verdict, or
+promotion.
 
 ---
 
@@ -366,7 +416,7 @@ Every write goes through **one** function — `withLedger(mutator)` in `db.ts` �
 
 The ledger lives at `~/.config/opencode/agent-mesh.db` (SQLite); the event log at `~/.config/opencode/agent-mesh.events.log` (NDJSON). Dump the ledger as human-readable JSON any time with `npx agent-mesh inspect --export`. On first run after upgrading from a JSON ledger, the server migrates it once (validated, with a `.migrated.<ts>` backup kept).
 
-[Full spec →](AGENT-MESH-SPEC.md) · [P2P messaging spec →](SPEC-P2P.md)
+[Architecture orientation →](AGENT-MESH-SPEC.md) · [P2P messaging spec →](SPEC-P2P.md)
 
 ---
 

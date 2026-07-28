@@ -51,6 +51,151 @@ test('spawn result: requested agent must match the runtime banner', () => {
   assert.match(result.error ?? '', /requested agent oracle.*runtime agent build/i)
 })
 
+test('spawn result: requested model treats only undefined as absent', () => {
+  const banner = '> oracle · anthropic/claude-sonnet-4\n'
+  const absent = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'answer',
+    stderr: banner,
+    requestedModel: undefined,
+  })
+  const bannerlessAbsent = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'answer',
+    stderr: '',
+    requestedModel: undefined,
+  })
+
+  assert.equal(absent.success, true)
+  assert.equal(bannerlessAbsent.success, true)
+
+  for (const requestedModel of ['', '   ', '\u2003']) {
+    const result = classifySpawnResult({
+      exitCode: 0,
+      stdout: 'answer',
+      stderr: banner,
+      requestedModel,
+    })
+    assert.equal(result.success, false, JSON.stringify(requestedModel))
+    assert.equal(
+      result.error,
+      `Requested model ${requestedModel} but runtime model banner reported anthropic/claude-sonnet-4`,
+    )
+  }
+})
+
+test('spawn result: requested model keeps the existing matcher semantics', () => {
+  const cases = [
+    ['anthropic/claude-sonnet-4', 'anthropic/claude-sonnet-4', true],
+    ['ANTHROPIC/CLAUDE-SONNET-4', 'anthropic/claude-sonnet-4', true],
+    ['claude-sonnet-4', 'anthropic/claude-sonnet-4', true],
+    ['anthropic/claude-sonnet-4', 'claude-sonnet-4', true],
+    ['vendor/a/leaf', 'vendor/a/leaf', true],
+    ['vendor/a/leaf', 'other/a/leaf', false],
+    ['anthropic/claude-sonnet-4', 'openai/claude-sonnet-4', false],
+    ['claude-sonnet-4', 'grok-4.5', false],
+  ] as const
+
+  for (const [requestedModel, observedModel, expectedSuccess] of cases) {
+    const result = classifySpawnResult({
+      exitCode: 0,
+      stdout: 'answer',
+      stderr: `> oracle · ${observedModel}\n`,
+      requestedModel,
+    })
+    assert.equal(result.success, expectedSuccess, `${requestedModel} / ${observedModel}`)
+  }
+})
+
+test('spawn result: requested model without a parseable banner fails closed', () => {
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'answer',
+    stderr: 'OpenCode started without an identity banner',
+    requestedModel: 'anthropic/claude-sonnet-4',
+  })
+
+  assert.equal(result.success, false)
+  assert.equal(result.error, 'Requested model but runtime model banner is missing or unparsable')
+})
+
+test('spawn result: established failures precede requested-model binding', () => {
+  const requestedModel = 'openai/gpt-5'
+  const cases = [
+    {
+      name: 'nonzero exit',
+      input: { exitCode: 7, stdout: 'partial', stderr: '> oracle · anthropic/claude-sonnet-4\n', requestedModel },
+      error: 'Spawn failed with exit code 7',
+    },
+    {
+      name: 'empty stdout',
+      input: { exitCode: 0, stdout: '', stderr: '> oracle · anthropic/claude-sonnet-4\n', requestedModel },
+      error: 'Spawn exited without output (empty stdout)',
+    },
+    {
+      name: 'fallback',
+      input: { exitCode: 0, stdout: 'answer', stderr: 'Falling back to default.', requestedModel },
+      error: 'Explicit OpenCode agent fallback detected',
+    },
+    {
+      name: 'requested agent without banner',
+      input: { exitCode: 0, stdout: 'answer', stderr: '', requestedAgent: 'oracle', requestedModel },
+      error: 'Requested agent but runtime agent banner is missing or unparsable',
+    },
+    {
+      name: 'requested agent mismatch',
+      input: { exitCode: 0, stdout: 'answer', stderr: '> build · anthropic/claude-sonnet-4\n', requestedAgent: 'oracle', requestedModel },
+      error: 'Requested agent oracle but runtime agent build executed',
+    },
+  ]
+
+  for (const { name, input, error } of cases) {
+    const result = classifySpawnResult(input)
+    assert.equal(result.success, false, name)
+    assert.equal(result.error, error, name)
+  }
+})
+
+test('spawn result: matching requested model retains auxiliary diagnostics', () => {
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'complete answer',
+    stderr: [
+      '> oracle · anthropic/claude-sonnet-4',
+      'ProviderModelNotFoundError: google/gemini-2.5-pro',
+    ].join('\n'),
+    requestedModel: 'claude-sonnet-4',
+  })
+
+  assert.equal(result.success, true)
+  assert.match(result.warning ?? '', /auxiliary provider/i)
+})
+
+test('spawn result: requested-model mismatch precedes diagnostics and preserves receipt data', () => {
+  const stdout = 'partial answer\n'
+  const stderr = [
+    '> oracle · anthropic/claude-sonnet-4',
+    'Error: API 429 for anthropic/claude-sonnet-4',
+  ].join('\n')
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout,
+    stderr,
+    requestedAgent: 'oracle',
+    requestedModel: 'openai/gpt-5',
+  })
+
+  assert.equal(result.success, false)
+  assert.equal(
+    result.error,
+    'Requested model openai/gpt-5 but runtime model banner reported anthropic/claude-sonnet-4',
+  )
+  assert.equal(result.stdout, stdout)
+  assert.equal(result.stderr, stderr)
+  assert.equal(result.runtime_agent, 'oracle')
+  assert.equal(result.runtime_model, 'anthropic/claude-sonnet-4')
+})
+
 test('spawn result: fatal primary-provider error fails despite exit zero and output', () => {
   const result = classifySpawnResult({
     exitCode: 0,

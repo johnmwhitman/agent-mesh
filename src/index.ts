@@ -26,6 +26,7 @@ import {
   getInbox,
   listFleets,
   markAgentFinished,
+  MAX_BATCH_MESSAGES,
   MAX_PAYLOAD_BYTES,
   MESSAGE_TYPES,
   MessageType,
@@ -37,7 +38,7 @@ import {
   sendMessages,
   setFleetTimeout,
 } from "./core.js";
-import { readLedger, withLedger } from "./db.js";
+import { readLedger, resolveDbFile, withLedger } from "./db.js";
 import { migrateJsonToSqlite } from "./migrate.js";
 import { checkRateLimit, getHealth, ping } from "./health.js";
 import {
@@ -53,7 +54,8 @@ import {
   resolveRatification,
   sweepRatifications,
 } from "./ratify.js";
-import { verifyLedger } from "./verify.js";
+import { verifyLedger, verifyLedgerFile } from "./verify.js";
+import { buildVerifyEnvelopeV2 } from "./verify-envelope-v2.js";
 import { notifySubscribers } from "./realtime.js";
 import { isSseServerRunning, startSseServer, stopSseServer, subscribeInboxUrl } from "./sse-server.js";
 import { createHeartbeat } from "./heartbeat.js";
@@ -63,11 +65,18 @@ import {
   shouldRetry as shouldAgentRetry,
 } from "./retry.js";
 import { recordRoutingOutcome } from "./routing-feedback.js";
+import { recommendRoute, type RecommendRouteInput } from "./recommend-route.js";
+import {
+  compileRouteCandidates,
+  type CompileRouteCandidatesInput,
+} from "./compile-route-candidates.js";
 import {
   firstError,
   requireString,
+  requirePresentString,
   requireBoolean,
   optionalBoolean,
+  optionalNonBlankString,
   requireNumber,
   optionalNumber,
   requireStringArray,
@@ -311,16 +320,16 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         properties: {
           messages: {
             type: "array",
-            maxItems: 1000,
+            maxItems: MAX_BATCH_MESSAGES,
             items: {
               type: "object",
               properties: {
-                from_agent_id: { type: "string" },
-                to_agent_id: { type: "string", description: 'Recipient agent id, or "*" for fleet broadcast' },
-                fleet_id: { type: "string" },
+                from_agent_id: { type: "string", minLength: 1, pattern: "\\S" },
+                to_agent_id: { type: "string", minLength: 1, pattern: "\\S", description: 'Recipient agent id, or "*" for fleet broadcast' },
+                fleet_id: { type: "string", minLength: 1, pattern: "\\S" },
                 type: { type: "string", enum: [...MESSAGE_TYPES] },
                 payload: { type: "string" },
-                correlation_id: { type: "string" },
+                correlation_id: { type: "string", minLength: 1, pattern: "\\S" },
               },
               required: ["from_agent_id", "to_agent_id", "fleet_id", "type", "payload"],
             },
@@ -386,6 +395,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       name: "verify_ledger",
       description:
         "Audit the ledger's internal consistency: every receipt points at a real message and honors the idempotency key, acknowledged flags are supported by ack receipts, inboxes hold no consumed or dangling messages, and ratification tallies (quorum, signoffs, vote polarity, terminal status) recompute from the receipts. Read-only. Returns ok, error/warning counts, and per-finding detail — errors mean the ledger asserts something its own records do not support.",
+      inputSchema: { type: "object", properties: {} },
+    },
+    {
+      name: "verify_ledger_v2",
+      description:
+        "Versioned verifier output read from a dedicated read-only file snapshot; the handler performs no ledger writes. Normal parent-server startup recovery or migration may initialize or change the configured ledger before tool dispatch. Returns the unchanged internal-consistency report inside meshfleet.verify/v2 with an unsigned-snapshot evidence scope; it does not establish authorship, snapshot integrity, content binding, completeness, external delivery or execution, or external time.",
       inputSchema: { type: "object", properties: {} },
     },
     {
@@ -483,6 +498,349 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           },
         },
         required: ["description"],
+      },
+    },
+    {
+      name: "compile_route_candidates",
+      description:
+        "Offline projection of caller-supplied route-candidate snapshots. Does not persist, rank, execute, authorize, wake, or contact providers.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          manifest: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              version: {
+                type: "string",
+                enum: ["meshfleet.route-candidates.v0.1"],
+              },
+              candidates: {
+                type: "array",
+                minItems: 1,
+                maxItems: 256,
+                items: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: {
+                    candidate_id: { type: "string", minLength: 1, maxLength: 128 },
+                    capabilities: {
+                      type: "array",
+                      minItems: 1,
+                      maxItems: 64,
+                      uniqueItems: true,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 64,
+                        pattern: "^[a-z0-9][a-z0-9._:-]*$",
+                      },
+                    },
+                    privacy: {
+                      type: "string",
+                      enum: ["local_only", "network_ok", "unrestricted"],
+                    },
+                    locality: {
+                      type: "string",
+                      enum: ["same_host", "same_fleet", "any"],
+                    },
+                    coordination_modes: {
+                      type: "array",
+                      minItems: 1,
+                      maxItems: 2,
+                      uniqueItems: true,
+                      items: {
+                        type: "string",
+                        enum: ["solo", "pair_discussion"],
+                      },
+                    },
+                    policy_tags: {
+                      type: "array",
+                      minItems: 0,
+                      maxItems: 64,
+                      uniqueItems: true,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 64,
+                        pattern: "^[a-z0-9][a-z0-9._:-]*$",
+                      },
+                    },
+                    context_window: { type: "integer", minimum: 0 },
+                    requested_identity: {
+                      type: "object",
+                      additionalProperties: false,
+                      properties: {
+                        runtime: { type: "string", minLength: 1, maxLength: 256 },
+                        model: { type: "string", minLength: 1, maxLength: 256 },
+                      },
+                      anyOf: [{ required: ["runtime"] }, { required: ["model"] }],
+                    },
+                  },
+                  required: ["candidate_id", "capabilities", "privacy", "locality"],
+                },
+              },
+            },
+            required: ["version", "candidates"],
+          },
+          observations: {
+            type: "array",
+            minItems: 0,
+            maxItems: 256,
+            items: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                candidate_id: { type: "string", minLength: 1, maxLength: 128 },
+                status: {
+                  type: "string",
+                  // "unconfigured" exists as a module-level status token but is
+                  // never accepted for a manifest candidate, so the published
+                  // contract does not advertise it.
+                  enum: ["green", "degraded", "exhausted"],
+                },
+                confidence: { type: "string", enum: ["measured", "assumed"] },
+                budget: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: {
+                    used: { type: "number", minimum: 0 },
+                    total: { type: "number", exclusiveMinimum: 0 },
+                  },
+                  required: ["used", "total"],
+                },
+                observed_outcomes: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: {
+                    successes: { type: "integer", minimum: 0, maximum: 1_000_000 },
+                    failures: { type: "integer", minimum: 0, maximum: 1_000_000 },
+                  },
+                  required: ["successes", "failures"],
+                },
+                observed_identity: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: {
+                    runtime: { type: "string", minLength: 1, maxLength: 256 },
+                    model: { type: "string", minLength: 1, maxLength: 256 },
+                    source: { type: "string", minLength: 1, maxLength: 256 },
+                  },
+                  required: ["source"],
+                  anyOf: [{ required: ["runtime"] }, { required: ["model"] }],
+                },
+              },
+              required: ["candidate_id", "status", "confidence"],
+            },
+          },
+        },
+        required: ["manifest"],
+      },
+    },
+    {
+      name: "recommend_route",
+      description:
+        "Advisory-only ranking over caller-supplied sanitized task traits and candidate snapshots. Does not persist, execute, authorize, wake agents, or contact providers.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          task: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              required_capabilities: {
+                type: "array",
+                minItems: 1,
+                maxItems: 64,
+                uniqueItems: true,
+                items: {
+                  type: "string",
+                  minLength: 1,
+                  maxLength: 64,
+                  pattern: "^[a-z0-9][a-z0-9._:-]*$",
+                },
+              },
+              optional_capabilities: {
+                type: "array",
+                maxItems: 64,
+                uniqueItems: true,
+                description:
+                  "Desirable capability tokens. Must not repeat any required_capabilities token.",
+                items: {
+                  type: "string",
+                  minLength: 1,
+                  maxLength: 64,
+                  pattern: "^[a-z0-9][a-z0-9._:-]*$",
+                },
+              },
+              privacy: {
+                type: "string",
+                enum: ["local_only", "network_ok", "unrestricted"],
+              },
+              locality: {
+                type: "string",
+                enum: ["same_host", "same_fleet", "any"],
+              },
+              coordination: {
+                type: "string",
+                enum: ["solo", "pair_discussion"],
+              },
+              policy_tags: {
+                type: "array",
+                maxItems: 64,
+                uniqueItems: true,
+                items: {
+                  type: "string",
+                  minLength: 1,
+                  maxLength: 64,
+                  pattern: "^[a-z0-9][a-z0-9._:-]*$",
+                },
+              },
+              min_context_tokens: { type: "integer", minimum: 0 },
+            },
+            required: ["required_capabilities", "privacy", "locality"],
+          },
+          candidates: {
+            type: "array",
+            minItems: 1,
+            maxItems: 256,
+            items: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                candidate_id: {
+                  type: "string",
+                  minLength: 1,
+                  maxLength: 128,
+                  description:
+                    "Opaque non-whitespace identifier; must be unique within candidates.",
+                },
+                capabilities: {
+                  type: "array",
+                  minItems: 1,
+                  maxItems: 64,
+                  uniqueItems: true,
+                  items: {
+                    type: "string",
+                    minLength: 1,
+                    maxLength: 64,
+                    pattern: "^[a-z0-9][a-z0-9._:-]*$",
+                  },
+                },
+                privacy: {
+                  type: "string",
+                  enum: ["local_only", "network_ok", "unrestricted"],
+                },
+                locality: {
+                  type: "string",
+                  enum: ["same_host", "same_fleet", "any"],
+                },
+                coordination_modes: {
+                  type: "array",
+                  minItems: 1,
+                  maxItems: 2,
+                  uniqueItems: true,
+                  items: {
+                    type: "string",
+                    enum: ["solo", "pair_discussion"],
+                  },
+                },
+                policy_tags: {
+                  type: "array",
+                  maxItems: 64,
+                  uniqueItems: true,
+                  items: {
+                    type: "string",
+                    minLength: 1,
+                    maxLength: 64,
+                    pattern: "^[a-z0-9][a-z0-9._:-]*$",
+                  },
+                },
+                context_window: { type: "integer", minimum: 0 },
+                observed_outcomes: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: {
+                    successes: {
+                      type: "integer",
+                      minimum: 0,
+                      maximum: 1_000_000,
+                    },
+                    failures: {
+                      type: "integer",
+                      minimum: 0,
+                      maximum: 1_000_000,
+                    },
+                  },
+                  required: ["successes", "failures"],
+                },
+                budget: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: {
+                    measured: { type: "boolean" },
+                    used: { type: "number", minimum: 0 },
+                    total: { type: "number", exclusiveMinimum: 0 },
+                  },
+                  required: ["measured"],
+                  allOf: [
+                    {
+                      if: {
+                        properties: { measured: { const: true } },
+                        required: ["measured"],
+                      },
+                      then: { required: ["used", "total"] },
+                    },
+                    {
+                      if: {
+                        properties: { measured: { const: false } },
+                        required: ["measured"],
+                      },
+                      then: {
+                        not: {
+                          anyOf: [
+                            { required: ["used"] },
+                            { required: ["total"] },
+                          ],
+                        },
+                      },
+                    },
+                  ],
+                },
+                requested_identity: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: {
+                    runtime: { type: "string", minLength: 1, maxLength: 256 },
+                    model: { type: "string", minLength: 1, maxLength: 256 },
+                  },
+                  anyOf: [{ required: ["runtime"] }, { required: ["model"] }],
+                },
+                observed_identity: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: {
+                    runtime: { type: "string", minLength: 1, maxLength: 256 },
+                    model: { type: "string", minLength: 1, maxLength: 256 },
+                    source: { type: "string", minLength: 1, maxLength: 256 },
+                  },
+                  required: ["source"],
+                  anyOf: [{ required: ["runtime"] }, { required: ["model"] }],
+                },
+              },
+              required: ["candidate_id", "capabilities", "privacy", "locality"],
+            },
+          },
+          top_n: {
+            type: "integer",
+            minimum: 1,
+            maximum: 256,
+            description: "Must not exceed candidates.length.",
+          },
+        },
+        required: ["task", "candidates"],
+        additionalProperties: false,
       },
     },
     {
@@ -917,36 +1275,70 @@ toolHandlers["send_message"] = async (args) => {
 };
 
 toolHandlers["send_messages"] = async (args) => {
-    const { messages } = args as {
-      messages: Array<{
-        from_agent_id: string;
-        to_agent_id: string;
-        fleet_id: string;
-        type: MessageType;
-        payload: string;
-        correlation_id?: string;
-      }>;
-    };
-    try {
-      const results = sendMessages(
-        messages.map((m) => ({
-          fromAgentId: m.from_agent_id,
-          toAgentId: m.to_agent_id,
-          fleetId: m.fleet_id,
-          type: m.type,
-          payload: m.payload,
-          correlationId: m.correlation_id,
-        }))
+    if (args === null || typeof args !== "object" || Array.isArray(args)) {
+      return jsonError("send_messages: arguments must be an object");
+    }
+    const { messages } = args as Record<string, unknown>;
+    if (!Array.isArray(messages)) {
+      return jsonError("send_messages: 'messages' is required and must be an array");
+    }
+    if (messages.length > MAX_BATCH_MESSAGES) {
+      return jsonError(
+        `send_messages: 'messages' must contain at most ${MAX_BATCH_MESSAGES} items, got ${messages.length}`,
       );
+    }
+
+    const batch: Array<{
+      fromAgentId: string;
+      toAgentId: string;
+      fleetId: string;
+      type: MessageType;
+      payload: string;
+      correlationId?: string;
+    }> = [];
+
+    // Validate every unknown wire item before projecting it into the typed core
+    // input. This is deliberately separate from sendMessages(): the direct core
+    // API retains its existing compatibility surface, while this MCP handler
+    // enforces the contract it publishes to remote callers.
+    for (let i = 0; i < messages.length; i++) {
+      const item = messages[i];
+      if (item === null || typeof item !== "object" || Array.isArray(item)) {
+        return jsonError(`send_messages: 'messages[${i}]' must be an object`);
+      }
+      const message = item as Record<string, unknown>;
+      const prefix = `messages[${i}]`;
+      const bad = firstError(
+        requireString("send_messages", `${prefix}.from_agent_id`, message.from_agent_id),
+        requireString("send_messages", `${prefix}.to_agent_id`, message.to_agent_id),
+        requireString("send_messages", `${prefix}.fleet_id`, message.fleet_id),
+        requirePresentString("send_messages", `${prefix}.payload`, message.payload),
+        requireEnum("send_messages", `${prefix}.type`, message.type, MESSAGE_TYPES),
+        optionalNonBlankString("send_messages", `${prefix}.correlation_id`, message.correlation_id),
+      );
+      if (bad) return jsonError(bad);
+
+      batch.push({
+        fromAgentId: message.from_agent_id as string,
+        toAgentId: message.to_agent_id as string,
+        fleetId: message.fleet_id as string,
+        type: message.type as MessageType,
+        payload: message.payload as string,
+        correlationId: message.correlation_id as string | undefined,
+      });
+    }
+
+    try {
+      const results = sendMessages(batch);
       // Same per-recipient SSE push as send_message, after the single commit.
       results.forEach(({ messageId, recipients }, i) => {
-        const src = messages[i]!;
+        const src = batch[i]!;
         for (const recipient of recipients) {
           notifySubscribers(recipient, [
             {
               type: "message",
               message_id: messageId,
-              from_agent_id: src.from_agent_id,
+              from_agent_id: src.fromAgentId,
               payload: JSON.stringify({ type: src.type, payload: src.payload }),
               timestamp: Date.now(),
             },
@@ -975,6 +1367,91 @@ toolHandlers["get_inbox"] = async (args) => {
     );
     if (bad) return jsonError(bad);
     return jsonResult({ messages: getInbox(agent_id, since) });
+};
+
+toolHandlers["compile_route_candidates"] = async (args) => {
+  try {
+    return jsonResult(
+      compileRouteCandidates(args as unknown as CompileRouteCandidatesInput),
+    );
+  } catch (error) {
+    return jsonError(error instanceof Error ? error.message : String(error));
+  }
+};
+
+toolHandlers["recommend_route"] = async (args) => {
+  const input = args as Record<string, unknown>;
+  const firstUnexpected = (
+    value: unknown,
+    allowed: ReadonlySet<string>,
+    path: string,
+  ): string | undefined => {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+    const key = Object.keys(value as Record<string, unknown>).find(
+      (candidate) => !allowed.has(candidate),
+    );
+    return key === undefined ? undefined : `${path}${key}`;
+  };
+  const topLevelUnexpected = firstUnexpected(
+    input,
+    new Set(["task", "candidates", "top_n"]),
+    "",
+  );
+  if (topLevelUnexpected) {
+    return jsonError(
+      `recommend_route: '${topLevelUnexpected}' is not allowed; supply sanitized traits only`,
+    );
+  }
+  const taskUnexpected = firstUnexpected(
+    input.task,
+    new Set([
+      "required_capabilities",
+      "optional_capabilities",
+      "privacy",
+      "locality",
+      "coordination",
+      "policy_tags",
+      "min_context_tokens",
+    ]),
+    "task.",
+  );
+  if (taskUnexpected) {
+    return jsonError(
+      `recommend_route: '${taskUnexpected}' is not allowed; supply sanitized traits only`,
+    );
+  }
+  if (Array.isArray(input.candidates)) {
+    const allowedCandidateKeys = new Set([
+      "candidate_id",
+      "capabilities",
+      "privacy",
+      "locality",
+      "coordination_modes",
+      "policy_tags",
+      "context_window",
+      "observed_outcomes",
+      "budget",
+      "requested_identity",
+      "observed_identity",
+    ]);
+    for (let index = 0; index < input.candidates.length; index++) {
+      const candidateUnexpected = firstUnexpected(
+        input.candidates[index],
+        allowedCandidateKeys,
+        `candidates[${index}].`,
+      );
+      if (candidateUnexpected) {
+        return jsonError(
+          `recommend_route: '${candidateUnexpected}' is not allowed; recommendation never executes or wakes agents`,
+        );
+      }
+    }
+  }
+  try {
+    return jsonResult(recommendRoute(args as RecommendRouteInput));
+  } catch (error) {
+    return jsonError(error instanceof Error ? error.message : String(error));
+  }
 };
 
 toolHandlers["ack_message"] = async (args) => {
@@ -1030,6 +1507,14 @@ toolHandlers["get_receipts"] = async (args) => {
 
 toolHandlers["verify_ledger"] = async () => {
     return jsonResult(verifyLedger());
+};
+
+toolHandlers["verify_ledger_v2"] = async () => {
+    try {
+      return jsonResult(buildVerifyEnvelopeV2(verifyLedgerFile(resolveDbFile())));
+    } catch {
+      return jsonError("verify_ledger_v2 unavailable: configured ledger is absent or unreadable");
+    }
 };
 
 toolHandlers["open_ratification"] = async (args) => {
