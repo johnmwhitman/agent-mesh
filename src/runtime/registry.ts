@@ -1,7 +1,7 @@
 import { OpenCodeRuntimeAdapter } from "./opencode.js";
 import type { RuntimeAdapter } from "./types.js";
 
-/** Registry is internal until runtime selection has a reviewed public contract. */
+/** Registry is internal: there is no public runtime-adapter selector. */
 export class RuntimeAdapterRegistry {
   private readonly adapters = new Map<string, RuntimeAdapter>();
 
@@ -33,7 +33,9 @@ export function createDefaultRuntimeRegistry(): RuntimeAdapterRegistry {
 
 const defaultRegistry = createDefaultRuntimeRegistry();
 
-/** Existing spawn_fleet behavior stays OpenCode-backed without a public selector. */
+/** Existing spawn_fleet behavior stays OpenCode-backed: there is no public adapter selector.
+ *  Public callers may select a `model` (provider/model) on the agent; that flows through
+ *  `ExecutionSpec.requestedModel` and the default adapter's argv, not through this registry. */
 export function getDefaultRuntimeAdapter(): RuntimeAdapter {
   return defaultRegistry.require("opencode-cli");
 }

@@ -33,12 +33,14 @@ const { fleet_id } = await callTool("spawn_fleet", {
   agents: [
     { role: "Explorer",   prompt: "Map the auth layer",    agent: "codebase-onboarding-engineer" },
     { role: "Analyst",    prompt: "Review the architecture", agent: "oracle" },
-    { role: "Engineer",   prompt: "Implement JWT refresh",  agent: "backend-architect" },
+    { role: "Engineer",   prompt: "Implement JWT refresh",  agent: "backend-architect", model: "opencode-go/minimax-m3" },
   ],
 });
 ```
 
 Three specialists. Three independent processes. They hand off, ask questions, alert on problems. You read the result.
+
+Each agent accepts an optional `model` (`provider/model`) selector. When set, Meshfleet persists it as the immutable request (`Agent.requested_model`) and launches `opencode run --model <value>` for that agent; the observed runtime banner lands in `Agent.runtime_model`, and a `complete` agent whose banner is missing or contradicts the request fails closed. Omitting `model` keeps the old argv exactly. The selector is data, not shell text, and the banner is observed evidence — not authentication, billing, provider availability, or attestation. Default execution is still OpenCode; there is no public runtime-adapter selector, no automatic model choice, no token-budget drain policy, and no credential flow in this slice. Local smoke tests exercised the installed OpenCode IDs `opencode-go/minimax-m3` and `kilo/kilo-auto/free`; that evidence is environment-local. Ollama Cloud's direct API and automatic subscription-aware selection remain future work.
 
 And when an agent's action matters, Meshfleet can prove what happened. Every message writes **per-recipient receipts** (delivered, seen, acked). Decisions can go through **councils** — quorum-based ratification with required sign-offs, recorded on the same ledger. The design is a port of a bus that ran a 10+ agent fleet in production for 40 days and 18,404 messages, including quorum-ratified decisions.
 
@@ -219,13 +221,13 @@ watching… no messages yet  (spawn a fleet or send_message from MCP)
 
 | Tool | What it does |
 |---|---|
-| `spawn_fleet` | Spawn N parallel agents as independent OS processes |
+| `spawn_fleet` | Spawn N parallel agents as independent OS processes; each agent may set an optional `model` (`provider/model`) selector that becomes `opencode run --model <value>` and is preserved across retries and Discussion wakeups |
 | `spawn_from_template` | Spawn a fleet from a saved template |
 | `save_fleet_template` / `list_fleet_templates` | Reusable, versioned fleet configs |
 | `list_fleets` / `fleet_status` | All fleets, or one fleet's full state |
 | `collect_results` | Gather every agent's final output in one call |
 | `set_fleet_timeout` | Per-fleet timeout override (in ms) |
-| `attach_agent` | Dynamically attach a premade agent to a running fleet |
+| `attach_agent` | Dynamically attach a premade agent to a running fleet; the agent may set the same optional `model` (`provider/model`) selector |
 
 **Messaging & receipts**
 
