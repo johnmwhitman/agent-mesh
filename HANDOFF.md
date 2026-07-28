@@ -1,7 +1,7 @@
 # MeshFleet Handoff
 
-**Last verified:** 2026-07-28 · **Branch:** main · **Commit:** ed45f14
-**Suite:** 1029/1029 · **Conformance:** 132/132 · **npm:** meshfleet@0.18.0 published
+**Last verified:** 2026-07-28 · **Branch:** main · **Commit:** 9ead388
+**Suite:** 1029/1029 · **Conformance:** 132/132 · **Faults:** 12/12 · **npm:** meshfleet@0.18.0 published
 
 ## Current state
 
@@ -35,28 +35,39 @@
 | 9 | lifecycle-terminal | Single-work lease/retry/settle/cancel | 31 | JS + Py |
 | 10 | two-host-coordinator | Two-host partition/heal/recovery | 24 | JS + Py |
 | 11 | a2a-conformance | Live MCP stdio catalog/wire/fault | live | JS + Py |
-| 12 | discussion-derivation | Envelope/root/status/transcript derivation | 30 | JS (Grok) |
+| 12 | discussion-derivation | Envelope/root/status/transcript derivation | 30 | JS + Py |
+
+## Session progress (2026-07-28)
+
+**Completed this session:** discussion witness (18→30 cases, all 7 statuses, JS+Py evaluators),
+advisory routing MCP tests (8 tests over real stdio), handler hardening (5 handlers),
+fuzz differentials (lifecycle-terminal + two-host-coordinator), wire fault expansion
+(concurrent-requests / INVALID_NOTIFICATION), send_message boundary parity, VerifyReport.scope.
 
 ## What to build next (candidates — verify before starting)
 
-1. ~~**Discussion witness expansion**~~ **DONE** — expanded to 30 cases covering all 7
-   statuses with multi-turn lifecycle (reservation/completed/failed/deadman). Grok JS
-   evaluator verified at 26/26 derivation match. Python evaluator in progress (MiniMax)
-2. **Wire fault coverage expansion** — `blackbox/a2a-conformance-v0.1/wire/faults/` has 11
-   fault fixtures; the delivery-trace profile names several untested vectors
-3. ~~**Fuzz differentials**~~ **DONE** — lifecycle-terminal (256 traces + 14 edge) and
-   two-host-coordinator (256 scenarios + 22 mutations) fuzz differentials landed
-4. ~~**Advisory routing MCP tests**~~ **DONE** — 8 MCP-level tests for
-   `compile_route_candidates` and `recommend_route` over real stdio. Discussion tools
-   (`ask_peer`, `wake_agent`, `reply_discussion`, `get_discussion`) still lack MCP-level tests
-5. **Verifier coverage** — `verify_ledger_v2` envelope output is tested but the discussion
-   integrity findings (the `discussion.*` check family in `src/verify.ts`) have no dedicated
-   blackbox witness. These are the most complex verify findings in the system
-6. **Python evaluator for discussion-derivation** — the JS evaluator exists but no Python
-   reference yet; every other witness with an evaluator has both languages
-7. ~~**Core handler hardening**~~ **DONE** — cast_vote, collect_results, get_receipts,
-   receipt, tally_ratification now validate through tool-args.ts. All 34 handlers that
-   take string args now validate before any DB read/write
+1. **Discussion integrity falsification corpus** — the `discussion.*` check family in
+   `src/verify.ts` (lines 69-82: 12 error codes + broadcast_forbidden) has no dedicated
+   blackbox witness. These are the most complex verify findings in the system. Build a
+   corpus of ledgers that each trigger exactly one discussion finding, modeled after the
+   existing `test/fixtures/corpus/` pattern
+2. **Discussion MCP-level blackbox tests** — `ask_peer`, `wake_agent`, `reply_discussion`,
+   `get_discussion` have no MCP stdio tests. These are the most complex tool handlers
+   (they spawn processes, manage deadlines, write receipts)
+3. **Discussion witness deeper expansion** — the 30 cases cover all 7 statuses but the
+   review-record lists 7 future vectors: three-turn conversations, fork detection, ordinal
+   discontinuity, attempt_beyond_budget, attempt_identity_conflict, unreachable envelope,
+   fuzz differential
+4. **Discussion fuzz differential** — the discussion witness has no fuzz-differential.mjs;
+   every other witness with a Python evaluator has one
+5. **New wire fault vectors** — the meta-runner enforces unique classes, so only faults
+   that produce NEW classifications (not INVALID_JSON/INVALID_UTF8/etc) are worth adding.
+   Candidates: interleaved responses, JSON-RPC batch arrays, method-not-found for unknown
+   tools (from the server side, not the existing client-side canary)
+6. **New capability** — identify and implement the single highest-value missing tool or
+   feature based on what the A2A witnesses and conformance harness reveal
+7. **meshfleet-app feature parity** — the app's docs page lists tool categories but doesn't
+   show the A2A conformance coverage, the falsification corpus, or the verification scope
 
 ## Scars (what cost real time)
 
@@ -65,9 +76,13 @@
 - **Subsumed branches are invisible until you diff.** Always diff vs main first
 - **Conformance manifest members must be probed from the live server.** Discussion tools
   register schemas in `src/discussion-mcp.ts`, not `src/index.ts`
-- **Codex is back online** (token reset 2026-07-28). Available for final verdicts again.
-  **Anti-pattern from prior session:** 307 branches from fleet-dispatched long-lived lanes.
-  Rule: bounded tasks, merge within session, no parking lanes
+- **Codex is back online** (token reset 2026-07-28). Available for final verdicts again
+- **Fleet anti-pattern (earned 2026-07-27):** 307 branches from fleet-dispatched long-lived
+  lanes. **Rule: bounded tasks, merge within session, no parking lanes.** Take the output,
+  verify, merge yourself, move on. Never let a fleet agent own a long-lived branch
+- **Probe, don't predict wire classifications.** Three attempts to guess fault classes all
+  failed; probing the actual runner output worked first try. Same for MCP tool output shapes
+  (advisory routing assertions failed 3x before probing the live server)
 - **Schema changes require conformance re-pin.** Any edit to a tool's inputSchema changes
   the catalog SHA. Rebuild dist/, re-run runner with --capture-baseline, update manifest
 
