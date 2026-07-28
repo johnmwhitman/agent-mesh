@@ -1,7 +1,7 @@
 # MeshFleet Handoff
 
-**Last verified:** 2026-07-28 · **Branch:** main · **Commit:** 9ead388
-**Suite:** 1029/1029 · **Conformance:** 132/132 · **Faults:** 12/12 · **npm:** meshfleet@0.18.0 published
+**Last verified:** 2026-07-28 · **Branch:** main · **Commit:** f3f1dba
+**Suite:** 1041/1041 · **Corpus:** 74 vectors · **Conformance:** 132/132 · **Faults:** 12/12 · **npm:** meshfleet@0.18.0 published
 
 ## Current state
 
@@ -46,11 +46,9 @@ fuzz differentials (lifecycle-terminal + two-host-coordinator), wire fault expan
 
 ## What to build next (candidates — verify before starting)
 
-1. **Discussion integrity falsification corpus** — the `discussion.*` check family in
-   `src/verify.ts` (lines 69-82: 12 error codes + broadcast_forbidden) has no dedicated
-   blackbox witness. These are the most complex verify findings in the system. Build a
-   corpus of ledgers that each trigger exactly one discussion finding, modeled after the
-   existing `test/fixtures/corpus/` pattern
+1. ~~**Discussion integrity falsification corpus**~~ **DONE** — 12 vectors covering all
+   DISCUSSION_ERROR_CODES, expressed as ops-from-baseline. Corpus: 62→74 vectors
+   (caught: 40→52). Check scanner updated for dynamic discussion.* emission
 2. **Discussion MCP-level blackbox tests** — `ask_peer`, `wake_agent`, `reply_discussion`,
    `get_discussion` have no MCP stdio tests. These are the most complex tool handlers
    (they spawn processes, manage deadlines, write receipts)
@@ -71,12 +69,9 @@ fuzz differentials (lifecycle-terminal + two-host-coordinator), wire fault expan
 
 ## Scars (what cost real time)
 
-- **Discussion corpus requires ops-from-baseline format.** The corpus test (`test/corpus.test.ts`)
-  checks minimality: each fixture must equal `baseline + ops`. Standalone fixture files fail
-  the check even when their findings are correct. The 12 discussion fixtures are stashed
-  (`git stash list`). To land them: express each as ops that ADD discussion messages/receipts
-  to the existing baseline, which already carries fleets/agents. The generator, manifest entries,
-  and README update are all correct — only the ops format is missing
+- **Corpus vectors must use ops-from-baseline format (resolved).** Standalone fixture files
+  fail the minimality check. Solution: express each as ops that SET new messages/receipts
+  into the existing baseline. Use `d-` prefixed message IDs and the baseline's own agents
 - **Auto-conflict resolution is fragile.** Produced duplicate lines and orphaned braces.
   Lesson: restore main and re-apply branch additions by hand
 - **Subsumed branches are invisible until you diff.** Always diff vs main first
