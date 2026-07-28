@@ -1,7 +1,7 @@
 # MeshFleet Handoff
 
-**Last verified:** 2026-07-28 · **Branch:** main · **Commit:** f3f1dba
-**Suite:** 1041/1041 · **Corpus:** 74 vectors · **Conformance:** 132/132 · **Faults:** 12/12 · **npm:** meshfleet@0.18.0 published
+**Last verified:** 2026-07-28 · **Branch:** main · **Commit:** 4544fd0
+**Suite:** 1041/1041 · **Corpus:** 74 vectors · **Discussion:** 39 cases (23 finding codes) · **Conformance:** 132/132 · **npm:** meshfleet@0.18.0 published
 
 ## Current state
 
@@ -52,10 +52,10 @@ fuzz differentials (lifecycle-terminal + two-host-coordinator), wire fault expan
 2. **Discussion MCP-level blackbox tests** — `ask_peer`, `wake_agent`, `reply_discussion`,
    `get_discussion` have no MCP stdio tests. These are the most complex tool handlers
    (they spawn processes, manage deadlines, write receipts)
-3. **Discussion witness deeper expansion** — the 30 cases cover all 7 statuses but the
-   review-record lists 7 future vectors: three-turn conversations, fork detection, ordinal
-   discontinuity, attempt_beyond_budget, attempt_identity_conflict, unreachable envelope,
-   fuzz differential
+3. ~~**Discussion witness deeper expansion**~~ **DONE** — expanded to 39 cases covering
+   fork detection, ordinal discontinuity, attempt_beyond_budget, three/four-turn
+   conversations, unreachable envelope, attempt_identity_conflict, failed-then-retry.
+   23 distinct finding codes covered. Grok evaluator: 35/35 match
 4. **Discussion fuzz differential** — the discussion witness has no fuzz-differential.mjs;
    every other witness with a Python evaluator has one
 5. **New wire fault vectors** — the meta-runner enforces unique classes, so only faults
