@@ -16,6 +16,7 @@ import {
   type Receipt,
 } from "../src/core.js";
 import { castVote, openRatification, resolveRatification } from "../src/ratify.js";
+import { runtimeModelsMatch } from "../src/spawn-result.js";
 import { verifyLedger, verifyMeshData, type VerifyReport } from "../src/verify.js";
 import { withTempDb } from "./helpers/with-temp-db.js";
 
@@ -573,4 +574,102 @@ test("verifyLedger reads the active ledger and surfaces seeded corruption", () =
   } finally {
     l.cleanup();
   }
+});
+
+// ---------------------------------------------------------------------------
+// Model-selected execution — task 3
+// Narrow consistency checks for complete agents that carry a persisted
+// `requested_model`: they MUST also carry a parseable observed
+// `runtime_model` banner, and that banner MUST match under
+// runtimeModelsMatch() (the same rule the classifier uses). Failed and
+// interrupted agents may legitimately lack observation. A successful match
+// does not upgrade evidence — `runtime_model` is still `observed` at best,
+// never `attested`.
+// ---------------------------------------------------------------------------
+
+test("Task 3 V1 — a complete agent with requested_model but no runtime_model is an error", () => {
+  const data = consistent();
+  data.agents.a1 = { ...data.agents.a1, status: "complete", completed_at: 1_000, requested_model: "opencode-go/minimax-m3" };
+  const report = verifyMeshData(data);
+  assert.equal(
+    found(report, "agent.requested_model_unobserved").length,
+    1,
+    JSON.stringify(report.findings)
+  );
+  assert.equal(found(report, "agent.requested_model_unobserved")[0]!.severity, "error");
+});
+
+test("Task 3 V2 — a complete agent whose requested_model and runtime_model do not match is an error", () => {
+  const data = consistent();
+  data.agents.a1 = {
+    ...data.agents.a1,
+    status: "complete",
+    completed_at: 1_000,
+    requested_model: "opencode-go/minimax-m3",
+    runtime_model: "openai/gpt-5",
+  };
+  const report = verifyMeshData(data);
+  assert.equal(found(report, "agent.requested_model_mismatch").length, 1, JSON.stringify(report.findings));
+  assert.equal(found(report, "agent.requested_model_mismatch")[0]!.severity, "error");
+});
+
+test("Task 3 V3 — a complete agent whose requested_model and runtime_model match cleanly is not flagged", () => {
+  assert.equal(runtimeModelsMatch("opencode-go/minimax-m3", "opencode-go/minimax-m3"), true);
+  const data = consistent();
+  data.agents.a1 = {
+    ...data.agents.a1,
+    status: "complete",
+    completed_at: 1_000,
+    requested_model: "opencode-go/minimax-m3",
+    runtime_model: "opencode-go/minimax-m3",
+  };
+  const report = verifyMeshData(data);
+  assert.equal(found(report, "agent.requested_model_unobserved").length, 0);
+  assert.equal(found(report, "agent.requested_model_mismatch").length, 0);
+});
+
+test("Task 3 V4 — failed and interrupted agents may lack runtime_model without flagging", () => {
+  for (const status of ["failed", "interrupted"] as const) {
+    const data = consistent();
+    data.agents.a1 = {
+      ...data.agents.a1,
+      status,
+      completed_at: 1_000,
+      requested_model: "opencode-go/minimax-m3",
+    };
+    const report = verifyMeshData(data);
+    assert.equal(
+      found(report, "agent.requested_model_unobserved").length,
+      0,
+      `${status} agents may lack observation: ${JSON.stringify(report.findings)}`
+    );
+    assert.equal(found(report, "agent.requested_model_mismatch").length, 0);
+  }
+});
+
+test("Task 3 V5 — an unselected agent (no requested_model) is not subject to the new checks", () => {
+  const data = consistent();
+  data.agents.a1 = { ...data.agents.a1, status: "complete", completed_at: 1_000 };
+  const report = verifyMeshData(data);
+  assert.equal(found(report, "agent.requested_model_unobserved").length, 0);
+  assert.equal(found(report, "agent.requested_model_mismatch").length, 0);
+});
+
+test("Task 3 V6 — runtime_model is still `observed` evidence at best, never `attested` (no vocabulary promotion)", () => {
+  const data = consistent();
+  data.agents.a1 = {
+    ...data.agents.a1,
+    status: "complete",
+    completed_at: 1_000,
+    requested_model: "opencode-go/minimax-m3",
+    runtime_model: "opencode-go/minimax-m3",
+  };
+  const report = verifyMeshData(data);
+  const allChecks = new Set(report.findings.map((f) => f.check));
+  assert.ok(
+    !allChecks.has("agent.requested_model_attested") &&
+      !allChecks.has("agent.evidence_promoted") &&
+      !allChecks.has("agent.runtime_model_verified"),
+    `a successful match must not promote evidence vocabulary: ${[...allChecks].filter((c) => c.includes("attest") || c.includes("promot") || c.includes("verif")).join(",")}`
+  );
 });

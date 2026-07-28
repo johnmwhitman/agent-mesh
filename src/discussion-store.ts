@@ -86,6 +86,20 @@ export interface NewMessage {
 export interface LedgerTx {
   now(): number;
   agentExists(agentId: string, fleetId: string): boolean;
+  /**
+   * Read-only launch lookup the reservation/start transaction uses to copy a
+   * selected participant's persisted `agent_file` and `requested_model` into
+   * the `SpawnJob` — keeping the Discussion wake path aligned with the same
+   * selection the original `spawn_fleet`/`attach_agent` call recorded, with
+   * no path for the caller to override either field through Discussion tools.
+   * Returns `undefined` when no such agent exists in `fleetId`; both fields
+   * are individually optional (the absence of one is a legitimate selection,
+   * never a fallback trigger).
+   */
+  agentLaunchConfig(
+    agentId: string,
+    fleetId: string
+  ): { requestedAgent?: string; requestedModel?: string } | undefined;
   getMessage(messageId: string): Message | undefined;
   messagesByCorrelation(discussionId: string): Message[];
   receiptsForMessage(messageId: string): Receipt[];
@@ -131,6 +145,13 @@ export interface SpawnJob {
   deadline: number;
   transcript: TranscriptEntry[];
   policy: Policy;
+  /** Canonical head fleet_id — copied from the discussion's head message and
+   *  verified against the participant row before the spawn is allowed. */
+  fleet_id: string;
+  /** Persisted `agent_file` from the participant's Agent row, when set. */
+  requested_agent?: string;
+  /** Persisted `requested_model` from the participant's Agent row, when set. */
+  requested_model?: string;
 }
 
 export interface SpawnHandle {
@@ -561,12 +582,23 @@ export function createDiscussionStore(deps: DiscussionStoreDeps): DiscussionStor
    * itself already committed, which this ordering guarantees transitively),
    * then spawn only once that commits. A synchronous spawn failure is CASed
    * straight to `failed` (test #29) instead of ever registering a handle.
+   *
+   * Task 3 (model-selected execution): the same transaction also reads the
+   * participant's persisted launch config (per the brief's
+   * `LedgerTx.agentLaunchConfig`) and copies its `agent_file` /
+   * `requested_model` into the `SpawnJob` together with the canonical head's
+   * `fleet_id`. A wake therefore inherits the same selection the original
+   * `spawn_fleet`/`attach_agent` recorded — there is no path for the caller
+   * to override either field through Discussion tools, and a launch config
+   * lookup that misses (the agent was deleted between reservation and start)
+   * settles the attempt to `failed` and never hands a job to `deps.spawn`.
    */
   async function launchAttempt(discussionId: string, attemptId: string): Promise<void> {
     const prepared = deps.ledger((tx):
       | { kind: "skip" }
       | { kind: "expired" }
-      | { kind: "start"; view: DerivedDiscussion; attempt: DerivedDiscussion["attempts"][number]; headMessageId: string } => {
+      | { kind: "missing_launch_config"; agentId: string; headMessageId: string; headFleetId: string; turn: number }
+      | { kind: "start"; view: DerivedDiscussion; attempt: DerivedDiscussion["attempts"][number]; headMessageId: string; fleetId: string; launchConfig: { requestedAgent?: string; requestedModel?: string } } => {
       const now = tx.now();
       const messages = tx.messagesByCorrelation(discussionId);
       const receipts = tx.allReceiptsForDiscussion(discussionId);
@@ -586,13 +618,19 @@ export function createDiscussionStore(deps: DiscussionStoreDeps): DiscussionStor
         return { kind: "expired" };
       }
       const headMessageId = headMessageIdForAttempt(receipts, attemptId, view.head_message_id);
+      const headMessage = tx.getMessage(headMessageId);
+      const headFleetId = headMessage?.fleet_id ?? "";
+      const launchConfig = tx.agentLaunchConfig(attempt.agent_id, headFleetId);
+      if (!launchConfig) {
+        return { kind: "missing_launch_config", agentId: attempt.agent_id, headMessageId, headFleetId, turn: attempt.turn };
+      }
       const note = JSON.stringify({
         discussion_id: discussionId,
         head_message_id: headMessageId,
         deadline: attempt.deadline,
       });
       tx.writeReceipt(headMessageId, attempt.agent_id, `discussion.wake.started.v1:${attempt.turn}:${attemptId}`, note);
-      return { kind: "start", view, attempt, headMessageId };
+      return { kind: "start", view, attempt, headMessageId, fleetId: headFleetId, launchConfig };
     });
     if (prepared.kind === "skip") return;
     if (prepared.kind === "expired") {
@@ -602,7 +640,21 @@ export function createDiscussionStore(deps: DiscussionStoreDeps): DiscussionStor
       }
       return;
     }
-    const { view, attempt, headMessageId } = prepared;
+    if (prepared.kind === "missing_launch_config") {
+      // Defensive guard — wakeAgent already verified the participant exists
+      // in the canonical fleet at reservation time, so a missing launch
+      // config here means the Agent row was deleted between the reservation
+      // commit and this started-CAS (or the canonical head's fleet_id has
+      // drifted from the participant's fleet, which is structurally
+      // impossible in the current write path but defended against anyway).
+      // Fail closed: no `started` CAS, no spawn, turn is still consumed.
+      const settled = settleTerminal(discussionId, attemptId, "failed");
+      if (settled) {
+        deps.notify({ kind: "terminal", discussion_id: discussionId, attempt_id: attemptId, state: "failed" });
+      }
+      return;
+    }
+    const { view, attempt, headMessageId, fleetId, launchConfig } = prepared;
     const job: SpawnJob = {
       discussion_id: discussionId,
       agent_id: attempt.agent_id,
@@ -612,7 +664,10 @@ export function createDiscussionStore(deps: DiscussionStoreDeps): DiscussionStor
       deadline: attempt.deadline,
       transcript: view.transcript,
       policy: view.policy,
+      fleet_id: fleetId,
     };
+    if (launchConfig.requestedAgent !== undefined) job.requested_agent = launchConfig.requestedAgent;
+    if (launchConfig.requestedModel !== undefined) job.requested_model = launchConfig.requestedModel;
     let handle: SpawnHandle;
     try {
       handle = deps.spawn(job, () => handleChildExit(discussionId, attemptId));

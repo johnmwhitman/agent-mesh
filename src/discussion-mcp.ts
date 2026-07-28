@@ -1,8 +1,8 @@
 /**
  * D3 — wires `src/discussion-store.ts`'s `createDiscussionStore(deps)` to the
- * real ledger, the real one-shot child-process spawn machinery, the real
- * clock, and the real SSE notify path. This module owns the ONE production
- * singleton `DiscussionStore` instance; `src/index.ts` only imports
+ * real ledger, the default `RuntimeAdapter` (OpenCode), the real clock, and
+ * the real SSE notify path. This module owns the ONE production singleton
+ * `DiscussionStore` instance; `src/index.ts` only imports
  * `getDiscussionStore()` and `primeDiscussionSweepIndex()` — it never
  * constructs deps itself.
  *
@@ -12,8 +12,18 @@
  * argv-building/stdio conventions — deliberately NOT its retry/heartbeat
  * supervisor, since a discussion wake is one-shot by design: blueprint §2
  * step 14 "Never retry automatically").
+ *
+ * Model-selected execution (task 3) replaces the prior `child_process.spawn`
+ * wiring with a deferred proxy over `RuntimeAdapter.start()`. The proxy
+ * preserves the store's synchronous `SpawnFn` / `KillFn` contracts by
+ * returning a handle immediately, then resolving the runtime handle in the
+ * background; on exit (success/failure/cancel/timeout) it maps the
+ * `RuntimeResult` back onto the store's existing `onExit({code})` exactly
+ * once. A kill requested before the adapter's `start()` resolves is
+ * remembered and applied to the late runtime handle, so the deadman path
+ * (which can fire while the async start is still pending) never orphans a
+ * runtime child.
  */
-import { spawn as spawnProcess, type ChildProcess } from "child_process";
 import {
   createDiscussionStore,
   DiscussionError,
@@ -34,7 +44,8 @@ import {
 import { parseEnvelope, type TranscriptEntry } from "./discussion.js";
 import { _writeReceipt, type Message, type MeshData, type Receipt } from "./core.js";
 import { readLedger, withLedger } from "./db.js";
-import { AGENT_SPAWN_STDIO, buildRunArgs } from "./spawn-config.js";
+import { getDefaultRuntimeAdapter } from "./runtime/registry.js";
+import type { ExecutionSpec, RuntimeAdapter, RuntimeHandle, RuntimeResult } from "./runtime/types.js";
 import { notifySubscribers } from "./realtime.js";
 
 // ============================================================
@@ -54,6 +65,34 @@ class RealLedgerTx implements LedgerTx {
   agentExists(agentId: string, fleetId: string): boolean {
     const agent = this.data.agents[agentId];
     return !!agent && agent.fleet_id === fleetId;
+  }
+
+  /**
+   * Read-only launch lookup: returns the participant's persisted `agent_file`
+   * and `requested_model` so the reservation/start transaction can copy them
+   * into the `SpawnJob` (model-selected execution, task 3). Returns
+   * `undefined` when the agent does not exist OR is in a different fleet —
+   * the caller's wakeAgent already verified the participant exists in the
+   * canonical fleet, so this is the structural "the row is gone" defensive
+   * guard the brief pins as "missing launch config is a failed start".
+   *
+   * Both fields are read straight from the Agent row's existing
+   * `agent_file` and `requested_model` columns. They are individually
+   * optional — an unselected participant (no `model` on `spawn_fleet`/
+   * `attach_agent`) has neither, which is a legitimate selection, NOT a
+   * fallback trigger: the wake still proceeds with both SpawnJob fields
+   * `undefined`.
+   */
+  agentLaunchConfig(
+    agentId: string,
+    fleetId: string
+  ): { requestedAgent?: string; requestedModel?: string } | undefined {
+    const agent = this.data.agents[agentId];
+    if (!agent || agent.fleet_id !== fleetId) return undefined;
+    const out: { requestedAgent?: string; requestedModel?: string } = {};
+    if (agent.agent_file !== undefined) out.requestedAgent = agent.agent_file;
+    if (agent.requested_model !== undefined) out.requestedModel = agent.requested_model;
+    return out;
   }
 
   getMessage(messageId: string): Message | undefined {
@@ -138,10 +177,18 @@ function makeLedgerFn(clockFn: ClockFn): LedgerFn {
 }
 
 // ============================================================
-// Spawn / kill seam — one-shot child, reusing the existing
-// argv/stdio/child-env conventions (spawn-config.ts), NOT the retry/
-// heartbeat supervisor in index.ts's trySpawn (deliberately: blueprint §2
-// step 14 forbids automatic retry for a wake attempt).
+// Spawn / kill seam — deferred proxy over the default RuntimeAdapter.
+//
+// The store's contract is `SpawnFn: (job, onExit) => SpawnHandle`, a
+// SYNCHRONOUS call that returns a handle immediately. The default
+// `RuntimeAdapter` is asynchronous — `start()` returns a Promise. The
+// proxy bridges the two: the SpawnFn call kicks off
+// `runtime.start(spec)` in the background, returns a placeholder
+// `SpawnHandle` synchronously, and on later (background) resolution maps
+// the `RuntimeResult` back onto the store's `onExit({code})` callback
+// exactly once. A `kill()` requested before start resolves is remembered
+// and applied to the late handle, then `wait()` is still called to drain
+// the runtime. No automatic retry.
 // ============================================================
 
 function renderTranscript(transcript: TranscriptEntry[]): string {
@@ -154,9 +201,8 @@ function renderTranscript(transcript: TranscriptEntry[]): string {
 /** Builds the single prompt string passed to the spawned child (blueprint §2
  *  step 8: "Pass agent, discussion, attempt, turn, head, deadline, canonical
  *  transcript, and `reply_discussion` instructions to the child"). The
- *  existing spawn mechanism (buildRunArgs) only accepts one prompt string —
- *  the same shape spawn_fleet/attach_agent already use — so every required
- *  field is embedded in this text rather than passed out-of-band. */
+ *  default adapter's argv builder only accepts one prompt string, so every
+ *  required field is embedded in this text rather than passed out-of-band. */
 function buildDiscussionPrompt(job: SpawnJob): string {
   return [
     `You are agent "${job.agent_id}", woken to take one turn in meshfleet discussion "${job.discussion_id}".`,
@@ -180,34 +226,112 @@ function buildDiscussionPrompt(job: SpawnJob): string {
   ].join("\n");
 }
 
-function makeSpawnFn(): SpawnFn {
-  return function spawnDiscussionChild(job: SpawnJob, onExit: (info: ChildExitInfo) => void): SpawnHandle {
-    const prompt = buildDiscussionPrompt(job);
-    const child = spawnProcess("opencode", buildRunArgs({ prompt }), {
-      // Same stdin-hang avoidance as trySpawn (spawn-config.ts's documented
-      // contract): `opencode run` blocks forever on a piped stdin.
-      stdio: AGENT_SPAWN_STDIO,
-      env: { ...process.env, AGENT_MESH_CHILD: "1" },
-    });
+/** Build the runtime spec the default adapter receives for one wake. */
+function buildDiscussionSpec(job: SpawnJob, now: number): ExecutionSpec {
+  const spec: ExecutionSpec = {
+    fleetId: job.fleet_id,
+    agentId: job.agent_id,
+    prompt: buildDiscussionPrompt(job),
+    cwd: process.cwd(),
+    timeoutMs: Math.max(1, job.deadline - now),
+  };
+  if (job.requested_agent !== undefined) spec.requestedAgent = job.requested_agent;
+  if (job.requested_model !== undefined) spec.requestedModel = job.requested_model;
+  return spec;
+}
 
-    let settled = false;
-    const settle = (info: ChildExitInfo): void => {
-      if (settled) return;
-      settled = true;
-      onExit(info);
-    };
-    child.on("exit", (code) => settle({ code }));
-    child.on("error", () => settle({ code: null }));
-
-    return { attempt_id: job.attempt_id, handle: child };
+/** Map a `RuntimeResult` (or wait rejection) onto the store's `ChildExitInfo`. */
+function exitInfoFromResult(result: RuntimeResult): ChildExitInfo {
+  if (result.status === "success") return { code: 0 };
+  return {
+    code:
+      result.exitCode !== null && result.exitCode !== 0
+        ? result.exitCode
+        : 1,
   };
 }
 
-const killFn: KillFn = (handle: SpawnHandle): void => {
-  const child = handle.handle as ChildProcess;
-  if (child.exitCode === null && child.signalCode === null && !child.killed) {
-    child.kill("SIGKILL");
+function beginRuntimeWait(proxy: DeferredProxyState, handle: RuntimeHandle): void {
+  try {
+    void proxy.runtime
+      .wait(handle)
+      .then((result) => proxy.settle(exitInfoFromResult(result)))
+      .catch(() => proxy.settle({ code: null }));
+  } catch {
+    proxy.settle({ code: null });
   }
+}
+
+function requestRuntimeCancel(proxy: DeferredProxyState, handle: RuntimeHandle): void {
+  try {
+    void proxy.runtime.cancel(handle, "discussion deadline").catch(() => {
+      // Cancellation is best-effort. The independently-started wait remains
+      // the source of terminal runtime settlement.
+    });
+  } catch {
+    // A synchronous adapter cancellation failure must not suppress wait().
+  }
+}
+
+function makeSpawnFn(runtime: RuntimeAdapter): SpawnFn {
+  return function spawnDiscussionChild(job: SpawnJob, onExit: (info: ChildExitInfo) => void): SpawnHandle {
+    const handle: SpawnHandle = { attempt_id: job.attempt_id, handle: { phase: "pending" as const } };
+
+    // The proxy's per-instance state. Captured on the handle so the store's
+    // `kill()` can read it directly without a separate registry.
+    const proxy = new DeferredProxyState(runtime, onExit);
+    handle.handle = proxy;
+
+    void runtime
+      .start(buildDiscussionSpec(job, Date.now()))
+      .then((rh) => {
+        proxy.runtimeHandle = rh;
+        // Start draining before requesting cancellation. A rejected or hung
+        // cancel promise must never prevent runtime.wait() from running.
+        beginRuntimeWait(proxy, rh);
+        if (proxy.killRequested) {
+          requestRuntimeCancel(proxy, rh);
+        }
+      })
+      .catch(() => {
+        // Adapter rejected `start()` — follow the existing failed-exit path.
+        proxy.settle({ code: null });
+      });
+    return handle;
+  };
+}
+
+class DeferredProxyState {
+  killRequested = false;
+  settled = false;
+  runtimeHandle?: RuntimeHandle;
+
+  constructor(
+    readonly runtime: RuntimeAdapter,
+    private readonly onExit: (info: ChildExitInfo) => void
+  ) {}
+
+  /** Settle onExit exactly once. Idempotent across success / failure /
+   *  cancellation / timeout / start rejection / wait rejection / pre-start
+   *  kill. A late settle after a reply-already-completed attempt is a
+   *  silent no-op (the store's existing onExit handler will see the
+   *  attempt is no longer `started` and CAS to `failed` is a no-op). */
+  settle(info: ChildExitInfo): void {
+    if (this.settled) return;
+    this.settled = true;
+    this.onExit(info);
+  }
+}
+
+const killFn: KillFn = (handle: SpawnHandle): void => {
+  const proxy = handle.handle as DeferredProxyState;
+  if (proxy.settled || proxy.killRequested) return;
+  proxy.killRequested = true;
+  if (proxy.runtimeHandle) {
+    requestRuntimeCancel(proxy, proxy.runtimeHandle);
+  }
+  // If start() hasn't resolved yet, the proxy's `.then` block will observe
+  // `killRequested` and cancel the late handle exactly once.
 };
 
 // ============================================================
@@ -271,9 +395,10 @@ let storeSingleton: DiscussionStore | null = null;
 export function getDiscussionStore(): DiscussionStore {
   if (!storeSingleton) {
     const clockFn: ClockFn = Date.now;
+    const runtime = getDefaultRuntimeAdapter();
     const deps: DiscussionStoreDeps = {
       ledger: makeLedgerFn(clockFn),
-      spawn: makeSpawnFn(),
+      spawn: makeSpawnFn(runtime),
       kill: killFn,
       clock: clockFn,
       notify: notifyFn,
@@ -287,14 +412,18 @@ export function getDiscussionStore(): DiscussionStore {
  *  helpers, e.g. resetSynonymOverrides/resetSkillTaxonomy). `ledger` always
  *  stays wired to the REAL `withLedger`/SQLite seam (tests isolate it via
  *  `withTempDb`, matching every other integration test in this repo) —
- *  only `spawn`/`kill`/`clock`/`notify` are overridable, since a real
- *  `deps.spawn` launches an actual `opencode` child process, which a unit
- *  test must never do. */
+ *  only `runtime`/`spawn`/`kill`/`clock`/`notify` are overridable,
+ *  since a real `runtimeAdapter.start()` launches an actual `opencode` child
+ *  process, which a unit test must never do.
+ *
+ *  A direct `spawn` or `kill` override still wins when supplied, preserving
+ *  the existing store-level test seam. */
 export interface DiscussionMcpTestOverrides {
   spawn?: SpawnFn;
   kill?: KillFn;
   clock?: ClockFn;
   notify?: NotifyFn;
+  runtime?: RuntimeAdapter;
 }
 
 /**
@@ -354,13 +483,15 @@ export function primeDiscussionSweepIndex(): number {
   return discussionIds.size;
 }
 
-/** Test-only: force a fresh singleton, optionally with fake spawn/kill/clock/
- *  notify seams (mirrors other modules' `resetXForTests`-style helpers). */
+/** Test-only: force a fresh singleton, optionally with a fake
+ *  RuntimeAdapter / spawn / kill / clock / notify seams (mirrors other
+ *  modules' `resetXForTests`-style helpers). */
 export function _resetDiscussionStoreForTests(overrides: DiscussionMcpTestOverrides = {}): void {
   const clockFn: ClockFn = overrides.clock ?? Date.now;
+  const runtime = overrides.runtime ?? getDefaultRuntimeAdapter();
   const deps: DiscussionStoreDeps = {
     ledger: makeLedgerFn(clockFn),
-    spawn: overrides.spawn ?? makeSpawnFn(),
+    spawn: overrides.spawn ?? makeSpawnFn(runtime),
     kill: overrides.kill ?? killFn,
     clock: clockFn,
     notify: overrides.notify ?? notifyFn,
