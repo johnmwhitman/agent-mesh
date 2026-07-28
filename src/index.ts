@@ -1212,6 +1212,8 @@ toolHandlers["set_fleet_timeout"] = async (args) => {
 
 toolHandlers["collect_results"] = async (args) => {
     const { fleet_id } = args as { fleet_id: string };
+    const bad = requireString("collect_results", "fleet_id", fleet_id);
+    if (bad) return jsonError(bad);
     const data = readLedger();
     const agents = Object.values(data.agents).filter(
       (a) => a.fleet_id === fleet_id
@@ -1487,20 +1489,12 @@ toolHandlers["receipt"] = async (args) => {
       action: string;
       note?: string;
     };
-    // Receipts are keyed `${message_id}:${agent_id}:${action}` — the key IS the
-    // idempotency guarantee. An omitted action was accepted and wrote a row keyed
-    // "...:undefined" with no `action` property at all, and verify_ledger did not
-    // flag it: the register_capability defect reproduced through `required`
-    // rather than through spelling.
-    if (typeof action !== "string" || action.trim().length === 0) {
-      return jsonError(
-        `receipt: 'action' is required and must be a non-empty string (got ${JSON.stringify(action)}). ` +
-          `The receipt key is message_id:agent_id:action, so a missing action corrupts the idempotency key.`
-      );
-    }
-    if (typeof agent_id !== "string" || agent_id.trim().length === 0) {
-      return jsonError(`receipt: 'agent_id' is required and must be a non-empty string (got ${JSON.stringify(agent_id)})`);
-    }
+    const bad = firstError(
+      requireString("receipt", "agent_id", agent_id),
+      requireString("receipt", "message_id", message_id),
+      requireString("receipt", "action", action),
+    );
+    if (bad) return jsonError(bad);
     if (action === "ack") {
       return jsonError("Use ack_message to consume a message; receipt is for non-consuming actions");
     }
@@ -1511,6 +1505,8 @@ toolHandlers["receipt"] = async (args) => {
 
 toolHandlers["get_receipts"] = async (args) => {
     const { message_id } = args as { message_id: string };
+    const bad = requireString("get_receipts", "message_id", message_id);
+    if (bad) return jsonError(bad);
     return jsonResult({ receipts: getReceipts(message_id) });
 };
 
@@ -1584,15 +1580,11 @@ toolHandlers["cast_vote"] = async (args) => {
       approve: boolean;
       note?: string;
     };
-    // `approve` is declared boolean and REQUIRED, but the MCP SDK enforces
-    // neither, and castVote only ever tested it for truthiness. Two observed
-    // consequences, both reported as success:
-    //   - omitting `approve` recorded a binding DECLINE (undefined is falsy), so
-    //     a client bug became a NO vote
-    //   - `approve: "false"` recorded an APPROVAL (a non-empty string is truthy),
-    //     so any client that stringifies its booleans inverted its own vote
-    // In a voting system that is the worst possible failure: silent, binding, and
-    // backwards. Reject anything that is not an actual boolean.
+    const bad = firstError(
+      requireString("cast_vote", "agent_id", agent_id),
+      requireString("cast_vote", "message_id", message_id),
+    );
+    if (bad) return jsonError(bad);
     if (typeof approve !== "boolean") {
       return jsonError(
         `cast_vote: 'approve' is required and must be a boolean, not ${JSON.stringify(approve)} ` +
@@ -1611,6 +1603,8 @@ toolHandlers["cast_vote"] = async (args) => {
 
 toolHandlers["tally_ratification"] = async (args) => {
     const { message_id } = args as { message_id: string };
+    const bad = requireString("tally_ratification", "message_id", message_id);
+    if (bad) return jsonError(bad);
     const status = resolveRatification(message_id);
     if (status === null) return jsonError(`No such ratification: ${message_id}`);
     return jsonResult({ status, tally: tallyRatification(message_id) });
