@@ -1,0 +1,105 @@
+{
+  "artifact": "meshfleet-raw-stdio-executable-fault-suite-v0.2",
+  "parent_commit": "5136fab",
+  "branch": "codex/a2a-blackbox-conformance-v01-20260727",
+  "owned_prefix": "blackbox/a2a-conformance-v0.1/",
+  "case_summary": {
+    "total": 11,
+    "negative": 9,
+    "controls": 2,
+    "fixture_sha256_pins": 11,
+    "result": "pass"
+  },
+  "fault_classes": [
+    "INVALID_JSON",
+    "INVALID_UTF8",
+    "WRONG_RESPONSE_ID",
+    "DUPLICATE_SETTLED_ID",
+    "TRAILING_FRAME",
+    "OVERSIZED_LINE",
+    "REQUEST_TIMEOUT",
+    "CHILD_EXIT",
+    "INVALID_RESPONSE"
+  ],
+  "controls": [
+    "stderr-noise-control",
+    "honest-baseline"
+  ],
+  "anti_cheating": [
+    "Exact case and fixture set validation",
+    "All-entry fixture-directory allowlist",
+    "Realpath containment and regular-file checks",
+    "Per-fixture SHA-256 pins",
+    "Process-spawn and detaching source prohibition",
+    "Exact structured class and exact message matching",
+    "Exactly one shared-path fault event per negative case",
+    "Exact ordered response-correlation traces",
+    "Fatal UTF-8 atomic outer JSON",
+    "Bounded output, request, teardown, and outer timeouts"
+  ],
+  "cleanup_evidence": {
+    "posix": "Original process group is probed after every case; surviving members trigger TERM then KILL and fail the case.",
+    "windows_timeout": "Bounded awaited taskkill /T and root-close wait.",
+    "windows_normal_completion": "Limited to byte-pinned fixtures prohibited from spawning or detaching descendants."
+  },
+  "acceptance": [
+    {
+      "command": "node blackbox/a2a-conformance-v0.1/wire/faults/meta-runner.mjs",
+      "result": "pass",
+      "cases": 11
+    },
+    {
+      "command": "node blackbox/a2a-conformance-v0.1/wire/runner.mjs",
+      "result": "pass",
+      "mutation_cases": 24
+    },
+    {
+      "command": "npm run typecheck",
+      "result": "pass"
+    },
+    {
+      "command": "git diff --check",
+      "result": "pass"
+    },
+    {
+      "command": "MESHFLEET_EVENT_LOG_FILE=/tmp/meshfleet-a2a-conformance-suite-events-20260727.log npm test",
+      "result": "pass",
+      "tests": 891,
+      "failures": 0
+    }
+  ],
+  "independent_review": [
+    {
+      "reviewer": "Lorentz",
+      "agent_id": "019fa1d7-721b-7841-84b8-152d25ca8811",
+      "result": "pass"
+    },
+    {
+      "reviewer": "Cicero",
+      "agent_id": "019fa1d7-7396-7c32-a95d-937571796c04",
+      "result": "pass"
+    }
+  ],
+  "external_design_review": [
+    {
+      "model": "Grok 4.5",
+      "role": "wire-fault-harness-adversary",
+      "result": "complete"
+    },
+    {
+      "model": "MiniMax M3",
+      "role": "wire-fault-corpus-designer",
+      "result": "complete"
+    }
+  ],
+  "nonclaims": [
+    "This is not full MCP or A2A conformance.",
+    "This is not named-client or provider compatibility evidence.",
+    "This does not prove OS-level network or filesystem isolation.",
+    "This does not prove arbitrary Windows descendant discovery after spontaneous root exit.",
+    "This does not authorize merge, publication, deployment, or activation."
+  ],
+  "generated_residue": [
+    "/tmp/meshfleet-a2a-conformance-suite-events-20260727.log"
+  ]
+}

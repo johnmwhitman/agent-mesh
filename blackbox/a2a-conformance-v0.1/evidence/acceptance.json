@@ -1,0 +1,71 @@
+{
+  "artifact": "meshfleet-stdio-catalog-boundary-conformance-v0.1",
+  "base_commit": "041500fd9aec6e482875f6339236ffdcc46fc7ed",
+  "branch": "codex/a2a-blackbox-conformance-v01-20260727",
+  "owned_prefix": "blackbox/a2a-conformance-v0.1/",
+  "catalog_sha256": "4d0289400e23c57b1e43347eb9d8f9258decf7b824516e0d066380d7e6f88fa8",
+  "acceptance": [
+    {
+      "command": "node blackbox/a2a-conformance-v0.1/runner.mjs",
+      "result": "pass",
+      "checks": 16
+    },
+    {
+      "command": "npm run typecheck",
+      "result": "pass"
+    },
+    {
+      "command": "git diff --check",
+      "result": "pass"
+    },
+    {
+      "command": "MESHFLEET_EVENT_LOG_FILE=/tmp/meshfleet-a2a-conformance-suite-events-20260727.log npm test",
+      "result": "pass",
+      "tests": 891,
+      "failures": 0
+    }
+  ],
+  "environment_notes": [
+    "An initial sandboxed full-suite run passed 879 of 891 tests.",
+    "Eleven failures were localhost bind EPERM errors and one was a default-home event-log EPERM error.",
+    "The full suite passed outside those sandbox restrictions with an explicit temporary event-log path."
+  ],
+  "independent_review": [
+    {
+      "reviewer": "Hume",
+      "agent_id": "019fa18c-4d48-7622-8234-2485ec778d7b",
+      "result": "pass",
+      "mode": "static post-repair review"
+    },
+    {
+      "reviewer": "Jason",
+      "agent_id": "019fa18c-6799-7253-91b0-6203e437bb2d",
+      "result": "pass",
+      "mode": "static post-repair review",
+      "caveat": "The explicit --capture-baseline mode bypasses digest enforcement and is not a conformance run."
+    }
+  ],
+  "collision_check": {
+    "result": "pass",
+    "other_lane": "codex-meshfleet-routing-a2a-20260727",
+    "other_lane_paths": [
+      "README.md",
+      "docs/ADVISORY-ROUTING.md",
+      "docs/BUDGET-AWARE-ROUTING.md",
+      "src/index.ts",
+      "src/recommend-route.ts",
+      "test/recommend-route-mcp.test.ts",
+      "test/recommend-route.test.ts"
+    ],
+    "overlap": []
+  },
+  "nonclaims": [
+    "This is not full A2A protocol conformance.",
+    "This does not prove compatibility with Codex, Claude Code, OpenCode, Antigravity, Grok, MiniMax, or generic MCP clients.",
+    "This does not exercise provider-capable tools, remote delivery, authentication, execution, or production activation.",
+    "Child isolation does not claim operating-system network blocking."
+  ],
+  "generated_residue": [
+    "/tmp/meshfleet-a2a-conformance-suite-events-20260727.log"
+  ]
+}

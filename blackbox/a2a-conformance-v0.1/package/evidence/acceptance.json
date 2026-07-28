@@ -1,0 +1,109 @@
+{
+  "artifact": "meshfleet-packaged-stdio-catalog-boundary-conformance-v0.1",
+  "parent_commit": "7340551",
+  "branch": "codex/a2a-blackbox-conformance-v01-20260727",
+  "owned_prefix": "blackbox/a2a-conformance-v0.1/",
+  "catalog_sha256": "4d0289400e23c57b1e43347eb9d8f9258decf7b824516e0d066380d7e6f88fa8",
+  "local_tarball_observation": {
+    "sha256": "d7faed6e68e5f2f00e2ade0c727539eca4ef46fca8098b5bdad48477df6e940b",
+    "bytes": 189870,
+    "npm_shasum": "dc772fac314afcd8c602235abf1a35970b39261c",
+    "integrity": "sha512-+j9+8BkSxA9GlrlDbMIozGcW+d9E4q197PYmjIiSYiJ6OF8Voex5GCpvcwn/DooiRWTTJEw2ppzX/0PGw7w4HQ==",
+    "independently_pinned": false
+  },
+  "direct_runtime_dependencies": {
+    "@modelcontextprotocol/sdk": {
+      "locked": "1.29.0",
+      "installed": "1.29.0"
+    },
+    "better-sqlite3": {
+      "locked": "12.11.1",
+      "installed": "12.11.1"
+    }
+  },
+  "transitive_closure_observation": {
+    "closure_match": false,
+    "consumer_packages": 128,
+    "matched_packages": 118,
+    "differing_packages": 10,
+    "notable_drift": [
+      "@hono/node-server",
+      "express-rate-limit",
+      "fast-uri",
+      "hono",
+      "iconv-lite",
+      "ip-address",
+      "jose",
+      "media-typer"
+    ]
+  },
+  "acceptance": [
+    {
+      "command": "node blackbox/a2a-conformance-v0.1/package/runner.mjs",
+      "result": "pass",
+      "checks": 6
+    },
+    {
+      "command": "node blackbox/a2a-conformance-v0.1/runner.mjs",
+      "result": "pass"
+    },
+    {
+      "command": "npm run typecheck",
+      "result": "pass"
+    },
+    {
+      "command": "git diff --check",
+      "result": "pass"
+    },
+    {
+      "command": "MESHFLEET_EVENT_LOG_FILE=/tmp/meshfleet-a2a-conformance-suite-events-20260727.log npm test",
+      "result": "pass",
+      "tests": 891,
+      "failures": 0
+    }
+  ],
+  "independent_review": [
+    {
+      "reviewer": "Curie",
+      "agent_id": "019fa19e-753f-7de2-abc9-de4de24e9893",
+      "result": "pass"
+    },
+    {
+      "reviewer": "Halley",
+      "agent_id": "019fa19e-7644-7561-bfaa-8812372da2a6",
+      "result": "pass"
+    }
+  ],
+  "external_design_review": [
+    {
+      "model": "Grok 4.5",
+      "role": "package-boundary-adversary-retry",
+      "result": "complete"
+    },
+    {
+      "model": "MiniMax M3",
+      "role": "package-boundary-corpus-designer",
+      "result": "complete"
+    }
+  ],
+  "discovered_and_resolved": [
+    "Sandbox npm-cache EPERM was separated from product behavior.",
+    "The missing better-sqlite3 native binding under script-free install is handled by an explicit allowlisted offline source rebuild.",
+    "Windows npm launch and process-tree termination were made explicit.",
+    "Ambient npm credentials, proxy settings, provider variables, NODE_PATH, and NODE_OPTIONS are not propagated.",
+    "Client SDK modules are realpath-contained by the fresh consumer.",
+    "Subprocess duration and output are bounded.",
+    "Unlocked transitive dependency drift is surfaced rather than hidden."
+  ],
+  "nonclaims": [
+    "This is not full A2A, MCP-spec, or named-client compatibility evidence.",
+    "This is not a hermetic build or an OS-level network/filesystem sandbox.",
+    "Passing requires a local native build toolchain.",
+    "Transitive resolution is observed, not pinned or reproducible.",
+    "The local tarball digest is not an independently pinned release digest.",
+    "This does not authorize merge, publication, deployment, or activation."
+  ],
+  "generated_residue": [
+    "/tmp/meshfleet-a2a-conformance-suite-events-20260727.log"
+  ]
+}

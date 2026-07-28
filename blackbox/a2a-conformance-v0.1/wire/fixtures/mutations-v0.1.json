@@ -1,0 +1,125 @@
+{
+  "schema_version": "0.1",
+  "cases": [
+    {
+      "name": "missing-protocol-version",
+      "target": "transcript.protocol_version",
+      "mutated_value": null
+    },
+    {
+      "name": "duplicate-profile-name",
+      "target": "transcript.profiles[1].name",
+      "mutated_value": "synthetic-wire-profile-01-rocket-🚀"
+    },
+    {
+      "name": "unsupported-write-mode",
+      "target": "transcript.profiles[0].initialize_write",
+      "mutated_value": "streamed"
+    },
+    {
+      "name": "notification-with-response",
+      "target": "notifications/initialized.id",
+      "mutated_value": "must-not-exist"
+    },
+    {
+      "name": "polluted-stdout",
+      "target": "parser.stdout",
+      "mutated_value": "diagnostic output\\n"
+    },
+    {
+      "name": "wrong-response-id",
+      "target": "correlation.response_id",
+      "mutated_value": "wrong-id"
+    },
+    {
+      "name": "oversized-protocol-line",
+      "target": "parser.line_bytes",
+      "mutated_value": 262145
+    },
+    {
+      "name": "trailing-partial-protocol-line",
+      "target": "parser.trailing",
+      "mutated_value": "{\"jsonrpc\":\"2.0\"}"
+    },
+    {
+      "name": "nonempty-ping-result",
+      "target": "ping.result",
+      "mutated_value": { "unexpected": true }
+    },
+    {
+      "name": "top-level-tool-order-invariant",
+      "target": "catalog.tools.order",
+      "mutated_value": "reverse"
+    },
+    {
+      "name": "tool-schema-changes-digest",
+      "target": "catalog.tools[0].inputSchema.properties.probe.type",
+      "mutated_value": "number"
+    },
+    {
+      "name": "catalog-envelope-is-required",
+      "target": "catalog.digest_envelope",
+      "mutated_value": "direct-array"
+    },
+    {
+      "name": "malformed-utf8",
+      "target": "parser.bytes",
+      "mutated_value": [195, 40]
+    },
+    {
+      "name": "duplicate-response-id",
+      "target": "correlation.duplicate_id",
+      "mutated_value": "expected-id"
+    },
+    {
+      "name": "orphan-response-id",
+      "target": "correlation.orphan_id",
+      "mutated_value": "orphan-id"
+    },
+    {
+      "name": "blank-protocol-line",
+      "target": "parser.blank_line",
+      "mutated_value": "\\n"
+    },
+    {
+      "name": "crlf-protocol-line",
+      "target": "parser.crlf_line",
+      "mutated_value": "{\"jsonrpc\":\"2.0\",\"id\":\"expected-id\",\"result\":{}}\\r\\n"
+    },
+    {
+      "name": "duplicate-tool-name",
+      "target": "catalog.tools.duplicate_name",
+      "mutated_value": "alpha"
+    },
+    {
+      "name": "non-ascii-schema-key",
+      "target": "catalog.tools.non_ascii_key",
+      "mutated_value": "clé"
+    },
+    {
+      "name": "non-finite-number",
+      "target": "catalog.scalar.nan",
+      "mutated_value": "NaN"
+    },
+    {
+      "name": "negative-zero-number",
+      "target": "catalog.scalar.negative_zero",
+      "mutated_value": "-0"
+    },
+    {
+      "name": "unsafe-integer-number",
+      "target": "catalog.scalar.unsafe_integer",
+      "mutated_value": 9007199254740992
+    },
+    {
+      "name": "lone-surrogate-string",
+      "target": "catalog.scalar.lone_surrogate",
+      "mutated_value": "\\ud800"
+    },
+    {
+      "name": "parsed-one-equivalence",
+      "target": "catalog.scalar.parsed_one_equivalence",
+      "mutated_value": ["1", "1.0"]
+    }
+  ]
+}

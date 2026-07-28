@@ -1,0 +1,27 @@
+{
+  "schema_version": "0.1",
+  "shared_fixture": "../wire/fixtures/transcript-v0.1.json",
+  "shared_fixture_sha256": "b88f4c390528714a704e09fdc3fa17add4d03925191bf2924299a8e8dc1d222c",
+  "catalog_sha256": "4d0289400e23c57b1e43347eb9d8f9258decf7b824516e0d066380d7e6f88fa8",
+  "server_entrypoint_sha256": "0feafb7e91be814f549b49af6b089be138784cf03ef6ff8815da8fb2bd02ce78",
+  "server_command": [
+    "node",
+    "dist/index.js"
+  ],
+  "limits": {
+    "line_bytes": 262144,
+    "stdout_bytes": 2097152,
+    "stdout_queue_chunks": 64,
+    "stderr_bytes": 1048576,
+    "request_timeout_seconds": 15.0,
+    "exit_timeout_seconds": 2.0
+  },
+  "unknown_tool_exception_code": -32603,
+  "request_ids": {
+    "initialize": 1,
+    "ping": 2,
+    "tools/list": 3,
+    "tools/call:get_health": 4,
+    "tools/call:unknown": 5
+  }
+}

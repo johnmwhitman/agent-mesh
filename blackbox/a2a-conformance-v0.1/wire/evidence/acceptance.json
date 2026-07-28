@@ -1,0 +1,105 @@
+{
+  "artifact": "meshfleet-raw-stdio-wire-witness-v0.1",
+  "parent_commit": "182a2ad",
+  "branch": "codex/a2a-blackbox-conformance-v01-20260727",
+  "owned_prefix": "blackbox/a2a-conformance-v0.1/",
+  "protocol_basis": {
+    "version": "2025-11-25",
+    "transport": "newline-delimited UTF-8 JSON-RPC 2.0 over stdio",
+    "sources": [
+      "https://modelcontextprotocol.io/specification/2025-11-25/basic/transports",
+      "https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle"
+    ]
+  },
+  "catalog_sha256": "4d0289400e23c57b1e43347eb9d8f9258decf7b824516e0d066380d7e6f88fa8",
+  "runtime_observations": [
+    {
+      "profile": "synthetic-wire-profile-01-rocket-\ud83d\ude80",
+      "write_modes": [
+        "fragmented",
+        "coalesced"
+      ],
+      "stdout_bytes": 15995,
+      "stderr_bytes": 231,
+      "response_ids": 5,
+      "result": "pass"
+    },
+    {
+      "profile": "synthetic-wire-profile-02",
+      "write_modes": [
+        "coalesced",
+        "fragmented"
+      ],
+      "stdout_bytes": 15935,
+      "stderr_bytes": 231,
+      "response_ids": 5,
+      "result": "pass"
+    }
+  ],
+  "mutation_cases": {
+    "count": 24,
+    "result": "pass",
+    "shared_live_paths": [
+      "strict-frame-parser",
+      "response-correlator",
+      "outbound-envelope-validator",
+      "canonical-byte-serializer"
+    ]
+  },
+  "acceptance": [
+    {
+      "command": "node blackbox/a2a-conformance-v0.1/wire/runner.mjs",
+      "result": "pass"
+    },
+    {
+      "command": "npm run typecheck",
+      "result": "pass"
+    },
+    {
+      "command": "git diff --check",
+      "result": "pass"
+    },
+    {
+      "command": "MESHFLEET_EVENT_LOG_FILE=/tmp/meshfleet-a2a-conformance-suite-events-20260727.log npm test",
+      "result": "pass",
+      "tests": 891,
+      "failures": 0
+    }
+  ],
+  "independent_review": [
+    {
+      "reviewer": "Aristotle",
+      "agent_id": "019fa1bf-4560-76c3-be18-70239dff3443",
+      "result": "pass"
+    },
+    {
+      "reviewer": "Ptolemy",
+      "agent_id": "019fa1bf-4687-7833-a484-2de5fa9a97da",
+      "result": "pass"
+    }
+  ],
+  "external_design_review": [
+    {
+      "model": "Grok 4.5",
+      "role": "raw-stdio-adversary",
+      "result": "complete"
+    },
+    {
+      "model": "MiniMax M3",
+      "role": "raw-stdio-transcript-designer",
+      "result": "complete",
+      "use": "advisory only; local manifest and official protocol version remained normative"
+    }
+  ],
+  "nonclaims": [
+    "This is not full MCP or A2A conformance.",
+    "This is not named-client or provider compatibility evidence.",
+    "No provider-capable or state-mutating tool was invoked.",
+    "This does not prove OS-level network or filesystem isolation.",
+    "The digest is a domain-specific byte contract, not general JSON canonicalization.",
+    "This does not authorize merge, publication, deployment, or activation."
+  ],
+  "generated_residue": [
+    "/tmp/meshfleet-a2a-conformance-suite-events-20260727.log"
+  ]
+}
