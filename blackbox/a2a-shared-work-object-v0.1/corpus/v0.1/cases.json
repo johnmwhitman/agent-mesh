@@ -1,0 +1,1586 @@
+{
+  "profile": "meshfleet.a2a.shared-work-object.v0.1",
+  "generation": "Frozen expected projections; evaluators must not regenerate or overwrite them.",
+  "cases": [
+    {
+      "id": "M01-set-field",
+      "mandatory": true,
+      "scenario": {
+        "profile": "meshfleet.a2a.shared-work-object.v0.1",
+        "case_id": "M01-set-field",
+        "initial": {
+          "object_id": "work-1",
+          "revision": 0,
+          "status": "draft",
+          "fields": {},
+          "notes": []
+        },
+        "operations": [
+          {
+            "operation_id": "op-1",
+            "actor_label": "actor-a",
+            "expected_revision": 0,
+            "kind": "set_field",
+            "field": "title",
+            "value": "draft"
+          }
+        ]
+      },
+      "expect": {
+        "case_id": "M01-set-field",
+        "revision": 1,
+        "status": "draft",
+        "fields": {
+          "title": "draft"
+        },
+        "notes": [],
+        "outcomes": [
+          [
+            "op-1",
+            "applied",
+            null,
+            0,
+            1,
+            null,
+            null
+          ]
+        ],
+        "summary": {
+          "applied": 1,
+          "idempotent": 0,
+          "rejected": 0
+        }
+      }
+    },
+    {
+      "id": "M02-sequential-distinct",
+      "mandatory": true,
+      "scenario": {
+        "profile": "meshfleet.a2a.shared-work-object.v0.1",
+        "case_id": "M02-sequential-distinct",
+        "initial": {
+          "object_id": "work-1",
+          "revision": 0,
+          "status": "draft",
+          "fields": {},
+          "notes": []
+        },
+        "operations": [
+          {
+            "operation_id": "op-1",
+            "actor_label": "actor-a",
+            "expected_revision": 0,
+            "kind": "set_field",
+            "field": "title",
+            "value": "draft"
+          },
+          {
+            "operation_id": "op-2",
+            "actor_label": "actor-b",
+            "expected_revision": 1,
+            "kind": "set_field",
+            "field": "owner",
+            "value": "actor-b"
+          }
+        ]
+      },
+      "expect": {
+        "case_id": "M02-sequential-distinct",
+        "revision": 2,
+        "status": "draft",
+        "fields": {
+          "title": "draft",
+          "owner": "actor-b"
+        },
+        "notes": [],
+        "outcomes": [
+          [
+            "op-1",
+            "applied",
+            null,
+            0,
+            1,
+            null,
+            null
+          ],
+          [
+            "op-2",
+            "applied",
+            null,
+            1,
+            2,
+            null,
+            null
+          ]
+        ],
+        "summary": {
+          "applied": 2,
+          "idempotent": 0,
+          "rejected": 0
+        }
+      }
+    },
+    {
+      "id": "M03-stale-conflict-first-wins",
+      "mandatory": true,
+      "scenario": {
+        "profile": "meshfleet.a2a.shared-work-object.v0.1",
+        "case_id": "M03-stale-conflict-first-wins",
+        "initial": {
+          "object_id": "work-1",
+          "revision": 0,
+          "status": "draft",
+          "fields": {},
+          "notes": []
+        },
+        "operations": [
+          {
+            "operation_id": "op-a",
+            "actor_label": "actor-a",
+            "expected_revision": 0,
+            "kind": "set_field",
+            "field": "title",
+            "value": "alpha"
+          },
+          {
+            "operation_id": "op-b",
+            "actor_label": "actor-b",
+            "expected_revision": 0,
+            "kind": "set_field",
+            "field": "title",
+            "value": "beta"
+          }
+        ]
+      },
+      "expect": {
+        "case_id": "M03-stale-conflict-first-wins",
+        "revision": 1,
+        "status": "draft",
+        "fields": {
+          "title": "alpha"
+        },
+        "notes": [],
+        "outcomes": [
+          [
+            "op-a",
+            "applied",
+            null,
+            0,
+            1,
+            null,
+            null
+          ],
+          [
+            "op-b",
+            "rejected",
+            "STALE_REVISION",
+            1,
+            1,
+            null,
+            null
+          ]
+        ],
+        "summary": {
+          "applied": 1,
+          "idempotent": 0,
+          "rejected": 1
+        }
+      }
+    },
+    {
+      "id": "M04-reversed-conflict-first-wins",
+      "mandatory": true,
+      "scenario": {
+        "profile": "meshfleet.a2a.shared-work-object.v0.1",
+        "case_id": "M04-reversed-conflict-first-wins",
+        "initial": {
+          "object_id": "work-1",
+          "revision": 0,
+          "status": "draft",
+          "fields": {},
+          "notes": []
+        },
+        "operations": [
+          {
+            "operation_id": "op-b",
+            "actor_label": "actor-b",
+            "expected_revision": 0,
+            "kind": "set_field",
+            "field": "title",
+            "value": "beta"
+          },
+          {
+            "operation_id": "op-a",
+            "actor_label": "actor-a",
+            "expected_revision": 0,
+            "kind": "set_field",
+            "field": "title",
+            "value": "alpha"
+          }
+        ]
+      },
+      "expect": {
+        "case_id": "M04-reversed-conflict-first-wins",
+        "revision": 1,
+        "status": "draft",
+        "fields": {
+          "title": "beta"
+        },
+        "notes": [],
+        "outcomes": [
+          [
+            "op-b",
+            "applied",
+            null,
+            0,
+            1,
+            null,
+            null
+          ],
+          [
+            "op-a",
+            "rejected",
+            "STALE_REVISION",
+            1,
+            1,
+            null,
+            null
+          ]
+        ],
+        "summary": {
+          "applied": 1,
+          "idempotent": 0,
+          "rejected": 1
+        }
+      }
+    },
+    {
+      "id": "M05-exact-replay",
+      "mandatory": true,
+      "scenario": {
+        "profile": "meshfleet.a2a.shared-work-object.v0.1",
+        "case_id": "M05-exact-replay",
+        "initial": {
+          "object_id": "work-1",
+          "revision": 0,
+          "status": "draft",
+          "fields": {},
+          "notes": []
+        },
+        "operations": [
+          {
+            "operation_id": "op-1",
+            "actor_label": "actor-a",
+            "expected_revision": 0,
+            "kind": "set_field",
+            "field": "title",
+            "value": "draft"
+          },
+          {
+            "operation_id": "op-1",
+            "actor_label": "actor-a",
+            "expected_revision": 0,
+            "kind": "set_field",
+            "field": "title",
+            "value": "draft"
+          }
+        ]
+      },
+      "expect": {
+        "case_id": "M05-exact-replay",
+        "revision": 1,
+        "status": "draft",
+        "fields": {
+          "title": "draft"
+        },
+        "notes": [],
+        "outcomes": [
+          [
+            "op-1",
+            "applied",
+            null,
+            0,
+            1,
+            null,
+            null
+          ],
+          [
+            "op-1",
+            "idempotent",
+            "EXACT_REPLAY",
+            1,
+            1,
+            "applied",
+            null
+          ]
+        ],
+        "summary": {
+          "applied": 1,
+          "idempotent": 1,
+          "rejected": 0
+        }
+      }
+    },
+    {
+      "id": "M06-operation-id-conflict",
+      "mandatory": true,
+      "scenario": {
+        "profile": "meshfleet.a2a.shared-work-object.v0.1",
+        "case_id": "M06-operation-id-conflict",
+        "initial": {
+          "object_id": "work-1",
+          "revision": 0,
+          "status": "draft",
+          "fields": {},
+          "notes": []
+        },
+        "operations": [
+          {
+            "operation_id": "op-1",
+            "actor_label": "actor-a",
+            "expected_revision": 0,
+            "kind": "set_field",
+            "field": "title",
+            "value": "alpha"
+          },
+          {
+            "operation_id": "op-1",
+            "actor_label": "actor-a",
+            "expected_revision": 1,
+            "kind": "set_field",
+            "field": "title",
+            "value": "beta"
+          }
+        ]
+      },
+      "expect": {
+        "case_id": "M06-operation-id-conflict",
+        "revision": 1,
+        "status": "draft",
+        "fields": {
+          "title": "alpha"
+        },
+        "notes": [],
+        "outcomes": [
+          [
+            "op-1",
+            "applied",
+            null,
+            0,
+            1,
+            null,
+            null
+          ],
+          [
+            "op-1",
+            "rejected",
+            "OPERATION_ID_CONFLICT",
+            1,
+            1,
+            null,
+            null
+          ]
+        ],
+        "summary": {
+          "applied": 1,
+          "idempotent": 0,
+          "rejected": 1
+        }
+      }
+    },
+    {
+      "id": "M07-no-change",
+      "mandatory": true,
+      "scenario": {
+        "profile": "meshfleet.a2a.shared-work-object.v0.1",
+        "case_id": "M07-no-change",
+        "initial": {
+          "object_id": "work-1",
+          "revision": 3,
+          "status": "draft",
+          "fields": {
+            "alpha": 1,
+            "title": "draft"
+          },
+          "notes": [
+            {
+              "note_id": "n0",
+              "actor_label": "seed",
+              "body": "prior"
+            }
+          ]
+        },
+        "operations": [
+          {
+            "operation_id": "op-1",
+            "actor_label": "actor-a",
+            "expected_revision": 3,
+            "kind": "set_field",
+            "field": "alpha",
+            "value": 1
+          }
+        ]
+      },
+      "expect": {
+        "case_id": "M07-no-change",
+        "revision": 3,
+        "status": "draft",
+        "fields": {
+          "alpha": 1,
+          "title": "draft"
+        },
+        "notes": [
+          [
+            "n0",
+            "seed",
+            "prior"
+          ]
+        ],
+        "outcomes": [
+          [
+            "op-1",
+            "rejected",
+            "NO_CHANGE",
+            3,
+            3,
+            null,
+            null
+          ]
+        ],
+        "summary": {
+          "applied": 0,
+          "idempotent": 0,
+          "rejected": 1
+        }
+      }
+    },
+    {
+      "id": "M08-remove-existing",
+      "mandatory": true,
+      "scenario": {
+        "profile": "meshfleet.a2a.shared-work-object.v0.1",
+        "case_id": "M08-remove-existing",
+        "initial": {
+          "object_id": "work-1",
+          "revision": 3,
+          "status": "draft",
+          "fields": {
+            "alpha": 1,
+            "title": "draft"
+          },
+          "notes": [
+            {
+              "note_id": "n0",
+              "actor_label": "seed",
+              "body": "prior"
+            }
+          ]
+        },
+        "operations": [
+          {
+            "operation_id": "op-1",
+            "actor_label": "actor-a",
+            "expected_revision": 3,
+            "kind": "remove_field",
+            "field": "alpha"
+          }
+        ]
+      },
+      "expect": {
+        "case_id": "M08-remove-existing",
+        "revision": 4,
+        "status": "draft",
+        "fields": {
+          "title": "draft"
+        },
+        "notes": [
+          [
+            "n0",
+            "seed",
+            "prior"
+          ]
+        ],
+        "outcomes": [
+          [
+            "op-1",
+            "applied",
+            null,
+            3,
+            4,
+            null,
+            null
+          ]
+        ],
+        "summary": {
+          "applied": 1,
+          "idempotent": 0,
+          "rejected": 0
+        }
+      }
+    },
+    {
+      "id": "M09-remove-absent",
+      "mandatory": true,
+      "scenario": {
+        "profile": "meshfleet.a2a.shared-work-object.v0.1",
+        "case_id": "M09-remove-absent",
+        "initial": {
+          "object_id": "work-1",
+          "revision": 0,
+          "status": "draft",
+          "fields": {},
+          "notes": []
+        },
+        "operations": [
+          {
+            "operation_id": "op-1",
+            "actor_label": "actor-a",
+            "expected_revision": 0,
+            "kind": "remove_field",
+            "field": "missing"
+          }
+        ]
+      },
+      "expect": {
+        "case_id": "M09-remove-absent",
+        "revision": 0,
+        "status": "draft",
+        "fields": {},
+        "notes": [],
+        "outcomes": [
+          [
+            "op-1",
+            "rejected",
+            "FIELD_ABSENT",
+            0,
+            0,
+            null,
+            null
+          ]
+        ],
+        "summary": {
+          "applied": 0,
+          "idempotent": 0,
+          "rejected": 1
+        }
+      }
+    },
+    {
+      "id": "M10-append-notes",
+      "mandatory": true,
+      "scenario": {
+        "profile": "meshfleet.a2a.shared-work-object.v0.1",
+        "case_id": "M10-append-notes",
+        "initial": {
+          "object_id": "work-1",
+          "revision": 0,
+          "status": "draft",
+          "fields": {},
+          "notes": []
+        },
+        "operations": [
+          {
+            "operation_id": "op-1",
+            "actor_label": "actor-a",
+            "expected_revision": 0,
+            "kind": "append_note",
+            "note_id": "n1",
+            "body": "first"
+          },
+          {
+            "operation_id": "op-2",
+            "actor_label": "actor-b",
+            "expected_revision": 1,
+            "kind": "append_note",
+            "note_id": "n2",
+            "body": "second"
+          }
+        ]
+      },
+      "expect": {
+        "case_id": "M10-append-notes",
+        "revision": 2,
+        "status": "draft",
+        "fields": {},
+        "notes": [
+          [
+            "n1",
+            "actor-a",
+            "first"
+          ],
+          [
+            "n2",
+            "actor-b",
+            "second"
+          ]
+        ],
+        "outcomes": [
+          [
+            "op-1",
+            "applied",
+            null,
+            0,
+            1,
+            null,
+            null
+          ],
+          [
+            "op-2",
+            "applied",
+            null,
+            1,
+            2,
+            null,
+            null
+          ]
+        ],
+        "summary": {
+          "applied": 2,
+          "idempotent": 0,
+          "rejected": 0
+        }
+      }
+    },
+    {
+      "id": "M11-note-id-conflict",
+      "mandatory": true,
+      "scenario": {
+        "profile": "meshfleet.a2a.shared-work-object.v0.1",
+        "case_id": "M11-note-id-conflict",
+        "initial": {
+          "object_id": "work-1",
+          "revision": 0,
+          "status": "draft",
+          "fields": {},
+          "notes": []
+        },
+        "operations": [
+          {
+            "operation_id": "op-1",
+            "actor_label": "actor-a",
+            "expected_revision": 0,
+            "kind": "append_note",
+            "note_id": "n1",
+            "body": "first"
+          },
+          {
+            "operation_id": "op-2",
+            "actor_label": "actor-b",
+            "expected_revision": 1,
+            "kind": "append_note",
+            "note_id": "n1",
+            "body": "second"
+          }
+        ]
+      },
+      "expect": {
+        "case_id": "M11-note-id-conflict",
+        "revision": 1,
+        "status": "draft",
+        "fields": {},
+        "notes": [
+          [
+            "n1",
+            "actor-a",
+            "first"
+          ]
+        ],
+        "outcomes": [
+          [
+            "op-1",
+            "applied",
+            null,
+            0,
+            1,
+            null,
+            null
+          ],
+          [
+            "op-2",
+            "rejected",
+            "NOTE_ID_CONFLICT",
+            1,
+            1,
+            null,
+            null
+          ]
+        ],
+        "summary": {
+          "applied": 1,
+          "idempotent": 0,
+          "rejected": 1
+        }
+      }
+    },
+    {
+      "id": "M12-finalize",
+      "mandatory": true,
+      "scenario": {
+        "profile": "meshfleet.a2a.shared-work-object.v0.1",
+        "case_id": "M12-finalize",
+        "initial": {
+          "object_id": "work-1",
+          "revision": 0,
+          "status": "draft",
+          "fields": {},
+          "notes": []
+        },
+        "operations": [
+          {
+            "operation_id": "op-1",
+            "actor_label": "actor-a",
+            "expected_revision": 0,
+            "kind": "finalize"
+          }
+        ]
+      },
+      "expect": {
+        "case_id": "M12-finalize",
+        "revision": 1,
+        "status": "final",
+        "fields": {},
+        "notes": [],
+        "outcomes": [
+          [
+            "op-1",
+            "applied",
+            null,
+            0,
+            1,
+            null,
+            null
+          ]
+        ],
+        "summary": {
+          "applied": 1,
+          "idempotent": 0,
+          "rejected": 0
+        }
+      }
+    },
+    {
+      "id": "M13-mutation-after-final",
+      "mandatory": true,
+      "scenario": {
+        "profile": "meshfleet.a2a.shared-work-object.v0.1",
+        "case_id": "M13-mutation-after-final",
+        "initial": {
+          "object_id": "work-1",
+          "revision": 0,
+          "status": "draft",
+          "fields": {},
+          "notes": []
+        },
+        "operations": [
+          {
+            "operation_id": "op-1",
+            "actor_label": "actor-a",
+            "expected_revision": 0,
+            "kind": "finalize"
+          },
+          {
+            "operation_id": "op-2",
+            "actor_label": "actor-b",
+            "expected_revision": 1,
+            "kind": "set_field",
+            "field": "title",
+            "value": "late"
+          }
+        ]
+      },
+      "expect": {
+        "case_id": "M13-mutation-after-final",
+        "revision": 1,
+        "status": "final",
+        "fields": {},
+        "notes": [],
+        "outcomes": [
+          [
+            "op-1",
+            "applied",
+            null,
+            0,
+            1,
+            null,
+            null
+          ],
+          [
+            "op-2",
+            "rejected",
+            "OBJECT_FINAL",
+            1,
+            1,
+            null,
+            null
+          ]
+        ],
+        "summary": {
+          "applied": 1,
+          "idempotent": 0,
+          "rejected": 1
+        }
+      }
+    },
+    {
+      "id": "M14-exact-replay-after-final",
+      "mandatory": true,
+      "scenario": {
+        "profile": "meshfleet.a2a.shared-work-object.v0.1",
+        "case_id": "M14-exact-replay-after-final",
+        "initial": {
+          "object_id": "work-1",
+          "revision": 0,
+          "status": "draft",
+          "fields": {},
+          "notes": []
+        },
+        "operations": [
+          {
+            "operation_id": "op-1",
+            "actor_label": "actor-a",
+            "expected_revision": 0,
+            "kind": "finalize"
+          },
+          {
+            "operation_id": "op-1",
+            "actor_label": "actor-a",
+            "expected_revision": 0,
+            "kind": "finalize"
+          }
+        ]
+      },
+      "expect": {
+        "case_id": "M14-exact-replay-after-final",
+        "revision": 1,
+        "status": "final",
+        "fields": {},
+        "notes": [],
+        "outcomes": [
+          [
+            "op-1",
+            "applied",
+            null,
+            0,
+            1,
+            null,
+            null
+          ],
+          [
+            "op-1",
+            "idempotent",
+            "EXACT_REPLAY",
+            1,
+            1,
+            "applied",
+            null
+          ]
+        ],
+        "summary": {
+          "applied": 1,
+          "idempotent": 1,
+          "rejected": 0
+        }
+      }
+    },
+    {
+      "id": "M15-id-conflict-before-final-check",
+      "mandatory": true,
+      "scenario": {
+        "profile": "meshfleet.a2a.shared-work-object.v0.1",
+        "case_id": "M15-id-conflict-before-final-check",
+        "initial": {
+          "object_id": "work-1",
+          "revision": 0,
+          "status": "draft",
+          "fields": {},
+          "notes": []
+        },
+        "operations": [
+          {
+            "operation_id": "op-1",
+            "actor_label": "actor-a",
+            "expected_revision": 0,
+            "kind": "finalize"
+          },
+          {
+            "operation_id": "op-1",
+            "actor_label": "actor-a",
+            "expected_revision": 1,
+            "kind": "set_field",
+            "field": "title",
+            "value": "late"
+          }
+        ]
+      },
+      "expect": {
+        "case_id": "M15-id-conflict-before-final-check",
+        "revision": 1,
+        "status": "final",
+        "fields": {},
+        "notes": [],
+        "outcomes": [
+          [
+            "op-1",
+            "applied",
+            null,
+            0,
+            1,
+            null,
+            null
+          ],
+          [
+            "op-1",
+            "rejected",
+            "OPERATION_ID_CONFLICT",
+            1,
+            1,
+            null,
+            null
+          ]
+        ],
+        "summary": {
+          "applied": 1,
+          "idempotent": 0,
+          "rejected": 1
+        }
+      }
+    },
+    {
+      "id": "M16-reject-then-apply-same-revision",
+      "mandatory": true,
+      "scenario": {
+        "profile": "meshfleet.a2a.shared-work-object.v0.1",
+        "case_id": "M16-reject-then-apply-same-revision",
+        "initial": {
+          "object_id": "work-1",
+          "revision": 0,
+          "status": "draft",
+          "fields": {},
+          "notes": []
+        },
+        "operations": [
+          {
+            "operation_id": "op-1",
+            "actor_label": "actor-a",
+            "expected_revision": 0,
+            "kind": "remove_field",
+            "field": "missing"
+          },
+          {
+            "operation_id": "op-2",
+            "actor_label": "actor-b",
+            "expected_revision": 0,
+            "kind": "set_field",
+            "field": "title",
+            "value": "accepted"
+          }
+        ]
+      },
+      "expect": {
+        "case_id": "M16-reject-then-apply-same-revision",
+        "revision": 1,
+        "status": "draft",
+        "fields": {
+          "title": "accepted"
+        },
+        "notes": [],
+        "outcomes": [
+          [
+            "op-1",
+            "rejected",
+            "FIELD_ABSENT",
+            0,
+            0,
+            null,
+            null
+          ],
+          [
+            "op-2",
+            "applied",
+            null,
+            0,
+            1,
+            null,
+            null
+          ]
+        ],
+        "summary": {
+          "applied": 1,
+          "idempotent": 0,
+          "rejected": 1
+        }
+      }
+    },
+    {
+      "id": "M17-nested-value-key-order",
+      "mandatory": true,
+      "scenario": {
+        "profile": "meshfleet.a2a.shared-work-object.v0.1",
+        "case_id": "M17-nested-value-key-order",
+        "initial": {
+          "object_id": "work-1",
+          "revision": 0,
+          "status": "draft",
+          "fields": {},
+          "notes": []
+        },
+        "operations": [
+          {
+            "operation_id": "op-1",
+            "actor_label": "actor-a",
+            "expected_revision": 0,
+            "kind": "set_field",
+            "field": "meta",
+            "value": {
+              "z": 2,
+              "a": [
+                true,
+                null,
+                {
+                  "y": 1,
+                  "x": 0
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "expect": {
+        "case_id": "M17-nested-value-key-order",
+        "revision": 1,
+        "status": "draft",
+        "fields": {
+          "meta": {
+            "a": [
+              true,
+              null,
+              {
+                "x": 0,
+                "y": 1
+              }
+            ],
+            "z": 2
+          }
+        },
+        "notes": [],
+        "outcomes": [
+          [
+            "op-1",
+            "applied",
+            null,
+            0,
+            1,
+            null,
+            null
+          ]
+        ],
+        "summary": {
+          "applied": 1,
+          "idempotent": 0,
+          "rejected": 0
+        }
+      }
+    },
+    {
+      "id": "M18-unicode-no-normalization",
+      "mandatory": true,
+      "scenario": {
+        "profile": "meshfleet.a2a.shared-work-object.v0.1",
+        "case_id": "M18-unicode-no-normalization",
+        "initial": {
+          "object_id": "work-1",
+          "revision": 0,
+          "status": "draft",
+          "fields": {},
+          "notes": []
+        },
+        "operations": [
+          {
+            "operation_id": "op-1",
+            "actor_label": "actor-a",
+            "expected_revision": 0,
+            "kind": "set_field",
+            "field": "é",
+            "value": "composed"
+          },
+          {
+            "operation_id": "op-2",
+            "actor_label": "actor-b",
+            "expected_revision": 1,
+            "kind": "set_field",
+            "field": "é",
+            "value": "decomposed"
+          }
+        ]
+      },
+      "expect": {
+        "case_id": "M18-unicode-no-normalization",
+        "revision": 2,
+        "status": "draft",
+        "fields": {
+          "é": "composed",
+          "é": "decomposed"
+        },
+        "notes": [],
+        "outcomes": [
+          [
+            "op-1",
+            "applied",
+            null,
+            0,
+            1,
+            null,
+            null
+          ],
+          [
+            "op-2",
+            "applied",
+            null,
+            1,
+            2,
+            null,
+            null
+          ]
+        ],
+        "summary": {
+          "applied": 2,
+          "idempotent": 0,
+          "rejected": 0
+        }
+      }
+    },
+    {
+      "id": "M19-initial-final",
+      "mandatory": true,
+      "scenario": {
+        "profile": "meshfleet.a2a.shared-work-object.v0.1",
+        "case_id": "M19-initial-final",
+        "initial": {
+          "object_id": "work-1",
+          "revision": 2,
+          "status": "final",
+          "fields": {
+            "title": "done"
+          },
+          "notes": []
+        },
+        "operations": [
+          {
+            "operation_id": "op-1",
+            "actor_label": "actor-a",
+            "expected_revision": 2,
+            "kind": "set_field",
+            "field": "title",
+            "value": "late"
+          }
+        ]
+      },
+      "expect": {
+        "case_id": "M19-initial-final",
+        "revision": 2,
+        "status": "final",
+        "fields": {
+          "title": "done"
+        },
+        "notes": [],
+        "outcomes": [
+          [
+            "op-1",
+            "rejected",
+            "OBJECT_FINAL",
+            2,
+            2,
+            null,
+            null
+          ]
+        ],
+        "summary": {
+          "applied": 0,
+          "idempotent": 0,
+          "rejected": 1
+        }
+      }
+    },
+    {
+      "id": "M20-empty-operation-list",
+      "mandatory": true,
+      "scenario": {
+        "profile": "meshfleet.a2a.shared-work-object.v0.1",
+        "case_id": "M20-empty-operation-list",
+        "initial": {
+          "object_id": "work-1",
+          "revision": 3,
+          "status": "draft",
+          "fields": {
+            "alpha": 1,
+            "title": "draft"
+          },
+          "notes": [
+            {
+              "note_id": "n0",
+              "actor_label": "seed",
+              "body": "prior"
+            }
+          ]
+        },
+        "operations": []
+      },
+      "expect": {
+        "case_id": "M20-empty-operation-list",
+        "revision": 3,
+        "status": "draft",
+        "fields": {
+          "alpha": 1,
+          "title": "draft"
+        },
+        "notes": [
+          [
+            "n0",
+            "seed",
+            "prior"
+          ]
+        ],
+        "outcomes": [],
+        "summary": {
+          "applied": 0,
+          "idempotent": 0,
+          "rejected": 0
+        }
+      }
+    },
+    {
+      "id": "M21-final-dominates-stale",
+      "mandatory": true,
+      "scenario": {
+        "profile": "meshfleet.a2a.shared-work-object.v0.1",
+        "case_id": "M21-final-dominates-stale",
+        "initial": {
+          "object_id": "work-1",
+          "revision": 2,
+          "status": "final",
+          "fields": {
+            "title": "done"
+          },
+          "notes": []
+        },
+        "operations": [
+          {
+            "operation_id": "op-1",
+            "actor_label": "actor-a",
+            "expected_revision": 0,
+            "kind": "set_field",
+            "field": "title",
+            "value": "late"
+          }
+        ]
+      },
+      "expect": {
+        "case_id": "M21-final-dominates-stale",
+        "revision": 2,
+        "status": "final",
+        "fields": {
+          "title": "done"
+        },
+        "notes": [],
+        "outcomes": [
+          [
+            "op-1",
+            "rejected",
+            "OBJECT_FINAL",
+            2,
+            2,
+            null,
+            null
+          ]
+        ],
+        "summary": {
+          "applied": 0,
+          "idempotent": 0,
+          "rejected": 1
+        }
+      }
+    },
+    {
+      "id": "O01-codex-claude-code",
+      "mandatory": false,
+      "scenario": {
+        "profile": "meshfleet.a2a.shared-work-object.v0.1",
+        "case_id": "O01-codex-claude-code",
+        "initial": {
+          "object_id": "work-1",
+          "revision": 0,
+          "status": "draft",
+          "fields": {},
+          "notes": []
+        },
+        "operations": [
+          {
+            "operation_id": "op-1",
+            "actor_label": "client:codex",
+            "expected_revision": 0,
+            "kind": "set_field",
+            "field": "draft",
+            "value": 1
+          },
+          {
+            "operation_id": "op-2",
+            "actor_label": "client:claude-code",
+            "expected_revision": 1,
+            "kind": "append_note",
+            "note_id": "review",
+            "body": "opaque labels only"
+          }
+        ]
+      },
+      "expect": {
+        "case_id": "O01-codex-claude-code",
+        "revision": 2,
+        "status": "draft",
+        "fields": {
+          "draft": 1
+        },
+        "notes": [
+          [
+            "review",
+            "client:claude-code",
+            "opaque labels only"
+          ]
+        ],
+        "outcomes": [
+          [
+            "op-1",
+            "applied",
+            null,
+            0,
+            1,
+            null,
+            null
+          ],
+          [
+            "op-2",
+            "applied",
+            null,
+            1,
+            2,
+            null,
+            null
+          ]
+        ],
+        "summary": {
+          "applied": 2,
+          "idempotent": 0,
+          "rejected": 0
+        }
+      }
+    },
+    {
+      "id": "O02-opencode-antigravity",
+      "mandatory": false,
+      "scenario": {
+        "profile": "meshfleet.a2a.shared-work-object.v0.1",
+        "case_id": "O02-opencode-antigravity",
+        "initial": {
+          "object_id": "work-1",
+          "revision": 0,
+          "status": "draft",
+          "fields": {},
+          "notes": []
+        },
+        "operations": [
+          {
+            "operation_id": "op-1",
+            "actor_label": "client:opencode",
+            "expected_revision": 0,
+            "kind": "set_field",
+            "field": "draft",
+            "value": 1
+          },
+          {
+            "operation_id": "op-2",
+            "actor_label": "client:antigravity",
+            "expected_revision": 1,
+            "kind": "set_field",
+            "field": "reviewed",
+            "value": true
+          }
+        ]
+      },
+      "expect": {
+        "case_id": "O02-opencode-antigravity",
+        "revision": 2,
+        "status": "draft",
+        "fields": {
+          "draft": 1,
+          "reviewed": true
+        },
+        "notes": [],
+        "outcomes": [
+          [
+            "op-1",
+            "applied",
+            null,
+            0,
+            1,
+            null,
+            null
+          ],
+          [
+            "op-2",
+            "applied",
+            null,
+            1,
+            2,
+            null,
+            null
+          ]
+        ],
+        "summary": {
+          "applied": 2,
+          "idempotent": 0,
+          "rejected": 0
+        }
+      }
+    },
+    {
+      "id": "O03-grok-minimax",
+      "mandatory": false,
+      "scenario": {
+        "profile": "meshfleet.a2a.shared-work-object.v0.1",
+        "case_id": "O03-grok-minimax",
+        "initial": {
+          "object_id": "work-1",
+          "revision": 0,
+          "status": "draft",
+          "fields": {},
+          "notes": []
+        },
+        "operations": [
+          {
+            "operation_id": "op-1",
+            "actor_label": "client:grok",
+            "expected_revision": 0,
+            "kind": "append_note",
+            "note_id": "draft",
+            "body": "candidate"
+          },
+          {
+            "operation_id": "op-2",
+            "actor_label": "client:minimax",
+            "expected_revision": 1,
+            "kind": "append_note",
+            "note_id": "matrix",
+            "body": "complete"
+          }
+        ]
+      },
+      "expect": {
+        "case_id": "O03-grok-minimax",
+        "revision": 2,
+        "status": "draft",
+        "fields": {},
+        "notes": [
+          [
+            "draft",
+            "client:grok",
+            "candidate"
+          ],
+          [
+            "matrix",
+            "client:minimax",
+            "complete"
+          ]
+        ],
+        "outcomes": [
+          [
+            "op-1",
+            "applied",
+            null,
+            0,
+            1,
+            null,
+            null
+          ],
+          [
+            "op-2",
+            "applied",
+            null,
+            1,
+            2,
+            null,
+            null
+          ]
+        ],
+        "summary": {
+          "applied": 2,
+          "idempotent": 0,
+          "rejected": 0
+        }
+      }
+    },
+    {
+      "id": "O04-generic-mcp-codex",
+      "mandatory": false,
+      "scenario": {
+        "profile": "meshfleet.a2a.shared-work-object.v0.1",
+        "case_id": "O04-generic-mcp-codex",
+        "initial": {
+          "object_id": "work-1",
+          "revision": 0,
+          "status": "draft",
+          "fields": {},
+          "notes": []
+        },
+        "operations": [
+          {
+            "operation_id": "op-1",
+            "actor_label": "client:generic-mcp",
+            "expected_revision": 0,
+            "kind": "set_field",
+            "field": "portable",
+            "value": true
+          },
+          {
+            "operation_id": "op-2",
+            "actor_label": "client:codex",
+            "expected_revision": 1,
+            "kind": "finalize"
+          }
+        ]
+      },
+      "expect": {
+        "case_id": "O04-generic-mcp-codex",
+        "revision": 2,
+        "status": "final",
+        "fields": {
+          "portable": true
+        },
+        "notes": [],
+        "outcomes": [
+          [
+            "op-1",
+            "applied",
+            null,
+            0,
+            1,
+            null,
+            null
+          ],
+          [
+            "op-2",
+            "applied",
+            null,
+            1,
+            2,
+            null,
+            null
+          ]
+        ],
+        "summary": {
+          "applied": 2,
+          "idempotent": 0,
+          "rejected": 0
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,106 @@
+{
+  "profile": "meshfleet.a2a.shared-work-object.v0.1",
+  "generated_at_utc": "2026-07-27T10:07:28.836Z",
+  "status": "PASS-AS-HELD",
+  "maturity": "offline black-box conformance witness",
+  "base_commit": "041500fd9aec6e482875f6339236ffdcc46fc7ed",
+  "routing_lane_observed": {
+    "worktree": "/private/tmp/agent-mesh-codex-routing-a2a-20260727",
+    "head": "5dad0c997fc7069124da2dcec8ee094ed7171207",
+    "status": "clean",
+    "overlap_with_owned_path": false
+  },
+  "focused": {
+    "javascript_python_self_test_byte_identical": true,
+    "javascript_python_corpus_byte_identical": true,
+    "corpus_cases": 25,
+    "mandatory_cases": 21,
+    "corpus_sha256": "515540f64173855bc47ac3370f3d4c7523a067fd3960b6efe935db5341238302",
+    "differential_transcript_sha256": "a1be49b2f75cee26cf99ee88ae639ed3413a4e7d39d364d4222c59d6242299a0",
+    "generated_scenarios": 300,
+    "generated_seed": "0x54a91c2d",
+    "generated_transcript_sha256": "8e64731c859ea6f4475c0ffbe60508e7563c2ab8c78bd6b36dc46d73a814c631",
+    "parser_cases": 23,
+    "parser_transcript_sha256": "b1dfe65a37eb4a4a3d749deccd9219cbabf5f8d3ca94de3a5b85430dec1ad56a",
+    "validation_cases": 18,
+    "validation_transcript_sha256": "5d31055f3706291eadcf207764040c7fe58aa60cec088b8ed0ff1e8205209a82",
+    "output_files": {
+      "js_self": {
+        "bytes": 211,
+        "sha256": "fe1dc9229c410794ba8a619ed667cd8b9e678e1da20d9c8cd132a13fc946d40e"
+      },
+      "py_self": {
+        "bytes": 211,
+        "sha256": "fe1dc9229c410794ba8a619ed667cd8b9e678e1da20d9c8cd132a13fc946d40e"
+      },
+      "js_corpus": {
+        "bytes": 9721,
+        "sha256": "15b8f9ceac108fedd707bcf2b1f4b75202fe975e1124cc0a9fe634e8a12a9393"
+      },
+      "py_corpus": {
+        "bytes": 9721,
+        "sha256": "15b8f9ceac108fedd707bcf2b1f4b75202fe975e1124cc0a9fe634e8a12a9393"
+      },
+      "differential": {
+        "bytes": 187,
+        "sha256": "3ecb8752fc251c62c73a0ecb5c79ebfa24138f3f64dfe1708572464c3e3537ec"
+      },
+      "fuzz": {
+        "bytes": 437,
+        "sha256": "1108d28c29e83ece0fbe70c539c51ecb0932b4ef06b7ec9768f5035f56506d3b"
+      }
+    }
+  },
+  "repository_acceptance": {
+    "disposable_copy": "/private/tmp/agent-mesh-codex-a2a-shared-work-object-v01-acceptance-20260727",
+    "build": {
+      "ok": true,
+      "bytes": 146,
+      "sha256": "138cfb17434721bec3538b9ecc76a52561061b95772c5e79c3cca47eefcc77c6"
+    },
+    "typecheck": {
+      "ok": true,
+      "bytes": 46,
+      "sha256": "5a862f20195baa92a43d9cf02b903eace2643a8ac54936b60b3cb9826c19f514"
+    },
+    "full_test": {
+      "ok": true,
+      "tests": 891,
+      "passed": 891,
+      "failed": 0,
+      "skipped": 0,
+      "bytes": 86345,
+      "sha256": "4659684e4f5eb5a15c1662e9ce2b86046930943482a8f7e33835157feeff8632"
+    }
+  },
+  "independent_review": {
+    "implementation": {
+      "agent_id": "019fa302-0c3d-7351-8aec-0fe199b024a9",
+      "status": "RESOLVED",
+      "unresolved_important_findings": 0
+    },
+    "corpus": {
+      "agent_id": "019fa302-0bd8-7ed3-b914-9f1b5cc25e1b",
+      "status": "RESOLVED",
+      "unresolved_important_findings": 0
+    }
+  },
+  "boundaries": {
+    "local_only": true,
+    "review_hold": true,
+    "merged": false,
+    "pushed": false,
+    "published": false,
+    "deployed": false,
+    "activated": false,
+    "claims": [
+      "Caller-ordered deterministic work-object reduction only.",
+      "Optimistic revision fencing, exact replay idempotency, operation-ID conflict detection, and object finality only.",
+      "Client names in optional fixtures are opaque labels, not successful live participation evidence."
+    ],
+    "nonclaims": [
+      "No CRDT, OT, vector clock, causal ordering, transport, delivery, routing, envelope, authentication, authorization, persistence, execution, or operational multi-host claim.",
+      "Object finality does not imply task, attempt, agent, fleet, cancellation, settlement, or recovery lifecycle state."
+    ]
+  }
+}

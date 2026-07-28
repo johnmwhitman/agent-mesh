@@ -1,0 +1,83 @@
+{
+  "profile": "meshfleet.a2a.shared-work-object.v0.1",
+  "operation": "reduce_ordered_work_operations",
+  "maturity": "offline-reference-conformance-only",
+  "model": {
+    "authority": "one assumed external linearizer supplies the operation order",
+    "state": "one caller-supplied work object",
+    "operations": ["set_field", "remove_field", "append_note", "finalize"],
+    "outcome": "one outcome per input operation plus the final reduced state",
+    "client_labels": "opaque illustrative strings, not identities or product claims"
+  },
+  "limits": {
+    "max_utf8_bytes": 131072,
+    "max_depth": 64,
+    "max_fields": 128,
+    "max_notes": 128,
+    "max_operations": 256,
+    "max_label_utf8_bytes": 256,
+    "max_note_body_utf8_bytes": 4096,
+    "safe_integer_max": 9007199254740991
+  },
+  "limit_semantics": {
+    "labels": "the UTF-8 byte limit applies to every ID, actor label, object ID, and field key",
+    "collections": "field, note, operation, array, and object-member maxima are inclusive",
+    "depth": "at most 63 nested JSON containers around a scalar are accepted; 64 reject"
+  },
+  "operation_precedence": [
+    "an exact duplicate operation ID and canonical operation is idempotent",
+    "a reused operation ID with different canonical content is OPERATION_ID_CONFLICT",
+    "otherwise a final object rejects with OBJECT_FINAL",
+    "otherwise a mismatched expected revision rejects with STALE_REVISION",
+    "otherwise operation-specific no-change or conflict checks apply",
+    "otherwise the operation applies and increments revision exactly once"
+  ],
+  "rejection_codes": [
+    "OPERATION_ID_CONFLICT",
+    "OBJECT_FINAL",
+    "STALE_REVISION",
+    "NO_CHANGE",
+    "FIELD_ABSENT",
+    "NOTE_ID_CONFLICT"
+  ],
+  "validation_errors": [
+    "PROFILE_REJECT",
+    "MISSING_FIELD",
+    "UNKNOWN_FIELD",
+    "INVALID_FIELD",
+    "INVALID_OPERATION",
+    "DUPLICATE_ENTRY",
+    "LIMIT_EXCEEDED"
+  ],
+  "parser_errors": [
+    "SIZE_LIMIT",
+    "INVALID_UTF8",
+    "MALFORMED_JSON",
+    "DUPLICATE_MEMBER",
+    "NON_CANONICAL_INTEGER",
+    "UNSAFE_INTEGER",
+    "INVALID_UNICODE",
+    "DEPTH_LIMIT"
+  ],
+  "invariants": [
+    "the caller-supplied operation list is the only ordering authority",
+    "rejected and idempotent outcomes never mutate state or advance revision",
+    "every applied operation advances revision by exactly one",
+    "the final revision equals initial revision plus applied outcome count",
+    "final object mutability status is sticky; it is not task, attempt, agent, or fleet lifecycle state",
+    "operation ID conflict is checked before finality and revision",
+    "finality is checked before revision",
+    "field and note equality uses exact Unicode scalar and canonical JSON semantics with no normalization",
+    "input objects are never mutated",
+    "same canonical input produces byte-identical JavaScript and Python output"
+  ],
+  "non_claims": [
+    "no unordered merge, CRDT, OT, vector clock, Lamport clock, causality graph, or clock behavior",
+    "no envelope, transport, delivery, batching, receipt, acknowledgment, routing, ranking, provider, model, or adapter behavior",
+    "no task, attempt, agent, fleet, cancellation, settlement, recovery, or other lifecycle behavior",
+    "no lease, partition, quorum, policy, authorization, identity proof, authentication, signature, trust, or attestation",
+    "no persistence, datastore, filesystem artifact access, URI, content transfer, runtime execution, tool invocation, or side effect",
+    "no named-client capability or production interoperability claim",
+    "no merge, push, publication, deployment, activation, or release authority"
+  ]
+}
