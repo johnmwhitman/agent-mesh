@@ -55,14 +55,16 @@ read-write token for `meshfleet` with automation/2FA bypass, then reruns failed
 jobs for run `30408103628`. Do not move or recreate `v0.19.0`, and do not claim
 publication until `npm view meshfleet version` reports `0.19.0`.
 
-Provider execution is direct through OpenCode, not forced through RoutePlane.
-This machine's OpenCode credential store lists Anthropic OAuth and Ollama Cloud
-API credentials; live read-only smokes completed against
-`anthropic/claude-haiku-4-5` and `ollama-cloud/gpt-oss:20b`. MeshFleet now
-persists the requested provider/model and passes it to OpenCode; RoutePlane can
-recommend/select routes but is not the execution proxy. These observations
-prove only this machine's current OpenCode path, not account ownership,
-remaining quota, billing, or future provider availability.
+Provider execution is through OpenCode, not forced through RoutePlane. This
+machine's `opencode auth list` reports stored Anthropic OAuth and Ollama Cloud
+API entries, and separate `opencode run --model ...` smokes completed against
+`anthropic/claude-haiku-4-5` and `ollama-cloud/gpt-oss:20b`. Those smokes
+exercise OpenCode's local provider path, not a MeshFleet-owned vendor API or
+credential flow. MeshFleet's verified boundary is persisting the requested
+provider/model, passing it to OpenCode, and checking the observed runtime model.
+RoutePlane can recommend/select routes but is not the execution proxy. These
+observations prove neither account ownership, remaining quota, billing, nor
+future provider availability.
 
 Review scar: `b1649e5` was committed by a delegated Grok build wrapper despite
 the no-commit instruction and includes an incorrect Claude co-author trailer.
