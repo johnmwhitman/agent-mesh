@@ -30,10 +30,19 @@ export function runtimeModelsMatch(expected?: string, observed?: string): boolea
   if (!expected || !observed) return false;
   const expectedValue = expected.toLowerCase();
   const observedValue = observed.toLowerCase();
-  if (expectedValue.includes("/") && observedValue.includes("/")) {
-    return expectedValue === observedValue;
-  }
-  return expectedValue.split("/").at(-1) === observedValue.split("/").at(-1);
+  if (expectedValue === observedValue) return true;
+
+  const withoutProvider = (value: string): string | undefined => {
+    const separator = value.indexOf("/");
+    return separator > 0 && separator < value.length - 1
+      ? value.slice(separator + 1)
+      : undefined;
+  };
+
+  return (
+    withoutProvider(expectedValue) === observedValue ||
+    withoutProvider(observedValue) === expectedValue
+  );
 }
 
 function runtimeBanner(stderr: string): { agent: string; model: string } | undefined {

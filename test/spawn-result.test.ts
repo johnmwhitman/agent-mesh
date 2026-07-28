@@ -12,6 +12,15 @@ test('two provider-qualified runtime model identities require the same provider 
   assert.equal(runtimeModelsMatch('anthropic/claude-sonnet-4', 'openai/claude-sonnet-4'), false)
 })
 
+test('provider-stripped multi-segment banner identities match only the full model id', () => {
+  assert.equal(runtimeModelsMatch('kilo/kilo-auto/free', 'kilo-auto/free'), true)
+  assert.equal(runtimeModelsMatch('kilo-auto/free', 'kilo/kilo-auto/free'), true)
+  assert.equal(runtimeModelsMatch('kilo/kilo-auto/free', 'free'), false)
+  assert.equal(runtimeModelsMatch('kilo/kilo-auto/free', 'other/free'), false)
+  assert.equal(runtimeModelsMatch('kilo/kilo-auto/free', 'free/extra'), false)
+  assert.equal(runtimeModelsMatch('kilo/kilo-auto/free', 'other/kilo-auto/free'), false)
+})
+
 test('spawn result: exit zero with empty stdout fails closed', () => {
   const result = classifySpawnResult({ exitCode: 0, stdout: '', stderr: '' })
 
@@ -91,6 +100,9 @@ test('spawn result: requested model keeps the existing matcher semantics', () =>
     ['claude-sonnet-4', 'anthropic/claude-sonnet-4', true],
     ['anthropic/claude-sonnet-4', 'claude-sonnet-4', true],
     ['vendor/a/leaf', 'vendor/a/leaf', true],
+    ['kilo/kilo-auto/free', 'kilo-auto/free', true],
+    ['kilo/kilo-auto/free', 'free', false],
+    ['kilo/kilo-auto/free', 'other/free', false],
     ['vendor/a/leaf', 'other/a/leaf', false],
     ['anthropic/claude-sonnet-4', 'openai/claude-sonnet-4', false],
     ['claude-sonnet-4', 'grok-4.5', false],

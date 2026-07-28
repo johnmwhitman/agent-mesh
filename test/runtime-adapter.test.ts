@@ -327,6 +327,29 @@ test("OpenCode adapter accepts a requested model matching the observed banner", 
   assert.equal(result.identity.model, "anthropic/claude-sonnet-4");
 });
 
+test("OpenCode adapter accepts a provider-stripped multi-segment Kilo banner", async () => {
+  const adapter = new OpenCodeRuntimeAdapter({
+    command: process.execPath,
+    spawnProcess: (_command, _args, options) => spawn(
+      process.execPath,
+      [
+        "-e",
+        "process.stdout.write('OK\\n'); process.stderr.write('> oracle · kilo-auto/free\\n')",
+      ],
+      options,
+    ),
+  });
+
+  const result = await execute(adapter, spec({
+    requestedAgent: "oracle",
+    requestedModel: "kilo/kilo-auto/free",
+  }));
+
+  assert.equal(result.status, "success");
+  assert.equal(result.identity.model, "kilo-auto/free");
+  assert.equal(result.identity.evidence, "observed");
+});
+
 test("OpenCode adapter default argv selects the requested model while mismatch remains fail-closed", async () => {
   let observedArgs: string[] | undefined;
   const adapter = new OpenCodeRuntimeAdapter({
