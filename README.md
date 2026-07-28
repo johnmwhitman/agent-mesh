@@ -304,13 +304,13 @@ That's 34. We counted twice this time.
 ## What the verifier catches — and what it can't
 
 "Prove it" is a claim about detection, so it ships with the evidence:
-[`test/fixtures/corpus/`](test/fixtures/corpus/README.md) is a corpus of 62 deliberately
+[`test/fixtures/corpus/`](test/fixtures/corpus/README.md) is a corpus of 74 deliberately
 falsified ledgers, each one a clean baseline plus **one declared change**. Results are
 reported in three separate buckets, never blended into a single coverage number:
 
 | Bucket | N | What it means |
 |---|---|---|
-| `caught` | 40 | An overclaim — the ledger asserts something its own records don't support. Raises an error and fails the ledger. |
+| `caught` | 52 | An overclaim — the ledger asserts something its own records don't support. Raises an error and fails the ledger. |
 | `anomaly` | 12 | Surprising, but claims no more than the records support. Warning only, and deliberately *not* counted as caught. |
 | `undetectable` | 10 | The unsigned local core structurally cannot see it. Produces zero findings. |
 

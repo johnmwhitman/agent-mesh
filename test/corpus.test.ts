@@ -271,7 +271,16 @@ test("every check the verifier emits is named by a corpus vector", () => {
 });
 
 test("every corpus vector targets a check the verifier can still emit", () => {
-  const emitted = scanEmittedChecks(readFileSync(join(SRC, "verify.ts"), "utf-8"));
+  const verifySource = readFileSync(join(SRC, "verify.ts"), "utf-8");
+  const emitted = scanEmittedChecks(verifySource);
+  // Discussion checks are emitted dynamically as `discussion.${finding.code}` from
+  // DISCUSSION_ERROR_CODES — the scanner's regex can't match template literals, so
+  // add them from the constant's own entries in the source.
+  const codeRe = /DISCUSSION_ERROR_CODES[^;]*\[([^\]]+)\]/s;
+  const codeBlock = verifySource.match(codeRe);
+  if (codeBlock) {
+    for (const m of codeBlock[1].matchAll(/"([a-z_]+)"/g)) emitted.add(`discussion.${m[1]}`);
+  }
   const stale = [...new Set(manifest.vectors.map((v) => v.primary).filter(Boolean))].filter(
     (c) => !emitted.has(c)
   );
