@@ -88,9 +88,32 @@ Future versions will increment `CURRENT_SCHEMA_VERSION` and add a migration step
 | 0.8.1 – 0.13.x | (no new tools; skill taxonomy is a library module, not a tool yet) | — |
 | 0.14.0 – 0.15.x | (no new tools; stdio handshake and host-neutral launch configuration are covered by integration tests) | — |
 | 0.16.0 | + ask_peer, wake_agent, reply_discussion, get_discussion (Discussions) | see the input-validation note below |
+| unreleased | + compile_route_candidates, recommend_route, verify_ledger_v2 (all advisory or read-only; no write authority) | ⚠️ `send_messages` batch-item schema tightened and `verify_ledger` findings strengthened — see the narrowing note below |
 
-**Promise so far**: every minor release has been additive. No tool has been removed or had its
-signature narrowed.
+**Promise so far**: every minor release has been additive. No tool has been removed. One
+signature has been tightened once — `send_messages` batch items, unreleased — deliberately and
+documented in the narrowing note below: the wire shapes it now refuses were violations of the
+contract the schema already claimed to enforce.
+
+### ⚠️ `send_messages` narrowing and stricter `verify_ledger` findings (unreleased)
+
+`send_messages` always advertised five required string fields per item and a closed `type` enum,
+but the handler did not enforce them. A legacy self-message projection could durably commit a
+batch item with an unsupported `type` and report success — contradicting the advertised "one
+invalid message rejects the whole batch" rule. The batch-item schema now carries `minLength: 1`
+and `pattern: "\\S"` on `from_agent_id`, `to_agent_id`, `fleet_id`, and `correlation_id`, and the
+handler validates the complete batch **before** the transactional writer runs. Blank or
+whitespace-only identities, `correlation_id: null` or blank, and non-enum `type` values refuse
+with an error naming the indexed field (e.g. `messages[1].type`) and write nothing. Empty
+`payload` strings and empty batches remain valid; unknown properties remain accepted and ignored.
+The singular `send_message` boundary is deliberately out of scope for this slice.
+
+`verify_ledger` (and therefore `inspect --verify`) is also stricter on the same release: a
+present but non-finite `started_at`/`completed_at` now yields `agent.invalid_timestamp`, and a
+`completed_at` earlier than the fleet's `created_at` yields `agent.tampered_timestamp` even when
+`started_at` is absent. A ledger that previously verified `ok: true` can now fail — that is the
+point: the previous pass was a false clean over data no evidence product could be built on. The
+report *shape* (`VerifyReport`/`VerifyFinding`) is unchanged.
 
 ### Implemented opt-in verifier v2 MCP and CLI contract
 

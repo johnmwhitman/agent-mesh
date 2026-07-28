@@ -595,7 +595,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
                 candidate_id: { type: "string", minLength: 1, maxLength: 128 },
                 status: {
                   type: "string",
-                  enum: ["green", "degraded", "exhausted", "unconfigured"],
+                  // "unconfigured" exists as a module-level status token but is
+                  // never accepted for a manifest candidate, so the published
+                  // contract does not advertise it.
+                  enum: ["green", "degraded", "exhausted"],
                 },
                 confidence: { type: "string", enum: ["measured", "assumed"] },
                 budget: {
