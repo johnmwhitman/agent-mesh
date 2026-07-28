@@ -1,0 +1,93 @@
+{
+  "profile": "meshfleet.a2a.artifact-bundle-integrity.v0.1",
+  "status": "PASS-AS-HELD",
+  "reviewers": [
+    {
+      "angle": "implementation-and-harness",
+      "reviewer": "Bernoulli / gpt-5.6-terra",
+      "state": "APPROVE",
+      "remaining_p1_p2": 0,
+      "boundary": "Read-only slice approval; not merge, release, deployment, activation, or interoperability."
+    },
+    {
+      "angle": "contract-and-corpus",
+      "reviewer": "Kuhn / gpt-5.6-terra",
+      "state": "APPROVE",
+      "remaining_p1_p2": 0,
+      "boundary": "Read-only slice approval; supplied receipts were not independently rerun."
+    }
+  ],
+  "findings": [],
+  "acceptance": "not-requested",
+  "review_cycle": "v0.1-independent-two-angle",
+  "implementation_review": {
+    "reviewer": "Bernoulli / gpt-5.6-terra",
+    "disposition": "APPROVE",
+    "resolved": [
+      "Accepted self-tests now assert complete canonical projections.",
+      "Differential negatives now assert exact rejection codes rather than parity alone.",
+      "Fuzz invalid mutations now guarantee invalidity and assert exact rejection codes.",
+      "Permutation and parser controls now carry independent exact expectations."
+    ],
+    "residual": [
+      "Static no-I/O scanning is a heuristic; package nonclaims and evaluator API boundary remain the authoritative scope."
+    ]
+  },
+  "corpus_review": {
+    "reviewer": "Kuhn / gpt-5.6-terra",
+    "disposition": "APPROVE",
+    "resolved": [
+      "Closed error vocabulary and precise validation precedence added to contract.",
+      "Positive raw binary digest fixture added.",
+      "Exact ID, logical-name, and artifact-count boundaries added.",
+      "Logical-name grammar traps and combined-error precedence fixtures added.",
+      "Paired permutation and ASCII punctuation-order fixtures added.",
+      "Single authoritative precedence array replaces competing coarse and detailed representations.",
+      "Accepted standard Base64 plus/slash vector added.",
+      "Inclusive JSON-depth and safe-integer parser boundaries added.",
+      "Compact total-decoded-limit-before-digest precedence fixture added."
+    ],
+    "deferred": [
+      {
+        "finding": "Freeze multi-megabyte document, encoded, decoded-per-artifact, and total-decoded ceilings directly in corpus JSON.",
+        "rationale": "Generated deterministic harness witnesses exercise these exact constants without adding roughly megabytes of duplicate Base64 fixture material.",
+        "impact": "Those ceilings depend on focused harness evidence rather than corpus portability; acceptance must record the harness command and keep this limitation explicit."
+      }
+    ]
+  },
+  "acceptance_gate": {
+    "state": "PASS-AS-HELD",
+    "opens_only_after": [
+      "focused witnesses pass",
+      "implementation rereview closes",
+      "corpus rereview closes",
+      "isolated build and typecheck pass",
+      "full suite passes",
+      "manifest and handoff are hash-bound"
+    ],
+    "never_implies": [
+      "merge",
+      "push",
+      "publication",
+      "deployment",
+      "activation",
+      "interoperability claim"
+    ],
+    "satisfied": [
+      "focused witnesses pass",
+      "implementation rereview closes",
+      "corpus rereview closes",
+      "isolated build and typecheck pass",
+      "full suite passes",
+      "manifest and handoff hash-bound"
+    ],
+    "remaining_boundary": "Local review package only; explicit integration authority is still required."
+  },
+  "oracle_independence": {
+    "state": "accepted-by-two-angle-review",
+    "derivation": "Frozen expected objects are authored from the normative contract and literal raw fixture octets. Accepted metadata and ASCII order are explicit; rejection codes follow the sole precedence array.",
+    "serializer_separation": "JS and Python harnesses each own an expected-value canonical encoder and do not import production canonicalOutput for expectations.",
+    "digest_cross_check": "System shasum independently reproduced M25 ff as a8100ae6aa1940d0b663bb31cd466142ebbdbd5187131b92d93818987832eb89 and M45 fbff as db8fed54159afe40ace5b49d702259fd88c9c4009307181824487baab5c6bdea.",
+    "limitation": "Independent review is semantic inspection of deterministic fixtures, not a third implementation."
+  }
+}

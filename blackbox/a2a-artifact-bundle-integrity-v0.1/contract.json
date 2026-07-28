@@ -1,0 +1,146 @@
+{
+  "profile": "meshfleet.a2a.artifact-bundle-integrity.v0.1",
+  "operation": "evaluate_artifact_bundle_integrity",
+  "status": "offline-pure-reference-profile",
+  "input": {
+    "kind": "raw_utf8_json_bytes",
+    "root_fields": [
+      "profile",
+      "artifacts"
+    ],
+    "artifact_fields": [
+      "artifact_id",
+      "logical_name",
+      "content_base64",
+      "decoded_byte_length",
+      "sha256"
+    ]
+  },
+  "limits": {
+    "max_document_bytes": 12582912,
+    "max_json_depth": 16,
+    "max_artifacts": 128,
+    "max_artifact_id_bytes": 64,
+    "max_logical_name_bytes": 255,
+    "max_encoded_bytes_per_artifact": 1398104,
+    "max_decoded_bytes_per_artifact": 1048576,
+    "max_total_decoded_bytes": 8388608,
+    "max_safe_integer": 9007199254740991
+  },
+  "validation": {
+    "artifact_id": "ASCII case-sensitive /^[A-Za-z][A-Za-z0-9._-]{0,63}$/",
+    "logical_name": "lowercase ASCII slash-separated logical namespace; no empty, dot, dotdot, backslash, drive, Unicode, control, leading, or trailing slash segment",
+    "content_base64": "RFC 4648 standard alphabet A-Z a-z 0-9 + / with exact canonical padding and encode(decode(value)) === value",
+    "decoded_byte_length": "canonical non-negative safe integer token 0 or [1-9][0-9]*",
+    "sha256": "exact lowercase /^[0-9a-f]{64}$/ over decoded octets"
+  },
+  "precedence": [
+    "Raw document checks: DOCUMENT_TOO_LARGE, then BOM_NOT_ALLOWED, then INVALID_UTF8.",
+    "Strict JSON traversal reports the first parser failure among malformed syntax, duplicate keys, invalid Unicode, depth, unsafe integers, and non-canonical integers.",
+    "Root validation: object shape, unknown fields, missing fields, profile support, artifacts array type, then artifact count.",
+    "Artifacts validate in input order. Each validates object shape, unknown fields, missing fields, field types, ID byte limit and grammar, logical-name byte limit and grammar, Base64 encoded/decoded limits and canonicality, declared length, then SHA syntax.",
+    "After all artifacts are individually valid: duplicate artifact IDs, duplicate logical names, declared total decoded-byte limit, decoded-length mismatches in input order, then SHA-256 mismatches in input order.",
+    "Only a fully accepted bundle is projected and sorted by ASCII (logical_name, artifact_id). Rejected inputs never return partial metadata."
+  ],
+  "output": {
+    "verified": [
+      "profile",
+      "outcome",
+      "artifact_count",
+      "total_decoded_bytes",
+      "artifacts"
+    ],
+    "rejected": [
+      "profile",
+      "outcome",
+      "error_code"
+    ],
+    "artifact_order": "ASCII byte order of (logical_name, artifact_id)",
+    "content_base64_is_omitted": true
+  },
+  "nonclaims": [
+    "No filesystem access, opening, path containment, symlink handling, or materialization safety.",
+    "No transport, envelope binding, receipt, delivery, acknowledgment, retry, routing, or transfer completion.",
+    "No persistence, replay cache, idempotency, lifecycle mutation, authority, quorum, policy, or execution.",
+    "No identity, signature, authentication, authorization, trust, provenance, malware scanning, sandboxing, or content-semantic validation.",
+    "A matching digest proves only consistency between caller-supplied bytes and caller-supplied metadata.",
+    "No interoperability or named-client participation claim."
+  ],
+  "logical_name_grammar": {
+    "encoding": "ASCII only",
+    "full_match": "^[a-z0-9][a-z0-9._-]*(/[a-z0-9][a-z0-9._-]*)*$",
+    "semantics": "A lowercase slash-separated logical namespace, not a filesystem path.",
+    "rejects": [
+      "empty segments",
+      ".",
+      "..",
+      "leading slash",
+      "trailing slash",
+      "backslash",
+      "drive syntax",
+      "uppercase ASCII",
+      "non-ASCII",
+      "control characters"
+    ]
+  },
+  "closed_error_vocabulary": [
+    "DOCUMENT_TOO_LARGE",
+    "BOM_NOT_ALLOWED",
+    "INVALID_UTF8",
+    "MALFORMED_JSON",
+    "DUPLICATE_JSON_KEY",
+    "INVALID_UNICODE",
+    "JSON_DEPTH_LIMIT",
+    "UNSAFE_INTEGER",
+    "NON_CANONICAL_INTEGER",
+    "ROOT_NOT_OBJECT",
+    "UNKNOWN_ROOT_FIELD",
+    "MISSING_ROOT_FIELD",
+    "UNSUPPORTED_PROFILE",
+    "ARTIFACTS_NOT_ARRAY",
+    "ARTIFACT_COUNT_LIMIT",
+    "ARTIFACT_NOT_OBJECT",
+    "UNKNOWN_ARTIFACT_FIELD",
+    "MISSING_ARTIFACT_FIELD",
+    "INVALID_ARTIFACT_ID_TYPE",
+    "INVALID_LOGICAL_NAME_TYPE",
+    "INVALID_CONTENT_BASE64_TYPE",
+    "INVALID_DECODED_BYTE_LENGTH_TYPE",
+    "INVALID_SHA256_TYPE",
+    "ARTIFACT_ID_TOO_LONG",
+    "INVALID_ARTIFACT_ID",
+    "LOGICAL_NAME_TOO_LONG",
+    "INVALID_LOGICAL_NAME",
+    "BASE64_TOO_LONG",
+    "INVALID_BASE64",
+    "NON_CANONICAL_BASE64",
+    "DECODED_BYTE_LENGTH_LIMIT",
+    "INVALID_DECODED_BYTE_LENGTH",
+    "INVALID_SHA256",
+    "DUPLICATE_ARTIFACT_ID",
+    "DUPLICATE_LOGICAL_NAME",
+    "TOTAL_DECODED_BYTES_LIMIT",
+    "DECODED_BYTE_LENGTH_MISMATCH",
+    "SHA256_MISMATCH"
+  ],
+  "boundary_evidence": {
+    "frozen_corpus": [
+      "ID lengths 64 and 65",
+      "logical-name lengths 255 and 256",
+      "artifact counts 128 and 129",
+      "raw binary byte 0xff digest binding",
+      "ASCII ordering and paired input permutations",
+      "JSON depth 16 accepted by parser and depth 17 rejected",
+      "safe integer 2^53-1 accepted by parser and 2^53 rejected",
+      "declared total decoded-byte limit precedes later digest mismatch"
+    ],
+    "deterministic_harness": [
+      "encoded payload ceiling",
+      "decoded per-artifact ceiling",
+      "total decoded-byte ceiling",
+      "document byte ceiling"
+    ],
+    "rationale": "Multi-megabyte frozen JSON fixtures would duplicate deterministic generated witnesses and materially inflate this black-box package; the acceptance record must name the exact harness commands and counts."
+  },
+  "precedence_authority": "The precedence array is the sole normative validation ordering for v0.1."
+}

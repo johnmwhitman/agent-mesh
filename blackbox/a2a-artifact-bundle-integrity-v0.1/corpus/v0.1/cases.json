@@ -1,0 +1,1396 @@
+{
+  "profile": "meshfleet.a2a.artifact-bundle-integrity.v0.1",
+  "status": "remediated-pending-rereview",
+  "generation": "Do not generate or overwrite this corpus. Expected outputs are frozen review targets.",
+  "cases": [
+    {
+      "id": "M01-valid-abc",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.artifact-bundle-integrity.v0.1\",\"artifacts\":[{\"artifact_id\":\"A1\",\"logical_name\":\"docs/a.txt\",\"content_base64\":\"YWJj\",\"decoded_byte_length\":3,\"sha256\":\"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.artifact-bundle-integrity.v0.1",
+        "outcome": "verified",
+        "artifact_count": 1,
+        "total_decoded_bytes": 3,
+        "artifacts": [
+          {
+            "artifact_id": "A1",
+            "logical_name": "docs/a.txt",
+            "decoded_byte_length": 3,
+            "sha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+          }
+        ]
+      }
+    },
+    {
+      "id": "M02-empty-octets",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.artifact-bundle-integrity.v0.1\",\"artifacts\":[{\"artifact_id\":\"Empty\",\"logical_name\":\"empty\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.artifact-bundle-integrity.v0.1",
+        "outcome": "verified",
+        "artifact_count": 1,
+        "total_decoded_bytes": 0,
+        "artifacts": [
+          {
+            "artifact_id": "Empty",
+            "logical_name": "empty",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        ]
+      }
+    },
+    {
+      "id": "M03-permuted-sorted-output",
+      "mandatory": true,
+      "raw_json": "{\"artifacts\":[{\"artifact_id\":\"Z1\",\"logical_name\":\"z/z\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A1\",\"logical_name\":\"docs/a.txt\",\"content_base64\":\"YWJj\",\"decoded_byte_length\":3,\"sha256\":\"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\"}],\"profile\":\"meshfleet.a2a.artifact-bundle-integrity.v0.1\"}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.artifact-bundle-integrity.v0.1",
+        "outcome": "verified",
+        "artifact_count": 2,
+        "total_decoded_bytes": 3,
+        "artifacts": [
+          {
+            "artifact_id": "A1",
+            "logical_name": "docs/a.txt",
+            "decoded_byte_length": 3,
+            "sha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+          },
+          {
+            "artifact_id": "Z1",
+            "logical_name": "z/z",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        ]
+      }
+    },
+    {
+      "id": "M04-duplicate-id",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.artifact-bundle-integrity.v0.1\",\"artifacts\":[{\"artifact_id\":\"A1\",\"logical_name\":\"a\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A1\",\"logical_name\":\"b\",\"content_base64\":\"YWJj\",\"decoded_byte_length\":3,\"sha256\":\"0000000000000000000000000000000000000000000000000000000000000000\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.artifact-bundle-integrity.v0.1",
+        "outcome": "rejected",
+        "error_code": "DUPLICATE_ARTIFACT_ID"
+      }
+    },
+    {
+      "id": "M05-duplicate-name",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.artifact-bundle-integrity.v0.1\",\"artifacts\":[{\"artifact_id\":\"A1\",\"logical_name\":\"same\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A2\",\"logical_name\":\"same\",\"content_base64\":\"YWJj\",\"decoded_byte_length\":3,\"sha256\":\"0000000000000000000000000000000000000000000000000000000000000000\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.artifact-bundle-integrity.v0.1",
+        "outcome": "rejected",
+        "error_code": "DUPLICATE_LOGICAL_NAME"
+      }
+    },
+    {
+      "id": "M06-invalid-id-precedence",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.artifact-bundle-integrity.v0.1\",\"artifacts\":[{\"artifact_id\":\"1bad\",\"logical_name\":\"good\",\"content_base64\":\"???\",\"decoded_byte_length\":0,\"sha256\":\"0000000000000000000000000000000000000000000000000000000000000000\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.artifact-bundle-integrity.v0.1",
+        "outcome": "rejected",
+        "error_code": "INVALID_ARTIFACT_ID"
+      }
+    },
+    {
+      "id": "M07-logical-traversal",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.artifact-bundle-integrity.v0.1\",\"artifacts\":[{\"artifact_id\":\"A1\",\"logical_name\":\"a/../b\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.artifact-bundle-integrity.v0.1",
+        "outcome": "rejected",
+        "error_code": "INVALID_LOGICAL_NAME"
+      }
+    },
+    {
+      "id": "M08-url-safe-base64",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.artifact-bundle-integrity.v0.1\",\"artifacts\":[{\"artifact_id\":\"A1\",\"logical_name\":\"a\",\"content_base64\":\"_w==\",\"decoded_byte_length\":1,\"sha256\":\"0000000000000000000000000000000000000000000000000000000000000000\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.artifact-bundle-integrity.v0.1",
+        "outcome": "rejected",
+        "error_code": "INVALID_BASE64"
+      }
+    },
+    {
+      "id": "M09-missing-padding",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.artifact-bundle-integrity.v0.1\",\"artifacts\":[{\"artifact_id\":\"A1\",\"logical_name\":\"a\",\"content_base64\":\"TQ\",\"decoded_byte_length\":1,\"sha256\":\"0000000000000000000000000000000000000000000000000000000000000000\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.artifact-bundle-integrity.v0.1",
+        "outcome": "rejected",
+        "error_code": "INVALID_BASE64"
+      }
+    },
+    {
+      "id": "M10-nonzero-padding-bits",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.artifact-bundle-integrity.v0.1\",\"artifacts\":[{\"artifact_id\":\"A1\",\"logical_name\":\"a\",\"content_base64\":\"TR==\",\"decoded_byte_length\":1,\"sha256\":\"0000000000000000000000000000000000000000000000000000000000000000\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.artifact-bundle-integrity.v0.1",
+        "outcome": "rejected",
+        "error_code": "NON_CANONICAL_BASE64"
+      }
+    },
+    {
+      "id": "M11-length-mismatch",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.artifact-bundle-integrity.v0.1\",\"artifacts\":[{\"artifact_id\":\"A1\",\"logical_name\":\"a\",\"content_base64\":\"YWJj\",\"decoded_byte_length\":2,\"sha256\":\"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.artifact-bundle-integrity.v0.1",
+        "outcome": "rejected",
+        "error_code": "DECODED_BYTE_LENGTH_MISMATCH"
+      }
+    },
+    {
+      "id": "M12-uppercase-digest",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.artifact-bundle-integrity.v0.1\",\"artifacts\":[{\"artifact_id\":\"A1\",\"logical_name\":\"a\",\"content_base64\":\"YWJj\",\"decoded_byte_length\":3,\"sha256\":\"BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.artifact-bundle-integrity.v0.1",
+        "outcome": "rejected",
+        "error_code": "INVALID_SHA256"
+      }
+    },
+    {
+      "id": "M13-binary-octets",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.artifact-bundle-integrity.v0.1\",\"artifacts\":[{\"artifact_id\":\"A1\",\"logical_name\":\"a\",\"content_base64\":\"/w==\",\"decoded_byte_length\":1,\"sha256\":\"0000000000000000000000000000000000000000000000000000000000000000\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.artifact-bundle-integrity.v0.1",
+        "outcome": "rejected",
+        "error_code": "SHA256_MISMATCH"
+      }
+    },
+    {
+      "id": "M14-bom",
+      "mandatory": true,
+      "raw_base64url": "77u_e30",
+      "expected_output": {
+        "profile": "meshfleet.a2a.artifact-bundle-integrity.v0.1",
+        "outcome": "rejected",
+        "error_code": "BOM_NOT_ALLOWED"
+      }
+    },
+    {
+      "id": "M15-invalid-utf8",
+      "mandatory": true,
+      "raw_base64url": "_3t9",
+      "expected_output": {
+        "profile": "meshfleet.a2a.artifact-bundle-integrity.v0.1",
+        "outcome": "rejected",
+        "error_code": "INVALID_UTF8"
+      }
+    },
+    {
+      "id": "M16-duplicate-json-key",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.artifact-bundle-integrity.v0.1\",\"profile\":\"meshfleet.a2a.artifact-bundle-integrity.v0.1\",\"artifacts\":[]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.artifact-bundle-integrity.v0.1",
+        "outcome": "rejected",
+        "error_code": "DUPLICATE_JSON_KEY"
+      }
+    },
+    {
+      "id": "M17-unpaired-surrogate",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"\\uD800\",\"artifacts\":[]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.artifact-bundle-integrity.v0.1",
+        "outcome": "rejected",
+        "error_code": "INVALID_UNICODE"
+      }
+    },
+    {
+      "id": "M18-unsafe-integer",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.artifact-bundle-integrity.v0.1\",\"artifacts\":[{\"artifact_id\":\"A1\",\"logical_name\":\"a\",\"content_base64\":\"\",\"decoded_byte_length\":9007199254740992,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.artifact-bundle-integrity.v0.1",
+        "outcome": "rejected",
+        "error_code": "UNSAFE_INTEGER"
+      }
+    },
+    {
+      "id": "M19-noncanonical-integer",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.artifact-bundle-integrity.v0.1\",\"artifacts\":[{\"artifact_id\":\"A1\",\"logical_name\":\"a\",\"content_base64\":\"\",\"decoded_byte_length\":1e0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.artifact-bundle-integrity.v0.1",
+        "outcome": "rejected",
+        "error_code": "NON_CANONICAL_INTEGER"
+      }
+    },
+    {
+      "id": "M20-depth-limit",
+      "mandatory": true,
+      "raw_json": "[[[[[[[[[[[[[[[[[0]]]]]]]]]]]]]]]]]",
+      "expected_output": {
+        "profile": "meshfleet.a2a.artifact-bundle-integrity.v0.1",
+        "outcome": "rejected",
+        "error_code": "JSON_DEPTH_LIMIT"
+      }
+    },
+    {
+      "id": "M21-unknown-root-before-missing",
+      "mandatory": true,
+      "raw_json": "{\"extra\":0}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.artifact-bundle-integrity.v0.1",
+        "outcome": "rejected",
+        "error_code": "UNKNOWN_ROOT_FIELD"
+      }
+    },
+    {
+      "id": "M22-duplicate-before-digest",
+      "mandatory": true,
+      "raw_json": "{\"profile\":\"meshfleet.a2a.artifact-bundle-integrity.v0.1\",\"artifacts\":[{\"artifact_id\":\"A1\",\"logical_name\":\"a\",\"content_base64\":\"YWJj\",\"decoded_byte_length\":3,\"sha256\":\"0000000000000000000000000000000000000000000000000000000000000000\"},{\"artifact_id\":\"A1\",\"logical_name\":\"b\",\"content_base64\":\"YWJj\",\"decoded_byte_length\":3,\"sha256\":\"0000000000000000000000000000000000000000000000000000000000000000\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.artifact-bundle-integrity.v0.1",
+        "outcome": "rejected",
+        "error_code": "DUPLICATE_ARTIFACT_ID"
+      }
+    },
+    {
+      "id": "M23-permutation-counterpart",
+      "mandatory": true,
+      "purpose": "Paired permutation counterpart to M03; canonical projection must be identical.",
+      "raw_json": "{\"profile\":\"meshfleet.a2a.artifact-bundle-integrity.v0.1\",\"artifacts\":[{\"artifact_id\":\"A1\",\"logical_name\":\"docs/a.txt\",\"content_base64\":\"YWJj\",\"decoded_byte_length\":3,\"sha256\":\"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\"},{\"artifact_id\":\"Z1\",\"logical_name\":\"z/z\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.artifact-bundle-integrity.v0.1",
+        "outcome": "verified",
+        "artifact_count": 2,
+        "total_decoded_bytes": 3,
+        "artifacts": [
+          {
+            "artifact_id": "A1",
+            "logical_name": "docs/a.txt",
+            "decoded_byte_length": 3,
+            "sha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+          },
+          {
+            "artifact_id": "Z1",
+            "logical_name": "z/z",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        ]
+      }
+    },
+    {
+      "id": "M24-ascii-order-discriminator",
+      "mandatory": true,
+      "purpose": "ASCII discriminator: hyphen sorts before dot, which sorts before underscore.",
+      "raw_json": "{\"profile\":\"meshfleet.a2a.artifact-bundle-integrity.v0.1\",\"artifacts\":[{\"artifact_id\":\"C3\",\"logical_name\":\"a_\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"B2\",\"logical_name\":\"a.\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A1\",\"logical_name\":\"a-\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.artifact-bundle-integrity.v0.1",
+        "outcome": "verified",
+        "artifact_count": 3,
+        "total_decoded_bytes": 0,
+        "artifacts": [
+          {
+            "artifact_id": "A1",
+            "logical_name": "a-",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "B2",
+            "logical_name": "a.",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "C3",
+            "logical_name": "a_",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        ]
+      }
+    },
+    {
+      "id": "M25-valid-binary-ff",
+      "mandatory": true,
+      "purpose": "Positive raw binary digest fixture for byte 0xff; SHA-256 is externally reproducible.",
+      "raw_json": "{\"profile\":\"meshfleet.a2a.artifact-bundle-integrity.v0.1\",\"artifacts\":[{\"artifact_id\":\"B1\",\"logical_name\":\"binary/ff\",\"content_base64\":\"/w==\",\"decoded_byte_length\":1,\"sha256\":\"a8100ae6aa1940d0b663bb31cd466142ebbdbd5187131b92d93818987832eb89\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.artifact-bundle-integrity.v0.1",
+        "outcome": "verified",
+        "artifact_count": 1,
+        "total_decoded_bytes": 1,
+        "artifacts": [
+          {
+            "artifact_id": "B1",
+            "logical_name": "binary/ff",
+            "decoded_byte_length": 1,
+            "sha256": "a8100ae6aa1940d0b663bb31cd466142ebbdbd5187131b92d93818987832eb89"
+          }
+        ]
+      }
+    },
+    {
+      "id": "M26-logical-empty-segment",
+      "mandatory": true,
+      "purpose": "Reject empty logical-name segment.",
+      "raw_json": "{\"profile\":\"meshfleet.a2a.artifact-bundle-integrity.v0.1\",\"artifacts\":[{\"artifact_id\":\"A1\",\"logical_name\":\"a//b\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.artifact-bundle-integrity.v0.1",
+        "outcome": "rejected",
+        "error_code": "INVALID_LOGICAL_NAME"
+      }
+    },
+    {
+      "id": "M27-logical-dot-segment",
+      "mandatory": true,
+      "purpose": "Reject dot logical-name segment.",
+      "raw_json": "{\"profile\":\"meshfleet.a2a.artifact-bundle-integrity.v0.1\",\"artifacts\":[{\"artifact_id\":\"A1\",\"logical_name\":\"a/./b\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.artifact-bundle-integrity.v0.1",
+        "outcome": "rejected",
+        "error_code": "INVALID_LOGICAL_NAME"
+      }
+    },
+    {
+      "id": "M28-logical-uppercase",
+      "mandatory": true,
+      "purpose": "Reject uppercase logical-name octet.",
+      "raw_json": "{\"profile\":\"meshfleet.a2a.artifact-bundle-integrity.v0.1\",\"artifacts\":[{\"artifact_id\":\"A1\",\"logical_name\":\"A/b\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.artifact-bundle-integrity.v0.1",
+        "outcome": "rejected",
+        "error_code": "INVALID_LOGICAL_NAME"
+      }
+    },
+    {
+      "id": "M29-logical-unicode",
+      "mandatory": true,
+      "purpose": "Reject non-ASCII logical-name octet.",
+      "raw_json": "{\"profile\":\"meshfleet.a2a.artifact-bundle-integrity.v0.1\",\"artifacts\":[{\"artifact_id\":\"A1\",\"logical_name\":\"a/é\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.artifact-bundle-integrity.v0.1",
+        "outcome": "rejected",
+        "error_code": "INVALID_LOGICAL_NAME"
+      }
+    },
+    {
+      "id": "M30-logical-leading-slash",
+      "mandatory": true,
+      "purpose": "Reject leading slash.",
+      "raw_json": "{\"profile\":\"meshfleet.a2a.artifact-bundle-integrity.v0.1\",\"artifacts\":[{\"artifact_id\":\"A1\",\"logical_name\":\"/a\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.artifact-bundle-integrity.v0.1",
+        "outcome": "rejected",
+        "error_code": "INVALID_LOGICAL_NAME"
+      }
+    },
+    {
+      "id": "M31-logical-trailing-slash",
+      "mandatory": true,
+      "purpose": "Reject trailing slash.",
+      "raw_json": "{\"profile\":\"meshfleet.a2a.artifact-bundle-integrity.v0.1\",\"artifacts\":[{\"artifact_id\":\"A1\",\"logical_name\":\"a/\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.artifact-bundle-integrity.v0.1",
+        "outcome": "rejected",
+        "error_code": "INVALID_LOGICAL_NAME"
+      }
+    },
+    {
+      "id": "M32-logical-backslash",
+      "mandatory": true,
+      "purpose": "Reject backslash.",
+      "raw_json": "{\"profile\":\"meshfleet.a2a.artifact-bundle-integrity.v0.1\",\"artifacts\":[{\"artifact_id\":\"A1\",\"logical_name\":\"a\\\\b\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.artifact-bundle-integrity.v0.1",
+        "outcome": "rejected",
+        "error_code": "INVALID_LOGICAL_NAME"
+      }
+    },
+    {
+      "id": "M33-logical-drive-like",
+      "mandatory": true,
+      "purpose": "Reject drive-like colon syntax.",
+      "raw_json": "{\"profile\":\"meshfleet.a2a.artifact-bundle-integrity.v0.1\",\"artifacts\":[{\"artifact_id\":\"A1\",\"logical_name\":\"c:/a\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.artifact-bundle-integrity.v0.1",
+        "outcome": "rejected",
+        "error_code": "INVALID_LOGICAL_NAME"
+      }
+    },
+    {
+      "id": "M34-logical-control",
+      "mandatory": true,
+      "purpose": "Reject decoded control character.",
+      "raw_json": "{\"profile\":\"meshfleet.a2a.artifact-bundle-integrity.v0.1\",\"artifacts\":[{\"artifact_id\":\"A1\",\"logical_name\":\"a/\\u0001b\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.artifact-bundle-integrity.v0.1",
+        "outcome": "rejected",
+        "error_code": "INVALID_LOGICAL_NAME"
+      }
+    },
+    {
+      "id": "M35-artifact-id-64-accepted",
+      "mandatory": true,
+      "purpose": "Accept maximum 64-byte artifact ID.",
+      "raw_json": "{\"profile\":\"meshfleet.a2a.artifact-bundle-integrity.v0.1\",\"artifacts\":[{\"artifact_id\":\"Aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"logical_name\":\"limits/id64\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.artifact-bundle-integrity.v0.1",
+        "outcome": "verified",
+        "artifact_count": 1,
+        "total_decoded_bytes": 0,
+        "artifacts": [
+          {
+            "artifact_id": "Aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "logical_name": "limits/id64",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        ]
+      }
+    },
+    {
+      "id": "M36-artifact-id-65-rejected",
+      "mandatory": true,
+      "purpose": "Reject 65-byte artifact ID before grammar evaluation.",
+      "raw_json": "{\"profile\":\"meshfleet.a2a.artifact-bundle-integrity.v0.1\",\"artifacts\":[{\"artifact_id\":\"Aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"logical_name\":\"limits/id65\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.artifact-bundle-integrity.v0.1",
+        "outcome": "rejected",
+        "error_code": "ARTIFACT_ID_TOO_LONG"
+      }
+    },
+    {
+      "id": "M37-logical-name-255-accepted",
+      "mandatory": true,
+      "purpose": "Accept maximum 255-byte logical name.",
+      "raw_json": "{\"profile\":\"meshfleet.a2a.artifact-bundle-integrity.v0.1\",\"artifacts\":[{\"artifact_id\":\"N1\",\"logical_name\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.artifact-bundle-integrity.v0.1",
+        "outcome": "verified",
+        "artifact_count": 1,
+        "total_decoded_bytes": 0,
+        "artifacts": [
+          {
+            "artifact_id": "N1",
+            "logical_name": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        ]
+      }
+    },
+    {
+      "id": "M38-logical-name-256-rejected",
+      "mandatory": true,
+      "purpose": "Reject 256-byte logical name before grammar evaluation.",
+      "raw_json": "{\"profile\":\"meshfleet.a2a.artifact-bundle-integrity.v0.1\",\"artifacts\":[{\"artifact_id\":\"N1\",\"logical_name\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.artifact-bundle-integrity.v0.1",
+        "outcome": "rejected",
+        "error_code": "LOGICAL_NAME_TOO_LONG"
+      }
+    },
+    {
+      "id": "M39-artifact-unknown-before-missing",
+      "mandatory": true,
+      "purpose": "Unknown artifact field precedes missing artifact fields.",
+      "raw_json": "{\"profile\":\"meshfleet.a2a.artifact-bundle-integrity.v0.1\",\"artifacts\":[{\"artifact_id\":\"A1\",\"unexpected\":true}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.artifact-bundle-integrity.v0.1",
+        "outcome": "rejected",
+        "error_code": "UNKNOWN_ARTIFACT_FIELD"
+      }
+    },
+    {
+      "id": "M40-duplicate-id-before-name",
+      "mandatory": true,
+      "purpose": "Duplicate ID precedes duplicate logical name.",
+      "raw_json": "{\"profile\":\"meshfleet.a2a.artifact-bundle-integrity.v0.1\",\"artifacts\":[{\"artifact_id\":\"D1\",\"logical_name\":\"dup/name\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"D1\",\"logical_name\":\"dup/name\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.artifact-bundle-integrity.v0.1",
+        "outcome": "rejected",
+        "error_code": "DUPLICATE_ARTIFACT_ID"
+      }
+    },
+    {
+      "id": "M41-length-before-digest",
+      "mandatory": true,
+      "purpose": "Decoded-length mismatch precedes digest mismatch.",
+      "raw_json": "{\"profile\":\"meshfleet.a2a.artifact-bundle-integrity.v0.1\",\"artifacts\":[{\"artifact_id\":\"L1\",\"logical_name\":\"precedence/length\",\"content_base64\":\"YWJj\",\"decoded_byte_length\":2,\"sha256\":\"0000000000000000000000000000000000000000000000000000000000000000\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.artifact-bundle-integrity.v0.1",
+        "outcome": "rejected",
+        "error_code": "DECODED_BYTE_LENGTH_MISMATCH"
+      }
+    },
+    {
+      "id": "M42-id-before-base64",
+      "mandatory": true,
+      "purpose": "Artifact ID grammar precedes Base64 validation.",
+      "raw_json": "{\"profile\":\"meshfleet.a2a.artifact-bundle-integrity.v0.1\",\"artifacts\":[{\"artifact_id\":\"1bad\",\"logical_name\":\"precedence/artifact\",\"content_base64\":\"-w==\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.artifact-bundle-integrity.v0.1",
+        "outcome": "rejected",
+        "error_code": "INVALID_ARTIFACT_ID"
+      }
+    },
+    {
+      "id": "M43-artifact-count-128-accepted",
+      "mandatory": true,
+      "purpose": "Accept exact maximum artifact count of 128.",
+      "raw_json": "{\"profile\":\"meshfleet.a2a.artifact-bundle-integrity.v0.1\",\"artifacts\":[{\"artifact_id\":\"A000\",\"logical_name\":\"count/a000\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A001\",\"logical_name\":\"count/a001\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A002\",\"logical_name\":\"count/a002\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A003\",\"logical_name\":\"count/a003\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A004\",\"logical_name\":\"count/a004\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A005\",\"logical_name\":\"count/a005\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A006\",\"logical_name\":\"count/a006\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A007\",\"logical_name\":\"count/a007\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A008\",\"logical_name\":\"count/a008\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A009\",\"logical_name\":\"count/a009\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A010\",\"logical_name\":\"count/a010\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A011\",\"logical_name\":\"count/a011\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A012\",\"logical_name\":\"count/a012\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A013\",\"logical_name\":\"count/a013\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A014\",\"logical_name\":\"count/a014\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A015\",\"logical_name\":\"count/a015\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A016\",\"logical_name\":\"count/a016\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A017\",\"logical_name\":\"count/a017\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A018\",\"logical_name\":\"count/a018\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A019\",\"logical_name\":\"count/a019\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A020\",\"logical_name\":\"count/a020\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A021\",\"logical_name\":\"count/a021\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A022\",\"logical_name\":\"count/a022\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A023\",\"logical_name\":\"count/a023\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A024\",\"logical_name\":\"count/a024\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A025\",\"logical_name\":\"count/a025\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A026\",\"logical_name\":\"count/a026\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A027\",\"logical_name\":\"count/a027\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A028\",\"logical_name\":\"count/a028\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A029\",\"logical_name\":\"count/a029\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A030\",\"logical_name\":\"count/a030\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A031\",\"logical_name\":\"count/a031\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A032\",\"logical_name\":\"count/a032\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A033\",\"logical_name\":\"count/a033\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A034\",\"logical_name\":\"count/a034\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A035\",\"logical_name\":\"count/a035\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A036\",\"logical_name\":\"count/a036\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A037\",\"logical_name\":\"count/a037\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A038\",\"logical_name\":\"count/a038\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A039\",\"logical_name\":\"count/a039\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A040\",\"logical_name\":\"count/a040\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A041\",\"logical_name\":\"count/a041\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A042\",\"logical_name\":\"count/a042\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A043\",\"logical_name\":\"count/a043\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A044\",\"logical_name\":\"count/a044\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A045\",\"logical_name\":\"count/a045\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A046\",\"logical_name\":\"count/a046\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A047\",\"logical_name\":\"count/a047\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A048\",\"logical_name\":\"count/a048\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A049\",\"logical_name\":\"count/a049\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A050\",\"logical_name\":\"count/a050\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A051\",\"logical_name\":\"count/a051\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A052\",\"logical_name\":\"count/a052\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A053\",\"logical_name\":\"count/a053\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A054\",\"logical_name\":\"count/a054\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A055\",\"logical_name\":\"count/a055\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A056\",\"logical_name\":\"count/a056\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A057\",\"logical_name\":\"count/a057\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A058\",\"logical_name\":\"count/a058\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A059\",\"logical_name\":\"count/a059\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A060\",\"logical_name\":\"count/a060\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A061\",\"logical_name\":\"count/a061\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A062\",\"logical_name\":\"count/a062\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A063\",\"logical_name\":\"count/a063\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A064\",\"logical_name\":\"count/a064\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A065\",\"logical_name\":\"count/a065\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A066\",\"logical_name\":\"count/a066\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A067\",\"logical_name\":\"count/a067\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A068\",\"logical_name\":\"count/a068\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A069\",\"logical_name\":\"count/a069\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A070\",\"logical_name\":\"count/a070\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A071\",\"logical_name\":\"count/a071\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A072\",\"logical_name\":\"count/a072\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A073\",\"logical_name\":\"count/a073\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A074\",\"logical_name\":\"count/a074\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A075\",\"logical_name\":\"count/a075\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A076\",\"logical_name\":\"count/a076\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A077\",\"logical_name\":\"count/a077\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A078\",\"logical_name\":\"count/a078\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A079\",\"logical_name\":\"count/a079\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A080\",\"logical_name\":\"count/a080\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A081\",\"logical_name\":\"count/a081\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A082\",\"logical_name\":\"count/a082\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A083\",\"logical_name\":\"count/a083\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A084\",\"logical_name\":\"count/a084\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A085\",\"logical_name\":\"count/a085\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A086\",\"logical_name\":\"count/a086\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A087\",\"logical_name\":\"count/a087\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A088\",\"logical_name\":\"count/a088\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A089\",\"logical_name\":\"count/a089\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A090\",\"logical_name\":\"count/a090\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A091\",\"logical_name\":\"count/a091\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A092\",\"logical_name\":\"count/a092\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A093\",\"logical_name\":\"count/a093\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A094\",\"logical_name\":\"count/a094\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A095\",\"logical_name\":\"count/a095\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A096\",\"logical_name\":\"count/a096\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A097\",\"logical_name\":\"count/a097\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A098\",\"logical_name\":\"count/a098\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A099\",\"logical_name\":\"count/a099\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A100\",\"logical_name\":\"count/a100\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A101\",\"logical_name\":\"count/a101\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A102\",\"logical_name\":\"count/a102\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A103\",\"logical_name\":\"count/a103\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A104\",\"logical_name\":\"count/a104\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A105\",\"logical_name\":\"count/a105\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A106\",\"logical_name\":\"count/a106\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A107\",\"logical_name\":\"count/a107\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A108\",\"logical_name\":\"count/a108\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A109\",\"logical_name\":\"count/a109\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A110\",\"logical_name\":\"count/a110\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A111\",\"logical_name\":\"count/a111\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A112\",\"logical_name\":\"count/a112\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A113\",\"logical_name\":\"count/a113\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A114\",\"logical_name\":\"count/a114\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A115\",\"logical_name\":\"count/a115\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A116\",\"logical_name\":\"count/a116\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A117\",\"logical_name\":\"count/a117\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A118\",\"logical_name\":\"count/a118\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A119\",\"logical_name\":\"count/a119\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A120\",\"logical_name\":\"count/a120\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A121\",\"logical_name\":\"count/a121\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A122\",\"logical_name\":\"count/a122\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A123\",\"logical_name\":\"count/a123\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A124\",\"logical_name\":\"count/a124\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A125\",\"logical_name\":\"count/a125\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A126\",\"logical_name\":\"count/a126\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A127\",\"logical_name\":\"count/a127\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.artifact-bundle-integrity.v0.1",
+        "outcome": "verified",
+        "artifact_count": 128,
+        "total_decoded_bytes": 0,
+        "artifacts": [
+          {
+            "artifact_id": "A000",
+            "logical_name": "count/a000",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A001",
+            "logical_name": "count/a001",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A002",
+            "logical_name": "count/a002",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A003",
+            "logical_name": "count/a003",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A004",
+            "logical_name": "count/a004",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A005",
+            "logical_name": "count/a005",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A006",
+            "logical_name": "count/a006",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A007",
+            "logical_name": "count/a007",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A008",
+            "logical_name": "count/a008",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A009",
+            "logical_name": "count/a009",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A010",
+            "logical_name": "count/a010",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A011",
+            "logical_name": "count/a011",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A012",
+            "logical_name": "count/a012",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A013",
+            "logical_name": "count/a013",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A014",
+            "logical_name": "count/a014",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A015",
+            "logical_name": "count/a015",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A016",
+            "logical_name": "count/a016",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A017",
+            "logical_name": "count/a017",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A018",
+            "logical_name": "count/a018",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A019",
+            "logical_name": "count/a019",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A020",
+            "logical_name": "count/a020",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A021",
+            "logical_name": "count/a021",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A022",
+            "logical_name": "count/a022",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A023",
+            "logical_name": "count/a023",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A024",
+            "logical_name": "count/a024",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A025",
+            "logical_name": "count/a025",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A026",
+            "logical_name": "count/a026",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A027",
+            "logical_name": "count/a027",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A028",
+            "logical_name": "count/a028",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A029",
+            "logical_name": "count/a029",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A030",
+            "logical_name": "count/a030",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A031",
+            "logical_name": "count/a031",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A032",
+            "logical_name": "count/a032",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A033",
+            "logical_name": "count/a033",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A034",
+            "logical_name": "count/a034",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A035",
+            "logical_name": "count/a035",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A036",
+            "logical_name": "count/a036",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A037",
+            "logical_name": "count/a037",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A038",
+            "logical_name": "count/a038",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A039",
+            "logical_name": "count/a039",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A040",
+            "logical_name": "count/a040",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A041",
+            "logical_name": "count/a041",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A042",
+            "logical_name": "count/a042",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A043",
+            "logical_name": "count/a043",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A044",
+            "logical_name": "count/a044",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A045",
+            "logical_name": "count/a045",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A046",
+            "logical_name": "count/a046",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A047",
+            "logical_name": "count/a047",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A048",
+            "logical_name": "count/a048",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A049",
+            "logical_name": "count/a049",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A050",
+            "logical_name": "count/a050",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A051",
+            "logical_name": "count/a051",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A052",
+            "logical_name": "count/a052",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A053",
+            "logical_name": "count/a053",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A054",
+            "logical_name": "count/a054",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A055",
+            "logical_name": "count/a055",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A056",
+            "logical_name": "count/a056",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A057",
+            "logical_name": "count/a057",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A058",
+            "logical_name": "count/a058",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A059",
+            "logical_name": "count/a059",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A060",
+            "logical_name": "count/a060",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A061",
+            "logical_name": "count/a061",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A062",
+            "logical_name": "count/a062",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A063",
+            "logical_name": "count/a063",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A064",
+            "logical_name": "count/a064",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A065",
+            "logical_name": "count/a065",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A066",
+            "logical_name": "count/a066",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A067",
+            "logical_name": "count/a067",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A068",
+            "logical_name": "count/a068",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A069",
+            "logical_name": "count/a069",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A070",
+            "logical_name": "count/a070",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A071",
+            "logical_name": "count/a071",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A072",
+            "logical_name": "count/a072",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A073",
+            "logical_name": "count/a073",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A074",
+            "logical_name": "count/a074",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A075",
+            "logical_name": "count/a075",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A076",
+            "logical_name": "count/a076",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A077",
+            "logical_name": "count/a077",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A078",
+            "logical_name": "count/a078",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A079",
+            "logical_name": "count/a079",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A080",
+            "logical_name": "count/a080",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A081",
+            "logical_name": "count/a081",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A082",
+            "logical_name": "count/a082",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A083",
+            "logical_name": "count/a083",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A084",
+            "logical_name": "count/a084",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A085",
+            "logical_name": "count/a085",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A086",
+            "logical_name": "count/a086",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A087",
+            "logical_name": "count/a087",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A088",
+            "logical_name": "count/a088",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A089",
+            "logical_name": "count/a089",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A090",
+            "logical_name": "count/a090",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A091",
+            "logical_name": "count/a091",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A092",
+            "logical_name": "count/a092",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A093",
+            "logical_name": "count/a093",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A094",
+            "logical_name": "count/a094",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A095",
+            "logical_name": "count/a095",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A096",
+            "logical_name": "count/a096",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A097",
+            "logical_name": "count/a097",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A098",
+            "logical_name": "count/a098",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A099",
+            "logical_name": "count/a099",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A100",
+            "logical_name": "count/a100",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A101",
+            "logical_name": "count/a101",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A102",
+            "logical_name": "count/a102",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A103",
+            "logical_name": "count/a103",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A104",
+            "logical_name": "count/a104",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A105",
+            "logical_name": "count/a105",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A106",
+            "logical_name": "count/a106",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A107",
+            "logical_name": "count/a107",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A108",
+            "logical_name": "count/a108",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A109",
+            "logical_name": "count/a109",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A110",
+            "logical_name": "count/a110",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A111",
+            "logical_name": "count/a111",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A112",
+            "logical_name": "count/a112",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A113",
+            "logical_name": "count/a113",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A114",
+            "logical_name": "count/a114",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A115",
+            "logical_name": "count/a115",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A116",
+            "logical_name": "count/a116",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A117",
+            "logical_name": "count/a117",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A118",
+            "logical_name": "count/a118",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A119",
+            "logical_name": "count/a119",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A120",
+            "logical_name": "count/a120",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A121",
+            "logical_name": "count/a121",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A122",
+            "logical_name": "count/a122",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A123",
+            "logical_name": "count/a123",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A124",
+            "logical_name": "count/a124",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A125",
+            "logical_name": "count/a125",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A126",
+            "logical_name": "count/a126",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "artifact_id": "A127",
+            "logical_name": "count/a127",
+            "decoded_byte_length": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        ]
+      }
+    },
+    {
+      "id": "M44-artifact-count-129-rejected",
+      "mandatory": true,
+      "purpose": "Reject artifact count 129 before per-artifact validation.",
+      "raw_json": "{\"profile\":\"meshfleet.a2a.artifact-bundle-integrity.v0.1\",\"artifacts\":[{\"artifact_id\":\"A000\",\"logical_name\":\"count/a000\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A001\",\"logical_name\":\"count/a001\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A002\",\"logical_name\":\"count/a002\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A003\",\"logical_name\":\"count/a003\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A004\",\"logical_name\":\"count/a004\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A005\",\"logical_name\":\"count/a005\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A006\",\"logical_name\":\"count/a006\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A007\",\"logical_name\":\"count/a007\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A008\",\"logical_name\":\"count/a008\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A009\",\"logical_name\":\"count/a009\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A010\",\"logical_name\":\"count/a010\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A011\",\"logical_name\":\"count/a011\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A012\",\"logical_name\":\"count/a012\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A013\",\"logical_name\":\"count/a013\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A014\",\"logical_name\":\"count/a014\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A015\",\"logical_name\":\"count/a015\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A016\",\"logical_name\":\"count/a016\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A017\",\"logical_name\":\"count/a017\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A018\",\"logical_name\":\"count/a018\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A019\",\"logical_name\":\"count/a019\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A020\",\"logical_name\":\"count/a020\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A021\",\"logical_name\":\"count/a021\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A022\",\"logical_name\":\"count/a022\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A023\",\"logical_name\":\"count/a023\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A024\",\"logical_name\":\"count/a024\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A025\",\"logical_name\":\"count/a025\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A026\",\"logical_name\":\"count/a026\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A027\",\"logical_name\":\"count/a027\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A028\",\"logical_name\":\"count/a028\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A029\",\"logical_name\":\"count/a029\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A030\",\"logical_name\":\"count/a030\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A031\",\"logical_name\":\"count/a031\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A032\",\"logical_name\":\"count/a032\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A033\",\"logical_name\":\"count/a033\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A034\",\"logical_name\":\"count/a034\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A035\",\"logical_name\":\"count/a035\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A036\",\"logical_name\":\"count/a036\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A037\",\"logical_name\":\"count/a037\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A038\",\"logical_name\":\"count/a038\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A039\",\"logical_name\":\"count/a039\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A040\",\"logical_name\":\"count/a040\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A041\",\"logical_name\":\"count/a041\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A042\",\"logical_name\":\"count/a042\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A043\",\"logical_name\":\"count/a043\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A044\",\"logical_name\":\"count/a044\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A045\",\"logical_name\":\"count/a045\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A046\",\"logical_name\":\"count/a046\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A047\",\"logical_name\":\"count/a047\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A048\",\"logical_name\":\"count/a048\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A049\",\"logical_name\":\"count/a049\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A050\",\"logical_name\":\"count/a050\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A051\",\"logical_name\":\"count/a051\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A052\",\"logical_name\":\"count/a052\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A053\",\"logical_name\":\"count/a053\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A054\",\"logical_name\":\"count/a054\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A055\",\"logical_name\":\"count/a055\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A056\",\"logical_name\":\"count/a056\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A057\",\"logical_name\":\"count/a057\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A058\",\"logical_name\":\"count/a058\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A059\",\"logical_name\":\"count/a059\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A060\",\"logical_name\":\"count/a060\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A061\",\"logical_name\":\"count/a061\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A062\",\"logical_name\":\"count/a062\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A063\",\"logical_name\":\"count/a063\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A064\",\"logical_name\":\"count/a064\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A065\",\"logical_name\":\"count/a065\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A066\",\"logical_name\":\"count/a066\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A067\",\"logical_name\":\"count/a067\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A068\",\"logical_name\":\"count/a068\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A069\",\"logical_name\":\"count/a069\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A070\",\"logical_name\":\"count/a070\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A071\",\"logical_name\":\"count/a071\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A072\",\"logical_name\":\"count/a072\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A073\",\"logical_name\":\"count/a073\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A074\",\"logical_name\":\"count/a074\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A075\",\"logical_name\":\"count/a075\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A076\",\"logical_name\":\"count/a076\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A077\",\"logical_name\":\"count/a077\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A078\",\"logical_name\":\"count/a078\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A079\",\"logical_name\":\"count/a079\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A080\",\"logical_name\":\"count/a080\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A081\",\"logical_name\":\"count/a081\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A082\",\"logical_name\":\"count/a082\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A083\",\"logical_name\":\"count/a083\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A084\",\"logical_name\":\"count/a084\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A085\",\"logical_name\":\"count/a085\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A086\",\"logical_name\":\"count/a086\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A087\",\"logical_name\":\"count/a087\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A088\",\"logical_name\":\"count/a088\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A089\",\"logical_name\":\"count/a089\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A090\",\"logical_name\":\"count/a090\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A091\",\"logical_name\":\"count/a091\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A092\",\"logical_name\":\"count/a092\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A093\",\"logical_name\":\"count/a093\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A094\",\"logical_name\":\"count/a094\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A095\",\"logical_name\":\"count/a095\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A096\",\"logical_name\":\"count/a096\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A097\",\"logical_name\":\"count/a097\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A098\",\"logical_name\":\"count/a098\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A099\",\"logical_name\":\"count/a099\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A100\",\"logical_name\":\"count/a100\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A101\",\"logical_name\":\"count/a101\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A102\",\"logical_name\":\"count/a102\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A103\",\"logical_name\":\"count/a103\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A104\",\"logical_name\":\"count/a104\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A105\",\"logical_name\":\"count/a105\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A106\",\"logical_name\":\"count/a106\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A107\",\"logical_name\":\"count/a107\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A108\",\"logical_name\":\"count/a108\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A109\",\"logical_name\":\"count/a109\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A110\",\"logical_name\":\"count/a110\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A111\",\"logical_name\":\"count/a111\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A112\",\"logical_name\":\"count/a112\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A113\",\"logical_name\":\"count/a113\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A114\",\"logical_name\":\"count/a114\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A115\",\"logical_name\":\"count/a115\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A116\",\"logical_name\":\"count/a116\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A117\",\"logical_name\":\"count/a117\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A118\",\"logical_name\":\"count/a118\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A119\",\"logical_name\":\"count/a119\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A120\",\"logical_name\":\"count/a120\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A121\",\"logical_name\":\"count/a121\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A122\",\"logical_name\":\"count/a122\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A123\",\"logical_name\":\"count/a123\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A124\",\"logical_name\":\"count/a124\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A125\",\"logical_name\":\"count/a125\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A126\",\"logical_name\":\"count/a126\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A127\",\"logical_name\":\"count/a127\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"A128\",\"logical_name\":\"count/a128\",\"content_base64\":\"\",\"decoded_byte_length\":0,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.artifact-bundle-integrity.v0.1",
+        "outcome": "rejected",
+        "error_code": "ARTIFACT_COUNT_LIMIT"
+      }
+    },
+    {
+      "id": "M45-valid-standard-plus-slash",
+      "mandatory": true,
+      "purpose": "Accept standard RFC 4648 plus and slash alphabet with canonical padding.",
+      "raw_json": "{\"profile\":\"meshfleet.a2a.artifact-bundle-integrity.v0.1\",\"artifacts\":[{\"artifact_id\":\"Plus1\",\"logical_name\":\"base64/plus-slash\",\"content_base64\":\"+/8=\",\"decoded_byte_length\":2,\"sha256\":\"db8fed54159afe40ace5b49d702259fd88c9c4009307181824487baab5c6bdea\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.artifact-bundle-integrity.v0.1",
+        "outcome": "verified",
+        "artifact_count": 1,
+        "total_decoded_bytes": 2,
+        "artifacts": [
+          {
+            "artifact_id": "Plus1",
+            "logical_name": "base64/plus-slash",
+            "decoded_byte_length": 2,
+            "sha256": "db8fed54159afe40ace5b49d702259fd88c9c4009307181824487baab5c6bdea"
+          }
+        ]
+      }
+    },
+    {
+      "id": "M46-json-depth-16-parser-accepted",
+      "mandatory": true,
+      "purpose": "Depth 16 passes the strict parser; the array then fails root shape.",
+      "raw_json": "[[[[[[[[[[[[[[[[0]]]]]]]]]]]]]]]]",
+      "expected_output": {
+        "profile": "meshfleet.a2a.artifact-bundle-integrity.v0.1",
+        "outcome": "rejected",
+        "error_code": "ROOT_NOT_OBJECT"
+      }
+    },
+    {
+      "id": "M47-max-safe-integer-parser-accepted",
+      "mandatory": true,
+      "purpose": "2^53-1 passes integer canonicality/safety before the narrower decoded-length semantic limit rejects it.",
+      "raw_json": "{\"profile\":\"meshfleet.a2a.artifact-bundle-integrity.v0.1\",\"artifacts\":[{\"artifact_id\":\"Safe1\",\"logical_name\":\"limits/safe-integer\",\"content_base64\":\"\",\"decoded_byte_length\":9007199254740991,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.artifact-bundle-integrity.v0.1",
+        "outcome": "rejected",
+        "error_code": "INVALID_DECODED_BYTE_LENGTH"
+      }
+    },
+    {
+      "id": "M48-total-limit-before-digest",
+      "mandatory": true,
+      "purpose": "Declared total decoded-byte ceiling rejects before any later length or digest mismatch.",
+      "raw_json": "{\"profile\":\"meshfleet.a2a.artifact-bundle-integrity.v0.1\",\"artifacts\":[{\"artifact_id\":\"T0\",\"logical_name\":\"total/a0\",\"content_base64\":\"\",\"decoded_byte_length\":1048576,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"T1\",\"logical_name\":\"total/a1\",\"content_base64\":\"\",\"decoded_byte_length\":1048576,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"T2\",\"logical_name\":\"total/a2\",\"content_base64\":\"\",\"decoded_byte_length\":1048576,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"T3\",\"logical_name\":\"total/a3\",\"content_base64\":\"\",\"decoded_byte_length\":1048576,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"T4\",\"logical_name\":\"total/a4\",\"content_base64\":\"\",\"decoded_byte_length\":1048576,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"T5\",\"logical_name\":\"total/a5\",\"content_base64\":\"\",\"decoded_byte_length\":1048576,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"T6\",\"logical_name\":\"total/a6\",\"content_base64\":\"\",\"decoded_byte_length\":1048576,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"T7\",\"logical_name\":\"total/a7\",\"content_base64\":\"\",\"decoded_byte_length\":1048576,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},{\"artifact_id\":\"T8\",\"logical_name\":\"total/a8\",\"content_base64\":\"\",\"decoded_byte_length\":1048576,\"sha256\":\"0000000000000000000000000000000000000000000000000000000000000000\"}]}",
+      "expected_output": {
+        "profile": "meshfleet.a2a.artifact-bundle-integrity.v0.1",
+        "outcome": "rejected",
+        "error_code": "TOTAL_DECODED_BYTES_LIMIT"
+      }
+    }
+  ],
+  "frozen_expectations": {
+    "oracle_policy": "Every mandatory case asserts an exact accepted projection or exact rejection code; parity alone is insufficient.",
+    "ordering_policy": "M03 and M23 are paired input permutations; M24 discriminates ASCII punctuation ordering.",
+    "binary_policy": "M25 binds decoded byte ff to SHA-256 a8100ae6aa1940d0b663bb31cd466142ebbdbd5187131b92d93818987832eb89.",
+    "boundary_policy": "M35-M38 and M43-M48 freeze compact structural, parser, alphabet, and precedence boundaries; only multi-megabyte byte-ceiling fixtures remain deterministic harness witnesses to avoid fixture bloat.",
+    "oracle_derivation": "Expected objects were authored directly from the written contract and raw fixture octets, then serialized only by independent harness encoders. No evaluator output or production canonicalOutput generated an expected value."
+  }
+}
