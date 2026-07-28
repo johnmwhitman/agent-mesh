@@ -92,7 +92,7 @@ test("explicit lifecycle file verification is read-only and adds namespaced find
     withLedgerAndStorage((_data, db) => db.prepare("UPDATE work_items SET current_attempt_id = 'tampered' WHERE work_id = ?").run("a"));
     const before = [bytes(temp.dbFile), bytes(temp.dbFile + "-wal"), bytes(temp.dbFile + "-shm")];
     const report = verifyLedgerFile(temp.dbFile, 1);
-    assert.deepEqual(Object.keys(report).sort(), ["counts", "errors", "findings", "ok", "warnings"]);
+    assert.deepEqual(Object.keys(report).sort(), ["counts", "errors", "findings", "ok", "scope", "warnings"]);
     assert.ok(report.findings.some((finding) => finding.check === "lifecycle.work.current_attempt"));
     assert.deepEqual([bytes(temp.dbFile), bytes(temp.dbFile + "-wal"), bytes(temp.dbFile + "-shm")], before);
     assert.equal(readLifecycleSnapshotFile(temp.dbFile).snapshotKind, "copied-sqlite-files");

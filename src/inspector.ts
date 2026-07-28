@@ -525,7 +525,11 @@ export function formatVerifyReport(report: VerifyReport, opts: { explain?: boole
   const c = report.counts;
   const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
   const head = `${report.ok ? "✔ OK" : "✖ FAIL"} — ${plural(report.errors, "error")}, ${plural(report.warnings, "warning")}   (fleets ${c.fleets} · agents ${c.agents} · messages ${c.messages} · receipts ${c.receipts} · councils ${c.ratifications})`;
-  if (report.findings.length === 0) return head;
+  // Print the guarantee boundary next to the verdict, derived from the report so
+  // the CLI wording cannot drift from the API field. "✔ OK" is the line most
+  // likely to be screenshotted and the most likely to be read as "untampered".
+  const scope = report.scope ? `  checks ${report.scope.covers}\n  not ${report.scope.excludes}` : "";
+  if (report.findings.length === 0) return scope ? `${head}\n${scope}` : head;
   const ordered = [...report.findings].sort((a, b) =>
     a.severity === b.severity ? 0 : a.severity === "error" ? -1 : 1
   );
@@ -533,7 +537,9 @@ export function formatVerifyReport(report: VerifyReport, opts: { explain?: boole
     const line = `  ${f.severity === "error" ? "ERROR" : "WARN "}  ${f.check}  ${f.subject} — ${f.detail}`;
     return opts.explain ? [line, formatVerifyExplanation(f)] : [line];
   });
-  return [head, ...lines].join("\n");
+  // Scope belongs on the failing report too: a reader triaging findings is
+  // deciding what this audit proves, which is exactly when the boundary matters.
+  return [head, ...(scope ? [scope] : []), ...lines].join("\n");
 }
 
 /** Render the opt-in verifier-v2 text header without changing legacy report text. */

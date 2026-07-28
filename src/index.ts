@@ -394,7 +394,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "verify_ledger",
       description:
-        "Audit the ledger's internal consistency: every receipt points at a real message and honors the idempotency key, acknowledged flags are supported by ack receipts, inboxes hold no consumed or dangling messages, and ratification tallies (quorum, signoffs, vote polarity, terminal status) recompute from the receipts. Read-only. Returns ok, error/warning counts, and per-finding detail — errors mean the ledger asserts something its own records do not support.",
+        "Audit the ledger's internal consistency: every receipt points at a real message and honors the idempotency key, acknowledged flags are supported by ack receipts, inboxes hold no consumed or dangling messages, and ratification tallies (quorum, signoffs, vote polarity, terminal status) recompute from the receipts. Read-only. Returns ok, error/warning counts, per-finding detail, and a `scope` object stating the guarantee boundary — errors mean the ledger asserts something its own records do not support. SCOPE: ok=true means CONSISTENT, not AUTHENTIC. There is no hash chain or signature in this verifier, so an edit that rewrites the ledger consistently is indistinguishable from honest history. Do not report a passing verification as proof the ledger was not tampered with.",
       inputSchema: { type: "object", properties: {} },
     },
     {

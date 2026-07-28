@@ -90,9 +90,40 @@ export interface VerifyFinding {
   detail: string;
 }
 
+/**
+ * What a passing verification does and does not establish.
+ *
+ * `ok: true` is routinely over-read as "this ledger is untampered". It is not,
+ * and the gap is not obvious from the outside: five independent LLM reviewers,
+ * handed a one-line description of this project, each concluded the verifier
+ * checked a cryptographic hash chain. It does not. It re-derives every claim
+ * from the ledger's own records — which is exactly the material an editor with
+ * write access would also have changed.
+ *
+ * That boundary is deliberate and documented in the README (signing and
+ * auditor-grade attestation are a separate concern; signatures never enter this
+ * core). Shipping the boundary *inside the report* means it travels with the
+ * artifact instead of living only in prose the reader may never see.
+ */
+export interface VerifyScope {
+  /** What a pass DOES establish. */
+  covers: string;
+  /** What a pass does NOT establish. */
+  excludes: string;
+}
+
+export const VERIFY_SCOPE: VerifyScope = {
+  covers:
+    "internal consistency — every receipt, flag, inbox entry, and ratification tally is supported by the ledger's own records",
+  excludes:
+    "authenticity — there is no hash chain or signature here, so an edit that rewrites the ledger consistently is indistinguishable from honest history",
+};
+
 export interface VerifyReport {
   /** True when no errors were found (warnings allowed). */
   ok: boolean;
+  /** The guarantee boundary. Constant today; a field so callers read it rather than assume it. */
+  scope: VerifyScope;
   errors: number;
   warnings: number;
   counts: {
@@ -889,6 +920,7 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
   const errors = findings.filter((f) => f.severity === "error").length;
   return {
     ok: errors === 0,
+    scope: VERIFY_SCOPE,
     errors,
     warnings: findings.length - errors,
     counts: {
