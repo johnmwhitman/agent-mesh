@@ -510,6 +510,196 @@ function wakeReceipt(agentId, messageId, state, turn, attemptId, noteObj, ts = 1
   }, project(result));
 }
 
+// =====================================================================
+// Deeper expansion: fork, discontinuity, budget, three-turn, unreachable
+// =====================================================================
+
+// -- Case 31: fork — two authorized replies at the same head
+{
+  const reply1 = makeEnvelope({ turn: 2, attempt_id: "att-2a", reply_to: "m1", kind: "result", body: "answer A" });
+  const reply2 = makeEnvelope({ turn: 2, attempt_id: "att-2b", reply_to: "m1", kind: "result", body: "answer B" });
+  const wn = { discussion_id: "d1", head_message_id: "m1", deadline: DEADLINE };
+  const msgs = [
+    msg("m1", "alice", "bob", "f1", "question", ROOT_PAYLOAD, "d1", 900),
+    msg("m2a", "bob", "alice", "f1", "result", reply1, "d1", 1200),
+    msg("m2b", "bob", "alice", "f1", "result", reply2, "d1", 1201),
+  ];
+  const rcpts = [
+    wakeReceipt("bob", "m1", "reserved", 2, "att-2a", wn, 1000),
+    wakeReceipt("bob", "m1", "completed", 2, "att-2a", { ...wn, reply_message_id: "m2a" }, 1200),
+    wakeReceipt("bob", "m1", "reserved", 2, "att-2b", wn, 1001),
+    wakeReceipt("bob", "m1", "completed", 2, "att-2b", { ...wn, reply_message_id: "m2b" }, 1201),
+  ];
+  const result = deriveDiscussion("d1", msgs, rcpts, NOW);
+  add("fork-two-authorized-replies", "Two authorized replies at the same head — fork", {
+    discussion_id: "d1", messages: msgs, receipts: rcpts, now: NOW,
+  }, project(result));
+}
+
+// -- Case 32: ordinal discontinuity — turn 3 with no turn 2 reserved
+{
+  const reply3 = makeEnvelope({ turn: 3, attempt_id: "att-3", reply_to: "m1", kind: "result", body: "jump" });
+  const wn = { discussion_id: "d1", head_message_id: "m1", deadline: DEADLINE };
+  const msgs = [
+    msg("m1", "alice", "bob", "f1", "question", ROOT_PAYLOAD, "d1", 900),
+    msg("m3", "bob", "alice", "f1", "result", reply3, "d1", 1200),
+  ];
+  const rcpts = [
+    wakeReceipt("bob", "m1", "reserved", 3, "att-3", wn, 1000),
+    wakeReceipt("bob", "m1", "completed", 3, "att-3", { ...wn, reply_message_id: "m3" }, 1200),
+  ];
+  const result = deriveDiscussion("d1", msgs, rcpts, NOW);
+  add("ordinal-discontinuity", "Turn 3 claimed directly from root without turn 2 — gap", {
+    discussion_id: "d1", messages: msgs, receipts: rcpts, now: NOW,
+  }, project(result));
+}
+
+// -- Case 33: attempt_beyond_budget — reservation for turn > max_turns
+{
+  const p2 = { participants: ["alice", "bob"], max_turns: 2, conversation_deadline: DEADLINE, turn_timeout_ms: 30000 };
+  const rootP2 = makeEnvelope({ policy: p2 });
+  const reply2 = makeEnvelope({ turn: 2, attempt_id: "att-2", reply_to: "m1", kind: "result" });
+  const wn = { discussion_id: "d1", head_message_id: "m1", deadline: DEADLINE };
+  const msgs = [
+    msg("m1", "alice", "bob", "f1", "question", rootP2, "d1", 900),
+    msg("m2", "bob", "alice", "f1", "result", reply2, "d1", 1200),
+  ];
+  const rcpts = [
+    wakeReceipt("bob", "m1", "reserved", 2, "att-2", wn, 1000),
+    wakeReceipt("bob", "m1", "completed", 2, "att-2", { ...wn, reply_message_id: "m2" }, 1200),
+    // Turn 3 reservation — beyond max_turns=2
+    wakeReceipt("alice", "m2", "reserved", 3, "att-3", {
+      discussion_id: "d1", head_message_id: "m2", deadline: DEADLINE,
+    }, 1300),
+  ];
+  const result = deriveDiscussion("d1", msgs, rcpts, NOW);
+  add("attempt-beyond-budget", "Reservation for turn 3 when max_turns=2 — budget exceeded", {
+    discussion_id: "d1", messages: msgs, receipts: rcpts, now: NOW,
+  }, project(result));
+}
+
+// -- Case 34: three-turn conversation (root + reply + counter-reply, all authorized)
+{
+  const reply2 = makeEnvelope({ turn: 2, attempt_id: "att-2", reply_to: "m1", kind: "result", body: "reply" });
+  const reply3 = makeEnvelope({ turn: 3, attempt_id: "att-3", reply_to: "m2", kind: "question", body: "followup" });
+  const wn1 = { discussion_id: "d1", head_message_id: "m1", deadline: DEADLINE };
+  const wn2 = { discussion_id: "d1", head_message_id: "m2", deadline: DEADLINE };
+  const msgs = [
+    msg("m1", "alice", "bob", "f1", "question", ROOT_PAYLOAD, "d1", 900),
+    msg("m2", "bob", "alice", "f1", "result", reply2, "d1", 1200),
+    msg("m3", "alice", "bob", "f1", "question", reply3, "d1", 1500),
+  ];
+  const rcpts = [
+    wakeReceipt("bob", "m1", "reserved", 2, "att-2", wn1, 1000),
+    wakeReceipt("bob", "m1", "completed", 2, "att-2", { ...wn1, reply_message_id: "m2" }, 1200),
+    wakeReceipt("alice", "m2", "reserved", 3, "att-3", wn2, 1300),
+    wakeReceipt("alice", "m2", "completed", 3, "att-3", { ...wn2, reply_message_id: "m3" }, 1500),
+  ];
+  const result = deriveDiscussion("d1", msgs, rcpts, NOW);
+  add("three-turn-open", "Root + reply + counter-reply, all authorized — three-turn open", {
+    discussion_id: "d1", messages: msgs, receipts: rcpts, now: NOW,
+  }, project(result));
+}
+
+// -- Case 35: three-turn closed (third message has close=true)
+{
+  const reply2 = makeEnvelope({ turn: 2, attempt_id: "att-2", reply_to: "m1", kind: "result", body: "reply" });
+  const reply3 = makeEnvelope({ turn: 3, attempt_id: "att-3", reply_to: "m2", kind: "question", body: "done", close: true });
+  const wn1 = { discussion_id: "d1", head_message_id: "m1", deadline: DEADLINE };
+  const wn2 = { discussion_id: "d1", head_message_id: "m2", deadline: DEADLINE };
+  const msgs = [
+    msg("m1", "alice", "bob", "f1", "question", ROOT_PAYLOAD, "d1", 900),
+    msg("m2", "bob", "alice", "f1", "result", reply2, "d1", 1200),
+    msg("m3", "alice", "bob", "f1", "question", reply3, "d1", 1500),
+  ];
+  const rcpts = [
+    wakeReceipt("bob", "m1", "reserved", 2, "att-2", wn1, 1000),
+    wakeReceipt("bob", "m1", "completed", 2, "att-2", { ...wn1, reply_message_id: "m2" }, 1200),
+    wakeReceipt("alice", "m2", "reserved", 3, "att-3", wn2, 1300),
+    wakeReceipt("alice", "m2", "completed", 3, "att-3", { ...wn2, reply_message_id: "m3" }, 1500),
+  ];
+  const result = deriveDiscussion("d1", msgs, rcpts, NOW);
+  add("three-turn-closed", "Three-turn conversation closed by third message — status closed", {
+    discussion_id: "d1", messages: msgs, receipts: rcpts, now: NOW,
+  }, project(result));
+}
+
+// -- Case 36: unreachable envelope — valid envelope that never connects to the chain
+{
+  const orphanReply = makeEnvelope({ turn: 2, attempt_id: "att-orphan", reply_to: "nonexistent", kind: "result" });
+  const msgs = [
+    msg("m1", "alice", "bob", "f1", "question", ROOT_PAYLOAD, "d1", 900),
+    msg("m-orphan", "bob", "alice", "f1", "result", orphanReply, "d1", 1200),
+  ];
+  const result = deriveDiscussion("d1", msgs, [], NOW);
+  add("unreachable-envelope", "Valid envelope replying to nonexistent message — never reaches chain", {
+    discussion_id: "d1", messages: msgs, receipts: [], now: NOW,
+  }, project(result));
+}
+
+// -- Case 37: attempt_identity_conflict — receipts disagree on deadline
+{
+  const wn1 = { discussion_id: "d1", head_message_id: "m1", deadline: DEADLINE };
+  const wn2 = { discussion_id: "d1", head_message_id: "m1", deadline: DEADLINE - 5000 };
+  const msgs = [msg("m1", "alice", "bob", "f1", "question", ROOT_PAYLOAD, "d1", 900)];
+  const rcpts = [
+    wakeReceipt("bob", "m1", "reserved", 2, "att-2", wn1, 1000),
+    wakeReceipt("bob", "m1", "started", 2, "att-2", wn2, 1100),
+  ];
+  const result = deriveDiscussion("d1", msgs, rcpts, NOW);
+  add("attempt-identity-conflict-deadline", "Reserved and started receipts disagree on deadline — conflict", {
+    discussion_id: "d1", messages: msgs, receipts: rcpts, now: NOW,
+  }, project(result));
+}
+
+// -- Case 38: failed attempt with successful retry (failed turn 2, then completed turn 3)
+{
+  const reply3 = makeEnvelope({ turn: 3, attempt_id: "att-3", reply_to: "m1", kind: "result", body: "retry worked" });
+  const wn = { discussion_id: "d1", head_message_id: "m1", deadline: DEADLINE };
+  const msgs = [
+    msg("m1", "alice", "bob", "f1", "question", ROOT_PAYLOAD, "d1", 900),
+    msg("m3", "bob", "alice", "f1", "result", reply3, "d1", 1500),
+  ];
+  const rcpts = [
+    wakeReceipt("bob", "m1", "reserved", 2, "att-2", wn, 1000),
+    wakeReceipt("bob", "m1", "failed", 2, "att-2", wn, 1100),
+    wakeReceipt("bob", "m1", "reserved", 3, "att-3", wn, 1200),
+    wakeReceipt("bob", "m1", "completed", 3, "att-3", { ...wn, reply_message_id: "m3" }, 1500),
+  ];
+  const result = deriveDiscussion("d1", msgs, rcpts, NOW);
+  add("failed-then-retry-success", "Failed turn 2 + successful turn 3 — gap-fill works", {
+    discussion_id: "d1", messages: msgs, receipts: rcpts, now: NOW,
+  }, project(result));
+}
+
+// -- Case 39: four-turn exhausted (max_turns=4, all four used)
+{
+  const reply2 = makeEnvelope({ turn: 2, attempt_id: "att-2", reply_to: "m1", kind: "result" });
+  const reply3 = makeEnvelope({ turn: 3, attempt_id: "att-3", reply_to: "m2", kind: "question" });
+  const reply4 = makeEnvelope({ turn: 4, attempt_id: "att-4", reply_to: "m3", kind: "result" });
+  const wn1 = { discussion_id: "d1", head_message_id: "m1", deadline: DEADLINE };
+  const wn2 = { discussion_id: "d1", head_message_id: "m2", deadline: DEADLINE };
+  const wn3 = { discussion_id: "d1", head_message_id: "m3", deadline: DEADLINE };
+  const msgs = [
+    msg("m1", "alice", "bob", "f1", "question", ROOT_PAYLOAD, "d1", 900),
+    msg("m2", "bob", "alice", "f1", "result", reply2, "d1", 1200),
+    msg("m3", "alice", "bob", "f1", "question", reply3, "d1", 1500),
+    msg("m4", "bob", "alice", "f1", "result", reply4, "d1", 1800),
+  ];
+  const rcpts = [
+    wakeReceipt("bob", "m1", "reserved", 2, "att-2", wn1, 1000),
+    wakeReceipt("bob", "m1", "completed", 2, "att-2", { ...wn1, reply_message_id: "m2" }, 1200),
+    wakeReceipt("alice", "m2", "reserved", 3, "att-3", wn2, 1300),
+    wakeReceipt("alice", "m2", "completed", 3, "att-3", { ...wn2, reply_message_id: "m3" }, 1500),
+    wakeReceipt("bob", "m3", "reserved", 4, "att-4", wn3, 1600),
+    wakeReceipt("bob", "m3", "completed", 4, "att-4", { ...wn3, reply_message_id: "m4" }, 1800),
+  ];
+  const result = deriveDiscussion("d1", msgs, rcpts, NOW);
+  add("four-turn-exhausted", "All 4 turns used (max_turns=4) — status exhausted", {
+    discussion_id: "d1", messages: msgs, receipts: rcpts, now: NOW,
+  }, project(result));
+}
+
 // Write corpus
 const corpus = {
   schema_version: "0.1",

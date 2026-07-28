@@ -2,37 +2,37 @@
   "profile": "meshfleet.a2a.discussion-derivation.v0.1",
   "status": "PASS-AS-HELD",
   "reviewed_at": "2026-07-28",
-  "corpus_sha256": "84ead3e9c04d199251cd932b90ecb894ed3d077bba0900d559000ca190156a6c",
-  "corpus_cases": 30,
+  "corpus_sha256": "bf64c02aabc3daac7734ce3e95e16abe063a2f0c06be710243c9df6f10277a56",
+  "corpus_cases": 39,
   "runner_checks": {
-    "corpus": "30/30 pass",
+    "corpus": "39/39 pass",
     "self": "4/4 pass"
   },
-  "status_coverage": ["open", "active", "closed", "exhausted", "expired", "deadman", "invalid"],
+  "status_coverage": {
+    "open": 9, "invalid": 16, "expired": 1, "active": 1,
+    "closed": 2, "exhausted": 3, "deadman": 3
+  },
+  "finding_codes_covered": 23,
+  "evaluator_match": {
+    "js_grok": "35/35 derivation match",
+    "python_minimax": "30/30 (pre-expansion; needs re-verification)"
+  },
   "coverage_notes": [
-    "All 7 discussion statuses covered by at least one corpus case",
-    "Envelope parsing (valid, incomplete, wrong version)",
-    "Envelope validation (version, broadcast, correlation, payload size)",
-    "Receipt action parsing (valid wake, invalid format)",
-    "Root selection (missing, duplicate, wrong type, missing policy, participant mismatch)",
-    "Multi-turn attempt lifecycle (reservation, completion, failed, deadman)",
-    "Reservation-rooted validation (attempt_missing_reservation)",
-    "Late completion exclusion (completed after deadline)",
-    "Deadman via explicit receipt and expired reservation",
-    "Failed attempt gap-fill (turns consumed, discussion stays open)",
-    "Fleet membership check (wrong_fleet on child)",
-    "Alternation enforcement (invalid_sender on wrong direction)",
-    "Unauthorized agent rejection",
-    "Grok JS evaluator verified at 26/26 derivation match"
-  ],
-  "future_expansion": [
-    "Python reference evaluator",
-    "Three-turn and four-turn conversations",
+    "All 7 discussion statuses covered with good distribution",
+    "23 distinct integrity finding codes exercised",
     "Fork detection (two authorized replies at same head)",
     "Ordinal discontinuity (turn jump without failed filler)",
-    "attempt_beyond_budget (turn > max_turns)",
-    "Attempt identity conflict (inconsistent receipts)",
-    "Unreachable envelope detection",
-    "Fuzz differential"
+    "Attempt beyond budget (turn > max_turns)",
+    "Three-turn and four-turn conversations with full receipt lifecycle",
+    "Unreachable envelope (valid but never connects to chain)",
+    "Attempt identity conflict (receipts disagree on deadline)",
+    "Failed-then-retry gap-fill (failed turn 2, successful turn 3)",
+    "Four-turn exhaustion (all turns consumed)"
+  ],
+  "future_expansion": [
+    "Fuzz differential (fuzz-differential.mjs)",
+    "Python evaluator re-verification against 39-case corpus",
+    "Deadman mid-chain (deadman in gap before a would-be winner)",
+    "Multiple failed attempts before success"
   ]
 }
