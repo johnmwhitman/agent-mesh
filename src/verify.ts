@@ -27,6 +27,7 @@ import { MAX_TOTAL_WEIGHT, MAX_VOTE_WEIGHT, computeTally, parseVoteAction } from
 import { deriveDiscussion, parseEnvelope, parseReceiptAction } from "./discussion.js";
 import { readLedger } from "./db.js";
 import { readLifecycleSnapshot, readLifecycleSnapshotFile, verifyLifecycleSnapshot } from "./lifecycle-visibility.js";
+import { runtimeModelsMatch } from "./spawn-result.js";
 
 /**
  * Discussion integrity-finding codes (src/discussion.ts) that get ERROR
@@ -304,6 +305,33 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
         a.id,
         `agent ${a.id} is recorded ${a.status} but carries completed_at=${a.completed_at} — the same row claims it is still running and that it has already finished`
       );
+    }
+
+    // Model-selected execution (task 3) — narrow, local consistency check
+    // for COMPLETE agents that carry a persisted `requested_model`:
+    //   - the row MUST also carry a parseable observed `runtime_model` banner,
+    //     or the selection's claim "executed under that model" is unsupported;
+    //   - the two fields MUST match under runtimeModelsMatch() (the same
+    //     rule the spawn classifier uses), or the row contradicts itself.
+    // Failed and interrupted agents may legitimately lack observation —
+    // spawn failure, timeout, cancellation, or unparsable output can prevent
+    // banner capture — and a matching pair does NOT promote evidence above
+    // `observed`; it cannot prove authentication, account ownership, provider
+    // availability, billing, or attestation (design doc, "non-claims").
+    if (a.requested_model !== undefined && a.status === "complete") {
+      if (a.runtime_model === undefined) {
+        error(
+          "agent.requested_model_unobserved",
+          a.id,
+          `agent ${a.id} requested model ${a.requested_model} but the completed row carries no runtime_model — the selection's claim that this agent ran under that model is unsupported by the ledger's own records`
+        );
+      } else if (!runtimeModelsMatch(a.requested_model, a.runtime_model)) {
+        error(
+          "agent.requested_model_mismatch",
+          a.id,
+          `agent ${a.id} requested model ${a.requested_model} but the completed row observed runtime_model ${a.runtime_model} — the two fields disagree under the same runtimeModelsMatch() rule the spawn classifier uses`
+        );
+      }
     }
   }
 

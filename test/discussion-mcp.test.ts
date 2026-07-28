@@ -47,6 +47,13 @@ import {
   _resetDiscussionStoreForTests,
 } from "../src/discussion-mcp.js";
 import type { ChildExitInfo, SpawnFn, SpawnHandle, SpawnJob } from "../src/discussion-store.js";
+import type {
+  CancelResult,
+  ExecutionSpec,
+  RuntimeAdapter,
+  RuntimeHandle,
+  RuntimeResult,
+} from "../src/runtime/types.js";
 
 // ============================================================
 // Fixtures
@@ -557,6 +564,345 @@ test("ask_peer full round trip via openDiscussion+awaitAnswer (composing exactly
       body: "the answer",
       close: true,
     }));
+  } finally {
+    db.cleanup();
+  }
+});
+
+// ============================================================
+// Model-selected execution — task 3
+// Discussion launches use the default RuntimeAdapter; the synchronous
+// SpawnFn contract is preserved by returning a deferred proxy over
+// runtime.start() that maps success/failure/cancellation/timeout back onto
+// the store's existing `onExit` (exactly once). The proxy must inherit the
+// participant's stored `agent_file` and `requested_model` and must NOT
+// raw-spawn OpenCode.
+// ============================================================
+
+interface DeferredRuntime {
+  adapter: RuntimeAdapter;
+  starts: ExecutionSpec[];
+  /** Pending wait promises, one per started attempt, each a deferred `RuntimeResult`. */
+  waits: Array<{ resolve: (r: RuntimeResult) => void; reject: (e: unknown) => void }>;
+  /** Pending cancel calls, one per cancel invocation, each a deferred `CancelResult`. */
+  cancels: Array<{
+    handle: RuntimeHandle;
+    reason: string;
+    resolve: (r: CancelResult) => void;
+    reject: (e: unknown) => void;
+  }>;
+  /** Outstanding `start` promises, one per start call, each a deferred `RuntimeHandle`. */
+  pendingStarts: Array<{
+    resolve: (h: RuntimeHandle) => void;
+    reject: (e: unknown) => void;
+    spec: ExecutionSpec;
+  }>;
+}
+
+function makeDeferredRuntime(): DeferredRuntime {
+  const waits: DeferredRuntime["waits"] = [];
+  const cancels: DeferredRuntime["cancels"] = [];
+  const pendingStarts: DeferredRuntime["pendingStarts"] = [];
+  const starts: ExecutionSpec[] = [];
+
+  const adapter: RuntimeAdapter = {
+    id: "deferred-test",
+    describe() { return { id: "deferred-test", displayName: "Deferred Test", defaultTimeoutMs: 60_000 }; },
+    validate() { return { ok: true, errors: [] }; },
+    start(spec: ExecutionSpec): Promise<RuntimeHandle> {
+      starts.push(spec);
+      return new Promise<RuntimeHandle>((resolve, reject) => {
+        pendingStarts.push({ resolve, reject, spec });
+      });
+    },
+    wait(handle: RuntimeHandle): Promise<RuntimeResult> {
+      void handle;
+      return new Promise<RuntimeResult>((resolve, reject) => {
+        waits.push({ resolve, reject });
+      });
+    },
+    cancel(handle: RuntimeHandle, reason: string): Promise<CancelResult> {
+      return new Promise<CancelResult>((resolve, reject) => {
+        cancels.push({ handle, reason, resolve, reject });
+      });
+    },
+  };
+
+  return { adapter, starts, waits, cancels, pendingStarts };
+}
+
+/** Build a real Agent with a persisted `agent_file` and `requested_model`. */
+function agentWithLaunchConfig(id: string, opts: { agentFile?: string; requestedModel?: string } = {}): Agent {
+  const a: Agent = {
+    id,
+    fleet_id: FLEET,
+    role: "worker",
+    prompt: "",
+    status: "running",
+    started_at: Date.now(),
+  };
+  if (opts.agentFile !== undefined) a.agent_file = opts.agentFile;
+  if (opts.requestedModel !== undefined) a.requested_model = opts.requestedModel;
+  return a;
+}
+
+test("Task 3 #6 — Discussion supplies the stored requestedAgent and requestedModel to the runtime adapter", async () => {
+  const db = withTempDb();
+  try {
+    createFleet(FLEET);
+    registerAgentInLedger(agentWithLaunchConfig(AGENT_A));
+    registerAgentInLedger(agentWithLaunchConfig(AGENT_B, { agentFile: "oracle", requestedModel: "opencode-go/minimax-m3" }));
+
+    const runtime = makeDeferredRuntime();
+    _resetDiscussionStoreForTests({ runtime: runtime.adapter });
+    const store = getDiscussionStore();
+
+    const opened = await store.openDiscussion(askPeerDefaults({ wake_peer: true }));
+    assert.ok(opened.reservation, "wake_peer:true must produce a reservation");
+    assert.equal(runtime.starts.length, 1, "the deferred adapter's start must be called exactly once");
+    const spec = runtime.starts[0]!;
+    assert.equal(spec.fleetId, FLEET);
+    assert.equal(spec.agentId, AGENT_B);
+    assert.equal(spec.requestedAgent, "oracle", "the persisted agent_file must reach the adapter");
+    assert.equal(spec.requestedModel, "opencode-go/minimax-m3", "the persisted requested_model must reach the adapter");
+
+    // Settle: resolve the start, then a successful wait, then verify the
+    // attempt settles `failed` (no synthesized reply) exactly once.
+    runtime.pendingStarts[0]!.resolve({ id: "h-1", startedAt: 1, isAlive: () => true });
+    await new Promise((done) => setImmediate(done));
+    runtime.waits[0]!.resolve({ status: "success", stdout: "ok", stderr: "", exitCode: 0, diagnostics: [], identity: { adapterId: "deferred-test", evidence: "none" } });
+    await new Promise((done) => setImmediate(done));
+
+    const view = store.getDiscussion({ discussion_id: opened.discussion_id });
+    const attempt = view.attempts.find((a) => a.attempt_id === opened.reservation!.attempt_id);
+    assert.equal(attempt?.state, "failed", "a successful runtime that never called reply_discussion settles failed (no synthesized reply)");
+  } finally {
+    db.cleanup();
+  }
+});
+
+test("Task 3 #7 — a successful runtime completion followed by reply_discussion never re-invokes onExit (exactly once)", async () => {
+  const db = withTempDb();
+  try {
+    createFleet(FLEET);
+    registerAgentInLedger(agentWithLaunchConfig(AGENT_A));
+    registerAgentInLedger(agentWithLaunchConfig(AGENT_B, { agentFile: "oracle", requestedModel: "opencode-go/minimax-m3" }));
+
+    const runtime = makeDeferredRuntime();
+    _resetDiscussionStoreForTests({ runtime: runtime.adapter });
+    const store = getDiscussionStore();
+
+    const opened = await store.openDiscussion(askPeerDefaults({ wake_peer: true }));
+    assert.ok(opened.reservation);
+
+    runtime.pendingStarts[0]!.resolve({ id: "h-1", startedAt: 1, isAlive: () => true });
+
+    await store.replyDiscussion({
+      agent_id: AGENT_B,
+      discussion_id: opened.discussion_id,
+      attempt_id: opened.reservation!.attempt_id,
+      reply_to_message_id: opened.root_message_id,
+      type: "result",
+      payload: "the answer",
+      close: true,
+    });
+
+    // Now the runtime wait resolves successfully — must NOT trigger a failed
+    // settlement (the attempt is already `completed` via the reply receipt).
+    runtime.waits[0]!.resolve({ status: "success", stdout: "ok", stderr: "", exitCode: 0, diagnostics: [], identity: { adapterId: "deferred-test", evidence: "none" } });
+    await new Promise((done) => setImmediate(done));
+
+    const view = store.getDiscussion({ discussion_id: opened.discussion_id });
+    const attempt = view.attempts.find((a) => a.attempt_id === opened.reservation!.attempt_id);
+    assert.equal(attempt?.state, "completed", "the attempt is `completed` from the reply — a late successful wait must not flip it to failed");
+    // No second launch was ever issued.
+    assert.equal(runtime.starts.length, 1);
+  } finally {
+    db.cleanup();
+  }
+});
+
+test("Task 3 #8 — a deadman kill BEFORE start() resolves cancels the late runtime handle exactly once", async () => {
+  const db = withTempDb();
+  try {
+    createFleet(FLEET);
+    registerAgentInLedger(agentWithLaunchConfig(AGENT_A));
+    registerAgentInLedger(agentWithLaunchConfig(AGENT_B, { agentFile: "oracle", requestedModel: "opencode-go/minimax-m3" }));
+
+    const runtime = makeDeferredRuntime();
+    const terminalEvents: unknown[] = [];
+    _resetDiscussionStoreForTests({
+      runtime: runtime.adapter,
+      notify: (event) => terminalEvents.push(event),
+    });
+    const store = getDiscussionStore();
+
+    const opened = await store.openDiscussion(
+      askPeerDefaults({ wake_peer: true, timeout_ms: 1000, turn_timeout_ms: 1000 })
+    );
+    assert.ok(opened.reservation);
+
+    // start() is still pending. Drive the deadman settlement with the past
+    // deadline via the explicit `nowMs` argument to sweepStranded — the kill
+    // must be recorded as requested even though no runtime handle exists yet.
+    const pastClock = opened.reservation!.deadline + 1;
+    const sweep = await store.sweepStranded(pastClock);
+    assert.equal(sweep.terminalized.length, 1, "deadman must terminalize the reservation");
+    assert.equal(sweep.terminalized[0]!.state, "deadman");
+    assert.equal(runtime.cancels.length, 0, "no runtime handle exists yet, so the cancel call is deferred");
+
+    // Now the start resolves — the deferred proxy must observe the prior
+    // cancellation request and call cancel(handle) on the late runtime handle
+    // exactly once, then call wait() to drain the runtime.
+    runtime.pendingStarts[0]!.resolve({ id: "h-late", startedAt: 1, isAlive: () => true });
+    await new Promise((done) => setImmediate(done));
+    assert.equal(runtime.cancels.length, 1, "the late handle must be cancelled exactly once");
+    assert.equal(runtime.cancels[0]!.reason, "discussion deadline");
+    assert.equal(runtime.waits.length, 1, "wait() starts without waiting for cancellation to settle");
+    // Reject cancellation to prove it cannot suppress the already-running
+    // wait path, then settle the runtime as cancelled.
+    runtime.cancels[0]!.reject(new Error("injected cancel rejection"));
+    runtime.waits[0]!.resolve({ status: "cancelled", stdout: "", stderr: "", exitCode: null, diagnostics: [], identity: { adapterId: "deferred-test", evidence: "none" } });
+    await new Promise((done) => setImmediate(done));
+    assert.equal(runtime.waits.length, 1, "wait() must still be called even after a pre-start cancellation");
+    assert.equal(
+      terminalEvents.filter((event) => (event as { kind?: string }).kind === "terminal").length,
+      1,
+      "cancellation and wait settlement produce exactly one terminal notification"
+    );
+  } finally {
+    db.cleanup();
+  }
+});
+
+test("Task 3 #9 — an adapter start() rejection follows the existing failed-exit path (no retry, no reply)", async () => {
+  const db = withTempDb();
+  try {
+    createFleet(FLEET);
+    registerAgentInLedger(agentWithLaunchConfig(AGENT_A));
+    registerAgentInLedger(agentWithLaunchConfig(AGENT_B, { agentFile: "oracle", requestedModel: "opencode-go/minimax-m3" }));
+
+    const runtime = makeDeferredRuntime();
+    _resetDiscussionStoreForTests({ runtime: runtime.adapter });
+    const store = getDiscussionStore();
+
+    const opened = await store.openDiscussion(askPeerDefaults({ wake_peer: true }));
+    assert.ok(opened.reservation);
+
+    // Reject the pending start; the proxy must invoke onExit({code: null})
+    // exactly once and never issue a second start.
+    runtime.pendingStarts[0]!.reject(new Error("injected adapter start failure"));
+    await new Promise((done) => setImmediate(done));
+
+    const view = store.getDiscussion({ discussion_id: opened.discussion_id });
+    const attempt = view.attempts.find((a) => a.attempt_id === opened.reservation!.attempt_id);
+    assert.equal(attempt?.state, "failed", "an adapter start rejection must settle the attempt to failed");
+    assert.equal(runtime.starts.length, 1, "no automatic retry — a single start call is the boundary");
+  } finally {
+    db.cleanup();
+  }
+});
+
+test("Task 3 #10 — omitted model selection leaves requestedModel absent from the adapter spec", async () => {
+  const db = withTempDb();
+  try {
+    createFleet(FLEET);
+    registerAgentInLedger(agentWithLaunchConfig(AGENT_A));
+    registerAgentInLedger(agentWithLaunchConfig(AGENT_B, { agentFile: "oracle" })); // no requested_model
+
+    const runtime = makeDeferredRuntime();
+    _resetDiscussionStoreForTests({ runtime: runtime.adapter });
+    const store = getDiscussionStore();
+
+    const opened = await store.openDiscussion(askPeerDefaults({ wake_peer: true }));
+    assert.ok(opened.reservation);
+
+    assert.equal(runtime.starts.length, 1);
+    const spec = runtime.starts[0]!;
+    assert.equal(spec.requestedAgent, "oracle");
+    assert.equal(spec.requestedModel, undefined, "an unselected participant must not have a requestedModel on the adapter spec");
+  } finally {
+    db.cleanup();
+  }
+});
+
+test("Task 3 #11 — a failed runtime result with exitCode 0 settles once and never retries", async () => {
+  const db = withTempDb();
+  try {
+    createFleet(FLEET);
+    registerAgentInLedger(agentWithLaunchConfig(AGENT_A));
+    registerAgentInLedger(agentWithLaunchConfig(AGENT_B, {
+      requestedModel: "opencode-go/minimax-m3",
+    }));
+
+    const runtime = makeDeferredRuntime();
+    const terminalEvents: unknown[] = [];
+    _resetDiscussionStoreForTests({
+      runtime: runtime.adapter,
+      notify: (event) => terminalEvents.push(event),
+    });
+    const store = getDiscussionStore();
+    const opened = await store.openDiscussion(askPeerDefaults({ wake_peer: true }));
+    assert.ok(opened.reservation);
+
+    runtime.pendingStarts[0]!.resolve({ id: "h-failure", startedAt: 1, isAlive: () => true });
+    await new Promise((done) => setImmediate(done));
+    runtime.waits[0]!.resolve({
+      status: "failure",
+      stdout: "",
+      stderr: "requested model mismatch",
+      exitCode: 0,
+      diagnostics: [],
+      identity: { adapterId: "deferred-test", evidence: "observed", model: "openai/gpt-5" },
+    });
+    await new Promise((done) => setImmediate(done));
+
+    const attempt = store
+      .getDiscussion({ discussion_id: opened.discussion_id })
+      .attempts.find((candidate) => candidate.attempt_id === opened.reservation!.attempt_id);
+    assert.equal(attempt?.state, "failed");
+    assert.equal(runtime.starts.length, 1, "Discussion never retries a failed runtime result");
+    assert.equal(
+      terminalEvents.filter((event) => (event as { kind?: string }).kind === "terminal").length,
+      1,
+      "the deferred proxy invokes the store exit path once"
+    );
+  } finally {
+    db.cleanup();
+  }
+});
+
+test("Task 3 #12 — a runtime wait rejection follows the failed-exit path once", async () => {
+  const db = withTempDb();
+  try {
+    createFleet(FLEET);
+    registerAgentInLedger(agentWithLaunchConfig(AGENT_A));
+    registerAgentInLedger(agentWithLaunchConfig(AGENT_B));
+
+    const runtime = makeDeferredRuntime();
+    const terminalEvents: unknown[] = [];
+    _resetDiscussionStoreForTests({
+      runtime: runtime.adapter,
+      notify: (event) => terminalEvents.push(event),
+    });
+    const store = getDiscussionStore();
+    const opened = await store.openDiscussion(askPeerDefaults({ wake_peer: true }));
+    assert.ok(opened.reservation);
+
+    runtime.pendingStarts[0]!.resolve({ id: "h-wait-reject", startedAt: 1, isAlive: () => true });
+    await new Promise((done) => setImmediate(done));
+    runtime.waits[0]!.reject(new Error("injected wait rejection"));
+    await new Promise((done) => setImmediate(done));
+
+    const attempt = store
+      .getDiscussion({ discussion_id: opened.discussion_id })
+      .attempts.find((candidate) => candidate.attempt_id === opened.reservation!.attempt_id);
+    assert.equal(attempt?.state, "failed");
+    assert.equal(runtime.starts.length, 1);
+    assert.equal(
+      terminalEvents.filter((event) => (event as { kind?: string }).kind === "terminal").length,
+      1
+    );
   } finally {
     db.cleanup();
   }

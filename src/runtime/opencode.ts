@@ -60,7 +60,11 @@ export class OpenCodeRuntimeAdapter implements RuntimeAdapter {
 
   constructor(options: OpenCodeRuntimeAdapterOptions = {}) {
     this.command = options.command ?? "opencode";
-    this.buildArgs = options.buildArgs ?? ((spec) => buildRunArgs({ prompt: spec.prompt, agentFile: spec.requestedAgent }));
+    this.buildArgs = options.buildArgs ?? ((spec) => buildRunArgs({
+      prompt: spec.prompt,
+      requestedModel: spec.requestedModel,
+      agentFile: spec.requestedAgent,
+    }));
     this.spawnProcess = options.spawnProcess;
     this.terminationGraceMs = options.terminationGraceMs;
   }

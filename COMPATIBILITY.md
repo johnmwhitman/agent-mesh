@@ -44,12 +44,12 @@ descriptive prose, not a status label.
 | Generic MCP configuration | `static-config-verified` | The canonical stdio command and argv are packaged and checked | `mcp.json` |
 | Claude Code, Codex, OpenCode inbound configs | `static-config-verified` | Slice 3B renderers emit proven command/argv shapes from local evidence; timeout and `envAllowlist` remain unrepresented and explicitly unverified in the conformance matrix, and live client semantics are unverified | `docs/CONFIG-TRANSLATION.md`, `test/config/*.test.ts` |
 | SSE inbox projection | `coupled` | Optional implementation-specific local inbox push, not general A2A HTTP | `src/sse-server.ts` |
-| Outbound worker execution | `coupled` | Current worker launch and parsing remain OpenCode-specific | `src/index.ts`, `src/spawn-result.ts` |
+| Outbound worker execution | `coupled` | Current worker launch and parsing remain OpenCode-specific. Callers may pass an optional `model` (`provider/model`) selector on `spawn_fleet` / `attach_agent` agents; it is persisted as `Agent.requested_model` and emitted as `opencode run --model <value>`. Omitting it preserves the prior launch behavior exactly. | `src/index.ts`, `src/spawn-result.ts`, `src/runtime/opencode.ts` |
 | `meshfleet.a2a` v0.1 codec and interoperability profile | `reference-conformance` | Pure provider-neutral validation and an independent offline Python witness agree with the language-neutral corpora; the mutated-corpus negative test detects a false expected outcome; public, durable, and authenticated ingress are not implemented | `docs/A2A-PROTOCOL-v0.1.md`, `reference/python/a2a_reference.py`, `test/a2a-reference-python.test.ts` |
 | Canonical ingress contract v0.1 | `fixture-verified` | Deterministic fixtures exercise the designed ordering and stable external result vocabulary; this is not a production store, policy engine, delivery path, or public tool | `docs/A2A-INGRESS-CONTRACT-v0.1.md`, `test/fixtures/a2a/ingress/v0.1/corpus.json` |
 | Offline A2A delivery-trace profile v0.1 | `reference-conformance` | The pure TypeScript evaluator and independent stdlib-only Python witness agree over the language-neutral corpus, including event-level precedence D05-D17, while preserving canonical identity and explicit non-claims. This implements no live transport, DeliveryPort, authenticated principal, wake authority, persistence, execution, or interoperability. | `docs/A2A-DELIVERY-TRACE-PROFILE-v0.1.md`, `src/a2a/delivery-trace.ts`, `reference/python/a2a_delivery_trace_reference.py`, `test/a2a-delivery-trace-python-reference.test.ts`, `test/fixtures/a2a/delivery-trace/v0.1/corpus.json` |
 | Durable attempt lifecycle | `recovery-verified` | Durable-mode `spawn_fleet` and `attach_agent` preserve MCP shapes while using one SQLite authority for leases, deterministic retry, launch-intent quarantine, scheduled recovery, recorded-PID containment only, fenced projections, and sequence-ordered repairable event outbox | `docs/A2A-NEXT-SLICE.md`, `src/lifecycle-execution.ts`, `test/lifecycle-integration-adversarial.test.ts` |
-| Provider-neutral runtime adapters | `runtime-launch-verified` | Isolated RuntimeAdapter SPI, OpenCode adapter, and deterministic local-process adapter are verified; public runtime selection and vendor adapters are deferred | `docs/ADAPTER-CONTRACT.md`, `src/runtime`, `test/runtime-adapter.test.ts` |
+| Provider-neutral runtime adapters | `runtime-launch-verified` | Isolated RuntimeAdapter SPI, OpenCode adapter, and deterministic local-process adapter are verified. A public `model` (`provider/model`) selector is exposed on `spawn_fleet` / `attach_agent` and flows through the default OpenCode adapter; there is no public runtime-adapter selector and no vendor adapter is wired | `docs/ADAPTER-CONTRACT.md`, `src/runtime`, `test/runtime-adapter.test.ts` |
 | Advisory subscription-lane snapshots | `fixture-verified` | The portable v0.1 corpus and real MCP stdio contract test verify sanitized offline snapshot ranking and rejection of provider/control-plane smuggling. This remains advisory-only and does not prove provider availability, authentication, catalog access, execution, or metering. | `test/fixtures/routing/subscription-lanes/v0.1/corpus.json`, `test/recommend-route-subscription-lanes.test.ts`, `test/recommend-route-mcp.test.ts` |
 | Offline route-candidate snapshot compiler | `fixture-verified` | The pure compiler and real MCP contract deterministically project sanitized caller evidence without I/O or authority. This is not provider availability, authentication, budget freshness, execution, failover, or metering evidence. | `src/compile-route-candidates.ts`, `test/fixtures/routing/route-candidate-snapshots/v0.1/corpus.json`, `test/compile-route-candidates.test.ts`, `test/compile-route-candidates-mcp.test.ts` |
 | Dormant durable acceptance journal (**writer deleted from `main` 2026-07-25**; the physical SQLite v4 tables remain, unused) | `dormant-internal-durable-verified` | Branch `codex/a2a-seamless-foundation` implements and locally verifies physical SQLite v4, three private append-only tables, exact schema validation, pre-tokenized keyed identities, request-first replay/conflict ordering, and accepted-only local receipts. It remains unmerged, unpublished, inactive, and has no public ingress, auth provider, delivery, or execution claim. | `docs/A2A-DURABLE-ACCEPTANCE-v0.1.md`, `docs/adr/0005-dormant-durable-acceptance-journal.md`, `acc4090..f1f98fb` |
@@ -221,6 +221,48 @@ The tests asserting the cooperative path are skipped on `win32` with that
 reason in the skip message. Portable behaviour — exit-code normalisation,
 stdout/stderr capture, timeout and cancellation status, argv/cwd/env isolation
 — is exercised on all three CI platforms.
+
+## Model selection (`spawn_fleet` / `attach_agent` `model` parameter)
+
+A caller may optionally set `model` (a `provider/model` string) on each agent
+passed to `spawn_fleet` or `attach_agent`. The selector is a public execution
+input, distinct from every other evidence field:
+
+- `model` is the requested `provider/model` selector. The default OpenCode
+  adapter emits it as `opencode run --model <value>`; no catalog lookup,
+  credential flow, network probe, or argv rewriting is performed.
+- `Agent.requested_model` is the immutable request record. `Agent.runtime_model`
+  is the observed OpenCode banner. The two fields are deliberately separate.
+  `Capability.model` is routing self-description and is not the execution
+  request.
+- Validation runs before any ledger write or process start: the value must be
+  a string, at most 256 UTF-16 code units, contain no whitespace, and contain
+  a non-empty provider and non-empty model identifier around a `/`.
+  `null`, blank, whitespace, malformed, and overlength values are refusals
+  rather than aliases for omission.
+- The existing `runtimeModelsMatch()` rule is the fail-closed check: a
+  `complete` selected agent whose `runtime_model` is missing or contradicts
+  the request fails locally. A failed or interrupted selected agent may
+  legitimately lack `runtime_model`.
+- Legacy in-process retries reuse the original validated
+  `SpawnAgentInput.requestedModel`. Durable retry/recovery, attach, and
+  Discussion wakeups reconstruct `ExecutionSpec.requestedModel` from the
+  persisted `Agent.requested_model`, so those ledger-backed paths do not
+  silently fall back to the default model after recovery.
+- Omitting `model` preserves the prior launch and classification behavior
+  exactly: no `--model` argument, no banner requirement, no new failure.
+- Banner agreement is observed evidence only. It is not authentication,
+  account ownership, provider availability, billing, or attestation. A
+  matching `runtime_model` does not promote the request to any higher
+  evidence level.
+- Default execution remains OpenCode. There is no public runtime-adapter
+  selector, no vendor SDK or catalog, no credential flow, no automatic
+  model choice, no token-budget drain policy, no remote relay, no publish,
+  and no deploy in this slice. Ollama Cloud's direct API and automatic
+  subscription-aware selection remain future work. Local smoke tests exercised
+  the installed OpenCode IDs `opencode-go/minimax-m3` and
+  `kilo/kilo-auto/free`; this is environment-local observed execution, not a
+  general provider-availability claim.
 
 ## When v1.0 lands
 

@@ -28,6 +28,24 @@ test('buildRunArgs: agent file precedes the prompt', () => {
   )
 })
 
+test("buildRunArgs: requested model precedes the prompt", () => {
+  assert.deepEqual(
+    buildRunArgs({ prompt: "review", requestedModel: "opencode-go/minimax-m3" }),
+    ["run", "--model", "opencode-go/minimax-m3", "review"],
+  );
+})
+
+test("buildRunArgs: model precedes agent and prompt", () => {
+  assert.deepEqual(
+    buildRunArgs({
+      prompt: "review",
+      requestedModel: "kilo/kilo-auto/free",
+      agentFile: "oracle",
+    }),
+    ["run", "--model", "kilo/kilo-auto/free", "--agent", "oracle", "review"],
+  );
+})
+
 test('agentTimeoutMs: defaults to 30 minutes', () => {
   assert.equal(DEFAULT_AGENT_TIMEOUT_MS, 30 * 60 * 1000)
   assert.equal(agentTimeoutMs({}), DEFAULT_AGENT_TIMEOUT_MS)

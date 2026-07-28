@@ -579,6 +579,16 @@ const CHECK_EXPLANATIONS: Record<string, CheckExplanation> = {
     benign: "rarely benign: the write path sets status and completed_at in one statement and refuses an agent that already has one. A ledger hand-edited to 'reopen' an agent without clearing its completion time produces this",
     investigate: "agent-mesh inspect --export | jq '.agents[] | select(.completed_at != null and (.status == \"running\" or .status == \"pending\"))'",
   },
+  "agent.requested_model_unobserved": {
+    what: "an agent is recorded `complete` while carrying a persisted `requested_model` but no observed `runtime_model` — the selection's claim that this agent ran under that model is unsupported by the ledger's own records",
+    benign: "an aborted run that completed through a non-standard path and never landed a parseable OpenCode runtime banner. A hand-edited ledger that injected `complete` without writing the banner produces this too",
+    investigate: "agent-mesh inspect --export | jq '.agents[] | select(.requested_model != null and .status == \"complete\" and .runtime_model == null)'",
+  },
+  "agent.requested_model_mismatch": {
+    what: "an agent is recorded `complete` with a `requested_model` whose observed `runtime_model` disagrees under the same `runtimeModelsMatch()` rule the spawn classifier uses — the selection and the observed banner contradict each other",
+    benign: "almost never benign: this is the same shape the spawn classifier treats as a permanent failure (a child launched under a different model than the caller asked for). A hand-edited ledger that rewrote only one of the two fields is the most likely cause",
+    investigate: "agent-mesh inspect --export | jq '.agents[] | select(.requested_model != null and .status == \"complete\" and .runtime_model != null) | {id, requested_model, runtime_model}'",
+  },
   "ratification.key_mismatch": {
     what: "a ratification is stored under a map key that disagrees with the proposal id in its own body",
     benign: "as with the other key mismatches, a hand-edited export or a merge that renamed a key without rewriting the row — but note the orphan check reads the BODY's message_id, so a wrong key still resolves to a real proposal and nothing else notices",

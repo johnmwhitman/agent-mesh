@@ -107,18 +107,34 @@ function defaultAskPeerParams(overrides: Partial<AskPeerParams> = {}): AskPeerPa
 // is what makes tests 49/50's atomicity proofs meaningful.
 // ============================================================
 
+interface FakeAgent {
+  fleetId: string;
+  requestedAgent?: string;
+  requestedModel?: string;
+}
+
 interface FakeState {
   messages: Map<string, Message>;
   receipts: Map<string, Receipt>;
-  agents: Set<string>;
+  agents: Map<string, FakeAgent>;
 }
 
 function makeFakeState(): FakeState {
-  return { messages: new Map(), receipts: new Map(), agents: new Set() };
+  return { messages: new Map(), receipts: new Map(), agents: new Map() };
 }
 
-function registerAgents(state: FakeState, fleetId: string, agentIds: string[]): void {
-  for (const id of agentIds) state.agents.add(`${fleetId}:${id}`);
+function registerAgents(
+  state: FakeState,
+  fleetId: string,
+  agentIds: string[],
+  launchConfigs: Record<string, { requestedAgent?: string; requestedModel?: string }> = {}
+): void {
+  for (const id of agentIds) {
+    state.agents.set(`${fleetId}:${id}`, {
+      fleetId,
+      ...(launchConfigs[id] ?? {}),
+    });
+  }
 }
 
 /** Injectable failure points, keyed by predicate over the exact call being
@@ -129,6 +145,7 @@ function registerAgents(state: FakeState, fleetId: string, agentIds: string[]): 
 interface LedgerFaults {
   throwOnWriteReceipt?: (action: string, messageId: string, agentId: string) => boolean;
   throwOnAppendMessage?: (input: NewMessage) => boolean;
+  missingLaunchConfigFor?: Set<string>;
 }
 
 class FakeLedgerTxImpl implements LedgerTx {
@@ -143,7 +160,23 @@ class FakeLedgerTxImpl implements LedgerTx {
   }
 
   agentExists(agentId: string, fleetId: string): boolean {
-    return this.draft.agents.has(`${fleetId}:${agentId}`);
+    const a = this.draft.agents.get(`${fleetId}:${agentId}`);
+    return !!a && a.fleetId === fleetId;
+  }
+
+  agentLaunchConfig(
+    agentId: string,
+    fleetId: string
+  ): { requestedAgent?: string; requestedModel?: string } | undefined {
+    if (this.faults.missingLaunchConfigFor?.has(`${fleetId}:${agentId}`)) {
+      return undefined;
+    }
+    const a = this.draft.agents.get(`${fleetId}:${agentId}`);
+    if (!a || a.fleetId !== fleetId) return undefined;
+    const out: { requestedAgent?: string; requestedModel?: string } = {};
+    if (a.requestedAgent !== undefined) out.requestedAgent = a.requestedAgent;
+    if (a.requestedModel !== undefined) out.requestedModel = a.requestedModel;
+    return out;
   }
 
   getMessage(messageId: string): Message | undefined {
@@ -220,7 +253,7 @@ function makeRawLedger(state: FakeState, clock: ClockFn, faults: LedgerFaults): 
     const draft: FakeState = {
       messages: new Map(state.messages),
       receipts: new Map(state.receipts),
-      agents: new Set(state.agents),
+      agents: new Map(state.agents),
     };
     const tx = new FakeLedgerTxImpl(draft, clock, faults);
     const result = mutator(tx);
@@ -290,9 +323,15 @@ interface Harness {
   sequence: string[];
 }
 
-function makeHarness(opts: { guardConfig?: GuardConfig } = {}): Harness {
-  const state = makeFakeState();
-  registerAgents(state, FLEET, [AGENT_A, AGENT_B]);
+function makeHarness(
+  opts: {
+    guardConfig?: GuardConfig;
+    state?: FakeState;
+    registerDefaultAgents?: boolean;
+  } = {}
+): Harness {
+  const state = opts.state ?? makeFakeState();
+  if (opts.registerDefaultAgents !== false) registerAgents(state, FLEET, [AGENT_A, AGENT_B]);
 
   const clockRef = { value: 1_700_000_000_000 };
   const clock: ClockFn = () => clockRef.value;
@@ -1316,4 +1355,102 @@ test("D2-red cdx-2d — timeout_ms of 900001ms is rejected", async () => {
   const h = makeHarness();
   await assert.rejects(() => openRoot(h.store, { timeout_ms: 900_001 }), isDiscussionError("invalid_envelope"));
   assert.equal(h.state.messages.size, 0, "a rejected timeout_ms must append no message");
+});
+
+// ============================================================
+// Model-selected execution — task 3
+// The Discussion wake path inherits the participant's persisted `agent_file`
+// and `requested_model` via `LedgerTx.agentLaunchConfig(agentId, fleetId)`.
+// The reservation/start transaction must copy both into the `SpawnJob` and
+// the canonical `fleet_id` of the discussion's head message.
+// ============================================================
+
+test("Task 3 #1 — agentLaunchConfig returns the persisted launch config for a selected participant", async () => {
+  const state = makeFakeState();
+  registerAgents(state, FLEET, [AGENT_A, AGENT_B], {
+    [AGENT_B]: { requestedAgent: "oracle", requestedModel: "opencode-go/minimax-m3" },
+  });
+  const h = makeHarness({ state, registerDefaultAgents: false });
+
+  let observed: { requestedAgent?: string; requestedModel?: string } | undefined;
+  h.deps.ledger((tx) => {
+    observed = tx.agentLaunchConfig(AGENT_B, FLEET);
+  });
+  assert.deepEqual(observed, { requestedAgent: "oracle", requestedModel: "opencode-go/minimax-m3" });
+});
+
+test("Task 3 #2 — agentLaunchConfig returns undefined for a non-participant and ignores wrong-fleet lookups", async () => {
+  const state = makeFakeState();
+  registerAgents(state, FLEET, [AGENT_A, AGENT_B], {
+    [AGENT_B]: { requestedAgent: "oracle", requestedModel: "opencode-go/minimax-m3" },
+  });
+  const h = makeHarness({ state, registerDefaultAgents: false });
+
+  let unknown: { requestedAgent?: string; requestedModel?: string } | undefined;
+  let wrongFleet: { requestedAgent?: string; requestedModel?: string } | undefined;
+  h.deps.ledger((tx) => {
+    unknown = tx.agentLaunchConfig("stranger", FLEET);
+    wrongFleet = tx.agentLaunchConfig(AGENT_B, "other-fleet");
+  });
+  assert.equal(unknown, undefined, "no row for a stranger must return undefined");
+  assert.equal(wrongFleet, undefined, "a same-id agent in a different fleet must NOT match");
+});
+
+test("Task 3 #3 — selected participant's SpawnJob carries the persisted requestedAgent and requestedModel", async () => {
+  const state = makeFakeState();
+  registerAgents(state, FLEET, [AGENT_A, AGENT_B], {
+    [AGENT_B]: { requestedAgent: "oracle", requestedModel: "opencode-go/minimax-m3" },
+  });
+  const h = makeHarness({ state, registerDefaultAgents: false });
+  const opened = await openRoot(h.store);
+
+  const wake = await h.store.wakeAgent({
+    agent_id: AGENT_B,
+    discussion_id: opened.discussion_id,
+    expected_head_message_id: opened.root_message_id,
+  });
+
+  assert.equal(h.spawnCalls.length, 1);
+  const job = h.spawnCalls[0]!.job;
+  assert.equal(job.agent_id, AGENT_B);
+  assert.equal(job.attempt_id, wake.attempt_id);
+  assert.equal(job.fleet_id, FLEET, "the canonical head fleet_id must be copied into the SpawnJob");
+  assert.equal(job.requested_agent, "oracle", "the persisted agent_file must be copied as requested_agent");
+  assert.equal(job.requested_model, "opencode-go/minimax-m3", "the persisted requested_model must be copied as requested_model");
+});
+
+test("Task 3 #4 — omitted selection leaves both launch-config fields undefined and fleet_id intact", async () => {
+  const state = makeFakeState();
+  registerAgents(state, FLEET, [AGENT_A, AGENT_B]);
+  const h = makeHarness({ state, registerDefaultAgents: false });
+  const opened = await openRoot(h.store);
+
+  await h.store.wakeAgent({
+    agent_id: AGENT_B,
+    discussion_id: opened.discussion_id,
+    expected_head_message_id: opened.root_message_id,
+  });
+
+  const job = h.spawnCalls[0]!.job;
+  assert.equal(job.fleet_id, FLEET);
+  assert.equal(job.requested_agent, undefined, "an agent with no agent_file must not be promoted to one");
+  assert.equal(job.requested_model, undefined, "an agent with no requested_model must not be promoted to one");
+});
+
+test("Task 3 #5 — a missing launch-config lookup fails the reserved attempt without spawning", async () => {
+  const h = makeHarness();
+  const opened = await openRoot(h.store);
+  h.ledgerFaults.missingLaunchConfigFor = new Set([`${FLEET}:${AGENT_B}`]);
+
+  const wake = await h.store.wakeAgent({
+    agent_id: AGENT_B,
+    discussion_id: opened.discussion_id,
+    expected_head_message_id: opened.root_message_id,
+  });
+
+  assert.equal(h.spawnCalls.length, 0, "a missing launch config must never reach the spawn seam");
+  const attempt = h.store
+    .getDiscussion({ discussion_id: opened.discussion_id })
+    .attempts.find((candidate) => candidate.attempt_id === wake.attempt_id);
+  assert.equal(attempt?.state, "failed");
 });

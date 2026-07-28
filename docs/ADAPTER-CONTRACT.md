@@ -98,14 +98,51 @@ before a renderer is called supported.
 | SSE inbox projection | `implemented` | Optional local inbox push, not a general A2A HTTP transport |
 | Offline delivery-trace normalization | `reference-conformance` | The pure TypeScript evaluator and independent stdlib-only Python witness agree that modeled stdio, mailbox, HTTP/SSE, and WebSocket labels preserve one canonical envelope binding and distinct delivery observations; no transport or live interoperability is implemented |
 | Durable execution coordinator | `recovery-verified` | Durable-mode `spawn_fleet` and `attach_agent` use fenced leases, deterministic persisted retry, launch-intent quarantine, scheduled recovery, recorded-PID containment only, sequence-ordered outbox, and compatibility projections on one SQLite authority |
-| Outbound worker launch | `runtime-launch-verified` | `spawn_fleet` selects the internal OpenCode compatibility adapter; no public runtime selection exists |
+| Outbound worker launch | `runtime-launch-verified` | `spawn_fleet` uses the internal OpenCode compatibility adapter; callers may select its model, but there is no public runtime-adapter selector |
 | OpenCode result normalization | `runtime-launch-verified` | OpenCode command, banner parsing, fallback, and provider diagnostics are isolated behind `OpenCodeRuntimeAdapter` |
-| Provider-neutral runtime SPI | `runtime-launch-verified` | Core orchestration uses normalized execution contracts and an internal registry; public runtime selection remains deferred |
+| Provider-neutral runtime SPI | `runtime-launch-verified` | Core orchestration uses normalized execution contracts and an internal registry; there is no public runtime-adapter selector (a public `model` selector is exposed at the MCP boundary and flows through the default OpenCode adapter) |
 | Local-process proof adapter | `runtime-launch-verified` | Deterministic local argv-only adapter covers process lifecycle without a provider, network, or credentials |
 | Multi-host coordinator | `deferred` | No shared remote ownership authority exists |
 | Slice 3B config renderers (generic/OpenCode/Claude/Codex) | `static-config-verified` | Canonical spec + 4 recursive-preflight renderers with deterministic tests; live client execution, Antigravity/Gemini/Grok schemas, real vendor outbound adapters, auth, network, remote relay remain unverified/deferred |
 
-An explicitly supplied internal `ExecutionSpec.requestedModel` may fail-close classification when it does not match the observed OpenCode banner model. This is a raw-label check only: it does not select a model, expose a public runtime input, authenticate a provider, or attest runtime identity.
+`ExecutionSpec.requestedModel` carries the validated public `model` selector to
+the OpenCode adapter and fail-closes classification when the observed banner
+model is missing or contradictory. This is still a raw-label check only: it
+does not authenticate a provider, prove an account or billing path, or attest
+runtime identity.
+
+## Model selection (public `model` on `spawn_fleet` / `attach_agent`)
+
+Callers may optionally pass a `model` selector (a `provider/model` string) on each
+agent passed to `spawn_fleet` or `attach_agent`. The selector is an execution
+input, not runtime identity:
+
+- the value is validated before any ledger write or process start: it must be a
+  string, at most 256 UTF-16 code units, contain no whitespace, and contain a
+  non-empty provider and non-empty model identifier around a `/`;
+- the validated selector is persisted on the Agent row as
+  `Agent.requested_model`, an immutable request record;
+- the default OpenCode adapter emits `opencode run --model <provider/model>`
+  with the selector as a single argv element; legacy in-process retries reuse
+  the original validated request, while durable retry/recovery, attach, and
+  Discussion wakeups read the stored request back from the Agent row and place
+  it on `ExecutionSpec.requestedModel`; and
+- `Agent.runtime_model` remains the observed OpenCode banner, and
+  `runtimeModelsMatch()` is the existing fail-closed check: a `complete`
+  selected agent whose banner is missing or contradicts the request fails
+  locally. Banner agreement is observed evidence only, not authentication,
+  account ownership, provider availability, billing, or attestation.
+
+Omitting `model` preserves the prior launch and classification behavior
+exactly: no `--model` argument, no banner requirement, no new failure. The
+default execution remains OpenCode; there is still no public runtime-adapter
+selector, no vendor SDK or catalog, no credential flow, no automatic model
+choice, no token-budget drain policy, no remote relay, no publish, and no
+deploy in this slice. Ollama Cloud's direct API and automatic
+subscription-aware selection remain future work. Local smoke tests exercised
+the installed OpenCode IDs `opencode-go/minimax-m3` and
+`kilo/kilo-auto/free`; this is environment-local observed execution, not a
+general provider-availability claim.
 
 ## Evidence levels
 
