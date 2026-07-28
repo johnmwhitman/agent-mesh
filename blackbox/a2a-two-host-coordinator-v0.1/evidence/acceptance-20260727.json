@@ -1,0 +1,148 @@
+{
+  "profile": "meshfleet.a2a.two-host-coordinator.v0.1",
+  "slice": "4E",
+  "maturity": "offline-reference-conformance-only",
+  "date": "2026-07-27",
+  "source": {
+    "worktree": "/private/tmp/agent-mesh-codex-a2a-two-host-coordinator-v01-20260727",
+    "branch": "codex/a2a-two-host-coordinator-v01-20260727",
+    "base_commit": "041500fd9aec6e482875f6339236ffdcc46fc7ed",
+    "owned_scope": "blackbox/a2a-two-host-coordinator-v0.1/**",
+    "primary_checkout_touched": false
+  },
+  "focused_acceptance": {
+    "javascript": "PASS",
+    "python": "PASS",
+    "case_count": 24,
+    "mandatory_count": 17,
+    "supplemental_count": 7,
+    "validation_controls": 8,
+    "parser_controls": 14,
+    "normalized_control_count": 22,
+    "closed_validation_error_codes_covered": 13,
+    "mutation_controls": 24,
+    "canonical_controls": 1,
+    "case_transcript_sha256": "497359f578d02b791973287e560499ddaaacebd95a5d3291787165f805b0df10",
+    "contract_sha256": "efadb4546558649df5b1c441f013ca9deac2a650615dd7d6cbede7debb1d283a",
+    "corpus_sha256": "0140f45078fb7a8a5b8933b29037f426c917a34842fd2ef85da2a931ccb0660c"
+  },
+  "differential_acceptance": {
+    "result": "PASS",
+    "equal": true,
+    "byte_count": 59887,
+    "case_count": 24,
+    "control_count": 22,
+    "receipts_verified": 24,
+    "tamper_control_detected": true,
+    "exact_control_inputs_bound": true,
+    "external_manifest_anchor_verified": true,
+    "manifest_sha256": "b1866f876d3711b45bf512258706c98460af2ec6ccae2606e3ba1f812e7345c8",
+    "transcript_sha256": "af118e85c33d51b08198c0876a17a8009a6532455c6450113636b3e320a90b7f"
+  },
+  "external_anchor": {
+    "holder": "Storage lane",
+    "recorded_at": "2026-07-27T07:58:58Z",
+    "record": "/Users/johnwhitman/AI/scratch/a2a-slice4e-external-anchor-20260727.md",
+    "manifest_size_bytes": 7339,
+    "manifest_sha256": "b1866f876d3711b45bf512258706c98460af2ec6ccae2606e3ba1f812e7345c8",
+    "superseded_manifest_sha256": "2b4ff18f0dd3552724afa010adc4f70fd575a3b4953e603fa6b7964b1f92f70f",
+    "boundary": "Digest custody only; semantic acceptance remains commit- and review-bound."
+  },
+  "exact_state_acceptance": {
+    "validation_clone": "/private/tmp/agent-mesh-codex-a2a-two-host-coordinator-v01-acceptance-20260727",
+    "build": "PASS",
+    "full_suite": {
+      "command": "npm test",
+      "tests": 891,
+      "passed": 891,
+      "failed": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "todo": 0,
+      "duration_ms": 37400.594333
+    },
+    "expected_static_residue": [
+      "untracked blackbox/ copied from the source worktree",
+      "untracked node_modules dependency symlink"
+    ]
+  },
+  "commands": [
+    "node blackbox/a2a-two-host-coordinator-v0.1/runner.mjs",
+    "python3 blackbox/a2a-two-host-coordinator-v0.1/python/runner.py",
+    "node blackbox/a2a-two-host-coordinator-v0.1/differential.mjs --manifest-sha256 b1866f876d3711b45bf512258706c98460af2ec6ccae2606e3ba1f812e7345c8",
+    "npm run build",
+    "npm test",
+    "git diff --check"
+  ],
+  "environmental_controls": [
+    {
+      "observation": "The source worktree had no local tsc dependency.",
+      "resolution": "Build ran in the exact-state acceptance clone with the frozen dependency symlink and passed."
+    },
+    {
+      "observation": "A sandboxed full-suite run denied one configured event-log write and eleven loopback listeners with EPERM.",
+      "resolution": "The same exact-state suite ran with normal local permissions and passed 891/891."
+    }
+  ],
+  "review_findings_resolved": [
+    "Added fatal raw-byte UTF-8 entry points and an invalid-byte corpus control.",
+    "Pinned cross-language parser error precedence and included normalized controls in the byte differential.",
+    "Replaced self-referential receipt checking with a package manifest whose digest is held externally.",
+    "Covered every closed validation error code directly.",
+    "Promoted repeated retry epoch progression to the mandatory registry.",
+    "Added duplicate-before-depth and duplicate-before-surrogate combined-invalid controls.",
+    "Added a recursion-independent Python structural scanner and a 1,500-level duplicate witness.",
+    "Bound every normalized control to the SHA-256 of its exact input bytes."
+  ],
+  "final_reviews": [
+    {
+      "agent_id": "019fa297-b752-7191-80bc-b5e28fecf0f8",
+      "focus": "deep parser precedence and structural scanner",
+      "result": "PASS"
+    },
+    {
+      "agent_id": "019fa297-b6e5-74e2-80eb-e92fb2acad09",
+      "focus": "exact control-input binding and external anchor custody",
+      "result": "PASS after correcting reversed anchor chronology"
+    }
+  ],
+  "delegation_outcomes": [
+    "Sanitized Grok architecture review completed and informed the model boundary; no repository write was accepted.",
+    "Direct MiniMax dispatch timed out with HTTP 504.",
+    "Ollama Cloud MiniMax returned no usable final content.",
+    "OpenCode Go Kimi exhausted failover with HTTP 503.",
+    "Luna fallback supplied a mechanical corpus inventory.",
+    "A MeshFleet sibling independently converged on the same authority/reachability semantics and stopped before overlap."
+  ],
+  "collision_control": {
+    "other_lane": "/private/tmp/agent-mesh-codex-routing-a2a-20260727",
+    "other_lane_head": "74d884f96b89a375e9207b9a0d5a8cd181306fc1",
+    "owned_scope_overlap": false,
+    "other_lane_working_changes_ignored": [
+      "README.md",
+      "src/index.ts",
+      "test/dispatch-registry.test.ts",
+      "test/verify-ledger-v2-mcp.test.ts"
+    ]
+  },
+  "source_file_sha256": {
+    ".gitignore": "fa6c3256602bf960eea8b295bf22c742185f3562b2ed60d71658e402ba0e71ed",
+    "HANDOFF.md": "3a0e0ff1af8d5cae86f9496c88de0de3fb9c688821cd8d162f67af9b3a5c74ec",
+    "README.md": "b3f9d83711e5aeada577bd2edaccfdb786ca93a9cb4da4206d6ab39f64c57725",
+    "contract.json": "efadb4546558649df5b1c441f013ca9deac2a650615dd7d6cbede7debb1d283a",
+    "corpus/v0.1/cases.json": "0140f45078fb7a8a5b8933b29037f426c917a34842fd2ef85da2a931ccb0660c",
+    "differential.mjs": "a924b03eeceb08a335807677236774be2f0bc62ce20f75754c004339bd3d00cc",
+    "evaluator.mjs": "012a1119f568d74124092a13edf2b696e19697c454074eedff322e435e2f8f8a",
+    "manifest/v0.1/expected.json": "b1866f876d3711b45bf512258706c98460af2ec6ccae2606e3ba1f812e7345c8",
+    "python/evaluator.py": "2d90d602231c965b78ac06047f7a6606bc9127416868ed58252f97909acb8f64",
+    "python/runner.py": "3cedc4877f22b35b3b7341db1fc0aada45aa604e6fee00729ee044926558cc79",
+    "runner.mjs": "568d7f93587ab7201b3bcc249b1349136dbafdaa3e79adf9c8c723b33d9dc4cb"
+  },
+  "nonclaims": [
+    "No production coordinator or production multi-host readiness claim.",
+    "No network, transport, datastore, consensus, clock synchronization, credential, authentication, authorization, delivery, or execution implementation.",
+    "No external event-ingestion or replay-tamper-validation API.",
+    "No immutable provenance claim from the package-local manifest alone.",
+    "No merge, push, pull request, publication, deployment, activation, or release authority."
+  ]
+}

@@ -1,0 +1,1754 @@
+{
+  "profile": "meshfleet.a2a.two-host-coordinator.v0.1",
+  "cases": [
+    {
+      "id": "M01-basic-renew-success-replay",
+      "tier": "mandatory",
+      "commands": [
+        {
+          "op": "create_work",
+          "at": 0,
+          "max_attempts": 3,
+          "retry_base_ms": 0
+        },
+        {
+          "op": "acquire_lease",
+          "at": 1,
+          "host": "host-a",
+          "lease_ms": 10
+        },
+        {
+          "op": "renew_lease",
+          "at": 5,
+          "host": "host-a",
+          "lease_ms": 10
+        },
+        {
+          "op": "settle",
+          "at": 14,
+          "host": "host-a",
+          "outcome": "success"
+        },
+        {
+          "op": "replay_check",
+          "at": 15
+        }
+      ],
+      "expected": {
+        "work_status": "succeeded",
+        "current_attempt_id": "attempt-1",
+        "owner_epoch": 1,
+        "attempt_statuses": [
+          "succeeded"
+        ],
+        "attempt_epochs": [
+          1
+        ],
+        "attempt_lease_until": [
+          15
+        ],
+        "attempt_eligible_at": [
+          0
+        ],
+        "host_token_epochs": [
+          1,
+          null
+        ],
+        "event_kinds": [
+          "attempt_created",
+          "lease_acquired",
+          "lease_acquired",
+          "attempt_succeeded"
+        ],
+        "command_errors": [
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "replay_match": true
+      }
+    },
+    {
+      "id": "M02-equal-time-first-acquire-wins",
+      "tier": "mandatory",
+      "commands": [
+        {
+          "op": "create_work",
+          "at": 0,
+          "max_attempts": 3,
+          "retry_base_ms": 0
+        },
+        {
+          "op": "acquire_lease",
+          "at": 1,
+          "host": "host-a",
+          "lease_ms": 10
+        },
+        {
+          "op": "acquire_lease",
+          "at": 1,
+          "host": "host-b",
+          "lease_ms": 10
+        }
+      ],
+      "expected": {
+        "work_status": "running",
+        "current_attempt_id": "attempt-1",
+        "owner_epoch": 1,
+        "attempt_statuses": [
+          "running"
+        ],
+        "attempt_epochs": [
+          1
+        ],
+        "attempt_lease_until": [
+          11
+        ],
+        "attempt_eligible_at": [
+          0
+        ],
+        "host_token_epochs": [
+          1,
+          null
+        ],
+        "event_kinds": [
+          "attempt_created",
+          "lease_acquired"
+        ],
+        "command_errors": [
+          null,
+          null,
+          "NOT_LEASEABLE"
+        ],
+        "replay_match": null
+      }
+    },
+    {
+      "id": "M03-partition-drops-authority-command",
+      "tier": "mandatory",
+      "commands": [
+        {
+          "op": "create_work",
+          "at": 0,
+          "max_attempts": 3,
+          "retry_base_ms": 0
+        },
+        {
+          "op": "partition",
+          "at": 1,
+          "host": "host-a"
+        },
+        {
+          "op": "acquire_lease",
+          "at": 2,
+          "host": "host-a",
+          "lease_ms": 5
+        },
+        {
+          "op": "acquire_lease",
+          "at": 2,
+          "host": "host-b",
+          "lease_ms": 5
+        }
+      ],
+      "expected": {
+        "work_status": "running",
+        "current_attempt_id": "attempt-1",
+        "owner_epoch": 1,
+        "attempt_statuses": [
+          "running"
+        ],
+        "attempt_epochs": [
+          1
+        ],
+        "attempt_lease_until": [
+          7
+        ],
+        "attempt_eligible_at": [
+          0
+        ],
+        "host_token_epochs": [
+          null,
+          1
+        ],
+        "event_kinds": [
+          "attempt_created",
+          "lease_acquired"
+        ],
+        "command_errors": [
+          null,
+          null,
+          "HOST_PARTITIONED",
+          null
+        ],
+        "replay_match": null
+      }
+    },
+    {
+      "id": "M04-stale-settlement-fenced-after-recovery",
+      "tier": "mandatory",
+      "commands": [
+        {
+          "op": "create_work",
+          "at": 0,
+          "max_attempts": 3,
+          "retry_base_ms": 0
+        },
+        {
+          "op": "acquire_lease",
+          "at": 1,
+          "host": "host-a",
+          "lease_ms": 4
+        },
+        {
+          "op": "partition",
+          "at": 2,
+          "host": "host-a"
+        },
+        {
+          "op": "recover_expired",
+          "at": 5,
+          "host": "host-b"
+        },
+        {
+          "op": "acquire_lease",
+          "at": 5,
+          "host": "host-b",
+          "lease_ms": 10
+        },
+        {
+          "op": "heal",
+          "at": 6,
+          "host": "host-a"
+        },
+        {
+          "op": "settle",
+          "at": 7,
+          "host": "host-a",
+          "outcome": "success"
+        },
+        {
+          "op": "settle",
+          "at": 8,
+          "host": "host-b",
+          "outcome": "success"
+        },
+        {
+          "op": "replay_check",
+          "at": 9
+        }
+      ],
+      "expected": {
+        "work_status": "succeeded",
+        "current_attempt_id": "attempt-2",
+        "owner_epoch": 3,
+        "attempt_statuses": [
+          "expired",
+          "succeeded"
+        ],
+        "attempt_epochs": [
+          1,
+          3
+        ],
+        "attempt_lease_until": [
+          5,
+          15
+        ],
+        "attempt_eligible_at": [
+          0,
+          5
+        ],
+        "host_token_epochs": [
+          1,
+          3
+        ],
+        "event_kinds": [
+          "attempt_created",
+          "lease_acquired",
+          "lease_expired",
+          "attempt_retried",
+          "lease_acquired",
+          "attempt_succeeded"
+        ],
+        "command_errors": [
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          "STALE_FENCE",
+          null,
+          null
+        ],
+        "replay_match": true
+      }
+    },
+    {
+      "id": "M05-stale-renewal-fenced",
+      "tier": "mandatory",
+      "commands": [
+        {
+          "op": "create_work",
+          "at": 0,
+          "max_attempts": 3,
+          "retry_base_ms": 0
+        },
+        {
+          "op": "acquire_lease",
+          "at": 1,
+          "host": "host-a",
+          "lease_ms": 4
+        },
+        {
+          "op": "recover_expired",
+          "at": 5,
+          "host": "host-b"
+        },
+        {
+          "op": "acquire_lease",
+          "at": 5,
+          "host": "host-b",
+          "lease_ms": 10
+        },
+        {
+          "op": "renew_lease",
+          "at": 7,
+          "host": "host-a",
+          "lease_ms": 10
+        }
+      ],
+      "expected": {
+        "work_status": "running",
+        "current_attempt_id": "attempt-2",
+        "owner_epoch": 3,
+        "attempt_statuses": [
+          "expired",
+          "running"
+        ],
+        "attempt_epochs": [
+          1,
+          3
+        ],
+        "attempt_lease_until": [
+          5,
+          15
+        ],
+        "attempt_eligible_at": [
+          0,
+          5
+        ],
+        "host_token_epochs": [
+          1,
+          3
+        ],
+        "event_kinds": [
+          "attempt_created",
+          "lease_acquired",
+          "lease_expired",
+          "attempt_retried",
+          "lease_acquired"
+        ],
+        "command_errors": [
+          null,
+          null,
+          null,
+          null,
+          "STALE_FENCE"
+        ],
+        "replay_match": null
+      }
+    },
+    {
+      "id": "M06-exact-lease-boundary-rejects-settlement",
+      "tier": "mandatory",
+      "commands": [
+        {
+          "op": "create_work",
+          "at": 0,
+          "max_attempts": 3,
+          "retry_base_ms": 0
+        },
+        {
+          "op": "acquire_lease",
+          "at": 1,
+          "host": "host-a",
+          "lease_ms": 4
+        },
+        {
+          "op": "settle",
+          "at": 5,
+          "host": "host-a",
+          "outcome": "success"
+        }
+      ],
+      "expected": {
+        "work_status": "running",
+        "current_attempt_id": "attempt-1",
+        "owner_epoch": 1,
+        "attempt_statuses": [
+          "running"
+        ],
+        "attempt_epochs": [
+          1
+        ],
+        "attempt_lease_until": [
+          5
+        ],
+        "attempt_eligible_at": [
+          0
+        ],
+        "host_token_epochs": [
+          1,
+          null
+        ],
+        "event_kinds": [
+          "attempt_created",
+          "lease_acquired"
+        ],
+        "command_errors": [
+          null,
+          null,
+          "LEASE_EXPIRED"
+        ],
+        "replay_match": null
+      }
+    },
+    {
+      "id": "M07-recovery-before-and-at-boundary",
+      "tier": "mandatory",
+      "commands": [
+        {
+          "op": "create_work",
+          "at": 0,
+          "max_attempts": 3,
+          "retry_base_ms": 0
+        },
+        {
+          "op": "acquire_lease",
+          "at": 1,
+          "host": "host-a",
+          "lease_ms": 4
+        },
+        {
+          "op": "recover_expired",
+          "at": 4,
+          "host": "host-b"
+        },
+        {
+          "op": "recover_expired",
+          "at": 5,
+          "host": "host-b"
+        }
+      ],
+      "expected": {
+        "work_status": "pending",
+        "current_attempt_id": "attempt-2",
+        "owner_epoch": 2,
+        "attempt_statuses": [
+          "expired",
+          "pending"
+        ],
+        "attempt_epochs": [
+          1,
+          2
+        ],
+        "attempt_lease_until": [
+          5,
+          null
+        ],
+        "attempt_eligible_at": [
+          0,
+          5
+        ],
+        "host_token_epochs": [
+          1,
+          null
+        ],
+        "event_kinds": [
+          "attempt_created",
+          "lease_acquired",
+          "lease_expired",
+          "attempt_retried"
+        ],
+        "command_errors": [
+          null,
+          null,
+          "NOT_EXPIRED",
+          null
+        ],
+        "replay_match": null
+      }
+    },
+    {
+      "id": "M08-failure-retry-eligibility-and-distinct-identity",
+      "tier": "mandatory",
+      "commands": [
+        {
+          "op": "create_work",
+          "at": 0,
+          "max_attempts": 2,
+          "retry_base_ms": 2
+        },
+        {
+          "op": "acquire_lease",
+          "at": 1,
+          "host": "host-a",
+          "lease_ms": 10
+        },
+        {
+          "op": "settle",
+          "at": 2,
+          "host": "host-a",
+          "outcome": "failure"
+        },
+        {
+          "op": "acquire_lease",
+          "at": 3,
+          "host": "host-b",
+          "lease_ms": 10
+        },
+        {
+          "op": "acquire_lease",
+          "at": 4,
+          "host": "host-b",
+          "lease_ms": 10
+        },
+        {
+          "op": "settle",
+          "at": 5,
+          "host": "host-b",
+          "outcome": "success"
+        }
+      ],
+      "expected": {
+        "work_status": "succeeded",
+        "current_attempt_id": "attempt-2",
+        "owner_epoch": 3,
+        "attempt_statuses": [
+          "failed",
+          "succeeded"
+        ],
+        "attempt_epochs": [
+          1,
+          3
+        ],
+        "attempt_lease_until": [
+          11,
+          14
+        ],
+        "attempt_eligible_at": [
+          0,
+          4
+        ],
+        "host_token_epochs": [
+          1,
+          3
+        ],
+        "event_kinds": [
+          "attempt_created",
+          "lease_acquired",
+          "attempt_failed",
+          "attempt_retried",
+          "lease_acquired",
+          "attempt_succeeded"
+        ],
+        "command_errors": [
+          null,
+          null,
+          null,
+          "NOT_ELIGIBLE",
+          null,
+          null
+        ],
+        "replay_match": null
+      }
+    },
+    {
+      "id": "M09-retry-time-overflow-preflight",
+      "tier": "mandatory",
+      "commands": [
+        {
+          "op": "create_work",
+          "at": 9007199254740980,
+          "max_attempts": 2,
+          "retry_base_ms": 20
+        },
+        {
+          "op": "acquire_lease",
+          "at": 9007199254740981,
+          "host": "host-a",
+          "lease_ms": 5
+        },
+        {
+          "op": "settle",
+          "at": 9007199254740982,
+          "host": "host-a",
+          "outcome": "failure"
+        }
+      ],
+      "expected": {
+        "work_status": "running",
+        "current_attempt_id": "attempt-1",
+        "owner_epoch": 1,
+        "attempt_statuses": [
+          "running"
+        ],
+        "attempt_epochs": [
+          1
+        ],
+        "attempt_lease_until": [
+          9007199254740986
+        ],
+        "attempt_eligible_at": [
+          9007199254740980
+        ],
+        "host_token_epochs": [
+          1,
+          null
+        ],
+        "event_kinds": [
+          "attempt_created",
+          "lease_acquired"
+        ],
+        "command_errors": [
+          null,
+          null,
+          "RETRY_TIME_OVERFLOW"
+        ],
+        "replay_match": null
+      }
+    },
+    {
+      "id": "M10-lease-time-overflow-preflight",
+      "tier": "mandatory",
+      "commands": [
+        {
+          "op": "create_work",
+          "at": 9007199254740990,
+          "max_attempts": 2,
+          "retry_base_ms": 0
+        },
+        {
+          "op": "acquire_lease",
+          "at": 9007199254740990,
+          "host": "host-a",
+          "lease_ms": 2
+        }
+      ],
+      "expected": {
+        "work_status": "pending",
+        "current_attempt_id": "attempt-1",
+        "owner_epoch": 0,
+        "attempt_statuses": [
+          "pending"
+        ],
+        "attempt_epochs": [
+          0
+        ],
+        "attempt_lease_until": [
+          null
+        ],
+        "attempt_eligible_at": [
+          9007199254740990
+        ],
+        "host_token_epochs": [
+          null,
+          null
+        ],
+        "event_kinds": [
+          "attempt_created"
+        ],
+        "command_errors": [
+          null,
+          "TIME_OVERFLOW"
+        ],
+        "replay_match": null
+      }
+    },
+    {
+      "id": "M11-cancellation-finality",
+      "tier": "mandatory",
+      "commands": [
+        {
+          "op": "create_work",
+          "at": 0,
+          "max_attempts": 3,
+          "retry_base_ms": 0
+        },
+        {
+          "op": "acquire_lease",
+          "at": 1,
+          "host": "host-a",
+          "lease_ms": 10
+        },
+        {
+          "op": "cancel",
+          "at": 2,
+          "host": "host-b"
+        },
+        {
+          "op": "settle",
+          "at": 3,
+          "host": "host-a",
+          "outcome": "success"
+        },
+        {
+          "op": "recover_expired",
+          "at": 3,
+          "host": "host-b"
+        },
+        {
+          "op": "acquire_lease",
+          "at": 3,
+          "host": "host-b",
+          "lease_ms": 2
+        }
+      ],
+      "expected": {
+        "work_status": "cancelled",
+        "current_attempt_id": "attempt-1",
+        "owner_epoch": 1,
+        "attempt_statuses": [
+          "cancelled"
+        ],
+        "attempt_epochs": [
+          1
+        ],
+        "attempt_lease_until": [
+          11
+        ],
+        "attempt_eligible_at": [
+          0
+        ],
+        "host_token_epochs": [
+          1,
+          null
+        ],
+        "event_kinds": [
+          "attempt_created",
+          "lease_acquired",
+          "attempt_cancelled"
+        ],
+        "command_errors": [
+          null,
+          null,
+          null,
+          "WORK_TERMINAL",
+          "WORK_TERMINAL",
+          "WORK_TERMINAL"
+        ],
+        "replay_match": null
+      }
+    },
+    {
+      "id": "M12-partitioned-cancel-rejected-then-connected-cancel",
+      "tier": "mandatory",
+      "commands": [
+        {
+          "op": "create_work",
+          "at": 0,
+          "max_attempts": 3,
+          "retry_base_ms": 0
+        },
+        {
+          "op": "acquire_lease",
+          "at": 1,
+          "host": "host-a",
+          "lease_ms": 10
+        },
+        {
+          "op": "partition",
+          "at": 2,
+          "host": "host-b"
+        },
+        {
+          "op": "cancel",
+          "at": 2,
+          "host": "host-b"
+        },
+        {
+          "op": "cancel",
+          "at": 3,
+          "host": "host-a"
+        }
+      ],
+      "expected": {
+        "work_status": "cancelled",
+        "current_attempt_id": "attempt-1",
+        "owner_epoch": 1,
+        "attempt_statuses": [
+          "cancelled"
+        ],
+        "attempt_epochs": [
+          1
+        ],
+        "attempt_lease_until": [
+          11
+        ],
+        "attempt_eligible_at": [
+          0
+        ],
+        "host_token_epochs": [
+          1,
+          null
+        ],
+        "event_kinds": [
+          "attempt_created",
+          "lease_acquired",
+          "attempt_cancelled"
+        ],
+        "command_errors": [
+          null,
+          null,
+          null,
+          "HOST_PARTITIONED",
+          null
+        ],
+        "replay_match": null
+      }
+    },
+    {
+      "id": "M13-max-attempt-expiry-terminal",
+      "tier": "mandatory",
+      "commands": [
+        {
+          "op": "create_work",
+          "at": 0,
+          "max_attempts": 1,
+          "retry_base_ms": 0
+        },
+        {
+          "op": "acquire_lease",
+          "at": 1,
+          "host": "host-a",
+          "lease_ms": 4
+        },
+        {
+          "op": "recover_expired",
+          "at": 5,
+          "host": "host-b"
+        },
+        {
+          "op": "replay_check",
+          "at": 6
+        }
+      ],
+      "expected": {
+        "work_status": "failed",
+        "current_attempt_id": "attempt-1",
+        "owner_epoch": 1,
+        "attempt_statuses": [
+          "expired"
+        ],
+        "attempt_epochs": [
+          1
+        ],
+        "attempt_lease_until": [
+          5
+        ],
+        "attempt_eligible_at": [
+          0
+        ],
+        "host_token_epochs": [
+          1,
+          null
+        ],
+        "event_kinds": [
+          "attempt_created",
+          "lease_acquired",
+          "lease_expired"
+        ],
+        "command_errors": [
+          null,
+          null,
+          null,
+          null
+        ],
+        "replay_match": true
+      }
+    },
+    {
+      "id": "M14-max-attempt-failure-terminal",
+      "tier": "mandatory",
+      "commands": [
+        {
+          "op": "create_work",
+          "at": 0,
+          "max_attempts": 1,
+          "retry_base_ms": 0
+        },
+        {
+          "op": "acquire_lease",
+          "at": 1,
+          "host": "host-a",
+          "lease_ms": 10
+        },
+        {
+          "op": "settle",
+          "at": 2,
+          "host": "host-a",
+          "outcome": "failure"
+        },
+        {
+          "op": "replay_check",
+          "at": 3
+        }
+      ],
+      "expected": {
+        "work_status": "failed",
+        "current_attempt_id": "attempt-1",
+        "owner_epoch": 1,
+        "attempt_statuses": [
+          "failed"
+        ],
+        "attempt_epochs": [
+          1
+        ],
+        "attempt_lease_until": [
+          11
+        ],
+        "attempt_eligible_at": [
+          0
+        ],
+        "host_token_epochs": [
+          1,
+          null
+        ],
+        "event_kinds": [
+          "attempt_created",
+          "lease_acquired",
+          "attempt_failed"
+        ],
+        "command_errors": [
+          null,
+          null,
+          null,
+          null
+        ],
+        "replay_match": true
+      }
+    },
+    {
+      "id": "M15-heal-does-not-refresh-stale-token",
+      "tier": "mandatory",
+      "commands": [
+        {
+          "op": "create_work",
+          "at": 0,
+          "max_attempts": 3,
+          "retry_base_ms": 0
+        },
+        {
+          "op": "acquire_lease",
+          "at": 1,
+          "host": "host-a",
+          "lease_ms": 4
+        },
+        {
+          "op": "partition",
+          "at": 2,
+          "host": "host-a"
+        },
+        {
+          "op": "recover_expired",
+          "at": 5,
+          "host": "host-b"
+        },
+        {
+          "op": "acquire_lease",
+          "at": 5,
+          "host": "host-b",
+          "lease_ms": 10
+        },
+        {
+          "op": "heal",
+          "at": 6,
+          "host": "host-a"
+        },
+        {
+          "op": "renew_lease",
+          "at": 7,
+          "host": "host-a",
+          "lease_ms": 10
+        }
+      ],
+      "expected": {
+        "work_status": "running",
+        "current_attempt_id": "attempt-2",
+        "owner_epoch": 3,
+        "attempt_statuses": [
+          "expired",
+          "running"
+        ],
+        "attempt_epochs": [
+          1,
+          3
+        ],
+        "attempt_lease_until": [
+          5,
+          15
+        ],
+        "attempt_eligible_at": [
+          0,
+          5
+        ],
+        "host_token_epochs": [
+          1,
+          3
+        ],
+        "event_kinds": [
+          "attempt_created",
+          "lease_acquired",
+          "lease_expired",
+          "attempt_retried",
+          "lease_acquired"
+        ],
+        "command_errors": [
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          "STALE_FENCE"
+        ],
+        "replay_match": null
+      }
+    },
+    {
+      "id": "M16-total-partition-no-split-brain",
+      "tier": "mandatory",
+      "commands": [
+        {
+          "op": "create_work",
+          "at": 0,
+          "max_attempts": 3,
+          "retry_base_ms": 0
+        },
+        {
+          "op": "partition",
+          "at": 1,
+          "host": "host-a"
+        },
+        {
+          "op": "partition",
+          "at": 1,
+          "host": "host-b"
+        },
+        {
+          "op": "acquire_lease",
+          "at": 2,
+          "host": "host-a",
+          "lease_ms": 10
+        },
+        {
+          "op": "acquire_lease",
+          "at": 2,
+          "host": "host-b",
+          "lease_ms": 10
+        }
+      ],
+      "expected": {
+        "work_status": "pending",
+        "current_attempt_id": "attempt-1",
+        "owner_epoch": 0,
+        "attempt_statuses": [
+          "pending"
+        ],
+        "attempt_epochs": [
+          0
+        ],
+        "attempt_lease_until": [
+          null
+        ],
+        "attempt_eligible_at": [
+          0
+        ],
+        "host_token_epochs": [
+          null,
+          null
+        ],
+        "event_kinds": [
+          "attempt_created"
+        ],
+        "command_errors": [
+          null,
+          null,
+          null,
+          "HOST_PARTITIONED",
+          "HOST_PARTITIONED"
+        ],
+        "replay_match": null
+      }
+    },
+    {
+      "id": "S01-command-before-create",
+      "tier": "supplemental",
+      "commands": [
+        {
+          "op": "acquire_lease",
+          "at": 0,
+          "host": "host-a",
+          "lease_ms": 1
+        },
+        {
+          "op": "create_work",
+          "at": 0,
+          "max_attempts": 1,
+          "retry_base_ms": 0
+        }
+      ],
+      "expected": {
+        "work_status": "pending",
+        "current_attempt_id": "attempt-1",
+        "owner_epoch": 0,
+        "attempt_statuses": [
+          "pending"
+        ],
+        "attempt_epochs": [
+          0
+        ],
+        "attempt_lease_until": [
+          null
+        ],
+        "attempt_eligible_at": [
+          0
+        ],
+        "host_token_epochs": [
+          null,
+          null
+        ],
+        "event_kinds": [
+          "attempt_created"
+        ],
+        "command_errors": [
+          "WORK_NOT_FOUND",
+          null
+        ],
+        "replay_match": null
+      }
+    },
+    {
+      "id": "S02-duplicate-create",
+      "tier": "supplemental",
+      "commands": [
+        {
+          "op": "create_work",
+          "at": 0,
+          "max_attempts": 1,
+          "retry_base_ms": 0
+        },
+        {
+          "op": "create_work",
+          "at": 0,
+          "max_attempts": 1,
+          "retry_base_ms": 0
+        }
+      ],
+      "expected": {
+        "work_status": "pending",
+        "current_attempt_id": "attempt-1",
+        "owner_epoch": 0,
+        "attempt_statuses": [
+          "pending"
+        ],
+        "attempt_epochs": [
+          0
+        ],
+        "attempt_lease_until": [
+          null
+        ],
+        "attempt_eligible_at": [
+          0
+        ],
+        "host_token_epochs": [
+          null,
+          null
+        ],
+        "event_kinds": [
+          "attempt_created"
+        ],
+        "command_errors": [
+          null,
+          "WORK_ALREADY_EXISTS"
+        ],
+        "replay_match": null
+      }
+    },
+    {
+      "id": "S03-no-local-token",
+      "tier": "supplemental",
+      "commands": [
+        {
+          "op": "create_work",
+          "at": 0,
+          "max_attempts": 1,
+          "retry_base_ms": 0
+        },
+        {
+          "op": "acquire_lease",
+          "at": 1,
+          "host": "host-a",
+          "lease_ms": 10
+        },
+        {
+          "op": "renew_lease",
+          "at": 2,
+          "host": "host-b",
+          "lease_ms": 10
+        }
+      ],
+      "expected": {
+        "work_status": "running",
+        "current_attempt_id": "attempt-1",
+        "owner_epoch": 1,
+        "attempt_statuses": [
+          "running"
+        ],
+        "attempt_epochs": [
+          1
+        ],
+        "attempt_lease_until": [
+          11
+        ],
+        "attempt_eligible_at": [
+          0
+        ],
+        "host_token_epochs": [
+          1,
+          null
+        ],
+        "event_kinds": [
+          "attempt_created",
+          "lease_acquired"
+        ],
+        "command_errors": [
+          null,
+          null,
+          "NO_LOCAL_TOKEN"
+        ],
+        "replay_match": null
+      }
+    },
+    {
+      "id": "S04-terminal-success-all-authority-mutations",
+      "tier": "supplemental",
+      "commands": [
+        {
+          "op": "create_work",
+          "at": 0,
+          "max_attempts": 2,
+          "retry_base_ms": 0
+        },
+        {
+          "op": "acquire_lease",
+          "at": 1,
+          "host": "host-a",
+          "lease_ms": 10
+        },
+        {
+          "op": "settle",
+          "at": 2,
+          "host": "host-a",
+          "outcome": "success"
+        },
+        {
+          "op": "cancel",
+          "at": 3,
+          "host": "host-b"
+        },
+        {
+          "op": "acquire_lease",
+          "at": 3,
+          "host": "host-b",
+          "lease_ms": 1
+        },
+        {
+          "op": "renew_lease",
+          "at": 3,
+          "host": "host-a",
+          "lease_ms": 1
+        },
+        {
+          "op": "settle",
+          "at": 3,
+          "host": "host-a",
+          "outcome": "failure"
+        },
+        {
+          "op": "recover_expired",
+          "at": 11,
+          "host": "host-b"
+        }
+      ],
+      "expected": {
+        "work_status": "succeeded",
+        "current_attempt_id": "attempt-1",
+        "owner_epoch": 1,
+        "attempt_statuses": [
+          "succeeded"
+        ],
+        "attempt_epochs": [
+          1
+        ],
+        "attempt_lease_until": [
+          11
+        ],
+        "attempt_eligible_at": [
+          0
+        ],
+        "host_token_epochs": [
+          1,
+          null
+        ],
+        "event_kinds": [
+          "attempt_created",
+          "lease_acquired",
+          "attempt_succeeded"
+        ],
+        "command_errors": [
+          null,
+          null,
+          null,
+          "WORK_TERMINAL",
+          "WORK_TERMINAL",
+          "WORK_TERMINAL",
+          "WORK_TERMINAL",
+          "WORK_TERMINAL"
+        ],
+        "replay_match": null
+      }
+    },
+    {
+      "id": "S05-multiple-retries-monotonic-epochs",
+      "tier": "mandatory",
+      "commands": [
+        {
+          "op": "create_work",
+          "at": 0,
+          "max_attempts": 3,
+          "retry_base_ms": 0
+        },
+        {
+          "op": "acquire_lease",
+          "at": 1,
+          "host": "host-a",
+          "lease_ms": 1
+        },
+        {
+          "op": "recover_expired",
+          "at": 2,
+          "host": "host-b"
+        },
+        {
+          "op": "acquire_lease",
+          "at": 2,
+          "host": "host-b",
+          "lease_ms": 1
+        },
+        {
+          "op": "recover_expired",
+          "at": 3,
+          "host": "host-a"
+        },
+        {
+          "op": "acquire_lease",
+          "at": 3,
+          "host": "host-a",
+          "lease_ms": 5
+        },
+        {
+          "op": "settle",
+          "at": 4,
+          "host": "host-a",
+          "outcome": "success"
+        },
+        {
+          "op": "replay_check",
+          "at": 5
+        }
+      ],
+      "expected": {
+        "work_status": "succeeded",
+        "current_attempt_id": "attempt-3",
+        "owner_epoch": 5,
+        "attempt_statuses": [
+          "expired",
+          "expired",
+          "succeeded"
+        ],
+        "attempt_epochs": [
+          1,
+          3,
+          5
+        ],
+        "attempt_lease_until": [
+          2,
+          3,
+          8
+        ],
+        "attempt_eligible_at": [
+          0,
+          2,
+          3
+        ],
+        "host_token_epochs": [
+          5,
+          3
+        ],
+        "event_kinds": [
+          "attempt_created",
+          "lease_acquired",
+          "lease_expired",
+          "attempt_retried",
+          "lease_acquired",
+          "lease_expired",
+          "attempt_retried",
+          "lease_acquired",
+          "attempt_succeeded"
+        ],
+        "command_errors": [
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "replay_match": true
+      }
+    },
+    {
+      "id": "S06-renewal-at-boundary",
+      "tier": "supplemental",
+      "commands": [
+        {
+          "op": "create_work",
+          "at": 0,
+          "max_attempts": 2,
+          "retry_base_ms": 0
+        },
+        {
+          "op": "acquire_lease",
+          "at": 1,
+          "host": "host-a",
+          "lease_ms": 4
+        },
+        {
+          "op": "renew_lease",
+          "at": 5,
+          "host": "host-a",
+          "lease_ms": 4
+        }
+      ],
+      "expected": {
+        "work_status": "running",
+        "current_attempt_id": "attempt-1",
+        "owner_epoch": 1,
+        "attempt_statuses": [
+          "running"
+        ],
+        "attempt_epochs": [
+          1
+        ],
+        "attempt_lease_until": [
+          5
+        ],
+        "attempt_eligible_at": [
+          0
+        ],
+        "host_token_epochs": [
+          1,
+          null
+        ],
+        "event_kinds": [
+          "attempt_created",
+          "lease_acquired"
+        ],
+        "command_errors": [
+          null,
+          null,
+          "LEASE_EXPIRED"
+        ],
+        "replay_match": null
+      }
+    },
+    {
+      "id": "S07-cancel-without-token",
+      "tier": "supplemental",
+      "commands": [
+        {
+          "op": "create_work",
+          "at": 0,
+          "max_attempts": 2,
+          "retry_base_ms": 0
+        },
+        {
+          "op": "cancel",
+          "at": 1,
+          "host": "host-b"
+        },
+        {
+          "op": "replay_check",
+          "at": 2
+        }
+      ],
+      "expected": {
+        "work_status": "cancelled",
+        "current_attempt_id": "attempt-1",
+        "owner_epoch": 0,
+        "attempt_statuses": [
+          "cancelled"
+        ],
+        "attempt_epochs": [
+          0
+        ],
+        "attempt_lease_until": [
+          null
+        ],
+        "attempt_eligible_at": [
+          0
+        ],
+        "host_token_epochs": [
+          null,
+          null
+        ],
+        "event_kinds": [
+          "attempt_created",
+          "attempt_cancelled"
+        ],
+        "command_errors": [
+          null,
+          null,
+          null
+        ],
+        "replay_match": true
+      }
+    },
+    {
+      "id": "S08-partitioned-authority-operation-family",
+      "tier": "supplemental",
+      "commands": [
+        {
+          "op": "create_work",
+          "at": 0,
+          "max_attempts": 2,
+          "retry_base_ms": 0
+        },
+        {
+          "op": "acquire_lease",
+          "at": 1,
+          "host": "host-a",
+          "lease_ms": 4
+        },
+        {
+          "op": "partition",
+          "at": 2,
+          "host": "host-a"
+        },
+        {
+          "op": "renew_lease",
+          "at": 2,
+          "host": "host-a",
+          "lease_ms": 2
+        },
+        {
+          "op": "settle",
+          "at": 2,
+          "host": "host-a",
+          "outcome": "success"
+        },
+        {
+          "op": "recover_expired",
+          "at": 5,
+          "host": "host-a"
+        },
+        {
+          "op": "cancel",
+          "at": 5,
+          "host": "host-a"
+        },
+        {
+          "op": "heal",
+          "at": 6,
+          "host": "host-a"
+        },
+        {
+          "op": "recover_expired",
+          "at": 6,
+          "host": "host-a"
+        }
+      ],
+      "expected": {
+        "work_status": "pending",
+        "current_attempt_id": "attempt-2",
+        "owner_epoch": 2,
+        "attempt_statuses": [
+          "expired",
+          "pending"
+        ],
+        "attempt_epochs": [
+          1,
+          2
+        ],
+        "attempt_lease_until": [
+          5,
+          null
+        ],
+        "attempt_eligible_at": [
+          0,
+          6
+        ],
+        "host_token_epochs": [
+          1,
+          null
+        ],
+        "event_kinds": [
+          "attempt_created",
+          "lease_acquired",
+          "lease_expired",
+          "attempt_retried"
+        ],
+        "command_errors": [
+          null,
+          null,
+          null,
+          "HOST_PARTITIONED",
+          "HOST_PARTITIONED",
+          "HOST_PARTITIONED",
+          "HOST_PARTITIONED",
+          null,
+          null
+        ],
+        "replay_match": null
+      }
+    }
+  ],
+  "validation_controls": [
+    {
+      "id": "V01-nonmonotonic-time",
+      "raw": "{\"profile\":\"meshfleet.a2a.two-host-coordinator.v0.1\",\"scenario_id\":\"v01\",\"work_id\":\"work\",\"commands\":[{\"op\":\"create_work\",\"at\":2,\"max_attempts\":1,\"retry_base_ms\":0},{\"op\":\"replay_check\",\"at\":1}]}",
+      "error_code": "NON_MONOTONIC_TIME",
+      "error_path": "$.commands[1].at"
+    },
+    {
+      "id": "V02-unknown-third-host",
+      "raw": "{\"profile\":\"meshfleet.a2a.two-host-coordinator.v0.1\",\"scenario_id\":\"v02\",\"work_id\":\"work\",\"commands\":[{\"op\":\"cancel\",\"at\":0,\"host\":\"host-c\"}]}",
+      "error_code": "UNKNOWN_HOST",
+      "error_path": "$.commands[0].host"
+    },
+    {
+      "id": "V03-unknown-field",
+      "raw": "{\"profile\":\"meshfleet.a2a.two-host-coordinator.v0.1\",\"scenario_id\":\"v03\",\"work_id\":\"work\",\"commands\":[{\"op\":\"replay_check\",\"at\":0,\"extra\":true}]}",
+      "error_code": "UNKNOWN_FIELD",
+      "error_path": "$.commands[0].extra"
+    },
+    {
+      "id": "V04-invalid-scenario-profile",
+      "raw": "{\"profile\":\"wrong\",\"scenario_id\":\"v04\",\"work_id\":\"work\",\"commands\":[{\"op\":\"replay_check\",\"at\":0}]}",
+      "error_code": "INVALID_SCENARIO",
+      "error_path": "$.profile"
+    },
+    {
+      "id": "V05-missing-root-field",
+      "raw": "{\"profile\":\"meshfleet.a2a.two-host-coordinator.v0.1\",\"scenario_id\":\"v05\",\"work_id\":\"work\"}",
+      "error_code": "MISSING_FIELD",
+      "error_path": "$.commands"
+    },
+    {
+      "id": "V06-unknown-operation",
+      "raw": "{\"profile\":\"meshfleet.a2a.two-host-coordinator.v0.1\",\"scenario_id\":\"v06\",\"work_id\":\"work\",\"commands\":[{\"op\":\"explode\",\"at\":0}]}",
+      "error_code": "UNKNOWN_OP",
+      "error_path": "$.commands[0].op"
+    },
+    {
+      "id": "V07-invalid-command-field",
+      "raw": "{\"profile\":\"meshfleet.a2a.two-host-coordinator.v0.1\",\"scenario_id\":\"v07\",\"work_id\":\"work\",\"commands\":[]}",
+      "error_code": "INVALID_FIELD",
+      "error_path": "$.commands"
+    },
+    {
+      "id": "V08-depth-limit",
+      "nested_array_depth": 64,
+      "error_code": "DEPTH_LIMIT",
+      "error_path": "$"
+    }
+  ],
+  "parser_controls": [
+    {
+      "id": "P01-malformed",
+      "raw": "{",
+      "error_code": "MALFORMED_JSON"
+    },
+    {
+      "id": "P02-duplicate-member",
+      "raw": "{\"profile\":\"meshfleet.a2a.two-host-coordinator.v0.1\",\"profile\":\"x\"}",
+      "error_code": "DUPLICATE_MEMBER"
+    },
+    {
+      "id": "P03-negative-zero",
+      "raw": "{\"at\":-0}",
+      "error_code": "NON_CANONICAL_INTEGER"
+    },
+    {
+      "id": "P04-decimal",
+      "raw": "{\"at\":1.0}",
+      "error_code": "NON_CANONICAL_INTEGER"
+    },
+    {
+      "id": "P05-exponent",
+      "raw": "{\"at\":1e0}",
+      "error_code": "NON_CANONICAL_INTEGER"
+    },
+    {
+      "id": "P06-unsafe-integer",
+      "raw": "{\"at\":9007199254740992}",
+      "error_code": "UNSAFE_INTEGER"
+    },
+    {
+      "id": "P07-trailing-data",
+      "raw": "{}x",
+      "error_code": "MALFORMED_JSON"
+    },
+    {
+      "id": "P08-non-json-whitespace",
+      "raw": " {}",
+      "error_code": "MALFORMED_JSON"
+    },
+    {
+      "id": "P09-lone-surrogate",
+      "raw": "{\"x\":\"\\ud800\"}",
+      "error_code": "MALFORMED_JSON"
+    },
+    {
+      "id": "P10-invalid-scalar-precedes-duplicate",
+      "raw": "{\"x\":1,\"x\":1.0}",
+      "error_code": "NON_CANONICAL_INTEGER"
+    },
+    {
+      "id": "P11-invalid-utf8-byte",
+      "raw_base64": "/w==",
+      "error_code": "INVALID_UTF8"
+    },
+    {
+      "id": "P12-duplicate-precedes-postparse-depth",
+      "raw": "{\"x\":[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[0]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]],\"x\":0}",
+      "error_code": "DUPLICATE_MEMBER"
+    },
+    {
+      "id": "P13-duplicate-precedes-postparse-surrogate",
+      "raw": "{\"x\":\"\\ud800\",\"x\":0}",
+      "error_code": "DUPLICATE_MEMBER"
+    },
+    {
+      "id": "P14-recursion-independent-duplicate-precedence",
+      "raw": "{\"x\":[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[0]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]],\"x\":0}",
+      "error_code": "DUPLICATE_MEMBER"
+    }
+  ]
+}

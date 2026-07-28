@@ -1,0 +1,149 @@
+{
+  "profile": "meshfleet.a2a.two-host-coordinator.v0.1",
+  "maturity": "offline-reference-conformance-only",
+  "operation": "evaluate_two_host_scenario",
+  "hosts": [
+    "host-a",
+    "host-b"
+  ],
+  "authority": "one-modeled-shared-authority",
+  "limits": {
+    "max_utf8_bytes": 131072,
+    "max_depth": 64,
+    "max_commands": 128,
+    "safe_integer_max": 9007199254740991,
+    "max_attempts": 32
+  },
+  "time": {
+    "source": "explicit-command-input-only",
+    "domain": "canonical nonnegative safe integer",
+    "ordering": "nondecreasing; array order breaks equal-time ties",
+    "lease_interval": "[acquired_at, lease_until)"
+  },
+  "canonicalization": {
+    "object_key_order": "Unicode code-point order",
+    "jcs_compatible": false,
+    "note": "The independent witnesses deliberately use code-point order. No RFC 8785 or JCS claim is made."
+  },
+  "commands": [
+    "create_work",
+    "acquire_lease",
+    "renew_lease",
+    "settle",
+    "cancel",
+    "recover_expired",
+    "partition",
+    "heal",
+    "replay_check"
+  ],
+  "work_states": [
+    "pending",
+    "running",
+    "succeeded",
+    "failed",
+    "cancelled"
+  ],
+  "attempt_states": [
+    "pending",
+    "running",
+    "expired",
+    "succeeded",
+    "failed",
+    "cancelled"
+  ],
+  "terminal_work_states": [
+    "succeeded",
+    "failed",
+    "cancelled"
+  ],
+  "event_kinds": [
+    "attempt_created",
+    "lease_acquired",
+    "lease_expired",
+    "attempt_retried",
+    "attempt_succeeded",
+    "attempt_failed",
+    "attempt_cancelled"
+  ],
+  "runtime_rejections": [
+    "HOST_PARTITIONED",
+    "WORK_NOT_FOUND",
+    "WORK_ALREADY_EXISTS",
+    "WORK_TERMINAL",
+    "NOT_LEASEABLE",
+    "NOT_ELIGIBLE",
+    "NO_LOCAL_TOKEN",
+    "STALE_FENCE",
+    "LEASE_EXPIRED",
+    "NOT_RUNNING",
+    "NOT_EXPIRED",
+    "TIME_OVERFLOW",
+    "RETRY_TIME_OVERFLOW"
+  ],
+  "validation_errors": [
+    "INVALID_UTF8",
+    "MALFORMED_JSON",
+    "DUPLICATE_MEMBER",
+    "NON_CANONICAL_INTEGER",
+    "UNSAFE_INTEGER",
+    "DEPTH_LIMIT",
+    "INVALID_SCENARIO",
+    "MISSING_FIELD",
+    "UNKNOWN_FIELD",
+    "UNKNOWN_OP",
+    "UNKNOWN_HOST",
+    "INVALID_FIELD",
+    "NON_MONOTONIC_TIME"
+  ],
+  "invariants": [
+    "Exactly host-a and host-b exist; reachability is only host-to-authority.",
+    "The modeled authority is the only source of authoritative work, attempt, epoch, lease, and event state.",
+    "A host token is only the cached result of its last accepted acquire or renew; heal never refreshes it.",
+    "Partitioned host-bound authority commands reject before revealing work or fence state and mutate nothing.",
+    "Owner epochs strictly increase on acquire_lease and retry-attempt creation; renew_lease preserves the current epoch.",
+    "Renewal and settlement require the current attempt, host, epoch, and an unexpired half-open lease.",
+    "Cancellation is reachable-control-plane authority and requires no lease token.",
+    "Terminal work never reopens.",
+    "Recovery is explicit and accepts only at or after lease_until.",
+    "A retry receives a distinct attempt_id and a new epoch before a later acquisition receives another new epoch.",
+    "Retry and lease arithmetic is checked before any state or event mutation.",
+    "Rejected commands append no event and leave authority, hosts, and events byte-identical.",
+    "Accepted authority mutations append dense sequence events; partition, heal, and replay_check are accepted simulation controls without authority events.",
+    "Event replay reconstructs internally generated authority state only; it is not an external event-ingestion or tamper-validation API.",
+    "Runner receipts bind each complete case output and are checked against a package manifest whose SHA-256 must be supplied by an external acceptance holder; receipt-tamper detection is separate from authority replay.",
+    "Every normalized parser or validation control binds the SHA-256 of its exact input bytes in the externally anchored package manifest."
+  ],
+  "mandatory_case_ids": [
+    "M01-basic-renew-success-replay",
+    "M02-equal-time-first-acquire-wins",
+    "M03-partition-drops-authority-command",
+    "M04-stale-settlement-fenced-after-recovery",
+    "M05-stale-renewal-fenced",
+    "M06-exact-lease-boundary-rejects-settlement",
+    "M07-recovery-before-and-at-boundary",
+    "M08-failure-retry-eligibility-and-distinct-identity",
+    "M09-retry-time-overflow-preflight",
+    "M10-lease-time-overflow-preflight",
+    "M11-cancellation-finality",
+    "M12-partitioned-cancel-rejected-then-connected-cancel",
+    "M13-max-attempt-expiry-terminal",
+    "M14-max-attempt-failure-terminal",
+    "M15-heal-does-not-refresh-stale-token",
+    "M16-total-partition-no-split-brain",
+    "S05-multiple-retries-monotonic-epochs"
+  ],
+  "non_claims": [
+    "No network, socket, transport, process, runtime, provider, credential, authentication, or authorization implementation.",
+    "No real clock, clock synchronization, datastore, consensus, leader election, quorum, availability, or partition-tolerance proof.",
+    "No production multi-host coordinator, shared-SQLite safety, remote ownership, delivery, execution, or exactly-once side-effect claim.",
+    "No MCP tool, public ingress, activation, deployment, publication, merge, or release authority.",
+    "The package-local manifest is not an immutable provenance anchor by itself; acceptance requires its SHA-256 from a separately held receipt."
+  ],
+  "validation_precedence": [
+    "Raw byte inputs are size-checked, then decoded as fatal UTF-8; invalid byte sequences reject as INVALID_UTF8.",
+    "A recursion-independent structural scan checks JSON syntax and numeric scalar tokens while parsing every object value.",
+    "Duplicate members reject when an object closes, before post-scan nesting-depth and Unicode-scalar validation.",
+    "Nesting depth and Unicode scalar validity are checked after the complete JSON value structurally scans without duplicate members and before bounded native decoding.",
+    "Scenario schema and command ordering validation run only after strict JSON parsing succeeds."
+  ]
+}
