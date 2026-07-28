@@ -1,0 +1,125 @@
+{
+  "profile": "meshfleet.a2a.policy-replay.v0.1",
+  "operation": "evaluate_policy_replay_scenario",
+  "maturity": "offline-reference-conformance-only",
+  "model": {
+    "authority": "one modeled deterministic policy authority",
+    "namespace_cardinality": 1,
+    "snapshot": "immutable for one scenario",
+    "labels": "opaque Unicode scalar sequences, never identity or credential proof",
+    "nonce_scope": "global within the modeled namespace",
+    "decision_effect": "records an offline decision receipt only; performs no requested action"
+  },
+  "limits": {
+    "max_utf8_bytes": 131072,
+    "max_depth": 64,
+    "max_actions": 128,
+    "max_rules": 128,
+    "max_capabilities": 64,
+    "max_label_utf8_bytes": 256,
+    "safe_integer_max": 9007199254740991
+  },
+  "effects": ["allow", "deny"],
+  "outcomes": ["decided", "replayed", "rejected"],
+  "decision_reason_precedence": [
+    "REVOCATION_EPOCH_STALE",
+    "NAMESPACE_MISMATCH",
+    "DENY_RULE",
+    "ALLOW_RULE",
+    "CAPABILITY_MISSING",
+    "NOT_YET_VALID",
+    "EXPIRED",
+    "NO_MATCH"
+  ],
+  "runtime_error_precedence": [
+    "NONCE_REPLAY_CONFLICT",
+    "POLICY_EPOCH_AHEAD"
+  ],
+  "parser_errors": [
+    "SIZE_LIMIT",
+    "INVALID_UTF8",
+    "MALFORMED_JSON",
+    "DUPLICATE_MEMBER",
+    "NON_CANONICAL_INTEGER",
+    "UNSAFE_INTEGER",
+    "INVALID_UNICODE",
+    "DEPTH_LIMIT"
+  ],
+  "validation_errors": [
+    "INVALID_SCENARIO",
+    "PROFILE_REJECT",
+    "MISSING_FIELD",
+    "UNKNOWN_FIELD",
+    "INVALID_FIELD",
+    "DUPLICATE_RULE",
+    "DUPLICATE_CAPABILITY",
+    "LIMIT_EXCEEDED"
+  ],
+  "semantics": {
+    "rule_selector": "principal, resource, and action selectors are exact labels or the reserved wildcard *",
+    "capabilities": "all required capability labels must be present; action order is irrelevant but duplicate labels reject",
+    "time": "not_before is inclusive and expires_at is exclusive; timestamps are explicit safe integers while action-list order is authoritative and timestamps need not be monotonic",
+    "namespace": "an action namespace unequal to the immutable policy namespace receives a recorded denial before rule matching",
+    "deny_overrides": "any fully matching deny rule wins over every fully matching allow rule",
+    "default_deny": "absence of a fully matching allow rule always denies",
+    "diagnostics": "when no rule fully matches, capability, not-before, expiry, then no-match reasons apply in that order",
+    "revocation": "policy_epoch below the snapshot epoch is a recorded denial; policy_epoch above it is a rejection without nonce consumption",
+    "first_use": "a structurally valid unseen nonce records the resulting allow or deny decision",
+    "exact_retry": "same nonce and byte-equivalent canonical request content returns the stored decision as an accepted no-op",
+    "conflict": "same nonce with different canonical request content rejects before policy evaluation and mutates nothing",
+    "rejection": "every rejected action has byte-identical pre-state and post-state digests"
+  },
+  "canonical_request_identity": [
+    "request_id",
+    "nonce",
+    "namespace",
+    "principal",
+    "resource",
+    "action",
+    "capabilities sorted by Unicode scalar order",
+    "policy_epoch",
+    "at",
+    "policy snapshot_id"
+  ],
+  "canonical_json": {
+    "encoding": "UTF-8",
+    "object_keys": "lexicographic Unicode scalar-value order",
+    "whitespace": "none",
+    "numbers": "safe integers only; floats, exponent forms, negative zero, and non-finite values reject",
+    "strings": "valid Unicode scalar values only; no normalization or locale folding",
+    "objects": "duplicate decoded member names reject"
+  },
+  "invariants": [
+    "the policy snapshot is immutable during a scenario",
+    "nonce scope is global within the modeled namespace",
+    "receipt and event sequences are dense and append-only",
+    "one first-use receipt exists per consumed nonce",
+    "a recorded decision can be allow or deny",
+    "exact retries preserve the stored decision and mutate nothing",
+    "conflicting retries and future-epoch claims mutate nothing",
+    "a conflicting retry cannot overwrite or free a consumed nonce",
+    "matching deny rules override matching allow rules",
+    "diagnostic rule IDs use Unicode scalar ordering, never locale or UTF-16 code-unit ordering"
+  ],
+  "generated_differential": {
+    "seed": "0x51a4c0de",
+    "parser_cases": 30,
+    "generated_scenarios": 300,
+    "requirements": [
+      "JavaScript and Python parser classifications agree",
+      "JavaScript and Python complete scenario receipts are byte-identical",
+      "rejected and replayed actions preserve state digests",
+      "event and receipt sequences remain dense",
+      "every event corresponds to one first-use receipt"
+    ]
+  },
+  "non_claims": [
+    "no actor identity proof, authentication, credential, capability-token, signature, MAC, hash-proof, or trust-root validity",
+    "no durable nonce store, durable receipt store, production replay protection, or crash recovery",
+    "no transport, delivery, channel security, routing, provider, process, clock, or runtime execution behavior",
+    "no policy distribution, policy administration, production authorization, IAM, or enforcement claim",
+    "no database, consensus, federation, availability, partition tolerance, or multi-authority agreement",
+    "no compatibility claim for every current Meshfleet implementation detail",
+    "no merge, publication, deployment, activation, or release authority"
+  ]
+}
