@@ -57,16 +57,14 @@ test("legacy spawn retries retain the selected model argv", async () => {
   const binDir = join(dir, "bin");
   const isWindows = process.platform === "win32";
   const opencodePath = join(binDir, isWindows ? "opencode.exe" : "opencode");
-  const preloadPath = join(binDir, "opencode-preload.cjs");
   let server: ChildProcess | undefined;
 
   try {
     mkdirSync(binDir, { recursive: true });
-    const stubBody = `
+    const writeInvocation = `
 const fs = require("node:fs");
 const log = process.env.OPENCODE_ARGV_LOG;
 if (!log) process.exit(2);
-const argv = process.argv.slice(${isWindows ? 1 : 2});
 fs.appendFileSync(log, JSON.stringify(argv) + "\\n");
 // Parseable banner with a DIFFERENT model so classification fails closed and
 // the legacy retry path fires, while still proving argv selection.
@@ -75,29 +73,31 @@ process.exit(1);
 `;
     if (isWindows) {
       // OpenCode's Windows package exposes a native opencode.exe. Copy Node's
-      // native executable to emulate that launch shape without shell:true;
-      // the preload records argv and exits before Node tries to load "run".
+      // native executable to emulate that launch shape without shell:true.
+      // `opencode.exe run ...` makes Node execute the temporary `run` script,
+      // which proves the adapter supplied that first argv element as well as
+      // the selected model on each retry.
       writeFileSync(
-        preloadPath,
-        `const { basename } = require("node:path");
-if (basename(process.execPath).toLowerCase() === "opencode.exe") {
-${stubBody}
-}
-`,
+        join(dir, "run"),
+        `const argv = ["run", ...process.argv.slice(2)];\n${writeInvocation}`,
       );
       copyFileSync(process.execPath, opencodePath);
     } else {
-      writeFileSync(opencodePath, `#!/usr/bin/env node\n${stubBody}`, { mode: 0o755 });
+      writeFileSync(
+        opencodePath,
+        `#!/usr/bin/env node\nconst argv = process.argv.slice(2);\n${writeInvocation}`,
+        { mode: 0o755 },
+      );
       chmodSync(opencodePath, 0o755);
     }
 
-    server = spawn("node", [join(repoRoot, "dist", "index.js")], {
+    server = spawn(process.execPath, [join(repoRoot, "dist", "index.js")], {
+      // On Windows the copied native executable consumes `run` as its script
+      // path, mirroring the real command shape without a shell or preload.
+      cwd: isWindows ? dir : undefined,
       env: {
         ...process.env,
         PATH: `${binDir}${delimiter}${process.env.PATH ?? ""}`,
-        ...(isWindows
-          ? { NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --require="${preloadPath}"`.trim() }
-          : {}),
         OPENCODE_ARGV_LOG: argvLog,
         MESHFLEET_DB_FILE: join(dir, "l.db"),
         MESHFLEET_DATA_FILE: join(dir, "l.json"),
