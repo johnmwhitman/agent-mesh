@@ -71,6 +71,12 @@ fuzz differentials (lifecycle-terminal + two-host-coordinator), wire fault expan
 
 ## Scars (what cost real time)
 
+- **Discussion corpus requires ops-from-baseline format.** The corpus test (`test/corpus.test.ts`)
+  checks minimality: each fixture must equal `baseline + ops`. Standalone fixture files fail
+  the check even when their findings are correct. The 12 discussion fixtures are stashed
+  (`git stash list`). To land them: express each as ops that ADD discussion messages/receipts
+  to the existing baseline, which already carries fleets/agents. The generator, manifest entries,
+  and README update are all correct — only the ops format is missing
 - **Auto-conflict resolution is fragile.** Produced duplicate lines and orphaned braces.
   Lesson: restore main and re-apply branch additions by hand
 - **Subsumed branches are invisible until you diff.** Always diff vs main first
