@@ -327,7 +327,30 @@ test("OpenCode adapter accepts a requested model matching the observed banner", 
   assert.equal(result.identity.model, "anthropic/claude-sonnet-4");
 });
 
-test("OpenCode adapter default argv omits the requested model while mismatch remains fail-closed", async () => {
+test("OpenCode adapter accepts a provider-stripped multi-segment Kilo banner", async () => {
+  const adapter = new OpenCodeRuntimeAdapter({
+    command: process.execPath,
+    spawnProcess: (_command, _args, options) => spawn(
+      process.execPath,
+      [
+        "-e",
+        "process.stdout.write('OK\\n'); process.stderr.write('> oracle · kilo-auto/free\\n')",
+      ],
+      options,
+    ),
+  });
+
+  const result = await execute(adapter, spec({
+    requestedAgent: "oracle",
+    requestedModel: "kilo/kilo-auto/free",
+  }));
+
+  assert.equal(result.status, "success");
+  assert.equal(result.identity.model, "kilo-auto/free");
+  assert.equal(result.identity.evidence, "observed");
+});
+
+test("OpenCode adapter default argv selects the requested model while mismatch remains fail-closed", async () => {
   let observedArgs: string[] | undefined;
   const adapter = new OpenCodeRuntimeAdapter({
     command: process.execPath,
@@ -344,9 +367,33 @@ test("OpenCode adapter default argv omits the requested model while mismatch rem
   }));
 
   assert.equal(result.status, "failure");
+  assert.deepEqual(observedArgs, [
+    "run",
+    "--model",
+    "openai/gpt-5",
+    "--agent",
+    "oracle",
+    "review",
+  ]);
+});
+
+test("OpenCode adapter default argv omits --model when no model is requested", async () => {
+  let observedArgs: string[] | undefined;
+  const adapter = new OpenCodeRuntimeAdapter({
+    command: process.execPath,
+    spawnProcess: (_command, args, options) => {
+      observedArgs = [...args];
+      return spawn(process.execPath, [FIXTURE, "opencode", "review"], options);
+    },
+  });
+
+  await execute(adapter, spec({
+    prompt: "review",
+    requestedAgent: "oracle",
+  }));
+
   assert.deepEqual(observedArgs, ["run", "--agent", "oracle", "review"]);
   assert.equal(observedArgs?.includes("--model"), false);
-  assert.equal(observedArgs?.includes("openai/gpt-5"), false);
 });
 
 test("runtime adapters reject invalid execution specs before launch", async () => {

@@ -50,11 +50,13 @@ export const AGENT_SPAWN_STDIO: AgentSpawnStdio = ["ignore", "pipe", "pipe"];
 export interface RunArgsInput {
   prompt: string;
   agentFile?: string;
+  requestedModel?: string;
 }
 
-/** Build argv for `opencode run [--agent <file>] <prompt>`. */
+/** Build argv for `opencode run [--model <id>] [--agent <file>] <prompt>`. */
 export function buildRunArgs(input: RunArgsInput): string[] {
   const runArgs: string[] = ["run"];
+  if (input.requestedModel !== undefined) runArgs.push("--model", input.requestedModel);
   if (input.agentFile) runArgs.push("--agent", input.agentFile);
   runArgs.push(input.prompt);
   return runArgs;

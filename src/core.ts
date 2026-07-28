@@ -22,6 +22,12 @@ export interface Agent {
   role: string;
   prompt: string;
   agent_file?: string;
+  /**
+   * Immutable request evidence for the public `model` selector. Written when
+   * the Agent row is registered; never inferred from Capability.model or
+   * rewritten from observed runtime_model.
+   */
+  requested_model?: string;
   pid?: number;
   status: "pending" | "running" | "complete" | "failed" | "interrupted";
   output?: string;

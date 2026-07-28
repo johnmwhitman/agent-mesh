@@ -1,4 +1,4 @@
-/** Provider-neutral execution contracts. Requested model is routing input only. */
+/** Provider-neutral execution contracts. Requested model is an execution selection input, not runtime identity or attestation. */
 
 export type RuntimeEvidenceLevel = "none" | "reported" | "observed" | "attested";
 export type RuntimeStatus = "success" | "failure" | "cancelled" | "timeout";
@@ -9,7 +9,13 @@ export interface ExecutionSpec {
   prompt: string;
   role?: string;
   requestedAgent?: string;
-  /** Routing input only. Never use this as runtime identity or attestation. */
+  /**
+   * Optional execution selection. Public `model` on `spawn_fleet` / `attach_agent`
+   * is wired through here as one argv element (`opencode run --model <value>`).
+   * It is a caller-supplied execution input, not runtime identity, authentication,
+   * billing evidence, or attestation. Observed banner evidence lives in the
+   * runtime's `RuntimeIdentity.model` and `Agent.runtime_model`.
+   */
   requestedModel?: string;
   cwd: string;
   /** Explicit child environment. Adapters decide whether to inherit host values. */

@@ -240,6 +240,15 @@ const V: Vector[] = [
   { id: "ratification-invalid-quorum", primary: "ratification.invalid_quorum", classification: "caught",
     lie: "quorum is 0, so RATIFIED recomputes as fully supported over zero ballots — the status mismatch that would otherwise warn becomes completely silent",
     ops: [{ op: "set", path: "ratifications|m2|quorum", value: 0 }] },
+  { id: "agent-requested-model-unobserved", primary: "agent.requested_model_unobserved", classification: "caught",
+    lie: "a complete agent row carries a persisted `requested_model` selection but its observed `runtime_model` banner is absent — the selection's claim that this agent ran under the requested model rests on no banner capture",
+    ops: [{ op: "set", path: "agents|a2|requested_model", value: "opencode-go/minimax-m3" }] },
+  { id: "agent-requested-model-mismatch", primary: "agent.requested_model_mismatch", classification: "caught",
+    lie: "a complete agent row records a `requested_model` whose observed `runtime_model` is a different model — the selection and the captured banner contradict each other under the same runtimeModelsMatch() rule the spawn classifier uses",
+    ops: [
+      { op: "set", path: "agents|a2|requested_model", value: "opencode-go/minimax-m3" },
+      { op: "set", path: "agents|a2|runtime_model", value: "openai/gpt-5" },
+    ] },
 
   // ===================== UNDETECTABLE: the honest boundary (ZERO findings) =====================
   { id: "undetectable-forged-seen-receipt", primary: "", classification: "undetectable",

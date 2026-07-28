@@ -77,6 +77,7 @@ import {
   requireBoolean,
   optionalBoolean,
   optionalNonBlankString,
+  optionalModelSelector,
   requireNumber,
   optionalNumber,
   requireStringArray,
@@ -112,6 +113,7 @@ interface SpawnAgentInput {
   role: string;
   prompt: string;
   agentFile?: string;
+  requestedModel?: string;
 }
 
 const runtimeAdapter = getDefaultRuntimeAdapter();
@@ -128,6 +130,7 @@ function trySpawn(input: SpawnAgentInput, agentId: string, attempt: number): voi
     role: input.role,
     prompt: input.prompt,
     requestedAgent: input.agentFile,
+    requestedModel: input.requestedModel,
     cwd: process.cwd(),
     timeoutMs: runtimeAdapter.describe().defaultTimeoutMs,
   };
@@ -246,6 +249,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
                   type: "string",
                   description:
                     "Premade agent filename stem (e.g. 'frontend-developer'). See list_agents.",
+                },
+                model: {
+                  type: "string",
+                  description:
+                    "Optional OpenCode model selector as provider/model (e.g. 'opencode-go/minimax-m3').",
                 },
               },
               required: ["role", "prompt"],
@@ -877,6 +885,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
             type: "string",
             description: "Premade agent filename stem (e.g. 'frontend-developer').",
           },
+          model: {
+            type: "string",
+            description:
+              "Optional OpenCode model selector as provider/model (e.g. 'opencode-go/minimax-m3').",
+          },
         },
         required: ["fleet_id", "role", "prompt"],
       },
@@ -1091,7 +1104,9 @@ const toolHandlers: Record<
 > = {};
 
 toolHandlers["spawn_fleet"] = async (args) => {
-    const { agents } = args as { agents: { role: string; prompt: string; agent?: string }[] };
+    const { agents } = args as {
+      agents: { role: string; prompt: string; agent?: string; model?: string }[];
+    };
     // The published schema declares agents[] items with REQUIRED string role and
     // prompt, and the MCP SDK enforces neither `required` nor `type`. Without this
     // the blind cast above let `{"agents":[{"role":"reviewer"}]}` return a normal
@@ -1110,6 +1125,7 @@ toolHandlers["spawn_fleet"] = async (args) => {
         a?.agent === undefined
           ? null
           : requireString("spawn_fleet", `agents[${i}].agent`, a.agent),
+        optionalModelSelector("spawn_fleet", `agents[${i}].model`, a?.model),
       ]),
     );
     if (badAgent) return jsonError(badAgent);
@@ -1119,6 +1135,7 @@ toolHandlers["spawn_fleet"] = async (args) => {
       role: a.role,
       prompt: a.prompt,
       agent: a.agent,
+      model: a.model,
     }));
 
     let lifecycleMode;
@@ -1129,7 +1146,14 @@ toolHandlers["spawn_fleet"] = async (args) => {
     }
     if (lifecycleMode === "durable") {
       try {
-        lifecycleCoordinator.createFleet(fleetId, specs.map((s) => ({ fleetId, agentId: s.agentId, role: s.role, prompt: s.prompt, agentFile: s.agent })));
+        lifecycleCoordinator.createFleet(fleetId, specs.map((s) => ({
+          fleetId,
+          agentId: s.agentId,
+          role: s.role,
+          prompt: s.prompt,
+          agentFile: s.agent,
+          requestedModel: s.model,
+        })));
       } catch (err) {
         // Durable mode is fail-closed: do not fall back to legacy spawning.
         return jsonError(err instanceof Error ? err.message : String(err));
@@ -1151,6 +1175,7 @@ toolHandlers["spawn_fleet"] = async (args) => {
           role: s.role,
           prompt: s.prompt,
           agent_file: s.agent,
+          requested_model: s.model,
           status: "running",
           started_at: Date.now(),
         });
@@ -1162,7 +1187,13 @@ toolHandlers["spawn_fleet"] = async (args) => {
 
     // Phase 2 — spawn each child after commit; per-child pid write-back is in trySpawn.
     for (const s of specs) {
-      trySpawn({ fleetId, role: s.role, prompt: s.prompt, agentFile: s.agent }, s.agentId, 1);
+      trySpawn({
+        fleetId,
+        role: s.role,
+        prompt: s.prompt,
+        agentFile: s.agent,
+        requestedModel: s.model,
+      }, s.agentId, 1);
       appendEvent("agent_spawned", { fleet_id: fleetId, agent_id: s.agentId, role: s.role, agent_file: s.agent });
       if (s.agent) autoRegisterFromAgent(s.agentId, fleetId, s.agent);
     }
@@ -1680,11 +1711,12 @@ toolHandlers["list_agents"] = async (args) => {
 };
 
 toolHandlers["attach_agent"] = async (args) => {
-    const { fleet_id, role, prompt, agent } = args as {
+    const { fleet_id, role, prompt, agent, model } = args as {
       fleet_id: string;
       role: string;
       prompt: string;
       agent?: string;
+      model?: string;
     };
     // Same unenforced-contract hole as spawn_fleet, and attach_agent also spawns.
     // It is additionally the ONLY in-place path that reopens an `abandoned` fleet,
@@ -1695,6 +1727,7 @@ toolHandlers["attach_agent"] = async (args) => {
       requireString("attach_agent", "role", role),
       requireString("attach_agent", "prompt", prompt),
       agent === undefined ? null : requireString("attach_agent", "agent", agent),
+      optionalModelSelector("attach_agent", "model", model),
     );
     if (badAttach) return jsonError(badAttach);
     const agentId = randomUUID();
@@ -1705,7 +1738,14 @@ toolHandlers["attach_agent"] = async (args) => {
       return jsonError(err instanceof Error ? err.message : String(err));
     }
     if (lifecycleMode === "durable") {
-      const check = lifecycleCoordinator.attachAgent({ fleetId: fleet_id, agentId, role, prompt, agentFile: agent });
+      const check = lifecycleCoordinator.attachAgent({
+        fleetId: fleet_id,
+        agentId,
+        role,
+        prompt,
+        agentFile: agent,
+        requestedModel: model,
+      });
       if (check.error) return jsonError(check.error);
       if (agent) autoRegisterFromAgent(agentId, fleet_id, agent);
       return jsonResult({ agent_id: agentId, fleet_id, role, agent_file: agent ?? null, message: `Agent ${role} attached to fleet ${fleet_id}` });
@@ -1740,6 +1780,7 @@ toolHandlers["attach_agent"] = async (args) => {
         role,
         prompt,
         agent_file: agent,
+        requested_model: model,
         status: "running",
         started_at: Date.now(),
       });
@@ -1756,7 +1797,13 @@ toolHandlers["attach_agent"] = async (args) => {
     }
 
     // Spawn after commit; capability auto-register is its own txn.
-    trySpawn({ fleetId: fleet_id, role, prompt, agentFile: agent }, agentId, 1);
+    trySpawn({
+      fleetId: fleet_id,
+      role,
+      prompt,
+      agentFile: agent,
+      requestedModel: model,
+    }, agentId, 1);
     if (agent) autoRegisterFromAgent(agentId, fleet_id, agent);
 
     return jsonResult({

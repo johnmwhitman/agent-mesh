@@ -17,7 +17,14 @@ import { LifecycleStore, type LifecycleState } from "./attempt-lifecycle.js";
 import type { RuntimeAdapter, RuntimeHandle, RuntimeResult } from "./runtime/types.js";
 
 export type LifecycleMode = "legacy" | "shadow" | "durable";
-export interface DurableAgentSpec { fleetId: string; agentId: string; role: string; prompt: string; agentFile?: string; }
+export interface DurableAgentSpec {
+  fleetId: string;
+  agentId: string;
+  role: string;
+  prompt: string;
+  agentFile?: string;
+  requestedModel?: string;
+}
 export interface LifecycleExecutionCoordinatorOptions {
   ownerId?: string;
   now?: () => number;
@@ -160,7 +167,15 @@ export class LifecycleExecutionCoordinator {
       _createFleet(data, fleetId);
       const store = lifecycle(db, this.now);
       for (const spec of specs) {
-        _registerAgent(data, { id: spec.agentId, fleet_id: fleetId, role: spec.role, prompt: spec.prompt, agent_file: spec.agentFile, status: "pending" });
+        _registerAgent(data, {
+          id: spec.agentId,
+          fleet_id: fleetId,
+          role: spec.role,
+          prompt: spec.prompt,
+          agent_file: spec.agentFile,
+          requested_model: spec.requestedModel,
+          status: "pending",
+        });
         const initial = store.createWork({ workId: spec.agentId, fleetId, agentId: spec.agentId, maxAttempts: this.maxAttempts, retryBaseMs: this.retryBaseMs });
         const lease = store.acquireLease({ workId: spec.agentId, attemptId: initial.attempts[0].attempt_id, ownerId: this.ownerId, leaseMs: this.leaseMs });
         if (!lease.accepted) throw new Error(`durable lifecycle lease acquisition failed for ${spec.agentId}`);
@@ -179,7 +194,15 @@ export class LifecycleExecutionCoordinator {
       if (!target) return { error: `Fleet ${spec.fleetId} not found` };
       if (modeFor(db, spec.fleetId) !== "durable") return { error: `Fleet ${spec.fleetId} is not durable` };
       if (target.status !== "running") return { error: `Fleet ${spec.fleetId} is ${target.status}, not running` };
-      _registerAgent(data, { id: spec.agentId, fleet_id: spec.fleetId, role: spec.role, prompt: spec.prompt, agent_file: spec.agentFile, status: "pending" });
+      _registerAgent(data, {
+        id: spec.agentId,
+        fleet_id: spec.fleetId,
+        role: spec.role,
+        prompt: spec.prompt,
+        agent_file: spec.agentFile,
+        requested_model: spec.requestedModel,
+        status: "pending",
+      });
       const store = lifecycle(db, this.now);
       const initial = store.createWork({ workId: spec.agentId, fleetId: spec.fleetId, agentId: spec.agentId, maxAttempts: this.maxAttempts, retryBaseMs: this.retryBaseMs });
       const lease = store.acquireLease({ workId: spec.agentId, attemptId: initial.attempts[0].attempt_id, ownerId: this.ownerId, leaseMs: this.leaseMs });
@@ -281,7 +304,18 @@ export class LifecycleExecutionCoordinator {
     if (!state || !state.agent) return;
     const current = state.state.attempts.find((attempt) => attempt.attempt_id === state.state.work.current_attempt_id);
     if (!current || current.owner_id !== this.ownerId || current.status !== "running") return;
-    const spec = { fleetId: state.agent.fleet_id, agentId, role: state.agent.role, prompt: state.agent.prompt, requestedAgent: state.agent.agent_file, cwd: process.cwd(), timeoutMs: this.runtime.describe().defaultTimeoutMs };
+    const spec = {
+      fleetId: state.agent.fleet_id,
+      agentId,
+      role: state.agent.role,
+      prompt: state.agent.prompt,
+      requestedAgent: state.agent.agent_file,
+      // Always reconstruct from the durable Agent row so retries and recovery
+      // survive process restarts; never rely solely on the original in-memory spec.
+      requestedModel: state.agent.requested_model,
+      cwd: process.cwd(),
+      timeoutMs: this.runtime.describe().defaultTimeoutMs,
+    };
     this.beforeRuntimeStart?.();
     void this.runtime.start(spec).then((handle) => {
       if (this.stopped) { void this.runtime.cancel(handle, "coordinator stopped before launch observation"); return; }

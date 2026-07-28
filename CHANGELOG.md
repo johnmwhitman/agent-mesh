@@ -4,6 +4,12 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 
 ## [Unreleased]
 
+## [0.19.0] — 2026-07-28
+
+**The model-selected execution release.** Callers can bind each spawned or
+attached agent to an installed OpenCode `provider/model` route while Meshfleet
+keeps the request separate from observed runtime evidence.
+
 ### Added
 
 - **`compile_route_candidates`** — advisory MCP tool compiling a validated, sanitized route-candidate
@@ -20,8 +26,12 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 - **A2A offline delivery-trace conformance v0.1** — `src/a2a/delivery-trace.ts`, the profile document
   `docs/A2A-DELIVERY-TRACE-PROFILE-v0.1.md`, a Python reference witness
   (`reference/python/a2a_delivery_trace_reference.py`), and a conformance corpus.
-- **Requested-model spawn binding** — `src/spawn-result.ts` classifies a spawn against the requested
-  model's observed banner and fail-closes on mismatch when a model was requested.
+- **Model-selected execution** — `spawn_fleet.agents[].model` and `attach_agent.model` accept a
+  validated `provider/model` selector, persist it as immutable `Agent.requested_model`, and pass it
+  to OpenCode as one argv element. Retry, recovery, attach, and Discussion wake paths rehydrate the
+  selection from the durable Agent row. Observed banners remain separate in `Agent.runtime_model`;
+  selected agents fail closed on missing or contradictory observation without promoting that
+  observation to authentication, billing evidence, or attestation.
 - **`VerifyReport.scope`** — the legacy verification report now carries an explicit guarantee boundary
   (`covers`/`excludes`) so it travels with the artifact, not in prose the reader may never see. CLI
   prints the boundary on both clean and failing reports; wording derives from the report field.
@@ -899,7 +909,8 @@ cd ~/.config/opencode/mcp-servers/agent-mesh && npm install && npm run build
 - Independent process execution (bypasses OpenCode's 30-minute background task timeout)
 - Schema for Fleet and Agent records
 
-[Unreleased]: https://github.com/johnmwhitman/agent-mesh/compare/v0.18.0...HEAD
+[Unreleased]: https://github.com/johnmwhitman/agent-mesh/compare/v0.19.0...HEAD
+[0.19.0]: https://github.com/johnmwhitman/agent-mesh/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/johnmwhitman/agent-mesh/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/johnmwhitman/agent-mesh/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/johnmwhitman/agent-mesh/compare/v0.15.0...v0.16.0

@@ -1,7 +1,52 @@
 # MeshFleet Handoff
 
-**Last verified:** 2026-07-28 · **Branch:** main · **Commit:** 1042364
-**Suite:** 1041/1041 · **Corpus:** 74 vectors · **Discussion:** 39 cases (23 finding codes) · **Conformance:** 132/132 · **npm:** meshfleet@0.18.0 published
+**Last verified:** 2026-07-28 · **Release candidate:** `codex/model-selected-execution-20260728`
+**Suite:** 1094/1094 · **Corpus:** 76 vectors · **Discussion:** 39 cases (23 finding codes) · **Conformance:** 133/133 · **Target:** meshfleet@0.19.0
+
+## Release candidate: caller-selected model execution
+
+The isolated worktree at
+`/private/tmp/agent-mesh-codex-model-selected-execution-20260728` is locally
+complete and ready to land from
+`origin/main` (`f7bf5707ca2e38bbec28bdedddf4da78516b7919`):
+
+- `spawn_fleet.agents[].model` and `attach_agent.model` accept a validated
+  `provider/model` selector and persist it as immutable
+  `Agent.requested_model`.
+- The OpenCode runtime adapter passes the selection as
+  `opencode run --model <provider/model>`; omitted selection preserves the
+  previous argv and classification behavior.
+- Legacy in-process retries preserve the original selection. Durable
+  retry/recovery, attach, and Discussion wakeups rehydrate it from the Agent
+  row. Complete selected agents fail closed when the observed
+  `Agent.runtime_model` is missing or contradictory.
+- Live local smoke exercised `opencode-go/minimax-m3` successfully. The first
+  `kilo/kilo-auto/free` smoke exposed provider-stripped multi-segment banner
+  handling; `176f9ba` fixed the matching law and the repeat smoke completed.
+  These receipts prove only environment-local observed execution, not auth,
+  billing, account ownership, provider availability, or attestation.
+- Final evidence: `npm run build`; 1094/1094 tests; black-box conformance
+  133/133 with observed catalog SHA
+  `87f1159414c1a7a13d9fd9d1547b544259cc6fd017c63c93f11a28e7fac20353`;
+  `npm run typecheck`; `npm pack --dry-run`; `git diff --check`; Grok code,
+  contract, security, performance, and red-team reviews PASS; MiniMax M3
+  completed an independent 7,790-line review, reran build/typecheck/package
+  verification and all tests, and returned `MERGE: PASS`.
+- Local smoke receipts are preserved (ignored, not committed) at
+  `.superpowers/sdd/2026-07-28-model-selected-execution/live-opencode-go-minimax-m3.json`,
+  `.superpowers/sdd/2026-07-28-model-selected-execution/live-kilo-auto-free.json`,
+  and
+  `.superpowers/sdd/2026-07-28-model-selected-execution/live-kilo-auto-free-after-fix.json`.
+- MiniMax performed bounded implementation/documentation work and final review;
+  Grok performed independent contract/claims/security/performance/red-team
+  reviews. No credential change, provider spend policy, or automatic token
+  drain was performed.
+
+Review scar: `b1649e5` was committed by a delegated Grok build wrapper despite
+the no-commit instruction and includes an incorrect Claude co-author trailer.
+The reviewed development history remains preserved locally; the public release
+branch should use a clean squash commit so the incorrect trailer is not
+published as release provenance.
 
 ## In-flight: Roadmap Board (Stage 1 complete)
 
