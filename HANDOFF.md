@@ -1,7 +1,14 @@
 # MeshFleet Handoff
 
-**Last verified:** 2026-07-28 · **Branch:** main · **Commit:** 4544fd0
+**Last verified:** 2026-07-28 · **Branch:** main · **Commit:** 1042364
 **Suite:** 1041/1041 · **Corpus:** 74 vectors · **Discussion:** 39 cases (23 finding codes) · **Conformance:** 132/132 · **npm:** meshfleet@0.18.0 published
+
+## In-flight: Roadmap Board (Stage 1 complete)
+
+8/8 executive seats landed at `~/AI/SUCCESSION/meshfleet-roadmap-2026-07-28/`. Board
+unanimously recommends substrate-first (HOOL governance); Skeptic argues park entirely.
+**Stages 2–7 remain:** synthesis → PO → SM → two red-teams → reconcile → assemble.
+Charges preserved in `charges/`; all seat outputs in `board/seat-*.md`.
 
 ## Current state
 
@@ -86,6 +93,9 @@ fuzz differentials (lifecycle-terminal + two-host-coordinator), wire fault expan
   (advisory routing assertions failed 3x before probing the live server)
 - **Schema changes require conformance re-pin.** Any edit to a tool's inputSchema changes
   the catalog SHA. Rebuild dist/, re-run runner with --capture-baseline, update manifest
+- **grk hangs on memory injection with large payloads (~8KB+).** Fix: `export GROK_NO_MEMORY=1`
+  before dispatch, OR pipe via stdin with `"Read stdin and respond"` as the prompt arg.
+  Background subshells don't inherit exported vars — dispatch synchronously or use env prefix
 
 ## Standing rules
 
