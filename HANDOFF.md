@@ -1,7 +1,7 @@
 # MeshFleet Handoff
 
-**Last verified:** 2026-07-28 · **Branch:** main · **Commit:** 4544fd0
-**Suite:** 1041/1041 · **Corpus:** 74 vectors · **Discussion:** 39 cases (23 finding codes) · **Conformance:** 132/132 · **npm:** meshfleet@0.18.0 published
+**Last verified:** 2026-07-28 · **Branch:** codex/discussion-parity-20260728 · **Base:** 1042364
+**Suite:** 1046/1046 · **Corpus:** 74 vectors · **Discussion:** 39 cases (23 finding codes) · **Conformance:** 132/132 · **npm:** meshfleet@0.18.0 published
 
 ## Current state
 
@@ -9,14 +9,16 @@
   capability-routing, health, discussions, templates, advisory-routing, verification
 - **12 A2A conformance witnesses** under `blackbox/` — pure offline blackbox suites with JS
   runners, Python evaluators, corpora, and review records. The 12th (discussion-derivation)
-  has an 18-case corpus and a 1,273-line Grok-produced pure JS evaluator verified against
-  the TypeScript reference at 18/18 match
+  has a 39-case corpus, a Grok-produced pure JS evaluator at 35/35 derivation match,
+  a MiniMax-produced Python evaluator at a manifest-SHA-bound 39/39 full-corpus match,
+  and a deterministic 256-case JS/Python fuzz differential with 32 effective applications
+  of each of eight mutation classes
 - **Live MCP stdio conformance harness** (`blackbox/a2a-conformance-v0.1/`) — catalog
   re-pinned to 34-tool surface, 132 checks passing, 11 tool families in manifest
 - **`send_message` and `send_messages` at parity** — both surfaces now validate identities,
   types, and correlation_ids before the writer. COMPATIBILITY.md records the tightening
 - **`VerifyReport.scope`** — the legacy verification report carries its own guarantee boundary
-- **Zero branches, zero worktrees.** Repo is clean
+- **`main` was clean at base `1042364`.** This bounded follow-up is isolated in one worktree
 - **Tags:** v0.9.0–v0.18.0 complete and pushed
 - **meshfleet-app:** synced to 34 tools / 1021 tests / 8 tool categories, live on Vercel
 
@@ -35,29 +37,35 @@
 | 9 | lifecycle-terminal | Single-work lease/retry/settle/cancel | 31 | JS + Py |
 | 10 | two-host-coordinator | Two-host partition/heal/recovery | 24 | JS + Py |
 | 11 | a2a-conformance | Live MCP stdio catalog/wire/fault | live | JS + Py |
-| 12 | discussion-derivation | Envelope/root/status/transcript derivation | 30 | JS + Py |
+| 12 | discussion-derivation | Envelope/root/status/transcript derivation | 39 | JS + Py + fuzz |
 
 ## Session progress (2026-07-28)
 
-**Completed this session:** discussion witness (18→30 cases, all 7 statuses, JS+Py evaluators),
+**Completed this session:** discussion witness (18→39 cases, all 7 statuses, JS+Py evaluators),
 advisory routing MCP tests (8 tests over real stdio), handler hardening (5 handlers),
 fuzz differentials (lifecycle-terminal + two-host-coordinator), wire fault expansion
 (concurrent-requests / INVALID_NOTIFICATION), send_message boundary parity, VerifyReport.scope.
+
+**Bounded follow-up:** committed Python corpus runner proves SHA-bound 39/39, rejects
+expectation drift, empty/duplicate corpora, and oversized pre-EOF input; deterministic
+discussion fuzz proves 256/256 JS/Python matches at seed 20260728 with no mutation fallbacks.
 
 ## What to build next (candidates — verify before starting)
 
 1. ~~**Discussion integrity falsification corpus**~~ **DONE** — 12 vectors covering all
    DISCUSSION_ERROR_CODES, expressed as ops-from-baseline. Corpus: 62→74 vectors
    (caught: 40→52). Check scanner updated for dynamic discussion.* emission
-2. **Discussion MCP-level blackbox tests** — `ask_peer`, `wake_agent`, `reply_discussion`,
-   `get_discussion` have no MCP stdio tests. These are the most complex tool handlers
-   (they spawn processes, manage deadlines, write receipts)
+2. **Discussion MCP-level lifecycle blackbox tests** — boundary-refusal stdio coverage already
+   exists for `ask_peer`, `wake_agent`, `reply_discussion`, and `get_discussion`; the remaining
+   gap is the happy-path spawn/deadline/receipt lifecycle over real MCP stdio
 3. ~~**Discussion witness deeper expansion**~~ **DONE** — expanded to 39 cases covering
    fork detection, ordinal discontinuity, attempt_beyond_budget, three/four-turn
    conversations, unreachable envelope, attempt_identity_conflict, failed-then-retry.
    23 distinct finding codes covered. Grok evaluator: 35/35 match
-4. **Discussion fuzz differential** — the discussion witness has no fuzz-differential.mjs;
-   every other witness with a Python evaluator has one
+4. ~~**Discussion fuzz differential**~~ **DONE** — 256 deterministic cases at seed 20260728
+   apply each of permutation, clock shifts, unrelated noise, timestamp shifts,
+   policy/receipt deadlines, reply closure, and correlation mismatch exactly 32 times
+   across JS and Python evaluators; ineligible bases fail instead of falling back
 5. **New wire fault vectors** — the meta-runner enforces unique classes, so only faults
    that produce NEW classifications (not INVALID_JSON/INVALID_UTF8/etc) are worth adding.
    Candidates: interleaved responses, JSON-RPC batch arrays, method-not-found for unknown

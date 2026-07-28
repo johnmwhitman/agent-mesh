@@ -3,6 +3,26 @@
   "corpus_sha256": "bf64c02aabc3daac7734ce3e95e16abe063a2f0c06be710243c9df6f10277a56",
   "corpus_cases": 39,
   "runner_modes": ["--corpus", "--self", "--hash-corpus"],
+  "python_runner_modes": [
+    "--corpus <path> --expected-sha256 <hex>",
+    "--evaluate-json"
+  ],
+  "fuzz_differential": {
+    "seed": 20260728,
+    "cases": 256,
+    "effective_mutations": 256,
+    "applications_per_class": 32,
+    "mutation_classes": [
+      "permutation",
+      "now-shift",
+      "unrelated-noise",
+      "timestamp-shift",
+      "policy-deadline",
+      "receipt-deadline",
+      "reply-close",
+      "correlation-mismatch"
+    ]
+  },
   "reference_implementation": "src/discussion.ts",
   "dimensions_covered": [
     "envelope-parsing",

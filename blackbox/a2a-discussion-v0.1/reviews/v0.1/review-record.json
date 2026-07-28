@@ -6,7 +6,10 @@
   "corpus_cases": 39,
   "runner_checks": {
     "corpus": "39/39 pass",
-    "self": "4/4 pass"
+    "self": "4/4 pass",
+    "python_corpus": "manifest-SHA-bound 39/39 pass",
+    "python_fail_closed_controls": "expectation drift, empty/duplicate ids, oversized pre-EOF input",
+    "fuzz_differential": "256/256 match at seed 20260728; 32 effective applications per class"
   },
   "status_coverage": {
     "open": 9, "invalid": 16, "expired": 1, "active": 1,
@@ -15,7 +18,7 @@
   "finding_codes_covered": 23,
   "evaluator_match": {
     "js_grok": "35/35 derivation match",
-    "python_minimax": "30/30 (pre-expansion; needs re-verification)"
+    "python_minimax": "39/39 full-corpus match through committed runner"
   },
   "coverage_notes": [
     "All 7 discussion statuses covered with good distribution",
@@ -30,9 +33,8 @@
     "Four-turn exhaustion (all turns consumed)"
   ],
   "future_expansion": [
-    "Fuzz differential (fuzz-differential.mjs)",
-    "Python evaluator re-verification against 39-case corpus",
     "Deadman mid-chain (deadman in gap before a would-be winner)",
-    "Multiple failed attempts before success"
+    "Multiple failed attempts before success",
+    "Additional fuzz mutation classes for malformed-but-parseable receipt notes"
   ]
 }

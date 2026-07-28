@@ -25,12 +25,13 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 - **`VerifyReport.scope`** — the legacy verification report now carries an explicit guarantee boundary
   (`covers`/`excludes`) so it travels with the artifact, not in prose the reader may never see. CLI
   prints the boundary on both clean and failing reports; wording derives from the report field.
-- **11 A2A offline conformance witnesses** under `blackbox/` — pure-function blackbox test suites
+- **12 A2A offline conformance witnesses** under `blackbox/` — pure-function blackbox test suites
   probing A2A protocol dimensions with JavaScript runners, Python evaluators, corpora, and review
   records. Covers: effect-key-collapse, proposal-base-match, artifact-bundle-integrity,
   dependency-join-barrier, shared-work-object, capability-compat, policy-replay, handoff-quorum,
-  lifecycle-terminal, two-host-coordinator, and a live MCP stdio catalog/wire/fault conformance
-  harness (`a2a-conformance-v0.1`). Catalog digest re-pinned against the current 34-tool surface.
+  lifecycle-terminal, two-host-coordinator, discussion-derivation, and a live MCP stdio
+  catalog/wire/fault conformance harness (`a2a-conformance-v0.1`). Catalog digest re-pinned
+  against the current 34-tool surface.
 - **Signal-test readiness fix** — the runtime-adapter escalation tests now wait for child signal
   handlers to install (marker file) instead of racing startup on a timer.
 
