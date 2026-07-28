@@ -1,0 +1,512 @@
+{
+  "schema_version": "0.1",
+  "profile": "meshfleet.a2a.discussion-derivation.v0.1",
+  "generated_by": "generate-corpus.mjs",
+  "generated_from": "src/discussion.ts (TypeScript reference implementation)",
+  "cases": [
+    {
+      "id": "minimal-open",
+      "description": "Single root message, no receipts — status open",
+      "input": {
+        "discussion_id": "d1",
+        "messages": [
+          {
+            "id": "m1",
+            "from_agent_id": "alice",
+            "to_agent_id": "bob",
+            "fleet_id": "f1",
+            "type": "question",
+            "payload": "{\"$meshfleet\":\"discussion/v1\",\"discussion_id\":\"d1\",\"turn\":1,\"attempt_id\":\"a1\",\"reply_to\":null,\"kind\":\"question\",\"body\":\"hello\",\"close\":false,\"policy\":{\"participants\":[\"alice\",\"bob\"],\"max_turns\":4,\"conversation_deadline\":60000,\"turn_timeout_ms\":30000}}",
+            "correlation_id": "d1",
+            "timestamp": 900,
+            "acknowledged": false
+          }
+        ],
+        "receipts": [],
+        "now": 50000
+      },
+      "expected_output": {
+        "status": "open",
+        "turns_used": 1,
+        "turns_remaining": 3,
+        "transcript_length": 1,
+        "attempts_count": 0,
+        "integrity_finding_codes": []
+      }
+    },
+    {
+      "id": "no-messages",
+      "description": "Empty message set — no valid root",
+      "input": {
+        "discussion_id": "d1",
+        "messages": [],
+        "receipts": [],
+        "now": 50000
+      },
+      "expected_output": {
+        "status": "invalid",
+        "turns_used": 0,
+        "turns_remaining": 0,
+        "transcript_length": 0,
+        "attempts_count": 0,
+        "integrity_finding_codes": [
+          "no_valid_root"
+        ]
+      }
+    },
+    {
+      "id": "non-envelope-payload",
+      "description": "Message payload is not a discussion/v1 envelope",
+      "input": {
+        "discussion_id": "d1",
+        "messages": [
+          {
+            "id": "m1",
+            "from_agent_id": "alice",
+            "to_agent_id": "bob",
+            "fleet_id": "f1",
+            "type": "question",
+            "payload": "plain text",
+            "correlation_id": "d1",
+            "timestamp": 1000,
+            "acknowledged": false
+          }
+        ],
+        "receipts": [],
+        "now": 50000
+      },
+      "expected_output": {
+        "status": "invalid",
+        "turns_used": 0,
+        "turns_remaining": 0,
+        "transcript_length": 0,
+        "attempts_count": 0,
+        "integrity_finding_codes": [
+          "invalid_envelope",
+          "no_valid_root"
+        ]
+      }
+    },
+    {
+      "id": "wrong-version",
+      "description": "Envelope has discussion/v2 instead of discussion/v1",
+      "input": {
+        "discussion_id": "d1",
+        "messages": [
+          {
+            "id": "m1",
+            "from_agent_id": "alice",
+            "to_agent_id": "bob",
+            "fleet_id": "f1",
+            "type": "question",
+            "payload": "{\"$meshfleet\":\"discussion/v2\",\"discussion_id\":\"d1\",\"turn\":1,\"attempt_id\":\"a1\",\"reply_to\":null,\"kind\":\"question\",\"body\":\"hello\",\"close\":false,\"policy\":{\"participants\":[\"alice\",\"bob\"],\"max_turns\":4,\"conversation_deadline\":60000,\"turn_timeout_ms\":30000}}",
+            "correlation_id": "d1",
+            "timestamp": 1000,
+            "acknowledged": false
+          }
+        ],
+        "receipts": [],
+        "now": 50000
+      },
+      "expected_output": {
+        "status": "invalid",
+        "turns_used": 0,
+        "turns_remaining": 0,
+        "transcript_length": 0,
+        "attempts_count": 0,
+        "integrity_finding_codes": [
+          "invalid_version",
+          "no_valid_root"
+        ]
+      }
+    },
+    {
+      "id": "duplicate-roots",
+      "description": "Two valid root messages — invalid",
+      "input": {
+        "discussion_id": "d1",
+        "messages": [
+          {
+            "id": "m1",
+            "from_agent_id": "alice",
+            "to_agent_id": "bob",
+            "fleet_id": "f1",
+            "type": "question",
+            "payload": "{\"$meshfleet\":\"discussion/v1\",\"discussion_id\":\"d1\",\"turn\":1,\"attempt_id\":\"a1\",\"reply_to\":null,\"kind\":\"question\",\"body\":\"hello\",\"close\":false,\"policy\":{\"participants\":[\"alice\",\"bob\"],\"max_turns\":4,\"conversation_deadline\":60000,\"turn_timeout_ms\":30000}}",
+            "correlation_id": "d1",
+            "timestamp": 900,
+            "acknowledged": false
+          },
+          {
+            "id": "m2",
+            "from_agent_id": "alice",
+            "to_agent_id": "bob",
+            "fleet_id": "f1",
+            "type": "question",
+            "payload": "{\"$meshfleet\":\"discussion/v1\",\"discussion_id\":\"d1\",\"turn\":1,\"attempt_id\":\"a1\",\"reply_to\":null,\"kind\":\"question\",\"body\":\"hello\",\"close\":false,\"policy\":{\"participants\":[\"alice\",\"bob\"],\"max_turns\":4,\"conversation_deadline\":60000,\"turn_timeout_ms\":30000}}",
+            "correlation_id": "d1",
+            "timestamp": 901,
+            "acknowledged": false
+          }
+        ],
+        "receipts": [],
+        "now": 50000
+      },
+      "expected_output": {
+        "status": "invalid",
+        "turns_used": 0,
+        "turns_remaining": 0,
+        "transcript_length": 0,
+        "attempts_count": 0,
+        "integrity_finding_codes": [
+          "duplicate_root"
+        ]
+      }
+    },
+    {
+      "id": "root-close-true",
+      "description": "Root envelope sets close=true — finding but discussion remains valid",
+      "input": {
+        "discussion_id": "d1",
+        "messages": [
+          {
+            "id": "m1",
+            "from_agent_id": "alice",
+            "to_agent_id": "bob",
+            "fleet_id": "f1",
+            "type": "question",
+            "payload": "{\"$meshfleet\":\"discussion/v1\",\"discussion_id\":\"d1\",\"turn\":1,\"attempt_id\":\"a1\",\"reply_to\":null,\"kind\":\"question\",\"body\":\"hello\",\"close\":true,\"policy\":{\"participants\":[\"alice\",\"bob\"],\"max_turns\":4,\"conversation_deadline\":60000,\"turn_timeout_ms\":30000}}",
+            "correlation_id": "d1",
+            "timestamp": 1000,
+            "acknowledged": false
+          }
+        ],
+        "receipts": [],
+        "now": 50000
+      },
+      "expected_output": {
+        "status": "open",
+        "turns_used": 1,
+        "turns_remaining": 3,
+        "transcript_length": 1,
+        "attempts_count": 0,
+        "integrity_finding_codes": [
+          "root_close_forbidden"
+        ]
+      }
+    },
+    {
+      "id": "child-policy-forbidden",
+      "description": "Child envelope carries a policy block — invalidating",
+      "input": {
+        "discussion_id": "d1",
+        "messages": [
+          {
+            "id": "m1",
+            "from_agent_id": "alice",
+            "to_agent_id": "bob",
+            "fleet_id": "f1",
+            "type": "question",
+            "payload": "{\"$meshfleet\":\"discussion/v1\",\"discussion_id\":\"d1\",\"turn\":1,\"attempt_id\":\"a1\",\"reply_to\":null,\"kind\":\"question\",\"body\":\"hello\",\"close\":false,\"policy\":{\"participants\":[\"alice\",\"bob\"],\"max_turns\":4,\"conversation_deadline\":60000,\"turn_timeout_ms\":30000}}",
+            "correlation_id": "d1",
+            "timestamp": 900,
+            "acknowledged": false
+          },
+          {
+            "id": "m2",
+            "from_agent_id": "bob",
+            "to_agent_id": "alice",
+            "fleet_id": "f1",
+            "type": "result",
+            "payload": "{\"$meshfleet\":\"discussion/v1\",\"discussion_id\":\"d1\",\"turn\":2,\"attempt_id\":\"a2\",\"reply_to\":\"m1\",\"kind\":\"result\",\"body\":\"hello\",\"close\":false,\"policy\":{\"participants\":[\"alice\",\"bob\"],\"max_turns\":4,\"conversation_deadline\":60000,\"turn_timeout_ms\":30000}}",
+            "correlation_id": "d1",
+            "timestamp": 1000,
+            "acknowledged": false
+          }
+        ],
+        "receipts": [],
+        "now": 50000
+      },
+      "expected_output": {
+        "status": "invalid",
+        "turns_used": 1,
+        "turns_remaining": 3,
+        "transcript_length": 1,
+        "attempts_count": 0,
+        "integrity_finding_codes": [
+          "child_policy_forbidden"
+        ]
+      }
+    },
+    {
+      "id": "correlation-mismatch",
+      "description": "Message correlation_id does not match envelope discussion_id",
+      "input": {
+        "discussion_id": "d1",
+        "messages": [
+          {
+            "id": "m1",
+            "from_agent_id": "alice",
+            "to_agent_id": "bob",
+            "fleet_id": "f1",
+            "type": "question",
+            "payload": "{\"$meshfleet\":\"discussion/v1\",\"discussion_id\":\"d1\",\"turn\":1,\"attempt_id\":\"a1\",\"reply_to\":null,\"kind\":\"question\",\"body\":\"hello\",\"close\":false,\"policy\":{\"participants\":[\"alice\",\"bob\"],\"max_turns\":4,\"conversation_deadline\":60000,\"turn_timeout_ms\":30000}}",
+            "correlation_id": "other_correlation",
+            "timestamp": 1000,
+            "acknowledged": false
+          }
+        ],
+        "receipts": [],
+        "now": 50000
+      },
+      "expected_output": {
+        "status": "invalid",
+        "turns_used": 0,
+        "turns_remaining": 0,
+        "transcript_length": 0,
+        "attempts_count": 0,
+        "integrity_finding_codes": [
+          "no_valid_root"
+        ]
+      }
+    },
+    {
+      "id": "participant-mismatch",
+      "description": "Root policy participants don't match message from/to",
+      "input": {
+        "discussion_id": "d1",
+        "messages": [
+          {
+            "id": "m1",
+            "from_agent_id": "alice",
+            "to_agent_id": "bob",
+            "fleet_id": "f1",
+            "type": "question",
+            "payload": "{\"$meshfleet\":\"discussion/v1\",\"discussion_id\":\"d1\",\"turn\":1,\"attempt_id\":\"a1\",\"reply_to\":null,\"kind\":\"question\",\"body\":\"hello\",\"close\":false,\"policy\":{\"participants\":[\"alice\",\"charlie\"],\"max_turns\":4,\"conversation_deadline\":60000,\"turn_timeout_ms\":30000}}",
+            "correlation_id": "d1",
+            "timestamp": 1000,
+            "acknowledged": false
+          }
+        ],
+        "receipts": [],
+        "now": 50000
+      },
+      "expected_output": {
+        "status": "invalid",
+        "turns_used": 0,
+        "turns_remaining": 0,
+        "transcript_length": 0,
+        "attempts_count": 0,
+        "integrity_finding_codes": [
+          "no_valid_root",
+          "root_participant_mismatch"
+        ]
+      }
+    },
+    {
+      "id": "expired-deadline",
+      "description": "Discussion past conversation_deadline — status expired",
+      "input": {
+        "discussion_id": "d1",
+        "messages": [
+          {
+            "id": "m1",
+            "from_agent_id": "alice",
+            "to_agent_id": "bob",
+            "fleet_id": "f1",
+            "type": "question",
+            "payload": "{\"$meshfleet\":\"discussion/v1\",\"discussion_id\":\"d1\",\"turn\":1,\"attempt_id\":\"a1\",\"reply_to\":null,\"kind\":\"question\",\"body\":\"hello\",\"close\":false,\"policy\":{\"participants\":[\"alice\",\"bob\"],\"max_turns\":4,\"conversation_deadline\":2000,\"turn_timeout_ms\":30000}}",
+            "correlation_id": "d1",
+            "timestamp": 900,
+            "acknowledged": false
+          }
+        ],
+        "receipts": [],
+        "now": 50000
+      },
+      "expected_output": {
+        "status": "expired",
+        "turns_used": 1,
+        "turns_remaining": 3,
+        "transcript_length": 1,
+        "attempts_count": 0,
+        "integrity_finding_codes": []
+      }
+    },
+    {
+      "id": "root-missing-policy",
+      "description": "Root envelope has no policy block — no valid root",
+      "input": {
+        "discussion_id": "d1",
+        "messages": [
+          {
+            "id": "m1",
+            "from_agent_id": "alice",
+            "to_agent_id": "bob",
+            "fleet_id": "f1",
+            "type": "question",
+            "payload": "{\"$meshfleet\":\"discussion/v1\",\"discussion_id\":\"d1\",\"turn\":1,\"attempt_id\":\"a1\",\"reply_to\":null,\"kind\":\"question\",\"body\":\"hello\",\"close\":false}",
+            "correlation_id": "d1",
+            "timestamp": 1000,
+            "acknowledged": false
+          }
+        ],
+        "receipts": [],
+        "now": 50000
+      },
+      "expected_output": {
+        "status": "invalid",
+        "turns_used": 0,
+        "turns_remaining": 0,
+        "transcript_length": 0,
+        "attempts_count": 0,
+        "integrity_finding_codes": [
+          "no_valid_root",
+          "root_missing_policy"
+        ]
+      }
+    },
+    {
+      "id": "root-type-mismatch",
+      "description": "Root message type is 'result' not 'question'",
+      "input": {
+        "discussion_id": "d1",
+        "messages": [
+          {
+            "id": "m1",
+            "from_agent_id": "alice",
+            "to_agent_id": "bob",
+            "fleet_id": "f1",
+            "type": "result",
+            "payload": "{\"$meshfleet\":\"discussion/v1\",\"discussion_id\":\"d1\",\"turn\":1,\"attempt_id\":\"a1\",\"reply_to\":null,\"kind\":\"question\",\"body\":\"hello\",\"close\":false,\"policy\":{\"participants\":[\"alice\",\"bob\"],\"max_turns\":4,\"conversation_deadline\":60000,\"turn_timeout_ms\":30000}}",
+            "correlation_id": "d1",
+            "timestamp": 1000,
+            "acknowledged": false
+          }
+        ],
+        "receipts": [],
+        "now": 50000
+      },
+      "expected_output": {
+        "status": "invalid",
+        "turns_used": 0,
+        "turns_remaining": 0,
+        "transcript_length": 0,
+        "attempts_count": 0,
+        "integrity_finding_codes": [
+          "no_valid_root",
+          "root_not_question"
+        ]
+      }
+    },
+    {
+      "id": "broadcast-forbidden",
+      "description": "Broadcast message — discussion/v1 is direct only",
+      "input": {
+        "discussion_id": "d1",
+        "messages": [
+          {
+            "id": "m1",
+            "from_agent_id": "alice",
+            "to_agent_id": "*",
+            "fleet_id": "f1",
+            "type": "question",
+            "payload": "{\"$meshfleet\":\"discussion/v1\",\"discussion_id\":\"d1\",\"turn\":1,\"attempt_id\":\"a1\",\"reply_to\":null,\"kind\":\"question\",\"body\":\"hello\",\"close\":false,\"policy\":{\"participants\":[\"alice\",\"bob\"],\"max_turns\":4,\"conversation_deadline\":60000,\"turn_timeout_ms\":30000}}",
+            "correlation_id": "d1",
+            "timestamp": 1000,
+            "acknowledged": false
+          }
+        ],
+        "receipts": [],
+        "now": 50000
+      },
+      "expected_output": {
+        "status": "invalid",
+        "turns_used": 0,
+        "turns_remaining": 0,
+        "transcript_length": 0,
+        "attempts_count": 0,
+        "integrity_finding_codes": [
+          "broadcast_forbidden",
+          "no_valid_root"
+        ]
+      }
+    },
+    {
+      "id": "max-turns-below-minimum",
+      "description": "Policy max_turns=1 below minimum 2 — envelope rejected",
+      "input": {
+        "discussion_id": "d1",
+        "messages": [
+          {
+            "id": "m1",
+            "from_agent_id": "alice",
+            "to_agent_id": "bob",
+            "fleet_id": "f1",
+            "type": "question",
+            "payload": "{\"$meshfleet\":\"discussion/v1\",\"discussion_id\":\"d1\",\"turn\":1,\"attempt_id\":\"a1\",\"reply_to\":null,\"kind\":\"question\",\"body\":\"hello\",\"close\":false,\"policy\":{\"participants\":[\"alice\",\"bob\"],\"max_turns\":1,\"conversation_deadline\":60000,\"turn_timeout_ms\":30000}}",
+            "correlation_id": "d1",
+            "timestamp": 1000,
+            "acknowledged": false
+          }
+        ],
+        "receipts": [],
+        "now": 50000
+      },
+      "expected_output": {
+        "status": "invalid",
+        "turns_used": 0,
+        "turns_remaining": 0,
+        "transcript_length": 0,
+        "attempts_count": 0,
+        "integrity_finding_codes": [
+          "invalid_envelope",
+          "no_valid_root"
+        ]
+      }
+    },
+    {
+      "id": "parse-receipt-wake-reserved",
+      "description": "Parse a valid wake reserved receipt action",
+      "input": {
+        "action": "discussion.wake.reserved.v1:1:attempt-1"
+      },
+      "expected_output": {
+        "kind": "wake",
+        "state": "reserved",
+        "turn": 1,
+        "attempt_id": "attempt-1"
+      }
+    },
+    {
+      "id": "parse-receipt-no-version",
+      "description": "Receipt action missing v1 suffix — only 3 dot parts",
+      "input": {
+        "action": "discussion.wake.reserved:1:attempt-1"
+      },
+      "expected_output": null
+    },
+    {
+      "id": "parse-envelope-valid",
+      "description": "Parse a valid discussion/v1 envelope",
+      "input": {
+        "payload": "{\"$meshfleet\":\"discussion/v1\",\"discussion_id\":\"d1\",\"turn\":1,\"attempt_id\":\"a1\",\"reply_to\":null,\"kind\":\"question\",\"body\":\"test body\",\"close\":false}"
+      },
+      "expected_output": {
+        "discussion_id": "d1",
+        "turn": 1,
+        "kind": "question",
+        "close": false,
+        "has_policy": false
+      }
+    },
+    {
+      "id": "parse-envelope-incomplete",
+      "description": "Envelope missing turn, attempt_id, reply_to, kind, body, close",
+      "input": {
+        "payload": "{\"$meshfleet\":\"discussion/v1\",\"discussion_id\":\"d1\"}"
+      },
+      "expected_output": null
+    }
+  ]
+}

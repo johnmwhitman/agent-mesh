@@ -1,0 +1,29 @@
+{
+  "profile": "meshfleet.a2a.discussion-derivation.v0.1",
+  "status": "PASS-AS-HELD",
+  "reviewed_at": "2026-07-28",
+  "corpus_sha256": "b41493687fdf0b85aec4fa401af8ccc957326ceab45508c696aba12a26dcb558",
+  "corpus_cases": 18,
+  "runner_checks": {
+    "corpus": "18/18 pass",
+    "self": "4/4 pass"
+  },
+  "coverage_notes": [
+    "Covers envelope parsing (valid, incomplete, wrong version)",
+    "Covers envelope validation (version, broadcast, correlation, payload size)",
+    "Covers receipt action parsing (valid wake, invalid format)",
+    "Covers root selection (missing, duplicate, wrong type, missing policy, participant mismatch)",
+    "Covers status derivation (open, expired, invalid)",
+    "Covers structural integrity (child policy forbidden, root close=true, policy bounds)",
+    "Does NOT yet cover: multi-turn conversations with validated attempts, closed/active/exhausted/deadman status, fleet mismatch detection, alternation checking, or the full receipt lifecycle walk"
+  ],
+  "future_expansion": [
+    "Multi-turn with reservation/started/completed receipt lifecycle",
+    "Active and closed status via validated reply attempts",
+    "Exhausted status (turns_used == max_turns)",
+    "Deadman status (reservation without completion within deadline)",
+    "Fleet membership violation detection",
+    "Turn alternation enforcement",
+    "Python reference evaluator"
+  ]
+}

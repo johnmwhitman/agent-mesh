@@ -1,0 +1,17 @@
+{
+  "profile": "meshfleet.a2a.discussion-derivation.v0.1",
+  "corpus_sha256": "b41493687fdf0b85aec4fa401af8ccc957326ceab45508c696aba12a26dcb558",
+  "corpus_cases": 18,
+  "runner_modes": ["--corpus", "--self", "--hash-corpus"],
+  "reference_implementation": "src/discussion.ts",
+  "dimensions_covered": [
+    "envelope-parsing",
+    "envelope-validation",
+    "receipt-action-parsing",
+    "root-selection",
+    "status-derivation",
+    "structural-integrity",
+    "deadline-expiry",
+    "policy-bounds"
+  ]
+}
