@@ -125,6 +125,31 @@ export function optionalNumber(tool: string, field: string, v: unknown): string 
 }
 
 /**
+ * Optional public model selector (`provider/model`).
+ *
+ * `undefined` alone means omitted. When present the value must be a string of
+ * JS length ≤ 256, contain no whitespace, and contain non-empty provider and
+ * model segments separated by the first `/`. Additional slashes after the
+ * first are valid. Does not trim, normalize, or catalog-check.
+ */
+export function optionalModelSelector(tool: string, field: string, v: unknown): string | null {
+  if (v === undefined) return null;
+  if (
+    typeof v === "string"
+    && v.length <= 256
+    && !/\s/u.test(v)
+    && v.indexOf("/") > 0
+    && v.indexOf("/") < v.length - 1
+  ) {
+    return null;
+  }
+  return (
+    `${tool}: '${field}' must be a provider/model selector string (length ≤ 256, ` +
+    `no whitespace, non-empty provider and model) when provided, got ${got(v)}`
+  );
+}
+
+/**
  * A string array. A bare string is REJECTED rather than coerced: `voters:
  * "alice"` spread into five single-character voters and locked every real voter
  * out of the council.

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { LifecycleExecutionCoordinator } from "../src/lifecycle-execution.js";
 import { LifecycleStore } from "../src/attempt-lifecycle.js";
 import { loadData, readEventLog } from "../src/core.js";
-import type { RuntimeAdapter, RuntimeHandle, RuntimeResult } from "../src/runtime/types.js";
+import type { ExecutionSpec, RuntimeAdapter, RuntimeHandle, RuntimeResult } from "../src/runtime/types.js";
 import { withTempDb } from "./helpers/with-temp-db.js";
 
 function deferred<T>() {
@@ -15,9 +15,11 @@ function deferred<T>() {
 class ControlledRuntime implements RuntimeAdapter {
   readonly id = "controlled";
   readonly results: Array<ReturnType<typeof deferred<RuntimeResult>>> = [];
+  readonly starts: ExecutionSpec[] = [];
   describe() { return { id: this.id, displayName: "Controlled", defaultTimeoutMs: 1_000 }; }
   validate() { return { ok: true, errors: [] }; }
-  async start(): Promise<RuntimeHandle> {
+  async start(spec: ExecutionSpec): Promise<RuntimeHandle> {
+    this.starts.push(spec);
     const result = deferred<RuntimeResult>();
     this.results.push(result);
     return { id: `handle-${this.results.length}`, startedAt: Date.now(), isAlive: () => true };
@@ -28,6 +30,24 @@ class ControlledRuntime implements RuntimeAdapter {
 
 function success(stdout = "ok"): RuntimeResult {
   return { status: "success", stdout, stderr: "", exitCode: 0, diagnostics: [], identity: { adapterId: "controlled", evidence: "none" } };
+}
+
+function failure(error = "transient"): RuntimeResult {
+  return { status: "failure", stdout: "", stderr: error, exitCode: 1, error, diagnostics: [], identity: { adapterId: "controlled", evidence: "none" } };
+}
+
+async function waitUntil(
+  predicate: () => boolean,
+  what: string,
+  timeoutMs = 2_000,
+): Promise<void> {
+  const started = Date.now();
+  while (!predicate()) {
+    if (Date.now() - started > timeoutMs) {
+      throw new Error(`timed out waiting for ${what}`);
+    }
+    await new Promise((done) => setTimeout(done, 5));
+  }
 }
 
 test("durable coordinator records pending projection before launch and settles atomically", async () => {
@@ -73,6 +93,147 @@ test("durable retry creates a distinct attempt and persisted eligibility", async
     assert.notEqual(state.attempts[0].attempt_id, state.attempts[1].attempt_id);
     assert.ok(state.attempts[1].eligible_at >= state.attempts[0].updated_at);
     coordinator.stop();
+  } finally {
+    temp.cleanup();
+  }
+});
+
+test("durable createFleet persists requested_model and first start sees it", async () => {
+  const temp = withTempDb();
+  try {
+    const runtime = new ControlledRuntime();
+    const coordinator = new LifecycleExecutionCoordinator(runtime, {
+      ownerId: "owner-model",
+      retryBaseMs: 0,
+    });
+    coordinator.createFleet("fleet-m", [{
+      fleetId: "fleet-m",
+      agentId: "agent-m",
+      role: "worker",
+      prompt: "work",
+      requestedModel: "opencode-go/minimax-m3",
+    }]);
+    assert.equal(loadData().agents["agent-m"].requested_model, "opencode-go/minimax-m3");
+    await waitUntil(() => runtime.starts.length >= 1, "first durable start");
+    assert.equal(runtime.starts[0]?.requestedModel, "opencode-go/minimax-m3");
+    coordinator.stop();
+  } finally {
+    temp.cleanup();
+  }
+});
+
+test("durable attachAgent persists requested_model and starts with it", async () => {
+  const temp = withTempDb();
+  try {
+    const runtime = new ControlledRuntime();
+    const coordinator = new LifecycleExecutionCoordinator(runtime, {
+      ownerId: "owner-attach-model",
+      retryBaseMs: 0,
+    });
+    coordinator.createFleet("fleet-attach", [{
+      fleetId: "fleet-attach",
+      agentId: "agent-seed",
+      role: "seed",
+      prompt: "seed",
+    }]);
+    await waitUntil(
+      () => runtime.starts.some((spec) => spec.agentId === "agent-seed"),
+      "seed durable start",
+    );
+
+    const attached = coordinator.attachAgent({
+      fleetId: "fleet-attach",
+      agentId: "agent-attached",
+      role: "worker",
+      prompt: "work",
+      requestedModel: "opencode-go/minimax-m3",
+    });
+    assert.deepEqual(attached, {});
+    assert.equal(
+      loadData().agents["agent-attached"].requested_model,
+      "opencode-go/minimax-m3",
+    );
+    await waitUntil(
+      () => runtime.starts.some((spec) => spec.agentId === "agent-attached"),
+      "attached durable start",
+    );
+    const attachedStart = runtime.starts.find(
+      (spec) => spec.agentId === "agent-attached",
+    );
+    assert.equal(attachedStart?.requestedModel, "opencode-go/minimax-m3");
+    coordinator.stop();
+  } finally {
+    temp.cleanup();
+  }
+});
+
+test("durable retry reuses requestedModel from the Agent row", async () => {
+  const temp = withTempDb();
+  try {
+    const runtime = new ControlledRuntime();
+    const coordinator = new LifecycleExecutionCoordinator(runtime, {
+      ownerId: "owner-retry-model",
+      retryBaseMs: 1,
+      maxAttempts: 3,
+    });
+    coordinator.createFleet("fleet-r", [{
+      fleetId: "fleet-r",
+      agentId: "agent-r",
+      role: "worker",
+      prompt: "work",
+      requestedModel: "opencode-go/minimax-m3",
+    }]);
+    await waitUntil(() => runtime.starts.length >= 1, "first start");
+    runtime.results[0].resolve(failure("first boom"));
+    await waitUntil(() => runtime.starts.length >= 2, "durable retry start");
+    assert.equal(runtime.starts[0]?.requestedModel, "opencode-go/minimax-m3");
+    assert.equal(runtime.starts[1]?.requestedModel, "opencode-go/minimax-m3");
+    assert.equal(loadData().agents["agent-r"].requested_model, "opencode-go/minimax-m3");
+    coordinator.stop();
+  } finally {
+    temp.cleanup();
+  }
+});
+
+test("reconstructed coordinator reads requestedModel from the Agent row", async () => {
+  const temp = withTempDb();
+  try {
+    let now = 1_000;
+    const runtime1 = new ControlledRuntime();
+    const first = new LifecycleExecutionCoordinator(runtime1, {
+      ownerId: "owner-first",
+      retryBaseMs: 1,
+      maxAttempts: 3,
+      leaseMs: 30,
+      now: () => now,
+    });
+    first.createFleet("fleet-rec", [{
+      fleetId: "fleet-rec",
+      agentId: "agent-rec",
+      role: "worker",
+      prompt: "work",
+      requestedModel: "kilo/kilo-auto/free",
+    }]);
+    await waitUntil(() => runtime1.starts.length >= 1, "initial launch");
+    assert.equal(runtime1.starts[0]?.requestedModel, "kilo/kilo-auto/free");
+    // Leave the attempt running under a short lease, then stop so a new
+    // coordinator must recover from the ledger Agent row — not in-memory spec.
+    first.stop();
+    now += 31;
+
+    const runtime2 = new ControlledRuntime();
+    const recovered = new LifecycleExecutionCoordinator(runtime2, {
+      ownerId: "owner-second",
+      retryBaseMs: 1,
+      maxAttempts: 3,
+      leaseMs: 1_000,
+      now: () => now,
+    });
+    recovered.recover();
+    await waitUntil(() => runtime2.starts.length >= 1, "recovered launch");
+    assert.equal(loadData().agents["agent-rec"].requested_model, "kilo/kilo-auto/free");
+    assert.equal(runtime2.starts[0]?.requestedModel, "kilo/kilo-auto/free");
+    recovered.stop();
   } finally {
     temp.cleanup();
   }

@@ -22,7 +22,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtempSync, rmSync, existsSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -44,6 +52,11 @@ function callTool(dir: string, name: string, args: unknown, port: string): Promi
         MESHFLEET_DB_FILE: join(dir, "l.db"),
         MESHFLEET_DATA_FILE: join(dir, "l.json"),
         MESHFLEET_EVENT_LOG_FILE: join(dir, "e.log"),
+        // Every accepted-call control reaches the real spawn path. Keep those
+        // boundary tests hermetic: the previous helper launched the user's real
+        // OpenCode and then killed only the MCP parent, orphaning one provider
+        // process per accepted seed call.
+        PATH: `${join(dir, "bin")}:${process.env.PATH ?? ""}`,
         AGENT_MESH_CHILD: "1",
         // An explicit unusual port: ssePort() accepts only v > 0, so "0" is not
         // "ephemeral" here, it silently falls back to the default the operator's
@@ -94,6 +107,21 @@ function ledgerCounts(dir: string) {
 async function withDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = mkdtempSync(join(tmpdir(), "mesh-contract-"));
   try {
+    const binDir = join(dir, "bin");
+    const opencodePath = join(binDir, "opencode");
+    mkdirSync(binDir, { recursive: true });
+    writeFileSync(
+      opencodePath,
+      `#!/usr/bin/env node
+const args = process.argv.slice(2);
+const modelIndex = args.indexOf("--model");
+const model = modelIndex >= 0 ? args[modelIndex + 1] : "openai/gpt-5";
+process.stdout.write("boundary test complete\\n");
+process.stderr.write("> boundary-test · " + model + "\\n");
+`,
+      { mode: 0o755 },
+    );
+    chmodSync(opencodePath, 0o755);
     return await fn(dir);
   } finally {
     rmSync(dir, { recursive: true, force: true, maxRetries: 5 });
@@ -138,3 +166,148 @@ test("attach_agent refuses a missing prompt, and writes nothing", async () => {
     assert.equal(ledgerCounts(dir).agents, 0, "a refused attach_agent must not commit an agent row");
   });
 });
+
+function readAgents(dir: string): Array<Record<string, unknown>> {
+  if (!existsSync(join(dir, "l.db"))) return [];
+  const Database = require("better-sqlite3");
+  const db = new Database(join(dir, "l.db"), { readonly: true });
+  try {
+    const rows = db.prepare("SELECT data FROM agents").all() as Array<{ data: string }>;
+    return rows.map((row) => JSON.parse(row.data) as Record<string, unknown>);
+  } finally {
+    db.close();
+  }
+}
+
+function toolIsError(res: any): boolean {
+  return Boolean(res?.result?.isError ?? res?.isError);
+}
+
+function hasSpawnObservation(dir: string): boolean {
+  const log = join(dir, "e.log");
+  if (!existsSync(log)) return false;
+  return readFileSync(log, "utf8").includes("agent_spawned");
+}
+
+test("spawn_fleet persists a valid requested model", async () => {
+  await withDir(async (dir) => {
+    const res = await callTool(dir, "spawn_fleet", {
+      agents: [{
+        role: "builder",
+        prompt: "build",
+        model: "opencode-go/minimax-m3",
+      }],
+    }, "13930");
+    assert.equal(toolIsError(res), false, JSON.stringify(res).slice(0, 300));
+    const agents = readAgents(dir);
+    assert.equal(agents.length, 1);
+    assert.equal(agents[0]?.requested_model, "opencode-go/minimax-m3");
+  });
+});
+
+test("attach_agent persists a valid requested model", async () => {
+  await withDir(async (dir) => {
+    const spawned = await callTool(dir, "spawn_fleet", {
+      agents: [{ role: "seed", prompt: "seed fleet" }],
+    }, "13931");
+    assert.equal(toolIsError(spawned), false);
+    const fleetId = JSON.parse(
+      (spawned.result ?? spawned).content[0].text,
+    ).fleet_id as string;
+
+    const res = await callTool(dir, "attach_agent", {
+      fleet_id: fleetId,
+      role: "builder",
+      prompt: "build",
+      model: "opencode-go/minimax-m3",
+    }, "13932");
+    assert.equal(toolIsError(res), false, JSON.stringify(res).slice(0, 300));
+    const withModel = readAgents(dir).filter((a) => a.requested_model !== undefined);
+    assert.equal(withModel.length, 1);
+    assert.equal(withModel[0]?.requested_model, "opencode-go/minimax-m3");
+  });
+});
+
+test("spawn_fleet omits requested_model when model is absent", async () => {
+  await withDir(async (dir) => {
+    const res = await callTool(dir, "spawn_fleet", {
+      agents: [{ role: "reviewer", prompt: "review it" }],
+    }, "13933");
+    assert.equal(toolIsError(res), false);
+    const agent = readAgents(dir)[0];
+    assert.ok(agent);
+    assert.equal(Object.prototype.hasOwnProperty.call(agent, "requested_model"), false);
+  });
+});
+
+test("attach_agent omits requested_model when model is absent", async () => {
+  await withDir(async (dir) => {
+    const spawned = await callTool(dir, "spawn_fleet", {
+      agents: [{ role: "seed", prompt: "seed fleet" }],
+    }, "13934");
+    const fleetId = JSON.parse(
+      (spawned.result ?? spawned).content[0].text,
+    ).fleet_id as string;
+    const res = await callTool(dir, "attach_agent", {
+      fleet_id: fleetId,
+      role: "reviewer",
+      prompt: "review",
+    }, "13935");
+    assert.equal(toolIsError(res), false);
+    const attached = readAgents(dir).find((a) => a.role === "reviewer");
+    assert.ok(attached);
+    assert.equal(Object.prototype.hasOwnProperty.call(attached, "requested_model"), false);
+  });
+});
+
+const INVALID_MODELS: Array<{ label: string; model: unknown }> = [
+  { label: "non-string", model: 42 },
+  { label: "null", model: null },
+  { label: "empty", model: "" },
+  { label: "whitespace", model: "   " },
+  { label: "no slash", model: "minimax-m3" },
+  { label: "empty provider", model: "/minimax-m3" },
+  { label: "empty model", model: "kilo/" },
+  { label: "embedded whitespace", model: "kilo /minimax" },
+  { label: "257-character selector", model: `${"p".repeat(128)}/${"m".repeat(128)}` },
+];
+
+for (const [i, { label, model }] of INVALID_MODELS.entries()) {
+  test(`spawn_fleet refuses ${label} model before any write`, async () => {
+    await withDir(async (dir) => {
+      const res = await callTool(dir, "spawn_fleet", {
+        agents: [{ role: "builder", prompt: "build", model }],
+      }, String(13940 + i));
+      assert.equal(toolIsError(res), true, `expected refusal for ${label}: ${JSON.stringify(res).slice(0, 200)}`);
+      assert.match(JSON.stringify(res), /model/i);
+      assert.equal(ledgerCounts(dir).agents, 0, `refused ${label} must not commit an agent row`);
+      assert.equal(ledgerCounts(dir).fleets, 0, `refused ${label} must not commit a fleet`);
+      assert.equal(hasSpawnObservation(dir), false, `refused ${label} must not spawn`);
+    });
+  });
+}
+
+for (const [i, { label, model }] of INVALID_MODELS.entries()) {
+  test(`attach_agent refuses ${label} model before any write`, async () => {
+    await withDir(async (dir) => {
+      const spawned = await callTool(dir, "spawn_fleet", {
+        agents: [{ role: "seed", prompt: "seed fleet" }],
+      }, String(13960 + i));
+      const before = ledgerCounts(dir).agents;
+      const fleetId = JSON.parse(
+        (spawned.result ?? spawned).content[0].text,
+      ).fleet_id as string;
+      const res = await callTool(dir, "attach_agent", {
+        fleet_id: fleetId,
+        role: "builder",
+        prompt: "build",
+        model,
+      }, String(13980 + i));
+      assert.equal(toolIsError(res), true, `expected refusal for ${label}`);
+      assert.match(JSON.stringify(res), /model/i);
+      assert.equal(ledgerCounts(dir).agents, before, `refused attach ${label} must not add an agent row`);
+      // seed spawn may have observed; attach refusal must not add a second agent_spawned for the refused call.
+      // Agent count is the hard ledger boundary.
+    });
+  });
+}
