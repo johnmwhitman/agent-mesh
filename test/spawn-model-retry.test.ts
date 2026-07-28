@@ -11,6 +11,7 @@ import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
 import {
   chmodSync,
+  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -19,7 +20,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -54,31 +55,49 @@ test("legacy spawn retries retain the selected model argv", async () => {
   const dir = mkdtempSync(join(tmpdir(), "mesh-model-retry-"));
   const argvLog = join(dir, "opencode-argv.jsonl");
   const binDir = join(dir, "bin");
-  const opencodePath = join(binDir, "opencode");
+  const isWindows = process.platform === "win32";
+  const opencodePath = join(binDir, isWindows ? "opencode.exe" : "opencode");
+  const preloadPath = join(binDir, "opencode-preload.cjs");
   let server: ChildProcess | undefined;
 
   try {
     mkdirSync(binDir, { recursive: true });
-    writeFileSync(
-      opencodePath,
-      `#!/usr/bin/env node
+    const stubBody = `
 const fs = require("node:fs");
 const log = process.env.OPENCODE_ARGV_LOG;
 if (!log) process.exit(2);
-fs.appendFileSync(log, JSON.stringify(process.argv.slice(2)) + "\\n");
+const argv = process.argv.slice(${isWindows ? 1 : 2});
+fs.appendFileSync(log, JSON.stringify(argv) + "\\n");
 // Parseable banner with a DIFFERENT model so classification fails closed and
 // the legacy retry path fires, while still proving argv selection.
 process.stderr.write("> builder · openai/gpt-5\\n");
 process.exit(1);
+`;
+    if (isWindows) {
+      // OpenCode's Windows package exposes a native opencode.exe. Copy Node's
+      // native executable to emulate that launch shape without shell:true;
+      // the preload records argv and exits before Node tries to load "run".
+      writeFileSync(
+        preloadPath,
+        `const { basename } = require("node:path");
+if (basename(process.execPath).toLowerCase() === "opencode.exe") {
+${stubBody}
+}
 `,
-      { mode: 0o755 },
-    );
-    chmodSync(opencodePath, 0o755);
+      );
+      copyFileSync(process.execPath, opencodePath);
+    } else {
+      writeFileSync(opencodePath, `#!/usr/bin/env node\n${stubBody}`, { mode: 0o755 });
+      chmodSync(opencodePath, 0o755);
+    }
 
     server = spawn("node", [join(repoRoot, "dist", "index.js")], {
       env: {
         ...process.env,
-        PATH: `${binDir}:${process.env.PATH ?? ""}`,
+        PATH: `${binDir}${delimiter}${process.env.PATH ?? ""}`,
+        ...(isWindows
+          ? { NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --require="${preloadPath}"`.trim() }
+          : {}),
         OPENCODE_ARGV_LOG: argvLog,
         MESHFLEET_DB_FILE: join(dir, "l.db"),
         MESHFLEET_DATA_FILE: join(dir, "l.json"),
