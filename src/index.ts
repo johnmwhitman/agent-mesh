@@ -301,12 +301,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       inputSchema: {
         type: "object",
         properties: {
-          from_agent_id: { type: "string" },
-          to_agent_id: { type: "string", description: 'Recipient agent id, or "*" for fleet broadcast' },
-          fleet_id: { type: "string" },
+          from_agent_id: { type: "string", minLength: 1, pattern: "\\S" },
+          to_agent_id: { type: "string", minLength: 1, pattern: "\\S", description: 'Recipient agent id, or "*" for fleet broadcast' },
+          fleet_id: { type: "string", minLength: 1, pattern: "\\S" },
           type: { type: "string", enum: [...MESSAGE_TYPES] },
           payload: { type: "string" },
-          correlation_id: { type: "string" },
+          correlation_id: { type: "string", minLength: 1, pattern: "\\S" },
         },
         required: ["from_agent_id", "to_agent_id", "fleet_id", "type", "payload"],
       },
@@ -1243,6 +1243,15 @@ toolHandlers["send_message"] = async (args) => {
       payload: string;
       correlation_id?: string;
     };
+    const bad = firstError(
+      requireString("send_message", "from_agent_id", from_agent_id),
+      requireString("send_message", "to_agent_id", to_agent_id),
+      requireString("send_message", "fleet_id", fleet_id),
+      requirePresentString("send_message", "payload", payload),
+      requireEnum("send_message", "type", type, MESSAGE_TYPES),
+      optionalNonBlankString("send_message", "correlation_id", correlation_id),
+    );
+    if (bad) return jsonError(bad);
     try {
       // The writer returns the resolved recipient list from inside the txn, so
       // SSE notification needs no post-commit re-read (that read was a TOCTOU:

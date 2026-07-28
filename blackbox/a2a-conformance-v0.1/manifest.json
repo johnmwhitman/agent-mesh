@@ -3,7 +3,7 @@
   "name": "Meshfleet stdio catalog-boundary conformance v0.1",
   "scope": "bounded stdio catalog boundary only; not multi-client or full A2A conformance",
   "server_entrypoint": "dist/index.js",
-  "expected_catalog_sha256": "57340a96a5b96473f32bac16dd104f03532ed953c97331e395b56012393ffaa9",
+  "expected_catalog_sha256": "2b70d55cef56293568533c5dc1d7105840d5d9a23366137f2d896e27dd70a341",
   "unknown_tool_expectation": {
     "name": "__meshfleet_catalog_boundary_unknown_tool__",
     "expected_exception_code": -32603,
