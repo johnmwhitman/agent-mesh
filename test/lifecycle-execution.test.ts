@@ -202,7 +202,7 @@ test("reconstructed coordinator reads requestedModel from the Agent row", async 
     const runtime1 = new ControlledRuntime();
     const first = new LifecycleExecutionCoordinator(runtime1, {
       ownerId: "owner-first",
-      retryBaseMs: 1,
+      retryBaseMs: 0,
       maxAttempts: 3,
       leaseMs: 30,
       now: () => now,
@@ -216,6 +216,13 @@ test("reconstructed coordinator reads requestedModel from the Agent row", async 
     }]);
     await waitUntil(() => runtime1.starts.length >= 1, "initial launch");
     assert.equal(runtime1.starts[0]?.requestedModel, "kilo/kilo-auto/free");
+    await waitUntil(() => {
+      const state = new LifecycleStore().getState("agent-rec");
+      const attempt = state?.attempts.find(
+        (candidate) => candidate.attempt_id === state.work.current_attempt_id,
+      );
+      return attempt !== undefined && attempt.launch_registered_at !== null;
+    }, "durable handle registration");
     // Leave the attempt running under a short lease, then stop so a new
     // coordinator must recover from the ledger Agent row — not in-memory spec.
     first.stop();
@@ -224,7 +231,7 @@ test("reconstructed coordinator reads requestedModel from the Agent row", async 
     const runtime2 = new ControlledRuntime();
     const recovered = new LifecycleExecutionCoordinator(runtime2, {
       ownerId: "owner-second",
-      retryBaseMs: 1,
+      retryBaseMs: 0,
       maxAttempts: 3,
       leaseMs: 1_000,
       now: () => now,
