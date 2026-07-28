@@ -26,6 +26,12 @@ interface DiagnosticAttribution {
   provider?: string;
 }
 
+/**
+ * Match exact runtime model IDs or IDs that differ only by one provider prefix.
+ * Provider stripping is symmetric and removes only the first path segment, so
+ * multi-segment model names stay intact. Spawn classification and verification
+ * share this rule to keep runtime evidence interpretation consistent.
+ */
 export function runtimeModelsMatch(expected?: string, observed?: string): boolean {
   if (!expected || !observed) return false;
   const expectedValue = expected.toLowerCase();

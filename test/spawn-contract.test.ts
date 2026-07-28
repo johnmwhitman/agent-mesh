@@ -260,6 +260,18 @@ test("attach_agent omits requested_model when model is absent", async () => {
   });
 });
 
+test("spawn_fleet accepts and persists an exact 256-character model selector", async () => {
+  await withDir(async (dir) => {
+    const model = `${"p".repeat(127)}/${"m".repeat(128)}`;
+    assert.equal(model.length, 256);
+    const res = await callTool(dir, "spawn_fleet", {
+      agents: [{ role: "builder", prompt: "build", model }],
+    }, "13936");
+    assert.equal(toolIsError(res), false, JSON.stringify(res).slice(0, 300));
+    assert.equal(readAgents(dir)[0]?.requested_model, model);
+  });
+});
+
 const INVALID_MODELS: Array<{ label: string; model: unknown }> = [
   { label: "non-string", model: 42 },
   { label: "null", model: null },
