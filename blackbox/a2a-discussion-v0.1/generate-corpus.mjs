@@ -274,6 +274,242 @@ function add(id, description, input, expected_output) {
   }, parsed);
 }
 
+// =====================================================================
+// Multi-turn lifecycle cases (require receipts for attempt validation)
+// =====================================================================
+
+const POLICY = { participants: ["alice", "bob"], max_turns: 4, conversation_deadline: DEADLINE, turn_timeout_ms: 30000 };
+const ROOT_PAYLOAD = makeEnvelope({ policy: POLICY });
+
+function wakeReceipt(agentId, messageId, state, turn, attemptId, noteObj, ts = 1100) {
+  return receipt(agentId, messageId, `discussion.wake.${state}.v1:${turn}:${attemptId}`, noteObj, ts);
+}
+
+// -- Case 19: active status (reservation exists, deadline in future)
+{
+  const msgs = [msg("m1", "alice", "bob", "f1", "question", ROOT_PAYLOAD, "d1", 900)];
+  const rcpts = [
+    wakeReceipt("bob", "m1", "reserved", 2, "att-2", {
+      discussion_id: "d1", head_message_id: "m1", deadline: DEADLINE,
+    }, 1000),
+  ];
+  const result = deriveDiscussion("d1", msgs, rcpts, NOW);
+  add("active-reservation", "Root + reserved wake receipt with future deadline — status active", {
+    discussion_id: "d1", messages: msgs, receipts: rcpts, now: NOW,
+  }, project(result));
+}
+
+// -- Case 20: closed status (authorized reply with close=true)
+{
+  const replyPayload = makeEnvelope({
+    turn: 2, attempt_id: "att-2", reply_to: "m1", kind: "result", body: "answer", close: true,
+  });
+  const msgs = [
+    msg("m1", "alice", "bob", "f1", "question", ROOT_PAYLOAD, "d1", 900),
+    msg("m2", "bob", "alice", "f1", "result", replyPayload, "d1", 1200),
+  ];
+  const rcpts = [
+    wakeReceipt("bob", "m1", "reserved", 2, "att-2", {
+      discussion_id: "d1", head_message_id: "m1", deadline: DEADLINE,
+    }, 1000),
+    wakeReceipt("bob", "m1", "completed", 2, "att-2", {
+      discussion_id: "d1", head_message_id: "m1", deadline: DEADLINE, reply_message_id: "m2",
+    }, 1200),
+  ];
+  const result = deriveDiscussion("d1", msgs, rcpts, NOW);
+  add("closed-via-reply", "Root + authorized reply with close=true — status closed", {
+    discussion_id: "d1", messages: msgs, receipts: rcpts, now: NOW,
+  }, project(result));
+}
+
+// -- Case 21: multi-turn open (completed reply, no close, conversation continues)
+{
+  const replyPayload = makeEnvelope({
+    turn: 2, attempt_id: "att-2", reply_to: "m1", kind: "result", body: "answer", close: false,
+  });
+  const msgs = [
+    msg("m1", "alice", "bob", "f1", "question", ROOT_PAYLOAD, "d1", 900),
+    msg("m2", "bob", "alice", "f1", "result", replyPayload, "d1", 1200),
+  ];
+  const rcpts = [
+    wakeReceipt("bob", "m1", "reserved", 2, "att-2", {
+      discussion_id: "d1", head_message_id: "m1", deadline: DEADLINE,
+    }, 1000),
+    wakeReceipt("bob", "m1", "completed", 2, "att-2", {
+      discussion_id: "d1", head_message_id: "m1", deadline: DEADLINE, reply_message_id: "m2",
+    }, 1200),
+  ];
+  const result = deriveDiscussion("d1", msgs, rcpts, NOW);
+  add("multi-turn-open", "Root + authorized reply without close — status open, turns_used=2", {
+    discussion_id: "d1", messages: msgs, receipts: rcpts, now: NOW,
+  }, project(result));
+}
+
+// -- Case 22: exhausted status (turns_used >= max_turns)
+{
+  const p2 = { participants: ["alice", "bob"], max_turns: 2, conversation_deadline: DEADLINE, turn_timeout_ms: 30000 };
+  const rootPayload2 = makeEnvelope({ policy: p2 });
+  const replyPayload = makeEnvelope({
+    turn: 2, attempt_id: "att-2", reply_to: "m1", kind: "result", body: "answer", close: false,
+  });
+  const msgs = [
+    msg("m1", "alice", "bob", "f1", "question", rootPayload2, "d1", 900),
+    msg("m2", "bob", "alice", "f1", "result", replyPayload, "d1", 1200),
+  ];
+  const rcpts = [
+    wakeReceipt("bob", "m1", "reserved", 2, "att-2", {
+      discussion_id: "d1", head_message_id: "m1", deadline: DEADLINE,
+    }, 1000),
+    wakeReceipt("bob", "m1", "completed", 2, "att-2", {
+      discussion_id: "d1", head_message_id: "m1", deadline: DEADLINE, reply_message_id: "m2",
+    }, 1200),
+  ];
+  const result = deriveDiscussion("d1", msgs, rcpts, NOW);
+  add("exhausted-budget", "max_turns=2, root + 1 authorized reply — turns_used=2, status exhausted", {
+    discussion_id: "d1", messages: msgs, receipts: rcpts, now: NOW,
+  }, project(result));
+}
+
+// -- Case 23: deadman status (reservation with past deadline, no completion)
+{
+  const msgs = [msg("m1", "alice", "bob", "f1", "question", ROOT_PAYLOAD, "d1", 900)];
+  const PAST_DEADLINE = 1500;
+  const rcpts = [
+    wakeReceipt("bob", "m1", "reserved", 2, "att-2", {
+      discussion_id: "d1", head_message_id: "m1", deadline: PAST_DEADLINE,
+    }, 1000),
+  ];
+  const result = deriveDiscussion("d1", msgs, rcpts, NOW);
+  add("deadman-expired-reservation", "Reservation with past deadline, no completion — status deadman", {
+    discussion_id: "d1", messages: msgs, receipts: rcpts, now: NOW,
+  }, project(result));
+}
+
+// -- Case 24: deadman status (explicit deadman receipt)
+{
+  const msgs = [msg("m1", "alice", "bob", "f1", "question", ROOT_PAYLOAD, "d1", 900)];
+  const rcpts = [
+    wakeReceipt("bob", "m1", "reserved", 2, "att-2", {
+      discussion_id: "d1", head_message_id: "m1", deadline: DEADLINE,
+    }, 1000),
+    wakeReceipt("bob", "m1", "deadman", 2, "att-2", {
+      discussion_id: "d1", head_message_id: "m1", deadline: DEADLINE,
+    }, 2000),
+  ];
+  const result = deriveDiscussion("d1", msgs, rcpts, NOW);
+  add("deadman-explicit-receipt", "Explicit deadman receipt on a reserved attempt — status deadman", {
+    discussion_id: "d1", messages: msgs, receipts: rcpts, now: NOW,
+  }, project(result));
+}
+
+// -- Case 25: failed attempt (reservation + failed, conversation continues open)
+{
+  const msgs = [msg("m1", "alice", "bob", "f1", "question", ROOT_PAYLOAD, "d1", 900)];
+  const rcpts = [
+    wakeReceipt("bob", "m1", "reserved", 2, "att-2", {
+      discussion_id: "d1", head_message_id: "m1", deadline: DEADLINE,
+    }, 1000),
+    wakeReceipt("bob", "m1", "failed", 2, "att-2", {
+      discussion_id: "d1", head_message_id: "m1", deadline: DEADLINE,
+    }, 1500),
+  ];
+  const result = deriveDiscussion("d1", msgs, rcpts, NOW);
+  add("failed-attempt-open", "Reserved + failed attempt — turns consumed but discussion stays open", {
+    discussion_id: "d1", messages: msgs, receipts: rcpts, now: NOW,
+  }, project(result));
+}
+
+// -- Case 26: attempt missing reservation (no reserved receipt)
+{
+  const msgs = [msg("m1", "alice", "bob", "f1", "question", ROOT_PAYLOAD, "d1", 900)];
+  const rcpts = [
+    wakeReceipt("bob", "m1", "completed", 2, "att-2", {
+      discussion_id: "d1", head_message_id: "m1", deadline: DEADLINE, reply_message_id: "m2",
+    }, 1200),
+  ];
+  const result = deriveDiscussion("d1", msgs, rcpts, NOW);
+  add("attempt-missing-reservation", "Completed receipt with no reserved receipt — attempt rejected", {
+    discussion_id: "d1", messages: msgs, receipts: rcpts, now: NOW,
+  }, project(result));
+}
+
+// -- Case 27: late completion (completed after deadline)
+{
+  const EARLY_DEADLINE = 1100;
+  const msgs = [msg("m1", "alice", "bob", "f1", "question", ROOT_PAYLOAD, "d1", 900)];
+  const replyPayload = makeEnvelope({
+    turn: 2, attempt_id: "att-2", reply_to: "m1", kind: "result", body: "late answer", close: false,
+  });
+  const msgs2 = [
+    ...msgs,
+    msg("m2", "bob", "alice", "f1", "result", replyPayload, "d1", 2000),
+  ];
+  const rcpts = [
+    wakeReceipt("bob", "m1", "reserved", 2, "att-2", {
+      discussion_id: "d1", head_message_id: "m1", deadline: EARLY_DEADLINE,
+    }, 1000),
+    wakeReceipt("bob", "m1", "completed", 2, "att-2", {
+      discussion_id: "d1", head_message_id: "m1", deadline: EARLY_DEADLINE, reply_message_id: "m2",
+    }, 2000),
+  ];
+  const result = deriveDiscussion("d1", msgs2, rcpts, NOW);
+  add("late-completion", "Completed receipt timestamp after deadline — late_completion finding", {
+    discussion_id: "d1", messages: msgs2, receipts: rcpts, now: NOW,
+  }, project(result));
+}
+
+// -- Case 28: wrong agent on attempt (agentId != head's to_agent_id)
+{
+  const msgs = [msg("m1", "alice", "bob", "f1", "question", ROOT_PAYLOAD, "d1", 900)];
+  const rcpts = [
+    wakeReceipt("charlie", "m1", "reserved", 2, "att-2", {
+      discussion_id: "d1", head_message_id: "m1", deadline: DEADLINE,
+    }, 1000),
+  ];
+  const result = deriveDiscussion("d1", msgs, rcpts, NOW);
+  add("unauthorized-agent", "Wake receipt from wrong agent (charlie, not bob) — rejected", {
+    discussion_id: "d1", messages: msgs, receipts: rcpts, now: NOW,
+  }, project(result));
+}
+
+// -- Case 29: wrong fleet on child message
+{
+  const replyPayload = makeEnvelope({
+    turn: 2, attempt_id: "att-2", reply_to: "m1", kind: "result", body: "answer", close: false,
+  });
+  const msgs = [
+    msg("m1", "alice", "bob", "f1", "question", ROOT_PAYLOAD, "d1", 900),
+    msg("m2", "bob", "alice", "f2", "result", replyPayload, "d1", 1200),
+  ];
+  const result = deriveDiscussion("d1", msgs, [], NOW);
+  add("wrong-fleet-child", "Child message in different fleet than root — wrong_fleet finding", {
+    discussion_id: "d1", messages: msgs, receipts: [], now: NOW,
+  }, project(result));
+}
+
+// -- Case 30: alternation violation (sender/recipient don't alternate)
+{
+  const replyPayload = makeEnvelope({
+    turn: 2, attempt_id: "att-2", reply_to: "m1", kind: "result", body: "answer", close: false,
+  });
+  const msgs = [
+    msg("m1", "alice", "bob", "f1", "question", ROOT_PAYLOAD, "d1", 900),
+    msg("m2", "alice", "bob", "f1", "result", replyPayload, "d1", 1200),
+  ];
+  const rcpts = [
+    wakeReceipt("bob", "m1", "reserved", 2, "att-2", {
+      discussion_id: "d1", head_message_id: "m1", deadline: DEADLINE,
+    }, 1000),
+    wakeReceipt("bob", "m1", "completed", 2, "att-2", {
+      discussion_id: "d1", head_message_id: "m1", deadline: DEADLINE, reply_message_id: "m2",
+    }, 1200),
+  ];
+  const result = deriveDiscussion("d1", msgs, rcpts, NOW);
+  add("alternation-violation", "Reply from same sender direction — invalid_sender finding", {
+    discussion_id: "d1", messages: msgs, receipts: rcpts, now: NOW,
+  }, project(result));
+}
+
 // Write corpus
 const corpus = {
   schema_version: "0.1",

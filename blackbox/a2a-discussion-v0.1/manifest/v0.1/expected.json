@@ -1,7 +1,7 @@
 {
   "profile": "meshfleet.a2a.discussion-derivation.v0.1",
-  "corpus_sha256": "b41493687fdf0b85aec4fa401af8ccc957326ceab45508c696aba12a26dcb558",
-  "corpus_cases": 18,
+  "corpus_sha256": "84ead3e9c04d199251cd932b90ecb894ed3d077bba0900d559000ca190156a6c",
+  "corpus_cases": 30,
   "runner_modes": ["--corpus", "--self", "--hash-corpus"],
   "reference_implementation": "src/discussion.ts",
   "dimensions_covered": [
@@ -9,9 +9,17 @@
     "envelope-validation",
     "receipt-action-parsing",
     "root-selection",
-    "status-derivation",
+    "status-derivation-all-7-statuses",
     "structural-integrity",
     "deadline-expiry",
-    "policy-bounds"
+    "policy-bounds",
+    "multi-turn-attempt-lifecycle",
+    "reservation-rooted-validation",
+    "late-completion-exclusion",
+    "deadman-explicit-and-expired",
+    "failed-attempt-gap-fill",
+    "alternation-enforcement",
+    "fleet-membership-check",
+    "unauthorized-agent-rejection"
   ]
 }

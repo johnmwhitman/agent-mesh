@@ -507,6 +507,598 @@
         "payload": "{\"$meshfleet\":\"discussion/v1\",\"discussion_id\":\"d1\"}"
       },
       "expected_output": null
+    },
+    {
+      "id": "active-reservation",
+      "description": "Root + reserved wake receipt with future deadline — status active",
+      "input": {
+        "discussion_id": "d1",
+        "messages": [
+          {
+            "id": "m1",
+            "from_agent_id": "alice",
+            "to_agent_id": "bob",
+            "fleet_id": "f1",
+            "type": "question",
+            "payload": "{\"$meshfleet\":\"discussion/v1\",\"discussion_id\":\"d1\",\"turn\":1,\"attempt_id\":\"a1\",\"reply_to\":null,\"kind\":\"question\",\"body\":\"hello\",\"close\":false,\"policy\":{\"participants\":[\"alice\",\"bob\"],\"max_turns\":4,\"conversation_deadline\":60000,\"turn_timeout_ms\":30000}}",
+            "correlation_id": "d1",
+            "timestamp": 900,
+            "acknowledged": false
+          }
+        ],
+        "receipts": [
+          {
+            "id": "m1:bob:discussion.wake.reserved.v1:2:att-2",
+            "agent_id": "bob",
+            "message_id": "m1",
+            "action": "discussion.wake.reserved.v1:2:att-2",
+            "note": "{\"discussion_id\":\"d1\",\"head_message_id\":\"m1\",\"deadline\":60000}",
+            "timestamp": 1000
+          }
+        ],
+        "now": 50000
+      },
+      "expected_output": {
+        "status": "active",
+        "turns_used": 2,
+        "turns_remaining": 2,
+        "transcript_length": 1,
+        "attempts_count": 1,
+        "integrity_finding_codes": []
+      }
+    },
+    {
+      "id": "closed-via-reply",
+      "description": "Root + authorized reply with close=true — status closed",
+      "input": {
+        "discussion_id": "d1",
+        "messages": [
+          {
+            "id": "m1",
+            "from_agent_id": "alice",
+            "to_agent_id": "bob",
+            "fleet_id": "f1",
+            "type": "question",
+            "payload": "{\"$meshfleet\":\"discussion/v1\",\"discussion_id\":\"d1\",\"turn\":1,\"attempt_id\":\"a1\",\"reply_to\":null,\"kind\":\"question\",\"body\":\"hello\",\"close\":false,\"policy\":{\"participants\":[\"alice\",\"bob\"],\"max_turns\":4,\"conversation_deadline\":60000,\"turn_timeout_ms\":30000}}",
+            "correlation_id": "d1",
+            "timestamp": 900,
+            "acknowledged": false
+          },
+          {
+            "id": "m2",
+            "from_agent_id": "bob",
+            "to_agent_id": "alice",
+            "fleet_id": "f1",
+            "type": "result",
+            "payload": "{\"$meshfleet\":\"discussion/v1\",\"discussion_id\":\"d1\",\"turn\":2,\"attempt_id\":\"att-2\",\"reply_to\":\"m1\",\"kind\":\"result\",\"body\":\"answer\",\"close\":true}",
+            "correlation_id": "d1",
+            "timestamp": 1200,
+            "acknowledged": false
+          }
+        ],
+        "receipts": [
+          {
+            "id": "m1:bob:discussion.wake.reserved.v1:2:att-2",
+            "agent_id": "bob",
+            "message_id": "m1",
+            "action": "discussion.wake.reserved.v1:2:att-2",
+            "note": "{\"discussion_id\":\"d1\",\"head_message_id\":\"m1\",\"deadline\":60000}",
+            "timestamp": 1000
+          },
+          {
+            "id": "m1:bob:discussion.wake.completed.v1:2:att-2",
+            "agent_id": "bob",
+            "message_id": "m1",
+            "action": "discussion.wake.completed.v1:2:att-2",
+            "note": "{\"discussion_id\":\"d1\",\"head_message_id\":\"m1\",\"deadline\":60000,\"reply_message_id\":\"m2\"}",
+            "timestamp": 1200
+          }
+        ],
+        "now": 50000
+      },
+      "expected_output": {
+        "status": "closed",
+        "turns_used": 2,
+        "turns_remaining": 2,
+        "transcript_length": 2,
+        "attempts_count": 1,
+        "integrity_finding_codes": []
+      }
+    },
+    {
+      "id": "multi-turn-open",
+      "description": "Root + authorized reply without close — status open, turns_used=2",
+      "input": {
+        "discussion_id": "d1",
+        "messages": [
+          {
+            "id": "m1",
+            "from_agent_id": "alice",
+            "to_agent_id": "bob",
+            "fleet_id": "f1",
+            "type": "question",
+            "payload": "{\"$meshfleet\":\"discussion/v1\",\"discussion_id\":\"d1\",\"turn\":1,\"attempt_id\":\"a1\",\"reply_to\":null,\"kind\":\"question\",\"body\":\"hello\",\"close\":false,\"policy\":{\"participants\":[\"alice\",\"bob\"],\"max_turns\":4,\"conversation_deadline\":60000,\"turn_timeout_ms\":30000}}",
+            "correlation_id": "d1",
+            "timestamp": 900,
+            "acknowledged": false
+          },
+          {
+            "id": "m2",
+            "from_agent_id": "bob",
+            "to_agent_id": "alice",
+            "fleet_id": "f1",
+            "type": "result",
+            "payload": "{\"$meshfleet\":\"discussion/v1\",\"discussion_id\":\"d1\",\"turn\":2,\"attempt_id\":\"att-2\",\"reply_to\":\"m1\",\"kind\":\"result\",\"body\":\"answer\",\"close\":false}",
+            "correlation_id": "d1",
+            "timestamp": 1200,
+            "acknowledged": false
+          }
+        ],
+        "receipts": [
+          {
+            "id": "m1:bob:discussion.wake.reserved.v1:2:att-2",
+            "agent_id": "bob",
+            "message_id": "m1",
+            "action": "discussion.wake.reserved.v1:2:att-2",
+            "note": "{\"discussion_id\":\"d1\",\"head_message_id\":\"m1\",\"deadline\":60000}",
+            "timestamp": 1000
+          },
+          {
+            "id": "m1:bob:discussion.wake.completed.v1:2:att-2",
+            "agent_id": "bob",
+            "message_id": "m1",
+            "action": "discussion.wake.completed.v1:2:att-2",
+            "note": "{\"discussion_id\":\"d1\",\"head_message_id\":\"m1\",\"deadline\":60000,\"reply_message_id\":\"m2\"}",
+            "timestamp": 1200
+          }
+        ],
+        "now": 50000
+      },
+      "expected_output": {
+        "status": "open",
+        "turns_used": 2,
+        "turns_remaining": 2,
+        "transcript_length": 2,
+        "attempts_count": 1,
+        "integrity_finding_codes": []
+      }
+    },
+    {
+      "id": "exhausted-budget",
+      "description": "max_turns=2, root + 1 authorized reply — turns_used=2, status exhausted",
+      "input": {
+        "discussion_id": "d1",
+        "messages": [
+          {
+            "id": "m1",
+            "from_agent_id": "alice",
+            "to_agent_id": "bob",
+            "fleet_id": "f1",
+            "type": "question",
+            "payload": "{\"$meshfleet\":\"discussion/v1\",\"discussion_id\":\"d1\",\"turn\":1,\"attempt_id\":\"a1\",\"reply_to\":null,\"kind\":\"question\",\"body\":\"hello\",\"close\":false,\"policy\":{\"participants\":[\"alice\",\"bob\"],\"max_turns\":2,\"conversation_deadline\":60000,\"turn_timeout_ms\":30000}}",
+            "correlation_id": "d1",
+            "timestamp": 900,
+            "acknowledged": false
+          },
+          {
+            "id": "m2",
+            "from_agent_id": "bob",
+            "to_agent_id": "alice",
+            "fleet_id": "f1",
+            "type": "result",
+            "payload": "{\"$meshfleet\":\"discussion/v1\",\"discussion_id\":\"d1\",\"turn\":2,\"attempt_id\":\"att-2\",\"reply_to\":\"m1\",\"kind\":\"result\",\"body\":\"answer\",\"close\":false}",
+            "correlation_id": "d1",
+            "timestamp": 1200,
+            "acknowledged": false
+          }
+        ],
+        "receipts": [
+          {
+            "id": "m1:bob:discussion.wake.reserved.v1:2:att-2",
+            "agent_id": "bob",
+            "message_id": "m1",
+            "action": "discussion.wake.reserved.v1:2:att-2",
+            "note": "{\"discussion_id\":\"d1\",\"head_message_id\":\"m1\",\"deadline\":60000}",
+            "timestamp": 1000
+          },
+          {
+            "id": "m1:bob:discussion.wake.completed.v1:2:att-2",
+            "agent_id": "bob",
+            "message_id": "m1",
+            "action": "discussion.wake.completed.v1:2:att-2",
+            "note": "{\"discussion_id\":\"d1\",\"head_message_id\":\"m1\",\"deadline\":60000,\"reply_message_id\":\"m2\"}",
+            "timestamp": 1200
+          }
+        ],
+        "now": 50000
+      },
+      "expected_output": {
+        "status": "exhausted",
+        "turns_used": 2,
+        "turns_remaining": 0,
+        "transcript_length": 2,
+        "attempts_count": 1,
+        "integrity_finding_codes": []
+      }
+    },
+    {
+      "id": "deadman-expired-reservation",
+      "description": "Reservation with past deadline, no completion — status deadman",
+      "input": {
+        "discussion_id": "d1",
+        "messages": [
+          {
+            "id": "m1",
+            "from_agent_id": "alice",
+            "to_agent_id": "bob",
+            "fleet_id": "f1",
+            "type": "question",
+            "payload": "{\"$meshfleet\":\"discussion/v1\",\"discussion_id\":\"d1\",\"turn\":1,\"attempt_id\":\"a1\",\"reply_to\":null,\"kind\":\"question\",\"body\":\"hello\",\"close\":false,\"policy\":{\"participants\":[\"alice\",\"bob\"],\"max_turns\":4,\"conversation_deadline\":60000,\"turn_timeout_ms\":30000}}",
+            "correlation_id": "d1",
+            "timestamp": 900,
+            "acknowledged": false
+          }
+        ],
+        "receipts": [
+          {
+            "id": "m1:bob:discussion.wake.reserved.v1:2:att-2",
+            "agent_id": "bob",
+            "message_id": "m1",
+            "action": "discussion.wake.reserved.v1:2:att-2",
+            "note": "{\"discussion_id\":\"d1\",\"head_message_id\":\"m1\",\"deadline\":1500}",
+            "timestamp": 1000
+          }
+        ],
+        "now": 50000
+      },
+      "expected_output": {
+        "status": "deadman",
+        "turns_used": 2,
+        "turns_remaining": 2,
+        "transcript_length": 1,
+        "attempts_count": 1,
+        "integrity_finding_codes": []
+      }
+    },
+    {
+      "id": "deadman-explicit-receipt",
+      "description": "Explicit deadman receipt on a reserved attempt — status deadman",
+      "input": {
+        "discussion_id": "d1",
+        "messages": [
+          {
+            "id": "m1",
+            "from_agent_id": "alice",
+            "to_agent_id": "bob",
+            "fleet_id": "f1",
+            "type": "question",
+            "payload": "{\"$meshfleet\":\"discussion/v1\",\"discussion_id\":\"d1\",\"turn\":1,\"attempt_id\":\"a1\",\"reply_to\":null,\"kind\":\"question\",\"body\":\"hello\",\"close\":false,\"policy\":{\"participants\":[\"alice\",\"bob\"],\"max_turns\":4,\"conversation_deadline\":60000,\"turn_timeout_ms\":30000}}",
+            "correlation_id": "d1",
+            "timestamp": 900,
+            "acknowledged": false
+          }
+        ],
+        "receipts": [
+          {
+            "id": "m1:bob:discussion.wake.reserved.v1:2:att-2",
+            "agent_id": "bob",
+            "message_id": "m1",
+            "action": "discussion.wake.reserved.v1:2:att-2",
+            "note": "{\"discussion_id\":\"d1\",\"head_message_id\":\"m1\",\"deadline\":60000}",
+            "timestamp": 1000
+          },
+          {
+            "id": "m1:bob:discussion.wake.deadman.v1:2:att-2",
+            "agent_id": "bob",
+            "message_id": "m1",
+            "action": "discussion.wake.deadman.v1:2:att-2",
+            "note": "{\"discussion_id\":\"d1\",\"head_message_id\":\"m1\",\"deadline\":60000}",
+            "timestamp": 2000
+          }
+        ],
+        "now": 50000
+      },
+      "expected_output": {
+        "status": "deadman",
+        "turns_used": 2,
+        "turns_remaining": 2,
+        "transcript_length": 1,
+        "attempts_count": 1,
+        "integrity_finding_codes": []
+      }
+    },
+    {
+      "id": "failed-attempt-open",
+      "description": "Reserved + failed attempt — turns consumed but discussion stays open",
+      "input": {
+        "discussion_id": "d1",
+        "messages": [
+          {
+            "id": "m1",
+            "from_agent_id": "alice",
+            "to_agent_id": "bob",
+            "fleet_id": "f1",
+            "type": "question",
+            "payload": "{\"$meshfleet\":\"discussion/v1\",\"discussion_id\":\"d1\",\"turn\":1,\"attempt_id\":\"a1\",\"reply_to\":null,\"kind\":\"question\",\"body\":\"hello\",\"close\":false,\"policy\":{\"participants\":[\"alice\",\"bob\"],\"max_turns\":4,\"conversation_deadline\":60000,\"turn_timeout_ms\":30000}}",
+            "correlation_id": "d1",
+            "timestamp": 900,
+            "acknowledged": false
+          }
+        ],
+        "receipts": [
+          {
+            "id": "m1:bob:discussion.wake.reserved.v1:2:att-2",
+            "agent_id": "bob",
+            "message_id": "m1",
+            "action": "discussion.wake.reserved.v1:2:att-2",
+            "note": "{\"discussion_id\":\"d1\",\"head_message_id\":\"m1\",\"deadline\":60000}",
+            "timestamp": 1000
+          },
+          {
+            "id": "m1:bob:discussion.wake.failed.v1:2:att-2",
+            "agent_id": "bob",
+            "message_id": "m1",
+            "action": "discussion.wake.failed.v1:2:att-2",
+            "note": "{\"discussion_id\":\"d1\",\"head_message_id\":\"m1\",\"deadline\":60000}",
+            "timestamp": 1500
+          }
+        ],
+        "now": 50000
+      },
+      "expected_output": {
+        "status": "open",
+        "turns_used": 2,
+        "turns_remaining": 2,
+        "transcript_length": 1,
+        "attempts_count": 1,
+        "integrity_finding_codes": []
+      }
+    },
+    {
+      "id": "attempt-missing-reservation",
+      "description": "Completed receipt with no reserved receipt — attempt rejected",
+      "input": {
+        "discussion_id": "d1",
+        "messages": [
+          {
+            "id": "m1",
+            "from_agent_id": "alice",
+            "to_agent_id": "bob",
+            "fleet_id": "f1",
+            "type": "question",
+            "payload": "{\"$meshfleet\":\"discussion/v1\",\"discussion_id\":\"d1\",\"turn\":1,\"attempt_id\":\"a1\",\"reply_to\":null,\"kind\":\"question\",\"body\":\"hello\",\"close\":false,\"policy\":{\"participants\":[\"alice\",\"bob\"],\"max_turns\":4,\"conversation_deadline\":60000,\"turn_timeout_ms\":30000}}",
+            "correlation_id": "d1",
+            "timestamp": 900,
+            "acknowledged": false
+          }
+        ],
+        "receipts": [
+          {
+            "id": "m1:bob:discussion.wake.completed.v1:2:att-2",
+            "agent_id": "bob",
+            "message_id": "m1",
+            "action": "discussion.wake.completed.v1:2:att-2",
+            "note": "{\"discussion_id\":\"d1\",\"head_message_id\":\"m1\",\"deadline\":60000,\"reply_message_id\":\"m2\"}",
+            "timestamp": 1200
+          }
+        ],
+        "now": 50000
+      },
+      "expected_output": {
+        "status": "open",
+        "turns_used": 1,
+        "turns_remaining": 3,
+        "transcript_length": 1,
+        "attempts_count": 0,
+        "integrity_finding_codes": [
+          "attempt_missing_reservation"
+        ]
+      }
+    },
+    {
+      "id": "late-completion",
+      "description": "Completed receipt timestamp after deadline — late_completion finding",
+      "input": {
+        "discussion_id": "d1",
+        "messages": [
+          {
+            "id": "m1",
+            "from_agent_id": "alice",
+            "to_agent_id": "bob",
+            "fleet_id": "f1",
+            "type": "question",
+            "payload": "{\"$meshfleet\":\"discussion/v1\",\"discussion_id\":\"d1\",\"turn\":1,\"attempt_id\":\"a1\",\"reply_to\":null,\"kind\":\"question\",\"body\":\"hello\",\"close\":false,\"policy\":{\"participants\":[\"alice\",\"bob\"],\"max_turns\":4,\"conversation_deadline\":60000,\"turn_timeout_ms\":30000}}",
+            "correlation_id": "d1",
+            "timestamp": 900,
+            "acknowledged": false
+          },
+          {
+            "id": "m2",
+            "from_agent_id": "bob",
+            "to_agent_id": "alice",
+            "fleet_id": "f1",
+            "type": "result",
+            "payload": "{\"$meshfleet\":\"discussion/v1\",\"discussion_id\":\"d1\",\"turn\":2,\"attempt_id\":\"att-2\",\"reply_to\":\"m1\",\"kind\":\"result\",\"body\":\"late answer\",\"close\":false}",
+            "correlation_id": "d1",
+            "timestamp": 2000,
+            "acknowledged": false
+          }
+        ],
+        "receipts": [
+          {
+            "id": "m1:bob:discussion.wake.reserved.v1:2:att-2",
+            "agent_id": "bob",
+            "message_id": "m1",
+            "action": "discussion.wake.reserved.v1:2:att-2",
+            "note": "{\"discussion_id\":\"d1\",\"head_message_id\":\"m1\",\"deadline\":1100}",
+            "timestamp": 1000
+          },
+          {
+            "id": "m1:bob:discussion.wake.completed.v1:2:att-2",
+            "agent_id": "bob",
+            "message_id": "m1",
+            "action": "discussion.wake.completed.v1:2:att-2",
+            "note": "{\"discussion_id\":\"d1\",\"head_message_id\":\"m1\",\"deadline\":1100,\"reply_message_id\":\"m2\"}",
+            "timestamp": 2000
+          }
+        ],
+        "now": 50000
+      },
+      "expected_output": {
+        "status": "deadman",
+        "turns_used": 2,
+        "turns_remaining": 2,
+        "transcript_length": 1,
+        "attempts_count": 1,
+        "integrity_finding_codes": [
+          "late_completion",
+          "unauthorized_reply"
+        ]
+      }
+    },
+    {
+      "id": "unauthorized-agent",
+      "description": "Wake receipt from wrong agent (charlie, not bob) — rejected",
+      "input": {
+        "discussion_id": "d1",
+        "messages": [
+          {
+            "id": "m1",
+            "from_agent_id": "alice",
+            "to_agent_id": "bob",
+            "fleet_id": "f1",
+            "type": "question",
+            "payload": "{\"$meshfleet\":\"discussion/v1\",\"discussion_id\":\"d1\",\"turn\":1,\"attempt_id\":\"a1\",\"reply_to\":null,\"kind\":\"question\",\"body\":\"hello\",\"close\":false,\"policy\":{\"participants\":[\"alice\",\"bob\"],\"max_turns\":4,\"conversation_deadline\":60000,\"turn_timeout_ms\":30000}}",
+            "correlation_id": "d1",
+            "timestamp": 900,
+            "acknowledged": false
+          }
+        ],
+        "receipts": [
+          {
+            "id": "m1:charlie:discussion.wake.reserved.v1:2:att-2",
+            "agent_id": "charlie",
+            "message_id": "m1",
+            "action": "discussion.wake.reserved.v1:2:att-2",
+            "note": "{\"discussion_id\":\"d1\",\"head_message_id\":\"m1\",\"deadline\":60000}",
+            "timestamp": 1000
+          }
+        ],
+        "now": 50000
+      },
+      "expected_output": {
+        "status": "open",
+        "turns_used": 1,
+        "turns_remaining": 3,
+        "transcript_length": 1,
+        "attempts_count": 0,
+        "integrity_finding_codes": [
+          "unauthorized_attempt_agent"
+        ]
+      }
+    },
+    {
+      "id": "wrong-fleet-child",
+      "description": "Child message in different fleet than root — wrong_fleet finding",
+      "input": {
+        "discussion_id": "d1",
+        "messages": [
+          {
+            "id": "m1",
+            "from_agent_id": "alice",
+            "to_agent_id": "bob",
+            "fleet_id": "f1",
+            "type": "question",
+            "payload": "{\"$meshfleet\":\"discussion/v1\",\"discussion_id\":\"d1\",\"turn\":1,\"attempt_id\":\"a1\",\"reply_to\":null,\"kind\":\"question\",\"body\":\"hello\",\"close\":false,\"policy\":{\"participants\":[\"alice\",\"bob\"],\"max_turns\":4,\"conversation_deadline\":60000,\"turn_timeout_ms\":30000}}",
+            "correlation_id": "d1",
+            "timestamp": 900,
+            "acknowledged": false
+          },
+          {
+            "id": "m2",
+            "from_agent_id": "bob",
+            "to_agent_id": "alice",
+            "fleet_id": "f2",
+            "type": "result",
+            "payload": "{\"$meshfleet\":\"discussion/v1\",\"discussion_id\":\"d1\",\"turn\":2,\"attempt_id\":\"att-2\",\"reply_to\":\"m1\",\"kind\":\"result\",\"body\":\"answer\",\"close\":false}",
+            "correlation_id": "d1",
+            "timestamp": 1200,
+            "acknowledged": false
+          }
+        ],
+        "receipts": [],
+        "now": 50000
+      },
+      "expected_output": {
+        "status": "invalid",
+        "turns_used": 1,
+        "turns_remaining": 3,
+        "transcript_length": 1,
+        "attempts_count": 0,
+        "integrity_finding_codes": [
+          "wrong_fleet"
+        ]
+      }
+    },
+    {
+      "id": "alternation-violation",
+      "description": "Reply from same sender direction — invalid_sender finding",
+      "input": {
+        "discussion_id": "d1",
+        "messages": [
+          {
+            "id": "m1",
+            "from_agent_id": "alice",
+            "to_agent_id": "bob",
+            "fleet_id": "f1",
+            "type": "question",
+            "payload": "{\"$meshfleet\":\"discussion/v1\",\"discussion_id\":\"d1\",\"turn\":1,\"attempt_id\":\"a1\",\"reply_to\":null,\"kind\":\"question\",\"body\":\"hello\",\"close\":false,\"policy\":{\"participants\":[\"alice\",\"bob\"],\"max_turns\":4,\"conversation_deadline\":60000,\"turn_timeout_ms\":30000}}",
+            "correlation_id": "d1",
+            "timestamp": 900,
+            "acknowledged": false
+          },
+          {
+            "id": "m2",
+            "from_agent_id": "alice",
+            "to_agent_id": "bob",
+            "fleet_id": "f1",
+            "type": "result",
+            "payload": "{\"$meshfleet\":\"discussion/v1\",\"discussion_id\":\"d1\",\"turn\":2,\"attempt_id\":\"att-2\",\"reply_to\":\"m1\",\"kind\":\"result\",\"body\":\"answer\",\"close\":false}",
+            "correlation_id": "d1",
+            "timestamp": 1200,
+            "acknowledged": false
+          }
+        ],
+        "receipts": [
+          {
+            "id": "m1:bob:discussion.wake.reserved.v1:2:att-2",
+            "agent_id": "bob",
+            "message_id": "m1",
+            "action": "discussion.wake.reserved.v1:2:att-2",
+            "note": "{\"discussion_id\":\"d1\",\"head_message_id\":\"m1\",\"deadline\":60000}",
+            "timestamp": 1000
+          },
+          {
+            "id": "m1:bob:discussion.wake.completed.v1:2:att-2",
+            "agent_id": "bob",
+            "message_id": "m1",
+            "action": "discussion.wake.completed.v1:2:att-2",
+            "note": "{\"discussion_id\":\"d1\",\"head_message_id\":\"m1\",\"deadline\":60000,\"reply_message_id\":\"m2\"}",
+            "timestamp": 1200
+          }
+        ],
+        "now": 50000
+      },
+      "expected_output": {
+        "status": "invalid",
+        "turns_used": 2,
+        "turns_remaining": 2,
+        "transcript_length": 1,
+        "attempts_count": 1,
+        "integrity_finding_codes": [
+          "invalid_sender"
+        ]
+      }
     }
   ]
 }

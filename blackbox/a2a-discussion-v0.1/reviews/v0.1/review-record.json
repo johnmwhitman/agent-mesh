@@ -2,28 +2,37 @@
   "profile": "meshfleet.a2a.discussion-derivation.v0.1",
   "status": "PASS-AS-HELD",
   "reviewed_at": "2026-07-28",
-  "corpus_sha256": "b41493687fdf0b85aec4fa401af8ccc957326ceab45508c696aba12a26dcb558",
-  "corpus_cases": 18,
+  "corpus_sha256": "84ead3e9c04d199251cd932b90ecb894ed3d077bba0900d559000ca190156a6c",
+  "corpus_cases": 30,
   "runner_checks": {
-    "corpus": "18/18 pass",
+    "corpus": "30/30 pass",
     "self": "4/4 pass"
   },
+  "status_coverage": ["open", "active", "closed", "exhausted", "expired", "deadman", "invalid"],
   "coverage_notes": [
-    "Covers envelope parsing (valid, incomplete, wrong version)",
-    "Covers envelope validation (version, broadcast, correlation, payload size)",
-    "Covers receipt action parsing (valid wake, invalid format)",
-    "Covers root selection (missing, duplicate, wrong type, missing policy, participant mismatch)",
-    "Covers status derivation (open, expired, invalid)",
-    "Covers structural integrity (child policy forbidden, root close=true, policy bounds)",
-    "Does NOT yet cover: multi-turn conversations with validated attempts, closed/active/exhausted/deadman status, fleet mismatch detection, alternation checking, or the full receipt lifecycle walk"
+    "All 7 discussion statuses covered by at least one corpus case",
+    "Envelope parsing (valid, incomplete, wrong version)",
+    "Envelope validation (version, broadcast, correlation, payload size)",
+    "Receipt action parsing (valid wake, invalid format)",
+    "Root selection (missing, duplicate, wrong type, missing policy, participant mismatch)",
+    "Multi-turn attempt lifecycle (reservation, completion, failed, deadman)",
+    "Reservation-rooted validation (attempt_missing_reservation)",
+    "Late completion exclusion (completed after deadline)",
+    "Deadman via explicit receipt and expired reservation",
+    "Failed attempt gap-fill (turns consumed, discussion stays open)",
+    "Fleet membership check (wrong_fleet on child)",
+    "Alternation enforcement (invalid_sender on wrong direction)",
+    "Unauthorized agent rejection",
+    "Grok JS evaluator verified at 26/26 derivation match"
   ],
   "future_expansion": [
-    "Multi-turn with reservation/started/completed receipt lifecycle",
-    "Active and closed status via validated reply attempts",
-    "Exhausted status (turns_used == max_turns)",
-    "Deadman status (reservation without completion within deadline)",
-    "Fleet membership violation detection",
-    "Turn alternation enforcement",
-    "Python reference evaluator"
+    "Python reference evaluator",
+    "Three-turn and four-turn conversations",
+    "Fork detection (two authorized replies at same head)",
+    "Ordinal discontinuity (turn jump without failed filler)",
+    "attempt_beyond_budget (turn > max_turns)",
+    "Attempt identity conflict (inconsistent receipts)",
+    "Unreachable envelope detection",
+    "Fuzz differential"
   ]
 }
