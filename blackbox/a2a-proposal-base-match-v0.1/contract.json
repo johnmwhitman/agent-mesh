@@ -1,0 +1,96 @@
+{
+  "profile": "meshfleet.a2a.proposal-base-match.v0.1",
+  "operation": "evaluate_proposal_base_match",
+  "status": "offline-pure-reference-profile",
+  "input": {
+    "kind": "raw_utf8_json_bytes",
+    "root_fields": [
+      "profile",
+      "comparison_revision",
+      "proposals"
+    ],
+    "proposal_fields": [
+      "proposal_id",
+      "base_revision"
+    ]
+  },
+  "limits": {
+    "max_document_bytes": 65536,
+    "max_json_depth": 16,
+    "max_proposals": 32,
+    "max_token_utf8_bytes": 128,
+    "max_safe_integer": 9007199254740991
+  },
+  "token_grammar": "ASCII case-sensitive /^[A-Za-z][A-Za-z0-9._:-]{0,127}$/ with no normalization, trimming, coercion, numeric interpretation, or ordering",
+  "precedence": [
+    "DOCUMENT_TOO_LARGE, then BOM_NOT_ALLOWED, then INVALID_UTF8.",
+    "Strict streaming parsing enforces depth on object/array entry. Each member value is fully parsed before decoded-key duplicate detection; after a valid duplicate is detected, later members are not parsed. Post-parse INVALID_UNICODE follows all lexical, depth, and duplicate checks.",
+    "Root validation: ROOT_NOT_OBJECT; unknown root fields before missing root fields; fixed type order profile, comparison_revision, proposals; UNSUPPORTED_PROFILE; comparison revision byte limit then grammar; proposals array then count.",
+    "Proposal entries validate in input order: PROPOSAL_NOT_OBJECT; unknown proposal fields before missing proposal fields; fixed type order proposal_id then base_revision; proposal ID byte limit then grammar; base revision byte limit then grammar.",
+    "After every proposal is valid, duplicate proposal IDs reject. Only then are exact equality partitions classified."
+  ],
+  "classification": {
+    "empty": "zero proposals",
+    "single_match": "exactly one matching proposal and zero nonmatching proposals",
+    "multiple_match": "at least two matching proposals and zero nonmatching proposals",
+    "no_match": "zero matching proposals and at least one nonmatching proposal",
+    "mixed_match": "at least one matching and at least one nonmatching proposal",
+    "match_definition": "proposal.base_revision === comparison_revision over exact decoded strings only",
+    "ordering": "input array order never changes output semantics; output IDs sort in ASCII order"
+  },
+  "output": {
+    "classified": [
+      "profile",
+      "outcome",
+      "classification",
+      "matching_proposal_ids",
+      "nonmatching_proposal_ids"
+    ],
+    "rejected": [
+      "profile",
+      "outcome",
+      "error_code"
+    ]
+  },
+  "closed_error_vocabulary": [
+    "DOCUMENT_TOO_LARGE",
+    "BOM_NOT_ALLOWED",
+    "INVALID_UTF8",
+    "MALFORMED_JSON",
+    "DUPLICATE_JSON_KEY",
+    "INVALID_UNICODE",
+    "JSON_DEPTH_LIMIT",
+    "UNSAFE_INTEGER",
+    "NON_CANONICAL_INTEGER",
+    "ROOT_NOT_OBJECT",
+    "UNKNOWN_ROOT_FIELD",
+    "MISSING_ROOT_FIELD",
+    "INVALID_PROFILE_TYPE",
+    "INVALID_COMPARISON_REVISION_TYPE",
+    "PROPOSALS_NOT_ARRAY",
+    "UNSUPPORTED_PROFILE",
+    "COMPARISON_REVISION_TOO_LONG",
+    "INVALID_COMPARISON_REVISION",
+    "PROPOSAL_COUNT_LIMIT",
+    "PROPOSAL_NOT_OBJECT",
+    "UNKNOWN_PROPOSAL_FIELD",
+    "MISSING_PROPOSAL_FIELD",
+    "INVALID_PROPOSAL_ID_TYPE",
+    "INVALID_BASE_REVISION_TYPE",
+    "PROPOSAL_ID_TOO_LONG",
+    "INVALID_PROPOSAL_ID",
+    "BASE_REVISION_TOO_LONG",
+    "INVALID_BASE_REVISION",
+    "DUPLICATE_PROPOSAL_ID"
+  ],
+  "nonclaims": [
+    "No object existence, identity, actual freshness, current-state, authority, authentication, authorization, or policy claim.",
+    "No operation payload, digest, apply, acceptance, winner, merge, CRDT, OT, revision advancement, lifecycle, or clock behavior.",
+    "No transport, delivery, routing, replay, deduplication, persistence, filesystem, artifact, execution, runtime, provider, credential, spend, integration, publish, deploy, or interoperability behavior."
+  ],
+  "evidence_requirements": {
+    "differential": "Every frozen raw input must be evaluated independently by JavaScript and Python and equal its frozen exact projection byte-for-byte.",
+    "fuzz": "Generated proposal counts must include 0, 1, 2, 31, and 32 and assert complete independently derived projections for original and permuted inputs.",
+    "parser_parity": "Competing parser failures must include errors within duplicate values, errors after completed duplicates, invalid Unicode, and extreme nesting; both independent parsers must emit the same closed code."
+  }
+}
