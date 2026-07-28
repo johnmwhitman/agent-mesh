@@ -1,0 +1,15 @@
+{
+  "profile": "meshfleet.a2a.lifecycle-terminal.v0.1",
+  "corpus_sha256": "5190deaf13b202264b7a6c482f046f23352d2e5a12b6fd8b7bef7b324717eb3f",
+  "contract_sha256": "46cce05a7d6a31ec6c66bfeea7d22c9710836921696cdd2fd1e43429651fc346",
+  "corpus_cases": 31,
+  "runner_modes": ["default (corpus)", "--self-test"],
+  "reference_implementation": "evaluator.mjs",
+  "dimensions_covered": [
+    "single-work-lifecycle",
+    "lease-acquire-renew-expire",
+    "settle-retry-cancel-fencing",
+    "owner-epoch-transitions",
+    "terminal-state-sticky"
+  ]
+}

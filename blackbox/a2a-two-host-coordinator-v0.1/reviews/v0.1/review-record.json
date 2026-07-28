@@ -1,0 +1,18 @@
+{
+  "profile": "meshfleet.a2a.two-host-coordinator.v0.1",
+  "status": "PASS-AS-HELD",
+  "reviewed_at": "2026-07-28",
+  "corpus_sha256": "0140f45078fb7a8a5b8933b29037f426c917a34842fd2ef85da2a931ccb0660c",
+  "corpus_cases": 24,
+  "runner_result": "24/24 pass",
+  "python_evaluator": true,
+  "differential": true,
+  "coverage_notes": [
+    "Two-host partition/heal/recovery model",
+    "Lease tokens and owner-epoch across hosts",
+    "Modeled authority (not real multi-host transport)",
+    "24 corpus cases: 17 mandatory + 7 supplemental",
+    "13 validation error codes covered",
+    "Python evaluator present with differential.mjs cross-check"
+  ]
+}

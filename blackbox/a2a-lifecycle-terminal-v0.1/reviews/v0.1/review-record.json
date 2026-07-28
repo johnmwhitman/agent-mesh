@@ -1,0 +1,17 @@
+{
+  "profile": "meshfleet.a2a.lifecycle-terminal.v0.1",
+  "status": "PASS-AS-HELD",
+  "reviewed_at": "2026-07-28",
+  "corpus_sha256": "5190deaf13b202264b7a6c482f046f23352d2e5a12b6fd8b7bef7b324717eb3f",
+  "corpus_cases": 31,
+  "runner_result": "31/31 pass",
+  "python_evaluator": true,
+  "differential": true,
+  "coverage_notes": [
+    "Single-work lifecycle: create/acquire/renew/expire/settle/retry/cancel",
+    "Owner-epoch transitions and fencing",
+    "Terminal-state stickiness",
+    "31 corpus cases covering happy path and edge cases",
+    "Python evaluator present with differential.mjs cross-check"
+  ]
+}
