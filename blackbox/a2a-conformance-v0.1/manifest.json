@@ -3,7 +3,7 @@
   "name": "Meshfleet stdio catalog-boundary conformance v0.1",
   "scope": "bounded stdio catalog boundary only; not multi-client or full A2A conformance",
   "server_entrypoint": "dist/index.js",
-  "expected_catalog_sha256": "4d0289400e23c57b1e43347eb9d8f9258decf7b824516e0d066380d7e6f88fa8",
+  "expected_catalog_sha256": "57340a96a5b96473f32bac16dd104f03532ed953c97331e395b56012393ffaa9",
   "unknown_tool_expectation": {
     "name": "__meshfleet_catalog_boundary_unknown_tool__",
     "expected_exception_code": -32603,
@@ -16,61 +16,299 @@
   "families": {
     "lifecycle": {
       "tools": [
-        { "name": "spawn_fleet", "advertised_input_schema_members": ["agents"] },
-        { "name": "fleet_status", "advertised_input_schema_members": ["fleet_id"] },
-        { "name": "list_fleets", "advertised_input_schema_members": [] },
-        { "name": "set_fleet_timeout", "advertised_input_schema_members": ["fleet_id", "timeout_ms"] },
-        { "name": "collect_results", "advertised_input_schema_members": ["fleet_id"] },
-        { "name": "list_agents", "advertised_input_schema_members": [] },
-        { "name": "attach_agent", "advertised_input_schema_members": ["fleet_id", "role", "prompt", "agent"] }
+        {
+          "name": "spawn_fleet",
+          "advertised_input_schema_members": [
+            "agents"
+          ]
+        },
+        {
+          "name": "fleet_status",
+          "advertised_input_schema_members": [
+            "fleet_id"
+          ]
+        },
+        {
+          "name": "list_fleets",
+          "advertised_input_schema_members": []
+        },
+        {
+          "name": "set_fleet_timeout",
+          "advertised_input_schema_members": [
+            "fleet_id",
+            "timeout_ms"
+          ]
+        },
+        {
+          "name": "collect_results",
+          "advertised_input_schema_members": [
+            "fleet_id"
+          ]
+        },
+        {
+          "name": "list_agents",
+          "advertised_input_schema_members": []
+        },
+        {
+          "name": "attach_agent",
+          "advertised_input_schema_members": [
+            "fleet_id",
+            "role",
+            "prompt",
+            "agent"
+          ]
+        }
       ]
     },
     "messaging": {
       "tools": [
-        { "name": "send_message", "advertised_input_schema_members": ["fleet_id", "from_agent_id", "to_agent_id", "type", "payload", "correlation_id"] },
-        { "name": "send_messages", "advertised_input_schema_members": ["messages"] }
+        {
+          "name": "send_message",
+          "advertised_input_schema_members": [
+            "fleet_id",
+            "from_agent_id",
+            "to_agent_id",
+            "type",
+            "payload",
+            "correlation_id"
+          ]
+        },
+        {
+          "name": "send_messages",
+          "advertised_input_schema_members": [
+            "messages"
+          ]
+        }
       ]
     },
     "inbox": {
       "tools": [
-        { "name": "get_inbox", "advertised_input_schema_members": ["agent_id", "since"] },
-        { "name": "ack_message", "advertised_input_schema_members": ["agent_id", "message_id"] },
-        { "name": "subscribe_inbox", "advertised_input_schema_members": ["agent_id"] }
+        {
+          "name": "get_inbox",
+          "advertised_input_schema_members": [
+            "agent_id",
+            "since"
+          ]
+        },
+        {
+          "name": "ack_message",
+          "advertised_input_schema_members": [
+            "agent_id",
+            "message_id"
+          ]
+        },
+        {
+          "name": "subscribe_inbox",
+          "advertised_input_schema_members": [
+            "agent_id"
+          ]
+        }
       ]
     },
     "receipts": {
       "tools": [
-        { "name": "receipt", "advertised_input_schema_members": ["agent_id", "message_id", "action", "note"] },
-        { "name": "get_receipts", "advertised_input_schema_members": ["message_id"] },
-        { "name": "verify_ledger", "advertised_input_schema_members": [] }
+        {
+          "name": "receipt",
+          "advertised_input_schema_members": [
+            "agent_id",
+            "message_id",
+            "action",
+            "note"
+          ]
+        },
+        {
+          "name": "get_receipts",
+          "advertised_input_schema_members": [
+            "message_id"
+          ]
+        },
+        {
+          "name": "verify_ledger",
+          "advertised_input_schema_members": []
+        }
       ]
     },
     "ratification": {
       "tools": [
-        { "name": "open_ratification", "advertised_input_schema_members": ["proposer", "fleet_id", "subject", "payload", "quorum", "voters", "required_signoffs", "deadline", "silence_policy", "weights"] },
-        { "name": "cast_vote", "advertised_input_schema_members": ["agent_id", "message_id", "approve", "note"] },
-        { "name": "tally_ratification", "advertised_input_schema_members": ["message_id"] },
-        { "name": "sweep_ratifications", "advertised_input_schema_members": [] }
+        {
+          "name": "open_ratification",
+          "advertised_input_schema_members": [
+            "proposer",
+            "fleet_id",
+            "subject",
+            "payload",
+            "quorum",
+            "voters",
+            "required_signoffs",
+            "deadline",
+            "silence_policy",
+            "weights"
+          ]
+        },
+        {
+          "name": "cast_vote",
+          "advertised_input_schema_members": [
+            "agent_id",
+            "message_id",
+            "approve",
+            "note"
+          ]
+        },
+        {
+          "name": "tally_ratification",
+          "advertised_input_schema_members": [
+            "message_id"
+          ]
+        },
+        {
+          "name": "sweep_ratifications",
+          "advertised_input_schema_members": []
+        }
       ]
     },
     "capability-routing": {
       "tools": [
-        { "name": "register_capability", "advertised_input_schema_members": ["agent_id", "fleet_id", "role", "skills", "model", "context_window"] },
-        { "name": "route_work", "advertised_input_schema_members": ["description", "top_n"] },
-        { "name": "record_routing_outcome", "advertised_input_schema_members": ["agent_id", "capability_key", "success"] }
+        {
+          "name": "register_capability",
+          "advertised_input_schema_members": [
+            "agent_id",
+            "fleet_id",
+            "role",
+            "skills",
+            "model",
+            "context_window"
+          ]
+        },
+        {
+          "name": "route_work",
+          "advertised_input_schema_members": [
+            "description",
+            "top_n"
+          ]
+        },
+        {
+          "name": "record_routing_outcome",
+          "advertised_input_schema_members": [
+            "agent_id",
+            "capability_key",
+            "success"
+          ]
+        }
       ]
     },
     "health": {
       "tools": [
-        { "name": "ping", "advertised_input_schema_members": [] },
-        { "name": "get_health", "advertised_input_schema_members": [] }
+        {
+          "name": "ping",
+          "advertised_input_schema_members": []
+        },
+        {
+          "name": "get_health",
+          "advertised_input_schema_members": []
+        }
+      ]
+    },
+    "discussions": {
+      "tools": [
+        {
+          "name": "ask_peer",
+          "advertised_input_schema_members": [
+            "from_agent_id",
+            "to_agent_id",
+            "fleet_id",
+            "payload",
+            "max_turns",
+            "timeout_ms",
+            "turn_timeout_ms",
+            "wake_peer"
+          ]
+        },
+        {
+          "name": "wake_agent",
+          "advertised_input_schema_members": [
+            "agent_id",
+            "discussion_id",
+            "expected_head_message_id"
+          ]
+        },
+        {
+          "name": "reply_discussion",
+          "advertised_input_schema_members": [
+            "agent_id",
+            "discussion_id",
+            "attempt_id",
+            "reply_to_message_id",
+            "type",
+            "payload",
+            "close"
+          ]
+        },
+        {
+          "name": "get_discussion",
+          "advertised_input_schema_members": [
+            "discussion_id",
+            "include_receipts"
+          ]
+        }
+      ]
+    },
+    "templates": {
+      "tools": [
+        {
+          "name": "save_fleet_template",
+          "advertised_input_schema_members": [
+            "name",
+            "description",
+            "agents"
+          ]
+        },
+        {
+          "name": "list_fleet_templates",
+          "advertised_input_schema_members": []
+        },
+        {
+          "name": "spawn_from_template",
+          "advertised_input_schema_members": [
+            "name"
+          ]
+        }
+      ]
+    },
+    "advisory-routing": {
+      "tools": [
+        {
+          "name": "compile_route_candidates",
+          "advertised_input_schema_members": [
+            "manifest",
+            "observations"
+          ]
+        },
+        {
+          "name": "recommend_route",
+          "advertised_input_schema_members": [
+            "task",
+            "candidates"
+          ]
+        }
+      ]
+    },
+    "verification": {
+      "tools": [
+        {
+          "name": "verify_ledger_v2",
+          "advertised_input_schema_members": []
+        }
       ]
     }
   },
   "stable_call_invariants": {
     "ping": {
-      "expected": { "status": "ok" },
-      "ignored_volatile_fields_when_present": ["timestamp"]
+      "expected": {
+        "status": "ok"
+      },
+      "ignored_volatile_fields_when_present": [
+        "timestamp"
+      ]
     },
     "get_health": {
       "expected": {
@@ -81,7 +319,13 @@
         "capabilities": 0,
         "events": 0
       },
-      "ignored_volatile_fields_when_present": ["uptime_ms", "ledger_bytes", "events_log_bytes", "last_event_timestamp", "abandoned_fleets"]
+      "ignored_volatile_fields_when_present": [
+        "uptime_ms",
+        "ledger_bytes",
+        "events_log_bytes",
+        "last_event_timestamp",
+        "abandoned_fleets"
+      ]
     }
   }
 }

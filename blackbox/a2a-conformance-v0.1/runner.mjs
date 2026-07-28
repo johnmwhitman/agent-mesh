@@ -31,7 +31,11 @@ const FAMILY_NAMES = [
   "receipts",
   "ratification",
   "capability-routing",
-  "health"
+  "health",
+  "discussions",
+  "templates",
+  "advisory-routing",
+  "verification"
 ];
 
 function issue(error) {
