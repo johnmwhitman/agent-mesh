@@ -2,9 +2,22 @@
 
 All notable changes to Agent Mesh are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.18.0] — 2026-07-26
+
+**The other-direction release.** The auditor had only ever audited the fleet lattice in the
+underclaim direction; this release makes it audit the direction an evidence product actually
+exists for. Includes the unpublished 0.17.0 below.
 
 ### Fixed
+- 🔴 **`spawn_fleet` and `attach_agent` accepted payloads that violate their own published
+  schema — and started OS processes on them.** `{"agents":[{"role":"reviewer"}]}`, omitting the
+  schema-REQUIRED `prompt`, returned a normal success with a `fleet_id`, committed a fleet and an
+  agent row with `prompt` NULL / status `running`, and called the spawner. Driven over real MCP
+  stdio, not reasoned about. Fourth appearance of the unvalidated-`args` family
+  (`register_capability`, `cast_vote`, the four Discussions tools) and the highest blast radius of
+  the four: the others returned a wrong read or wrote a bad row — these start a process. Both
+  handlers now validate through the shared `src/tool-args.ts` boundary; refusal precedes the
+  transaction and the spawn, proven by the ledger file never being created on a refused call.
 - 🔴 **The auditor read the fleet lattice in one direction only, so a fleet could claim finished
   work over an agent that never finished and still verify clean.** `fleet.unreconciled_status`
   fires when a fleet UNDERCLAIMS — still `running` while every agent has terminated — which is a
@@ -68,6 +81,12 @@ break it, a safety net that had silently not existed for thirteen releases is go
 property it alone covered is pinned by a real test, and the dormant surface nobody used is deleted.
 
 ### Added
+- **`test/dist-freshness.test.ts`** — pins the stale-`dist/` defect this release's roll found:
+  every `dist/**.js` must correspond to a `src/**.ts`, orphans reported all at once. Nothing else
+  could catch it — every other test imports from `src/`, and the only two things that read `dist/`
+  assert a file is PRESENT. An additive check cannot catch a subtractive failure. Proven red on
+  each failure mode separately, including the actual 0.17.0 defect (a planted
+  `dist/a2a/local-admission.js`).
 - **A published tampered-ledger corpus — the falsification test for the receipts claim.**
   `test/fixtures/corpus/` holds 46 deliberately falsified ledgers, each one the shared clean
   baseline plus **one declared change** (recorded as explicit operations in `manifest.json`).
@@ -829,7 +848,8 @@ cd ~/.config/opencode/mcp-servers/agent-mesh && npm install && npm run build
 - Independent process execution (bypasses OpenCode's 30-minute background task timeout)
 - Schema for Fleet and Agent records
 
-[Unreleased]: https://github.com/johnmwhitman/agent-mesh/compare/v0.17.0...HEAD
+[Unreleased]: https://github.com/johnmwhitman/agent-mesh/compare/v0.18.0...HEAD
+[0.18.0]: https://github.com/johnmwhitman/agent-mesh/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/johnmwhitman/agent-mesh/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/johnmwhitman/agent-mesh/compare/v0.15.0...v0.16.0
 [0.15.1]: https://github.com/johnmwhitman/agent-mesh/compare/v0.15.0...v0.15.1
