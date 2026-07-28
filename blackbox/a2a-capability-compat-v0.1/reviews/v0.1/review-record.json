@@ -1,0 +1,78 @@
+{
+  "schema_version": "meshfleet.a2a.review-record.v0.1",
+  "profile": "meshfleet.a2a.capability-compat.v0.1",
+  "recorded_at": "2026-07-27T09:39:07Z",
+  "status": "REVIEW-HOLD",
+  "delegated_reviews": [
+    {
+      "role": "protocol-architect",
+      "model_observed": "grok-4.5",
+      "scope": "sanitized project-blind next-slice comparison and contract draft",
+      "disposition": "addressed-with-narrowing",
+      "findings": [
+        "Capability compatibility is the highest-value orthogonal gap if ranking, routing, policy, delivery, and trust are frozen out.",
+        "Use deterministic ternary outcomes and sorted mismatch facts.",
+        "Do not import full semver or host-specific capability assumptions."
+      ],
+      "resolution": "The executable contract is stateless, uses a frozen numeric version grammar, emits no score or route, and treats named clients as illustrative labels."
+    },
+    {
+      "role": "collision-red-team",
+      "model_observed": "grok-4.3",
+      "scope": "sanitized project-blind overlap analysis",
+      "disposition": "addressed",
+      "findings": [
+        "Causal acknowledgments overlap delivery and receipt work.",
+        "Standalone error precedence lacks a stable operation context.",
+        "Capability values must never become routing hints or policy facts."
+      ],
+      "resolution": "The slice owns pairwise fixture evaluation only and explicitly excludes causal, routing, delivery, and policy semantics."
+    },
+    {
+      "role": "cross-client-compatibility-architect",
+      "model_observed": "grok-4.3",
+      "scope": "sanitized project-blind portability review",
+      "disposition": "addressed-with-correction",
+      "findings": [
+        "Every named client needs representation without provider-specific assumptions.",
+        "A simplistic key-intersection boolean is too weak for versions, modes, content types, and tool schemas."
+      ],
+      "resolution": "The contract uses opaque labels plus explicit version ranges, alternative intersections, and exact tool schema labels, with illustrative cross-client fixtures."
+    }
+  ],
+  "independent_source_reviews": [
+    {
+      "reviewer": "Terra-Heisenberg",
+      "scope": "JavaScript and Python implementation parity",
+      "initial_findings": [
+        "Hostile __proto__ members were not preserved as own JavaScript object properties.",
+        "Incomplete fraction and exponent tokens had divergent parser classifications."
+      ],
+      "disposition": "resolved",
+      "resolution": "Null-prototype parser objects, complete numeric-production validation, golden parser classifications, and hostile-key full-transcript parity were added."
+    },
+    {
+      "reviewer": "Terra-Linnaeus",
+      "scope": "Contract, corpus, limits, and differential coverage",
+      "initial_findings": [
+        "Partial content-type absence lacked a mandatory golden case.",
+        "Parser and validation classifications lacked independent golden cross-language oracles.",
+        "Exact limits and paired list permutations were under-tested."
+      ],
+      "disposition": "resolved",
+      "resolution": "Mandatory partial-content coverage, golden parser and validation tables, exact accepted/rejected boundaries, and paired permutation projections were added."
+    }
+  ],
+  "acceptance": {
+    "focused": "green",
+    "build": "green",
+    "typecheck": "green",
+    "full_tests": "891/891",
+    "independent_review": "no unresolved important findings"
+  },
+  "remaining_boundaries": [
+    "Local commit and external manifest digest custody are packaging gates, not semantic review findings.",
+    "The branch remains unmerged and unpushed.",
+    "Integration, publication, deployment, activation, and product compatibility claims remain unauthorized."
+  ]
+}

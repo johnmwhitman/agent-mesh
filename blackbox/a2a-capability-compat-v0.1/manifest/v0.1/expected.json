@@ -1,0 +1,86 @@
+{
+  "schema_version": "meshfleet.a2a.source-manifest.v0.1",
+  "profile": "meshfleet.a2a.capability-compat.v0.1",
+  "generated_at": "2026-07-27T09:39:07Z",
+  "status": "REVIEW-HOLD",
+  "branch": "codex/a2a-capability-compat-v01-20260727",
+  "base_commit": "041500fd9aec6e482875f6339236ffdcc46fc7ed",
+  "routing_head_observed": "5dad0c997fc7069124da2dcec8ee094ed7171207",
+  "artifact_count": 13,
+  "artifacts": [
+    {
+      "path": ".gitignore",
+      "bytes": 35,
+      "sha256": "b81d9ce42418e05e42caec2e86d24263a94230271382c6d7eeab6b99938f3899"
+    },
+    {
+      "path": "HANDOFF.md",
+      "bytes": 2451,
+      "sha256": "27a5b5f09ad9f809e909fff3b94821dbb9a17a3448075eeab59f492d337342fa"
+    },
+    {
+      "path": "README.md",
+      "bytes": 2474,
+      "sha256": "dfab41e119bca8e879673bd1f857f06c49f77e03b228c4d332dbb516aa312e3e"
+    },
+    {
+      "path": "contract.json",
+      "bytes": 5396,
+      "sha256": "c3302a989994abe45b38ad5c89ef5e0c2e16f1d8f1aa731f1418149343fb1733"
+    },
+    {
+      "path": "corpus/v0.1/cases.json",
+      "bytes": 26128,
+      "sha256": "cd992c59563db100df7cfee23320fcae46b1107a60544f8117bc655f1b3a54ed"
+    },
+    {
+      "path": "differential.mjs",
+      "bytes": 1010,
+      "sha256": "721fdeac08e258347668b02123e125bfd53c884a50145f9a64eb156de0825a10"
+    },
+    {
+      "path": "evaluator.mjs",
+      "bytes": 21027,
+      "sha256": "404d98bc29fded534bb7c2408c2d227e77559559bd246f888b5c597f576de775"
+    },
+    {
+      "path": "evidence/acceptance-20260727.json",
+      "bytes": 2876,
+      "sha256": "964f0f4bb335130f12653d307f9e663538edfd15000fe95f1c05857a7df6450e"
+    },
+    {
+      "path": "fuzz-differential.mjs",
+      "bytes": 12125,
+      "sha256": "52878679e76681f6309fc5c79065dd9fafecb795d0bc70351a510eb1a9a082fb"
+    },
+    {
+      "path": "python/evaluator.py",
+      "bytes": 17869,
+      "sha256": "dda8b219b622a632177c60d6180c9de1e1ebfbb679489f58d82db1f5f9c4c9a5"
+    },
+    {
+      "path": "python/runner.py",
+      "bytes": 9567,
+      "sha256": "14326bc575c4bdba51a975d20f1b501066ef54a533ca33eb6f53070b247b0ba6"
+    },
+    {
+      "path": "reviews/v0.1/review-record.json",
+      "bytes": 3784,
+      "sha256": "2177f4cebd8a6b52ef5d4fa3ad6140c703639e645597f1b79268adec2bee1884"
+    },
+    {
+      "path": "runner.mjs",
+      "bytes": 8179,
+      "sha256": "c1e68f43b733954e9830b4244bdce713a1364de0401e5a9a4544413734016994"
+    }
+  ],
+  "acceptance_receipt": "evidence/acceptance-20260727.json",
+  "unresolved_important_findings": [],
+  "authority": {
+    "merge": false,
+    "push": false,
+    "publish": false,
+    "deploy": false,
+    "activate": false
+  }
+}

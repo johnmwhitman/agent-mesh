@@ -1,0 +1,59 @@
+{
+  "schema_version": "meshfleet.a2a.acceptance-receipt.v0.1",
+  "profile": "meshfleet.a2a.capability-compat.v0.1",
+  "recorded_at": "2026-07-27T09:39:07Z",
+  "status": "REVIEW-HOLD",
+  "branch": "codex/a2a-capability-compat-v01-20260727",
+  "base_commit": "041500fd9aec6e482875f6339236ffdcc46fc7ed",
+  "routing_head_observed": "5dad0c997fc7069124da2dcec8ee094ed7171207",
+  "routing_overlap": [],
+  "focused": {
+    "self_test": {
+      "parser_rejection_controls": 15,
+      "parser_acceptance_controls": 3,
+      "canonicalization_controls": 1,
+      "validation_controls": 10,
+      "semantic_controls": 6,
+      "javascript_sha256": "bf6268886eddbbbb1705893eeb5f60a690e7921e2a854494e787a5e7fc941104",
+      "python_sha256": "bf6268886eddbbbb1705893eeb5f60a690e7921e2a854494e787a5e7fc941104"
+    },
+    "corpus": {
+      "total_cases": 25,
+      "mandatory_cases": 21,
+      "corpus_sha256": "cc5f147ea7fcf262a1b551a8d7ada78262ebafb5371d0c928ff3da7037bc4cfb",
+      "transcript_sha256": "def172a7199c033b8f9c326681d36d3f6bb1fa15aac0419dceac3233b4b3a32d",
+      "javascript_receipt_sha256": "48ab4ff5714fecbf0c3e4c6e8feda9562daf8b6039f83094c9be77abcd525293",
+      "python_receipt_sha256": "48ab4ff5714fecbf0c3e4c6e8feda9562daf8b6039f83094c9be77abcd525293"
+    },
+    "generated_differential": {
+      "seed": "0x6ca9b17e",
+      "parser_cases": 35,
+      "parser_transcript_sha256": "d866289545543a2e8841aaa02ed17d524b63fa762b0f42e67e8b8fbd3e6f731c",
+      "validation_cases": 12,
+      "validation_transcript_sha256": "0b30001c8cf8d77834d89ab2efe6a72c0a13a5be1e5fb80f4adfd5a52eca6663",
+      "logical_scenarios": 300,
+      "evaluated_scenarios": 600,
+      "generated_transcript_sha256": "2ade85e7ddf1eff04b643ebe634a5426949cf4fab0c601181b1698c359b1b7c9",
+      "receipt_sha256": "9fe7046e55bbd960b69d89e311deaa8f56fc81e8a9f7d5fc63503d89377cd3e3"
+    }
+  },
+  "repository_acceptance": {
+    "copy": "/private/tmp/agent-mesh-codex-a2a-capability-compat-v01-acceptance3-20260727",
+    "build": {"status": "pass", "log_sha256": "138cfb17434721bec3538b9ecc76a52561061b95772c5e79c3cca47eefcc77c6"},
+    "typecheck": {"status": "pass", "log_sha256": "5a862f20195baa92a43d9cf02b903eace2643a8ac54936b60b3cb9826c19f514"},
+    "full_tests": {"status": "pass", "tests": 891, "passed": 891, "failed": 0, "log_sha256": "8ccfcaaadfacff2bb10ff43bb728da7d63b45fc2b8a7ce85fba7f4de00a218c3"},
+    "environment_note": "The first sandboxed full-suite attempt failed only because loopback SSE binds were denied; the exact suite passed with loopback test permission."
+  },
+  "review": {
+    "independent_source_reviewers": ["Terra-Heisenberg", "Terra-Linnaeus"],
+    "unresolved_important_findings": []
+  },
+  "authority": {
+    "integration": false,
+    "push": false,
+    "publication": false,
+    "deployment": false,
+    "activation": false,
+    "product_compatibility_claim": false
+  }
+}
