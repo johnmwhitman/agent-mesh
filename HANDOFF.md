@@ -1,14 +1,13 @@
 # MeshFleet Handoff
 
-**Last verified:** 2026-07-28 · **Release candidate:** `codex/model-selected-execution-20260728`
-**Suite:** 1094/1094 · **Corpus:** 76 vectors · **Discussion:** 39 cases (23 finding codes) · **Conformance:** 133/133 · **Target:** meshfleet@0.19.0
+**Last verified:** 2026-07-28 · **Main:** `11977b39` · **Tag:** `v0.19.0`
+**Suite:** 1094/1094 · **Corpus:** 76 vectors · **Discussion:** 39 cases (23 finding codes) · **Conformance:** 133/133 · **npm:** 0.18.0 live; 0.19.0 auth-blocked
 
-## Release candidate: caller-selected model execution
+## Landed and tagged: caller-selected model execution
 
-The isolated worktree at
-`/private/tmp/agent-mesh-codex-model-selected-execution-20260728` is locally
-complete and ready to land from
-`origin/main` (`f7bf5707ca2e38bbec28bdedddf4da78516b7919`):
+PR [#40](https://github.com/johnmwhitman/agent-mesh/pull/40) was squash-merged
+to `main` as `11977b39e1c9313b103b111bf22c4186422e2396`. Tag `v0.19.0`
+points at that commit and is pushed. The implementation:
 
 - `spawn_fleet.agents[].model` and `attach_agent.model` accept a validated
   `provider/model` selector and persist it as immutable
@@ -25,7 +24,7 @@ complete and ready to land from
   handling; `176f9ba` fixed the matching law and the repeat smoke completed.
   These receipts prove only environment-local observed execution, not auth,
   billing, account ownership, provider availability, or attestation.
-- Final evidence: `npm run build`; 1094/1094 tests; black-box conformance
+- Final pre-merge evidence: `npm run build`; 1094/1094 tests; black-box conformance
   133/133 with observed catalog SHA
   `87f1159414c1a7a13d9fd9d1547b544259cc6fd017c63c93f11a28e7fac20353`;
   `npm run typecheck`; `npm pack --dry-run`; `git diff --check`; Grok code,
@@ -42,11 +41,36 @@ complete and ready to land from
   reviews. No credential change, provider spend policy, or automatic token
   drain was performed.
 
+The PR matrix passed Node 20/22/24 on Ubuntu, macOS, and Windows. The tagged
+[release run](https://github.com/johnmwhitman/agent-mesh/actions/runs/30408103628)
+also passed all nine test legs and the publish job's checkout, main-history,
+install, and tag/version gates. `npm publish --provenance --access public`
+built and passed all 1094 tests, signed Sigstore provenance, then failed on
+`PUT /meshfleet` with npm `E404`. The public registry remains at 0.18.0 and
+local `npm whoami` returns `E401`; per `docs/ops/GOAL-PROMPT.md`, this is the
+known not-logged-in failure, not evidence that the package is absent.
+
+**Exact unblock:** John refreshes the repository's `NPM_TOKEN` with a granular
+read-write token for `meshfleet` with automation/2FA bypass, then reruns failed
+jobs for run `30408103628`. Do not move or recreate `v0.19.0`, and do not claim
+publication until `npm view meshfleet version` reports `0.19.0`.
+
+Provider execution is through OpenCode, not forced through RoutePlane. This
+machine's `opencode auth list` reports stored Anthropic OAuth and Ollama Cloud
+API entries, and separate `opencode run --model ...` smokes completed against
+`anthropic/claude-haiku-4-5` and `ollama-cloud/gpt-oss:20b`. Those smokes
+exercise OpenCode's local provider path, not a MeshFleet-owned vendor API or
+credential flow. MeshFleet's verified boundary is persisting the requested
+provider/model, passing it to OpenCode, and checking the observed runtime model.
+RoutePlane can recommend/select routes but is not the execution proxy. These
+observations prove neither account ownership, remaining quota, billing, nor
+future provider availability.
+
 Review scar: `b1649e5` was committed by a delegated Grok build wrapper despite
 the no-commit instruction and includes an incorrect Claude co-author trailer.
-The reviewed development history remains preserved locally; the public release
-branch should use a clean squash commit so the incorrect trailer is not
-published as release provenance.
+The detailed development history remains preserved only in the finished local
+worktree; public PR #40 used a clean squash, so that trailer is not in public
+release provenance.
 
 ## In-flight: Roadmap Board (Stage 1 complete)
 
@@ -68,8 +92,11 @@ Charges preserved in `charges/`; all seat outputs in `board/seat-*.md`.
 - **`send_message` and `send_messages` at parity** — both surfaces now validate identities,
   types, and correlation_ids before the writer. COMPATIBILITY.md records the tightening
 - **`VerifyReport.scope`** — the legacy verification report carries its own guarantee boundary
-- **Zero branches, zero worktrees.** Repo is clean
-- **Tags:** v0.9.0–v0.18.0 complete and pushed
+- **Main is clean at `11977b39` and aligned with `origin/main` before this
+  factual handoff update.** Finished review worktrees are deliberately
+  preserved under `/private/tmp`; no implementation work is active
+- **Tags:** v0.9.0–v0.19.0 complete and pushed; v0.19.0 npm publication is
+  blocked on the credential refresh above
 - **meshfleet-app:** synced to 34 tools / 1021 tests / 8 tool categories, live on Vercel
 
 ## What the A2A witnesses cover
