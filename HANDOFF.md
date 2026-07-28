@@ -1,7 +1,7 @@
 # MeshFleet Handoff
 
-**Last verified:** 2026-07-28 · **Branch:** main · **Commit:** 5f5ce6e
-**Suite:** 1021/1021 · **Conformance:** 132/132 · **npm:** meshfleet@0.18.0 published
+**Last verified:** 2026-07-28 · **Branch:** main · **Commit:** ed45f14
+**Suite:** 1029/1029 · **Conformance:** 132/132 · **npm:** meshfleet@0.18.0 published
 
 ## Current state
 
@@ -44,11 +44,11 @@
    evaluator verified at 26/26 derivation match. Python evaluator in progress (MiniMax)
 2. **Wire fault coverage expansion** — `blackbox/a2a-conformance-v0.1/wire/faults/` has 11
    fault fixtures; the delivery-trace profile names several untested vectors
-3. **Fuzz differentials** — lifecycle-terminal and two-host-coordinator have no
-   `fuzz-differential.mjs`; most other witnesses do
-4. **New tool coverage** — the advisory routing tools (`compile_route_candidates`,
-   `recommend_route`) and the discussion tools (`ask_peer`, `wake_agent`, `reply_discussion`,
-   `get_discussion`) have no dedicated MCP-level blackbox tests (only unit tests)
+3. ~~**Fuzz differentials**~~ **DONE** — lifecycle-terminal (256 traces + 14 edge) and
+   two-host-coordinator (256 scenarios + 22 mutations) fuzz differentials landed
+4. ~~**Advisory routing MCP tests**~~ **DONE** — 8 MCP-level tests for
+   `compile_route_candidates` and `recommend_route` over real stdio. Discussion tools
+   (`ask_peer`, `wake_agent`, `reply_discussion`, `get_discussion`) still lack MCP-level tests
 5. **Verifier coverage** — `verify_ledger_v2` envelope output is tested but the discussion
    integrity findings (the `discussion.*` check family in `src/verify.ts`) have no dedicated
    blackbox witness. These are the most complex verify findings in the system
@@ -65,7 +65,9 @@
 - **Subsumed branches are invisible until you diff.** Always diff vs main first
 - **Conformance manifest members must be probed from the live server.** Discussion tools
   register schemas in `src/discussion-mcp.ts`, not `src/index.ts`
-- **Codex caps are account-wide.** Resets Aug 2 2026. Grok absorbs verdict work fine
+- **Codex is back online** (token reset 2026-07-28). Available for final verdicts again.
+  **Anti-pattern from prior session:** 307 branches from fleet-dispatched long-lived lanes.
+  Rule: bounded tasks, merge within session, no parking lanes
 - **Schema changes require conformance re-pin.** Any edit to a tool's inputSchema changes
   the catalog SHA. Rebuild dist/, re-run runner with --capture-baseline, update manifest
 
