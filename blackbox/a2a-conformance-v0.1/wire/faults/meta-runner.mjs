@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 
 const FAULTS_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 const WIRE_RUNNER = join(FAULTS_DIRECTORY, "..", "runner.mjs");
-const REQUIRED_FIXTURES = ["stdout-pollution", "malformed-utf8", "wrong-id", "duplicate-id", "trailing-partial-frame", "oversized-line", "timeout-hang", "early-exit-epipe", "malformed-response", "stderr-noise-control", "honest-baseline"];
+const REQUIRED_FIXTURES = ["stdout-pollution", "malformed-utf8", "wrong-id", "duplicate-id", "trailing-partial-frame", "oversized-line", "timeout-hang", "early-exit-epipe", "malformed-response", "stderr-noise-control", "honest-baseline", "concurrent-requests"];
 const REQUIRED_CONTROL_ROLES = ["stderr-noise-control", "honest-baseline"];
 const META_NONCLAIMS = ["On Windows, normal-completion descendant evidence is limited to byte-pinned fixtures that contain no process-spawning or detaching APIs; timeout termination remains taskkill tree-aware."];
 
