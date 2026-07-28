@@ -1,0 +1,62 @@
+{
+  "profile": "meshfleet.a2a.dependency-join-barrier.v0.1",
+  "generated_at_utc": "2026-07-27T10:48:51.675Z",
+  "status": "PASS-AS-HELD",
+  "base_commit": "041500fd9aec6e482875f6339236ffdcc46fc7ed",
+  "routing_lane_observed": {
+    "head": "5dad0c997fc7069124da2dcec8ee094ed7171207",
+    "overlap": false
+  },
+  "focused": {
+    "corpus_total": 40,
+    "mandatory": 39,
+    "self_controls": 15,
+    "differential": {
+      "corpus_sha256": "5fcf5b841b84c24d791acbc985a72a6c005168e65025512f2d8f2f34118a1d5e",
+      "profile": "meshfleet.a2a.dependency-join-barrier.v0.1",
+      "self_test_sha256": "53c01d05c97617cb5a1f7ae933296ad9728509050789a27bae4fd59779a34c8d",
+      "sha256": "7a5c48e539deb95dccea369d242c8433698b63b73ce1ae73952e1a93c41ac592",
+      "witness": "corpus_and_self_test_byte_identical"
+    },
+    "fuzz": {
+      "generated": 128,
+      "profile": "meshfleet.a2a.dependency-join-barrier.v0.1",
+      "seed": "0x4a4f494e",
+      "sha256": "64adb23dec9f821aac345dfa6d5e8d3d19b5811749e24243308b8eb0614a1194",
+      "transcript_cases": 274,
+      "witness": "js_python_parser_validation_unicode_and_permutation_byte_identical"
+    }
+  },
+  "repository": {
+    "build": {
+      "ok": true,
+      "bytes": 146,
+      "sha256": "138cfb17434721bec3538b9ecc76a52561061b95772c5e79c3cca47eefcc77c6"
+    },
+    "typecheck": {
+      "ok": true,
+      "bytes": 46,
+      "sha256": "5a862f20195baa92a43d9cf02b903eace2643a8ac54936b60b3cb9826c19f514"
+    },
+    "full_test": {
+      "ok": true,
+      "tests": 891,
+      "passed": 891,
+      "failed": 0,
+      "bytes": 86361,
+      "sha256": "6da2c5c7a0d7a8afb86aa3ecbe4a475755d2e0557fc7aa2cddd8799e7a680b0a"
+    }
+  },
+  "review": {
+    "unresolved_p0_p2": 0
+  },
+  "boundaries": {
+    "local_only": true,
+    "review_hold": true,
+    "merged": false,
+    "pushed": false,
+    "published": false,
+    "deployed": false,
+    "activated": false
+  }
+}
