@@ -2,6 +2,46 @@
 
 All notable changes to Agent Mesh are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`compile_route_candidates`** — advisory MCP tool compiling a validated, sanitized route-candidate
+  snapshot from a caller-supplied manifest and observations. Fail-closed validation through the shared
+  `src/route-candidate-validation.ts` boundary; no provider catalogs or wrappers in core; effects
+  always report `contacted_providers: false`. Corpus fixtures under
+  `test/fixtures/corpus/route-candidate-snapshots/v0.1/`.
+- **`recommend_route`** — advisory MCP tool ranking compiled candidates over opaque subscription-lane
+  snapshots (`docs/ADVISORY-ROUTING.md`). Advisory only: it recommends, it never contacts a provider.
+- **`verify_ledger_v2`** — opt-in verifier envelope (`meshfleet.verify/v2`) wrapping the unchanged
+  legacy `VerifyReport` with an explicit evidence scope (`unsigned_snapshot_consistency/v1`) and an
+  ordered `not_established` ceiling, plus the matching `inspect --verify-v2` CLI mode. Read-only at
+  tool dispatch. Legacy `verify_ledger` output shape is untouched.
+- **A2A offline delivery-trace conformance v0.1** — `src/a2a/delivery-trace.ts`, the profile document
+  `docs/A2A-DELIVERY-TRACE-PROFILE-v0.1.md`, a Python reference witness
+  (`reference/python/a2a_delivery_trace_reference.py`), and a conformance corpus.
+- **Requested-model spawn binding** — `src/spawn-result.ts` classifies a spawn against the requested
+  model's observed banner and fail-closes on mismatch when a model was requested.
+
+### Changed
+
+- ⚠️ **`send_messages` batch items are validated against the published contract before the
+  transactional writer runs.** The schema gains `minLength: 1` and `pattern: "\\S"` on identities and
+  `correlation_id`; a legacy self-message projection could previously commit an unsupported `type`
+  durably and report success, contradicting the advertised atomic-batch rule. Proven over real MCP
+  stdio: a refused batch leaves the inbox empty. See the narrowing note in `COMPATIBILITY.md`.
+- ⚠️ **`verify_ledger` is stricter on agent timestamps.** Present but non-finite
+  `started_at`/`completed_at` now yields `agent.invalid_timestamp`; completion before the fleet's
+  `created_at` yields `agent.tampered_timestamp` even without `started_at`. Ledgers that previously
+  verified clean can now fail — the previous pass was a false clean.
+
+### Fixed
+
+- **The published `compile_route_candidates` schema advertised a status (`unconfigured`) the compiler
+  can never accept for a manifest candidate.** Found by adversarial pre-merge review; the published
+  enum now lists only the three accepted values, and the module keeps its precise two-stage rejection
+  for direct callers.
+
 ## [0.18.0] — 2026-07-26
 
 **The other-direction release.** The auditor had only ever audited the fleet lattice in the
