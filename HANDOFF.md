@@ -1,6 +1,6 @@
 # MeshFleet Handoff
 
-**Last verified:** 2026-07-28 · **Branch:** main · **Commit:** 31ca751
+**Last verified:** 2026-07-28 · **Branch:** main · **Commit:** 5f5ce6e
 **Suite:** 1021/1021 · **Conformance:** 132/132 · **npm:** meshfleet@0.18.0 published
 
 ## Current state
@@ -35,14 +35,13 @@
 | 9 | lifecycle-terminal | Single-work lease/retry/settle/cancel | 31 | JS + Py |
 | 10 | two-host-coordinator | Two-host partition/heal/recovery | 24 | JS + Py |
 | 11 | a2a-conformance | Live MCP stdio catalog/wire/fault | live | JS + Py |
-| 12 | discussion-derivation | Envelope/root/status/transcript derivation | 18 | JS (Grok) |
+| 12 | discussion-derivation | Envelope/root/status/transcript derivation | 30 | JS (Grok) |
 
 ## What to build next (candidates — verify before starting)
 
-1. **Discussion witness expansion** — the current 18 cases cover envelope parsing, root
-   selection, and structural integrity. Missing: multi-turn with validated attempts,
-   active/closed/exhausted/deadman status derivation, fleet mismatch, turn alternation,
-   the full receipt lifecycle walk. Also missing: Python evaluator
+1. ~~**Discussion witness expansion**~~ **DONE** — expanded to 30 cases covering all 7
+   statuses with multi-turn lifecycle (reservation/completed/failed/deadman). Grok JS
+   evaluator verified at 26/26 derivation match. Python evaluator in progress (MiniMax)
 2. **Wire fault coverage expansion** — `blackbox/a2a-conformance-v0.1/wire/faults/` has 11
    fault fixtures; the delivery-trace profile names several untested vectors
 3. **Fuzz differentials** — lifecycle-terminal and two-host-coordinator have no
@@ -55,9 +54,9 @@
    blackbox witness. These are the most complex verify findings in the system
 6. **Python evaluator for discussion-derivation** — the JS evaluator exists but no Python
    reference yet; every other witness with an evaluator has both languages
-7. **Core handler hardening** — any tool handler that doesn't validate args through
-   `src/tool-args.ts` before touching the DB is a candidate for the same treatment
-   `send_message` just got
+7. ~~**Core handler hardening**~~ **DONE** — cast_vote, collect_results, get_receipts,
+   receipt, tally_ratification now validate through tool-args.ts. All 34 handlers that
+   take string args now validate before any DB read/write
 
 ## Scars (what cost real time)
 
