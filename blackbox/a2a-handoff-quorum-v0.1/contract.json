@@ -1,0 +1,112 @@
+{
+  "profile": "meshfleet.a2a.handoff-quorum.v0.1",
+  "operation": "evaluate_handoff_quorum_scenario",
+  "maturity": "offline-reference-conformance-only",
+  "model": {
+    "authority": "one modeled deterministic ratification authority",
+    "failure_model": "none; participants are labels and no crash, omission, or Byzantine behavior is inferred",
+    "quorum_meaning": "a configured approval-weight threshold only; no quorum-intersection or distributed-agreement property",
+    "receipt_validity": "schema, voter-roster, per-voter sequence, receipt-id replay, and terminal-state rules only",
+    "handoff_atomicity": "not modeled"
+  },
+  "limits": {
+    "max_utf8_bytes": 131072,
+    "max_depth": 64,
+    "max_actions": 128,
+    "max_voters": 128,
+    "max_vote_weight": 1000000,
+    "max_total_weight": 10000000,
+    "safe_integer_max": 9007199254740991
+  },
+  "states": ["open", "ratified", "rejected", "expired"],
+  "terminal_states": ["ratified", "rejected", "expired"],
+  "actions": ["vote", "resolve"],
+  "vote_decisions": ["approve", "decline"],
+  "silence_policies": ["abstain", "approve"],
+  "semantics": {
+    "proposal": "the voter roster, required signoffs, quorum, weights, deadline, and silence policy are immutable",
+    "weights": "unlisted voters weigh one; quorum is a weight threshold; a required signoff is always per voter and cannot be synthesized by weight",
+    "vote_sequence": "a voter's first effective vote has seq zero and each polarity change increments by exactly one",
+    "same_polarity": "a new receipt that repeats the current effective polarity rejects as VOTE_NO_CHANGE and mutates nothing",
+    "receipt_retry": "reusing an accepted receipt_id with byte-equivalent canonical action content is an accepted idempotent no-op",
+    "receipt_conflict": "reusing an accepted receipt_id with different canonical action content rejects as RECEIPT_REPLAY_CONFLICT and mutates nothing",
+    "tally": "effective votes are projected in proposal voter order; tally computation never persists status",
+    "reachable": "quorum remains reachable only when approval weight plus pending weight reaches quorum and no required signoff declined",
+    "resolution": "resolve rejects no valid open state; it persists a terminal status only when the tally is terminal",
+    "deadline": "at or after deadline, silence=approve adds pending weight for quorum but never supplies a required signoff; otherwise an unresolved proposal expires",
+    "terminal": "a persisted terminal status never changes; resolve is an accepted no-op and exact prior receipt retries remain idempotent; every new vote rejects",
+    "rejection": "a rejected action leaves proposal, votes, events, status, resolved_at, and receipt replay state byte-identical"
+  },
+  "runtime_error_precedence": [
+    "RECEIPT_REPLAY_CONFLICT",
+    "RATIFICATION_TERMINAL",
+    "UNKNOWN_VOTER",
+    "VOTE_SEQUENCE",
+    "VOTE_NO_CHANGE"
+  ],
+  "parser_errors": [
+    "SIZE_LIMIT",
+    "INVALID_UTF8",
+    "MALFORMED_JSON",
+    "DUPLICATE_MEMBER",
+    "NON_CANONICAL_INTEGER",
+    "UNSAFE_INTEGER",
+    "INVALID_UNICODE",
+    "DEPTH_LIMIT"
+  ],
+  "validation_errors": [
+    "INVALID_SCENARIO",
+    "PROFILE_REJECT",
+    "MISSING_FIELD",
+    "UNKNOWN_FIELD",
+    "INVALID_FIELD",
+    "DUPLICATE_VOTER",
+    "INVALID_SIGNOFF",
+    "INVALID_WEIGHT",
+    "INVALID_QUORUM",
+    "NON_MONOTONIC_TIME"
+  ],
+  "canonical_json": {
+    "encoding": "UTF-8",
+    "object_keys": "lexicographic Unicode code-point order",
+    "whitespace": "none",
+    "numbers": "safe integers only; floats, exponent forms, negative zero, and non-finite values reject",
+    "strings": "valid Unicode scalar values only",
+    "objects": "duplicate member names reject"
+  },
+  "invariants": [
+    "voters are unique and non-empty",
+    "required signoffs are unique members of the voter roster",
+    "quorum is positive and no greater than total voting weight",
+    "accepted effective vote sequences are contiguous per voter",
+    "one effective vote exists per voter",
+    "vote and tally lists preserve proposal voter order",
+    "event sequence values are dense and events describe accepted state mutations only",
+    "tally computation does not persist a terminal decision",
+    "terminal status is absorbing",
+    "every rejected action has equal pre_state_sha256 and post_state_sha256"
+  ],
+  "generated_differential": {
+    "seed": "0x4f5a1234",
+    "parser_cases": 30,
+    "generated_scenarios": 300,
+    "requirements": [
+      "JavaScript and Python parser classifications agree",
+      "JavaScript and Python complete scenario receipts are byte-identical",
+      "rejected actions preserve state digests",
+      "event sequence values remain dense",
+      "approval, decline, and pending lists partition the voter roster",
+      "every terminal state has resolved_at"
+    ]
+  },
+  "non_claims": [
+    "no message transport, delivery, inbox, subscription, or routing behavior",
+    "no actor authentication, authorization, credentials, signatures, or trust roots",
+    "no durable receipt store or production replay protection",
+    "no database, consensus, leader election, availability, or partition-tolerance proof",
+    "no participant failure model, quorum intersection, view change, equivocation defense, or handoff atomicity",
+    "no runtime execution, side-effect, provider, process, or clock authority",
+    "no compatibility claim for every current Meshfleet implementation detail",
+    "no merge, publication, deployment, activation, or release authority"
+  ]
+}

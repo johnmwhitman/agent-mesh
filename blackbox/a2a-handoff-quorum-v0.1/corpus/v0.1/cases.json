@@ -1,0 +1,304 @@
+{
+  "profile": "meshfleet.a2a.handoff-quorum.v0.1",
+  "cases": [
+    {
+      "id": "M01-basic-quorum-resolution",
+      "mandatory": true,
+      "scenario": {
+        "profile": "meshfleet.a2a.handoff-quorum.v0.1",
+        "case_id": "M01-basic-quorum-resolution",
+        "proposal": {"proposal_id":"p1","voters":["a","b","c"],"required_signoffs":[],"quorum":2,"weights":{},"deadline":null,"silence_policy":"abstain"},
+        "actions": [
+          {"op":"vote","at":1,"receipt_id":"r1","voter_id":"a","seq":0,"decision":"approve"},
+          {"op":"vote","at":2,"receipt_id":"r2","voter_id":"b","seq":0,"decision":"approve"},
+          {"op":"resolve","at":3}
+        ]
+      },
+      "expect": {"case_id":"M01-basic-quorum-resolution","stored_status":"ratified","tally_status":"ratified","approvals":["a","b"],"declines":[],"pending":["c"],"signoffs_met":true,"reachable":true,"approval_weight":2,"decline_weight":0,"pending_weight":1,"total_weight":3,"accepted_actions":3,"rejected_actions":0,"error_codes":[],"event_kinds":["vote_recorded","vote_recorded","ratification_resolved"]}
+    },
+    {
+      "id": "M02-required-signoff-blocks",
+      "mandatory": true,
+      "scenario": {
+        "profile":"meshfleet.a2a.handoff-quorum.v0.1","case_id":"M02-required-signoff-blocks",
+        "proposal":{"proposal_id":"p2","voters":["a","b","c"],"required_signoffs":["c"],"quorum":2,"weights":{},"deadline":null,"silence_policy":"abstain"},
+        "actions":[
+          {"op":"vote","at":1,"receipt_id":"r1","voter_id":"a","seq":0,"decision":"approve"},
+          {"op":"vote","at":2,"receipt_id":"r2","voter_id":"b","seq":0,"decision":"approve"},
+          {"op":"resolve","at":3}
+        ]
+      },
+      "expect":{"case_id":"M02-required-signoff-blocks","stored_status":"open","tally_status":"open","approvals":["a","b"],"declines":[],"pending":["c"],"signoffs_met":false,"reachable":true,"approval_weight":2,"decline_weight":0,"pending_weight":1,"total_weight":3,"accepted_actions":3,"rejected_actions":0,"error_codes":[],"event_kinds":["vote_recorded","vote_recorded"]}
+    },
+    {
+      "id": "M03-required-signoff-decline",
+      "mandatory": true,
+      "scenario": {
+        "profile":"meshfleet.a2a.handoff-quorum.v0.1","case_id":"M03-required-signoff-decline",
+        "proposal":{"proposal_id":"p3","voters":["a","b","c"],"required_signoffs":["c"],"quorum":1,"weights":{},"deadline":null,"silence_policy":"abstain"},
+        "actions":[{"op":"vote","at":1,"receipt_id":"r1","voter_id":"c","seq":0,"decision":"decline"},{"op":"resolve","at":2}]
+      },
+      "expect":{"case_id":"M03-required-signoff-decline","stored_status":"rejected","tally_status":"rejected","approvals":[],"declines":["c"],"pending":["a","b"],"signoffs_met":false,"reachable":false,"approval_weight":0,"decline_weight":1,"pending_weight":2,"total_weight":3,"accepted_actions":2,"rejected_actions":0,"error_codes":[],"event_kinds":["vote_recorded","ratification_resolved"]}
+    },
+    {
+      "id": "M04-quorum-unreachable",
+      "mandatory": true,
+      "scenario": {
+        "profile":"meshfleet.a2a.handoff-quorum.v0.1","case_id":"M04-quorum-unreachable",
+        "proposal":{"proposal_id":"p4","voters":["a","b","c"],"required_signoffs":[],"quorum":3,"weights":{},"deadline":null,"silence_policy":"abstain"},
+        "actions":[{"op":"vote","at":1,"receipt_id":"r1","voter_id":"a","seq":0,"decision":"decline"},{"op":"resolve","at":2}]
+      },
+      "expect":{"case_id":"M04-quorum-unreachable","stored_status":"rejected","tally_status":"rejected","approvals":[],"declines":["a"],"pending":["b","c"],"signoffs_met":true,"reachable":false,"approval_weight":0,"decline_weight":1,"pending_weight":2,"total_weight":3,"accepted_actions":2,"rejected_actions":0,"error_codes":[],"event_kinds":["vote_recorded","ratification_resolved"]}
+    },
+    {
+      "id": "M05-weighted-quorum",
+      "mandatory": true,
+      "scenario": {
+        "profile":"meshfleet.a2a.handoff-quorum.v0.1","case_id":"M05-weighted-quorum",
+        "proposal":{"proposal_id":"p5","voters":["a","b"],"required_signoffs":[],"quorum":3,"weights":{"a":3},"deadline":null,"silence_policy":"abstain"},
+        "actions":[{"op":"vote","at":1,"receipt_id":"r1","voter_id":"a","seq":0,"decision":"approve"},{"op":"resolve","at":2}]
+      },
+      "expect":{"case_id":"M05-weighted-quorum","stored_status":"ratified","tally_status":"ratified","approvals":["a"],"declines":[],"pending":["b"],"signoffs_met":true,"reachable":true,"approval_weight":3,"decline_weight":0,"pending_weight":1,"total_weight":4,"accepted_actions":2,"rejected_actions":0,"error_codes":[],"event_kinds":["vote_recorded","ratification_resolved"]}
+    },
+    {
+      "id": "M06-weight-cannot-supply-signoff",
+      "mandatory": true,
+      "scenario": {
+        "profile":"meshfleet.a2a.handoff-quorum.v0.1","case_id":"M06-weight-cannot-supply-signoff",
+        "proposal":{"proposal_id":"p6","voters":["heavy","authority"],"required_signoffs":["authority"],"quorum":1,"weights":{"heavy":5},"deadline":null,"silence_policy":"abstain"},
+        "actions":[{"op":"vote","at":1,"receipt_id":"r1","voter_id":"heavy","seq":0,"decision":"approve"},{"op":"resolve","at":2}]
+      },
+      "expect":{"case_id":"M06-weight-cannot-supply-signoff","stored_status":"open","tally_status":"open","approvals":["heavy"],"declines":[],"pending":["authority"],"signoffs_met":false,"reachable":true,"approval_weight":5,"decline_weight":0,"pending_weight":1,"total_weight":6,"accepted_actions":2,"rejected_actions":0,"error_codes":[],"event_kinds":["vote_recorded"]}
+    },
+    {
+      "id": "M07-recast-approve-decline-approve",
+      "mandatory": true,
+      "scenario": {
+        "profile":"meshfleet.a2a.handoff-quorum.v0.1","case_id":"M07-recast-approve-decline-approve",
+        "proposal":{"proposal_id":"p7","voters":["a","b"],"required_signoffs":[],"quorum":2,"weights":{},"deadline":null,"silence_policy":"abstain"},
+        "actions":[
+          {"op":"vote","at":1,"receipt_id":"r1","voter_id":"a","seq":0,"decision":"approve"},
+          {"op":"vote","at":2,"receipt_id":"r2","voter_id":"a","seq":1,"decision":"decline"},
+          {"op":"vote","at":3,"receipt_id":"r3","voter_id":"a","seq":2,"decision":"approve"},
+          {"op":"vote","at":4,"receipt_id":"r4","voter_id":"b","seq":0,"decision":"approve"},
+          {"op":"resolve","at":5}
+        ]
+      },
+      "expect":{"case_id":"M07-recast-approve-decline-approve","stored_status":"ratified","tally_status":"ratified","approvals":["a","b"],"declines":[],"pending":[],"signoffs_met":true,"reachable":true,"approval_weight":2,"decline_weight":0,"pending_weight":0,"total_weight":2,"accepted_actions":5,"rejected_actions":0,"error_codes":[],"event_kinds":["vote_recorded","vote_recorded","vote_recorded","vote_recorded","ratification_resolved"]}
+    },
+    {
+      "id": "M08-identical-receipt-replay",
+      "mandatory": true,
+      "scenario": {
+        "profile":"meshfleet.a2a.handoff-quorum.v0.1","case_id":"M08-identical-receipt-replay",
+        "proposal":{"proposal_id":"p8","voters":["a","b"],"required_signoffs":[],"quorum":2,"weights":{},"deadline":null,"silence_policy":"abstain"},
+        "actions":[
+          {"op":"vote","at":1,"receipt_id":"r1","voter_id":"a","seq":0,"decision":"approve"},
+          {"op":"vote","at":1,"receipt_id":"r1","voter_id":"a","seq":0,"decision":"approve"},
+          {"op":"vote","at":2,"receipt_id":"r2","voter_id":"b","seq":0,"decision":"approve"},
+          {"op":"resolve","at":3}
+        ]
+      },
+      "expect":{"case_id":"M08-identical-receipt-replay","stored_status":"ratified","tally_status":"ratified","approvals":["a","b"],"declines":[],"pending":[],"signoffs_met":true,"reachable":true,"approval_weight":2,"decline_weight":0,"pending_weight":0,"total_weight":2,"accepted_actions":4,"rejected_actions":0,"error_codes":[],"event_kinds":["vote_recorded","vote_recorded","ratification_resolved"]}
+    },
+    {
+      "id": "M09-receipt-replay-conflict",
+      "mandatory": true,
+      "scenario": {
+        "profile":"meshfleet.a2a.handoff-quorum.v0.1","case_id":"M09-receipt-replay-conflict",
+        "proposal":{"proposal_id":"p9","voters":["a","b"],"required_signoffs":[],"quorum":2,"weights":{},"deadline":null,"silence_policy":"abstain"},
+        "actions":[
+          {"op":"vote","at":1,"receipt_id":"same","voter_id":"a","seq":0,"decision":"approve"},
+          {"op":"vote","at":2,"receipt_id":"same","voter_id":"b","seq":0,"decision":"approve"},
+          {"op":"vote","at":3,"receipt_id":"r2","voter_id":"b","seq":0,"decision":"approve"},
+          {"op":"resolve","at":4}
+        ]
+      },
+      "expect":{"case_id":"M09-receipt-replay-conflict","stored_status":"ratified","tally_status":"ratified","approvals":["a","b"],"declines":[],"pending":[],"signoffs_met":true,"reachable":true,"approval_weight":2,"decline_weight":0,"pending_weight":0,"total_weight":2,"accepted_actions":3,"rejected_actions":1,"error_codes":["RECEIPT_REPLAY_CONFLICT"],"event_kinds":["vote_recorded","vote_recorded","ratification_resolved"]}
+    },
+    {
+      "id": "M10-unknown-voter",
+      "mandatory": true,
+      "scenario": {
+        "profile":"meshfleet.a2a.handoff-quorum.v0.1","case_id":"M10-unknown-voter",
+        "proposal":{"proposal_id":"p10","voters":["a","b"],"required_signoffs":[],"quorum":2,"weights":{},"deadline":null,"silence_policy":"abstain"},
+        "actions":[
+          {"op":"vote","at":1,"receipt_id":"rx","voter_id":"x","seq":0,"decision":"approve"},
+          {"op":"vote","at":2,"receipt_id":"r1","voter_id":"a","seq":0,"decision":"approve"},
+          {"op":"vote","at":3,"receipt_id":"r2","voter_id":"b","seq":0,"decision":"approve"},
+          {"op":"resolve","at":4}
+        ]
+      },
+      "expect":{"case_id":"M10-unknown-voter","stored_status":"ratified","tally_status":"ratified","approvals":["a","b"],"declines":[],"pending":[],"signoffs_met":true,"reachable":true,"approval_weight":2,"decline_weight":0,"pending_weight":0,"total_weight":2,"accepted_actions":3,"rejected_actions":1,"error_codes":["UNKNOWN_VOTER"],"event_kinds":["vote_recorded","vote_recorded","ratification_resolved"]}
+    },
+    {
+      "id": "M11-vote-sequence-gap",
+      "mandatory": true,
+      "scenario": {
+        "profile":"meshfleet.a2a.handoff-quorum.v0.1","case_id":"M11-vote-sequence-gap",
+        "proposal":{"proposal_id":"p11","voters":["a"],"required_signoffs":[],"quorum":1,"weights":{},"deadline":null,"silence_policy":"abstain"},
+        "actions":[
+          {"op":"vote","at":1,"receipt_id":"bad","voter_id":"a","seq":1,"decision":"approve"},
+          {"op":"vote","at":2,"receipt_id":"r1","voter_id":"a","seq":0,"decision":"approve"},
+          {"op":"resolve","at":3}
+        ]
+      },
+      "expect":{"case_id":"M11-vote-sequence-gap","stored_status":"ratified","tally_status":"ratified","approvals":["a"],"declines":[],"pending":[],"signoffs_met":true,"reachable":true,"approval_weight":1,"decline_weight":0,"pending_weight":0,"total_weight":1,"accepted_actions":2,"rejected_actions":1,"error_codes":["VOTE_SEQUENCE"],"event_kinds":["vote_recorded","ratification_resolved"]}
+    },
+    {
+      "id": "M12-stale-vote-sequence",
+      "mandatory": true,
+      "scenario": {
+        "profile":"meshfleet.a2a.handoff-quorum.v0.1","case_id":"M12-stale-vote-sequence",
+        "proposal":{"proposal_id":"p12","voters":["a","b"],"required_signoffs":[],"quorum":2,"weights":{},"deadline":null,"silence_policy":"abstain"},
+        "actions":[
+          {"op":"vote","at":1,"receipt_id":"r1","voter_id":"a","seq":0,"decision":"approve"},
+          {"op":"vote","at":2,"receipt_id":"stale","voter_id":"a","seq":0,"decision":"decline"},
+          {"op":"vote","at":3,"receipt_id":"r2","voter_id":"b","seq":0,"decision":"approve"},
+          {"op":"resolve","at":4}
+        ]
+      },
+      "expect":{"case_id":"M12-stale-vote-sequence","stored_status":"ratified","tally_status":"ratified","approvals":["a","b"],"declines":[],"pending":[],"signoffs_met":true,"reachable":true,"approval_weight":2,"decline_weight":0,"pending_weight":0,"total_weight":2,"accepted_actions":3,"rejected_actions":1,"error_codes":["VOTE_SEQUENCE"],"event_kinds":["vote_recorded","vote_recorded","ratification_resolved"]}
+    },
+    {
+      "id": "M13-deadline-abstain-expires",
+      "mandatory": true,
+      "scenario": {
+        "profile":"meshfleet.a2a.handoff-quorum.v0.1","case_id":"M13-deadline-abstain-expires",
+        "proposal":{"proposal_id":"p13","voters":["a","b"],"required_signoffs":[],"quorum":2,"weights":{},"deadline":10,"silence_policy":"abstain"},
+        "actions":[{"op":"vote","at":1,"receipt_id":"r1","voter_id":"a","seq":0,"decision":"approve"},{"op":"resolve","at":10}]
+      },
+      "expect":{"case_id":"M13-deadline-abstain-expires","stored_status":"expired","tally_status":"expired","approvals":["a"],"declines":[],"pending":["b"],"signoffs_met":true,"reachable":true,"approval_weight":1,"decline_weight":0,"pending_weight":1,"total_weight":2,"accepted_actions":2,"rejected_actions":0,"error_codes":[],"event_kinds":["vote_recorded","ratification_resolved"]}
+    },
+    {
+      "id": "M14-deadline-silent-weight-approves",
+      "mandatory": true,
+      "scenario": {
+        "profile":"meshfleet.a2a.handoff-quorum.v0.1","case_id":"M14-deadline-silent-weight-approves",
+        "proposal":{"proposal_id":"p14","voters":["a","b"],"required_signoffs":[],"quorum":4,"weights":{"b":3},"deadline":10,"silence_policy":"approve"},
+        "actions":[{"op":"vote","at":1,"receipt_id":"r1","voter_id":"a","seq":0,"decision":"approve"},{"op":"resolve","at":10}]
+      },
+      "expect":{"case_id":"M14-deadline-silent-weight-approves","stored_status":"ratified","tally_status":"ratified","approvals":["a"],"declines":[],"pending":["b"],"signoffs_met":true,"reachable":true,"approval_weight":1,"decline_weight":0,"pending_weight":3,"total_weight":4,"accepted_actions":2,"rejected_actions":0,"error_codes":[],"event_kinds":["vote_recorded","ratification_resolved"]}
+    },
+    {
+      "id": "M15-silence-cannot-supply-signoff",
+      "mandatory": true,
+      "scenario": {
+        "profile":"meshfleet.a2a.handoff-quorum.v0.1","case_id":"M15-silence-cannot-supply-signoff",
+        "proposal":{"proposal_id":"p15","voters":["a","b"],"required_signoffs":["b"],"quorum":2,"weights":{},"deadline":10,"silence_policy":"approve"},
+        "actions":[{"op":"vote","at":1,"receipt_id":"r1","voter_id":"a","seq":0,"decision":"approve"},{"op":"resolve","at":10}]
+      },
+      "expect":{"case_id":"M15-silence-cannot-supply-signoff","stored_status":"expired","tally_status":"expired","approvals":["a"],"declines":[],"pending":["b"],"signoffs_met":false,"reachable":true,"approval_weight":1,"decline_weight":0,"pending_weight":1,"total_weight":2,"accepted_actions":2,"rejected_actions":0,"error_codes":[],"event_kinds":["vote_recorded","ratification_resolved"]}
+    },
+    {
+      "id": "M16-terminal-rejects-new-vote",
+      "mandatory": true,
+      "scenario": {
+        "profile":"meshfleet.a2a.handoff-quorum.v0.1","case_id":"M16-terminal-rejects-new-vote",
+        "proposal":{"proposal_id":"p16","voters":["a","b","c"],"required_signoffs":[],"quorum":2,"weights":{},"deadline":null,"silence_policy":"abstain"},
+        "actions":[
+          {"op":"vote","at":1,"receipt_id":"r1","voter_id":"a","seq":0,"decision":"approve"},
+          {"op":"vote","at":2,"receipt_id":"r2","voter_id":"b","seq":0,"decision":"approve"},
+          {"op":"resolve","at":3},
+          {"op":"vote","at":4,"receipt_id":"r3","voter_id":"c","seq":0,"decision":"decline"}
+        ]
+      },
+      "expect":{"case_id":"M16-terminal-rejects-new-vote","stored_status":"ratified","tally_status":"ratified","approvals":["a","b"],"declines":[],"pending":["c"],"signoffs_met":true,"reachable":true,"approval_weight":2,"decline_weight":0,"pending_weight":1,"total_weight":3,"accepted_actions":3,"rejected_actions":1,"error_codes":["RATIFICATION_TERMINAL"],"event_kinds":["vote_recorded","vote_recorded","ratification_resolved"]}
+    },
+    {
+      "id": "M17-equal-time-array-order",
+      "mandatory": true,
+      "scenario": {
+        "profile":"meshfleet.a2a.handoff-quorum.v0.1","case_id":"M17-equal-time-array-order",
+        "proposal":{"proposal_id":"p17","voters":["a"],"required_signoffs":[],"quorum":1,"weights":{},"deadline":null,"silence_policy":"abstain"},
+        "actions":[{"op":"vote","at":1,"receipt_id":"r1","voter_id":"a","seq":0,"decision":"approve"},{"op":"resolve","at":1}]
+      },
+      "expect":{"case_id":"M17-equal-time-array-order","stored_status":"ratified","tally_status":"ratified","approvals":["a"],"declines":[],"pending":[],"signoffs_met":true,"reachable":true,"approval_weight":1,"decline_weight":0,"pending_weight":0,"total_weight":1,"accepted_actions":2,"rejected_actions":0,"error_codes":[],"event_kinds":["vote_recorded","ratification_resolved"]}
+    },
+    {
+      "id": "M18-early-resolve-does-not-close",
+      "mandatory": true,
+      "scenario": {
+        "profile":"meshfleet.a2a.handoff-quorum.v0.1","case_id":"M18-early-resolve-does-not-close",
+        "proposal":{"proposal_id":"p18","voters":["a","b"],"required_signoffs":[],"quorum":2,"weights":{},"deadline":null,"silence_policy":"abstain"},
+        "actions":[
+          {"op":"vote","at":1,"receipt_id":"r1","voter_id":"a","seq":0,"decision":"approve"},
+          {"op":"resolve","at":2},
+          {"op":"vote","at":3,"receipt_id":"r2","voter_id":"b","seq":0,"decision":"approve"},
+          {"op":"resolve","at":4}
+        ]
+      },
+      "expect":{"case_id":"M18-early-resolve-does-not-close","stored_status":"ratified","tally_status":"ratified","approvals":["a","b"],"declines":[],"pending":[],"signoffs_met":true,"reachable":true,"approval_weight":2,"decline_weight":0,"pending_weight":0,"total_weight":2,"accepted_actions":4,"rejected_actions":0,"error_codes":[],"event_kinds":["vote_recorded","vote_recorded","ratification_resolved"]}
+    },
+    {
+      "id": "S01-recast-restores-reachability",
+      "mandatory": false,
+      "scenario": {
+        "profile":"meshfleet.a2a.handoff-quorum.v0.1","case_id":"S01-recast-restores-reachability",
+        "proposal":{"proposal_id":"s1","voters":["a","b","c"],"required_signoffs":[],"quorum":2,"weights":{},"deadline":null,"silence_policy":"abstain"},
+        "actions":[
+          {"op":"vote","at":1,"receipt_id":"r1","voter_id":"a","seq":0,"decision":"decline"},
+          {"op":"resolve","at":2},
+          {"op":"vote","at":3,"receipt_id":"r2","voter_id":"a","seq":1,"decision":"approve"},
+          {"op":"vote","at":4,"receipt_id":"r3","voter_id":"b","seq":0,"decision":"approve"},
+          {"op":"resolve","at":5}
+        ]
+      },
+      "expect":{"case_id":"S01-recast-restores-reachability","stored_status":"ratified","tally_status":"ratified","approvals":["a","b"],"declines":[],"pending":["c"],"signoffs_met":true,"reachable":true,"approval_weight":2,"decline_weight":0,"pending_weight":1,"total_weight":3,"accepted_actions":5,"rejected_actions":0,"error_codes":[],"event_kinds":["vote_recorded","vote_recorded","vote_recorded","ratification_resolved"]}
+    },
+    {
+      "id": "S02-weighted-quorum-unreachable",
+      "mandatory": false,
+      "scenario": {
+        "profile":"meshfleet.a2a.handoff-quorum.v0.1","case_id":"S02-weighted-quorum-unreachable",
+        "proposal":{"proposal_id":"s2","voters":["a","b"],"required_signoffs":[],"quorum":4,"weights":{"a":3},"deadline":null,"silence_policy":"abstain"},
+        "actions":[{"op":"vote","at":1,"receipt_id":"r1","voter_id":"b","seq":0,"decision":"decline"},{"op":"resolve","at":2}]
+      },
+      "expect":{"case_id":"S02-weighted-quorum-unreachable","stored_status":"rejected","tally_status":"rejected","approvals":[],"declines":["b"],"pending":["a"],"signoffs_met":true,"reachable":false,"approval_weight":0,"decline_weight":1,"pending_weight":3,"total_weight":4,"accepted_actions":2,"rejected_actions":0,"error_codes":[],"event_kinds":["vote_recorded","ratification_resolved"]}
+    },
+    {
+      "id": "S03-terminal-resolve-idempotent",
+      "mandatory": false,
+      "scenario": {
+        "profile":"meshfleet.a2a.handoff-quorum.v0.1","case_id":"S03-terminal-resolve-idempotent",
+        "proposal":{"proposal_id":"s3","voters":["a","b"],"required_signoffs":[],"quorum":2,"weights":{},"deadline":null,"silence_policy":"abstain"},
+        "actions":[
+          {"op":"vote","at":1,"receipt_id":"r1","voter_id":"a","seq":0,"decision":"approve"},
+          {"op":"vote","at":2,"receipt_id":"r2","voter_id":"b","seq":0,"decision":"approve"},
+          {"op":"resolve","at":3},
+          {"op":"resolve","at":4}
+        ]
+      },
+      "expect":{"case_id":"S03-terminal-resolve-idempotent","stored_status":"ratified","tally_status":"ratified","approvals":["a","b"],"declines":[],"pending":[],"signoffs_met":true,"reachable":true,"approval_weight":2,"decline_weight":0,"pending_weight":0,"total_weight":2,"accepted_actions":4,"rejected_actions":0,"error_codes":[],"event_kinds":["vote_recorded","vote_recorded","ratification_resolved"]}
+    },
+    {
+      "id": "S04-same-polarity-recast-rejected",
+      "mandatory": false,
+      "scenario": {
+        "profile":"meshfleet.a2a.handoff-quorum.v0.1","case_id":"S04-same-polarity-recast-rejected",
+        "proposal":{"proposal_id":"s4","voters":["a","b"],"required_signoffs":[],"quorum":2,"weights":{},"deadline":null,"silence_policy":"abstain"},
+        "actions":[
+          {"op":"vote","at":1,"receipt_id":"r1","voter_id":"a","seq":0,"decision":"approve"},
+          {"op":"vote","at":2,"receipt_id":"noop","voter_id":"a","seq":1,"decision":"approve"},
+          {"op":"vote","at":3,"receipt_id":"r2","voter_id":"b","seq":0,"decision":"approve"},
+          {"op":"resolve","at":4}
+        ]
+      },
+      "expect":{"case_id":"S04-same-polarity-recast-rejected","stored_status":"ratified","tally_status":"ratified","approvals":["a","b"],"declines":[],"pending":[],"signoffs_met":true,"reachable":true,"approval_weight":2,"decline_weight":0,"pending_weight":0,"total_weight":2,"accepted_actions":3,"rejected_actions":1,"error_codes":["VOTE_NO_CHANGE"],"event_kinds":["vote_recorded","vote_recorded","ratification_resolved"]}
+    },
+    {
+      "id": "S05-unicode-voter-order",
+      "mandatory": false,
+      "scenario": {
+        "profile":"meshfleet.a2a.handoff-quorum.v0.1","case_id":"S05-unicode-voter-order",
+        "proposal":{"proposal_id":"s5","voters":["😀","a","é"],"required_signoffs":[],"quorum":2,"weights":{},"deadline":null,"silence_policy":"abstain"},
+        "actions":[
+          {"op":"vote","at":1,"receipt_id":"r1","voter_id":"é","seq":0,"decision":"approve"},
+          {"op":"vote","at":2,"receipt_id":"r2","voter_id":"😀","seq":0,"decision":"approve"},
+          {"op":"resolve","at":3}
+        ]
+      },
+      "expect":{"case_id":"S05-unicode-voter-order","stored_status":"ratified","tally_status":"ratified","approvals":["😀","é"],"declines":[],"pending":["a"],"signoffs_met":true,"reachable":true,"approval_weight":2,"decline_weight":0,"pending_weight":1,"total_weight":3,"accepted_actions":3,"rejected_actions":0,"error_codes":[],"event_kinds":["vote_recorded","vote_recorded","ratification_resolved"]}
+    }
+  ]
+}
