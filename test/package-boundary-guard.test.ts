@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdtempSync, mkdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -11,6 +11,7 @@ import {
   listPackedDistEntries,
   listProductionDependencyGroups,
   listProductionDependencyRoots,
+  normalizeRelativePath,
 } from './helpers/package-boundary-guard.js'
 
 const APPROVED_CORE_SOURCE_MODULES = [
@@ -242,6 +243,171 @@ test('package boundary guard inspects re-exports, type-only imports, dynamic imp
   )
 })
 
+test('package boundary guard inspects direct and aliased createRequire loads', () => {
+  withFixture(
+    {
+      'src/entry.ts': [
+        'import { createRequire } from "node:module"',
+        'createRequire(import.meta.url)("missing-direct")',
+        'const req = createRequire(import.meta.url)',
+        'req("missing-alias")',
+        'req("../outside.cjs")',
+      ].join('\n'),
+    },
+    { name: 'fixture' },
+    (root) => {
+      assert.deepEqual(
+        findPackageBoundaryViolations(root).map(({ kind, specifier, reason }) => ({ kind, specifier, reason })),
+        [
+          {
+            kind: 'require',
+            specifier: 'missing-direct',
+            reason: 'external package "missing-direct" is not declared in dependencies, optionalDependencies, or peerDependencies',
+          },
+          {
+            kind: 'require',
+            specifier: 'missing-alias',
+            reason: 'external package "missing-alias" is not declared in dependencies, optionalDependencies, or peerDependencies',
+          },
+          {
+            kind: 'require',
+            specifier: '../outside.cjs',
+            reason: 'relative specifier resolves outside src',
+          },
+        ],
+      )
+    },
+  )
+})
+
+test('package boundary guard fails closed when a createRequire loader escapes static analysis', () => {
+  withFixture(
+    {
+      'src/entry.ts': [
+        'import { createRequire } from "node:module"',
+        'const req = createRequire(import.meta.url)',
+        'const escaped = req',
+        'void escaped',
+      ].join('\n'),
+    },
+    { name: 'fixture' },
+    (root) => {
+      assert.deepEqual(findPackageBoundaryViolations(root), [
+        {
+          file: 'src/entry.ts',
+          kind: 'require',
+          specifier: '<ambiguous>',
+          reason: 'createRequire loader "req" escapes static analysis',
+        },
+      ])
+    },
+  )
+})
+
+test('package boundary guard accepts no-substitution templates and rejects interpolated module specifiers', () => {
+  withFixture(
+    {
+      'src/entry.ts': [
+        'const name = "value"',
+        'void import(`missing-dynamic`)',
+        'require(`missing-require`)',
+        'void import(`dynamic-${name}`)',
+        'require(`require-${name}`)',
+      ].join('\n'),
+    },
+    { name: 'fixture' },
+    (root) => {
+      assert.deepEqual(
+        findPackageBoundaryViolations(root).map(({ kind, specifier, reason }) => ({ kind, specifier, reason })),
+        [
+          {
+            kind: 'dynamic-import',
+            specifier: 'missing-dynamic',
+            reason: 'external package "missing-dynamic" is not declared in dependencies, optionalDependencies, or peerDependencies',
+          },
+          {
+            kind: 'require',
+            specifier: 'missing-require',
+            reason: 'external package "missing-require" is not declared in dependencies, optionalDependencies, or peerDependencies',
+          },
+          {
+            kind: 'dynamic-import',
+            specifier: '<dynamic>',
+            reason: 'dynamic import specifier cannot be resolved statically',
+          },
+          {
+            kind: 'require',
+            specifier: '<dynamic>',
+            reason: 'require specifier cannot be resolved statically',
+          },
+        ],
+      )
+    },
+  )
+})
+
+test('package boundary guard fails closed when a local binding shadows CommonJS require', () => {
+  withFixture(
+    {
+      'src/entry.ts': [
+        'const require = (specifier: string) => specifier',
+        'require("looks-declared")',
+      ].join('\n'),
+    },
+    { name: 'fixture', dependencies: { 'looks-declared': '1.0.0' } },
+    (root) => {
+      assert.deepEqual(findPackageBoundaryViolations(root), [
+        {
+          file: 'src/entry.ts',
+          kind: 'require',
+          specifier: 'looks-declared',
+          reason: 'local binding shadows CommonJS require',
+        },
+      ])
+    },
+  )
+})
+
+test('package boundary guard inspects require.resolve and parenthesized require, then rejects alias escape', () => {
+  withFixture(
+    {
+      'src/entry.cjs': [
+        'require.resolve("missing-resolve");',
+        '(require)("missing-parenthesized");',
+        'const req = require;',
+        'req("missing-alias");',
+      ].join('\n'),
+    },
+    { name: 'fixture' },
+    (root) => {
+      assert.deepEqual(
+        findPackageBoundaryViolations(root).map(({ kind, specifier, reason }) => ({ kind, specifier, reason })),
+        [
+          {
+            kind: 'require',
+            specifier: 'missing-resolve',
+            reason: 'external package "missing-resolve" is not declared in dependencies, optionalDependencies, or peerDependencies',
+          },
+          {
+            kind: 'require',
+            specifier: 'missing-parenthesized',
+            reason: 'external package "missing-parenthesized" is not declared in dependencies, optionalDependencies, or peerDependencies',
+          },
+          {
+            kind: 'require',
+            specifier: '<ambiguous>',
+            reason: 'CommonJS require escapes static analysis',
+          },
+        ],
+      )
+    },
+  )
+})
+
+test('violation paths normalize Windows separators', () => {
+  assert.equal(normalizeRelativePath('src\\nested\\entry.ts'), 'src/nested/entry.ts')
+})
+
 test('package boundary guard resolves emitted relative JavaScript specifiers inside src', () => {
   withFixture(
     {
@@ -307,6 +473,7 @@ test('source baseline lists every supported source extension', () => {
       'src/module.mjs': 'export {}\n',
       'src/module.mts': 'export {}\n',
       'src/module.jsx': 'export default null\n',
+      'src/types.d.ts': 'export type Value = string\n',
     },
     { name: 'fixture' },
     (root) => {
@@ -319,7 +486,47 @@ test('source baseline lists every supported source extension', () => {
         'module.jsx',
         'module.mjs',
         'module.mts',
+        'types.d.ts',
       ])
+    },
+  )
+})
+
+test('source baseline does not ignore uppercase module extensions', () => {
+  withFixture(
+    { 'src/escape.TS': 'import "missing-uppercase"\n' },
+    { name: 'fixture' },
+    (root) => assert.deepEqual(listCoreSourceModulePaths(root), ['escape.TS']),
+  )
+})
+
+test('package boundary guard checks every supported source extension', () => {
+  withFixture(
+    {
+      'src/entry.cjs': 'require("missing-cjs")\n',
+      'src/entry.cts': 'require("missing-cts")\n',
+      'src/entry.js': 'import "missing-js"\n',
+      'src/entry.jsx': 'import "missing-jsx"\n',
+      'src/entry.mjs': 'import "missing-mjs"\n',
+      'src/entry.mts': 'import "missing-mts"\n',
+      'src/entry.ts': 'import "missing-ts"\n',
+      'src/entry.tsx': 'import "missing-tsx"\n',
+    },
+    { name: 'fixture' },
+    (root) => {
+      assert.deepEqual(
+        findPackageBoundaryViolations(root).map(({ file, specifier }) => ({ file, specifier })),
+        [
+          { file: 'src/entry.cjs', specifier: 'missing-cjs' },
+          { file: 'src/entry.cts', specifier: 'missing-cts' },
+          { file: 'src/entry.js', specifier: 'missing-js' },
+          { file: 'src/entry.jsx', specifier: 'missing-jsx' },
+          { file: 'src/entry.mjs', specifier: 'missing-mjs' },
+          { file: 'src/entry.mts', specifier: 'missing-mts' },
+          { file: 'src/entry.ts', specifier: 'missing-ts' },
+          { file: 'src/entry.tsx', specifier: 'missing-tsx' },
+        ],
+      )
     },
   )
 })
@@ -376,6 +583,22 @@ test('source scan rejects a directory symlink', (t) => {
   )
 })
 
+test('source scan can prove symlink rejection without operating-system symlink privileges', () => {
+  withFixture(
+    { 'src/entry.ts': 'export {}\n' },
+    { name: 'fixture' },
+    (root) => {
+      assert.throws(
+        () => listCoreSourceModulePaths(root, () => ({
+          isSymbolicLink: () => true,
+          isDirectory: () => false,
+        })),
+        /source tree contains symlink: entry\.ts/,
+      )
+    },
+  )
+})
+
 test('public Core production dependency baseline is exact', () => {
   const repoRoot = join(fileURLToPath(new URL('..', import.meta.url)))
   assert.deepEqual(listProductionDependencyRoots(repoRoot), APPROVED_PRODUCTION_DEPENDENCY_ROOTS)
@@ -385,17 +608,43 @@ test('public Core production dependency baseline is exact', () => {
 test('packed tarball contains exactly the approved Core modules', { timeout: 30_000 }, () => {
   const repoRoot = join(fileURLToPath(new URL('..', import.meta.url)))
   const temp = mkdtempSync(join(tmpdir(), 'meshfleet-package-boundary-pack-'))
+  const packageRoot = join(temp, 'package')
+  const packDestination = join(temp, 'packed')
+  const workspaceDistEntry = join(repoRoot, 'dist', 'index.js')
+  const workspaceDistBefore = existsSync(workspaceDistEntry)
+    ? statSync(workspaceDistEntry, { bigint: true }).mtimeNs
+    : undefined
   try {
-    const build = spawnSync(NPM, ['run', 'build'], {
+    mkdirSync(packageRoot)
+    mkdirSync(packDestination)
+    for (const file of [
+      'package.json',
+      'mcp.json',
+      'README.md',
+      'LICENSE',
+      'AGENT-MESH-SPEC.md',
+      'SPEC-P2P.md',
+      'SPEC-COUNCILS.md',
+    ]) {
+      copyFileSync(join(repoRoot, file), join(packageRoot, file))
+    }
+
+    const build = spawnSync(process.execPath, [
+      join(repoRoot, 'node_modules', 'typescript', 'bin', 'tsc'),
+      '--project',
+      join(repoRoot, 'tsconfig.json'),
+      '--rootDir',
+      join(repoRoot, 'src'),
+      '--outDir',
+      join(packageRoot, 'dist'),
+    ], {
       cwd: repoRoot,
       encoding: 'utf8',
-      env: { ...process.env, npm_config_update_notifier: 'false' },
-      shell: process.platform === 'win32',
     })
     assert.equal(build.status, 0, build.stderr || build.stdout)
 
-    const pack = spawnSync(NPM, ['pack', '--json', '--pack-destination', temp], {
-      cwd: repoRoot,
+    const pack = spawnSync(NPM, ['pack', '--json', '--pack-destination', packDestination], {
+      cwd: packageRoot,
       encoding: 'utf8',
       env: { ...process.env, npm_config_update_notifier: 'false' },
       shell: process.platform === 'win32',
@@ -406,10 +655,17 @@ test('packed tarball contains exactly the approved Core modules', { timeout: 30_
       files: Array<{ path: string }>
     }>
     assert.equal(packed.length, 1)
-    assert.equal(existsSync(join(temp, packed[0]!.filename)), true)
+    assert.equal(existsSync(join(packDestination, packed[0]!.filename)), true)
     assert.deepEqual(
       listPackedDistEntries(packed[0]!.files),
       APPROVED_PACKED_DIST_ENTRIES,
+    )
+    assert.equal(
+      existsSync(workspaceDistEntry)
+        ? statSync(workspaceDistEntry, { bigint: true }).mtimeNs
+        : undefined,
+      workspaceDistBefore,
+      'pack verification must not create or rewrite workspace dist',
     )
   } finally {
     rmSync(temp, { recursive: true, force: true })
