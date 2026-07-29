@@ -1,11 +1,13 @@
 # A2A Local Admission Profile v0.1
 
-> **STATUS — implementation removed from `main`, 2026-07-25.** The TypeScript module this
-> document specified had no caller in `src/` and was deleted along with the rest of the dormant
-> surface. This file is retained as a **design record of what was worked out**, not as a
-> description of code that exists. Nothing here is implemented on `main` today.
+> **STATUS — bounded evidence-alpha restored, 2026-07-29.** The TypeScript
+> evaluator, independent Python witness, shared 32-case corpus, and closed
+> StaticHarnessMapping sidecar fixtures are executable again on the current
+> branch. They remain test-only and outside package/MCP/CLI surfaces. The
+> corpus does not yet satisfy every exhaustive family and cardinality row in
+> Section 9, so this is not full Slice 4C-1 conformance or activation.
 
-**Status:** Designed, not implemented. This offline, dormant Slice 4C-1
+**Status:** Partially implemented as offline, dormant evidence. This Slice 4C-1
 contract creates no public ingress, authentication provider, trust root,
 credential, signed carrier, replay store, Slice 4B integration, database, MCP,
 transport, network, delivery, outbox, runtime launch, provider call, secret
@@ -448,6 +450,15 @@ every case. Required families are:
 | oracle/results | six verdicts, throw/malformed; exact call arguments; sole success; five dispositions; every rejected code; no uppercase/generic replay; no second digest/extra field |
 | privacy | capability/profile/proof/model/runtime/receipt/conformance/provider/environment/secret input cannot affect authorization or diagnostics |
 
+The current evidence-alpha corpus has 32 mandatory cases. It proves the closed
+one-operation raw boundary, all replay verdict mappings, representative
+precedence and denial, exact TypeScript/Python bytes, recipient-order
+normalization, byte-limit edges, witness mutation detection, and strict corpus
+ingestion. It does not yet claim exhaustive coverage of every row above,
+including all source-indexed 4A error paths and every maximum-cardinality
+boundary. Until that delta is closed, the compatibility registry remains
+`unverified` rather than full `reference-conformance`.
+
 The corpus MUST NOT contain native object/accessor/Proxy/subclass/prototype/
 sparse-array/mutation cases. Ordinary implementation tests instead prove no
 exported direct-object entrypoint exists and the private parser tree is neither
@@ -490,15 +501,14 @@ The status enum is `known-static | deferred | unprofiled`. `losses` contains
 exactly the two displayed records sorted by unsigned ASCII `field_path`; the
 only reason/disposition are `identity_not_represented` and
 `omitted_by_contract`. Unknown/duplicate members, target/status mismatch,
-reordered/extra losses, or non-null identity MUST reject in the future sidecar
-validator outside the admission corpus. No sidecar implementation, validator,
-fixture, or conformance evidence exists in Slice 4C-1 today.
+reordered/extra losses, or non-null identity reject in the sidecar validator
+outside the admission corpus.
 
-Future 4C-1 implementation MUST add executable positive fixtures for all seven
-targets with exact null fields and loss ordering, plus negative fixtures for
+The current evidence-alpha has executable positive fixtures for all seven
+targets with exact null fields and loss ordering and negative fixtures for
 unknown target, target/status mismatch, non-null identity, unknown/extra field,
 duplicate loss, reordered loss, and every missing required member. This is a
-required implementation gate, not an existing maturity claim.
+required implementation gate, not authentication or target-runtime evidence.
 
 No config, template, banner, model/provider label, PID, receipt, login/account,
 provider session, path, prompt, runtime argv, environment name/value, or
@@ -510,13 +520,14 @@ The design assumes but does not verify a trusted local adapter and
 caller-supplied fixture snapshots. Capability/profile/proof/model/runtime/
 receipt/conformance input MUST NOT influence authorization. Implementation needs
 the split-raw one-operation corpus, direct TypeScript/Python byte differential,
-mutation canaries, import checks, the future StaticHarnessMapping fixtures and
-validator, and independent contract/security review.
+mutation canaries, import checks, StaticHarnessMapping fixtures and validator,
+and independent contract/security review. Evidence-alpha has these mechanisms
+but not the exhaustive Section 9 corpus coverage required for full conformance.
 
 Operational use separately requires adapter trust/credentials, protected
 diagnostics, snapshot provenance/revocation, replay persistence, plan-to-4B
-transactionality, and lifecycle authority. Released `meshfleet@0.14.0` contains
-none of the unmerged Slice 4B, 4C-0, or 4C-1 branch work.
+transactionality, and lifecycle authority. The evaluator remains outside the
+package exports, MCP tools, and CLI.
 
 Deferred decisions are the adapter/OS trust boundary; credential, rotation,
 revocation, and session binding; policy snapshot provenance/distribution;

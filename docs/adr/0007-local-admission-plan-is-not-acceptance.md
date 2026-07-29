@@ -1,7 +1,7 @@
 # ADR 0007: A local admission plan is not acceptance
 
-**Status:** Accepted as a design decision for Slice 4C-1; not implemented or
-activated.
+**Status:** Accepted and partially implemented as bounded offline
+evidence-alpha; not exported, activated, or full-profile conformant.
 
 ## Context
 

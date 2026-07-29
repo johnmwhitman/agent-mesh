@@ -41,16 +41,16 @@ The ranked A2A strategy is canonical in
    typecheck, and two APPROVED final independent reviews. Capability claims,
    proof carriers, provider strings, model banners, and durable receipts never
    grant authority. No public/runtime/auth/network/durable-registry activation.
-7. **Slice 4C-1 authenticated-local adapter proof** - contract designed, not
+7. **Slice 4C-1 authenticated-local adapter proof** - bounded evidence-alpha
    implemented; exactly one offline `evaluate-local-admission(request_json,
    envelope_json, replay_oracle)` operation over independent raw UTF-8 texts is
    specified, with an ephemeral non-acceptance plan, explicit
    assumed local adapter boundary, supplied fixture binding/all-recipient policy
    before replay, and no
-   public/auth/network/storage/runtime activation;
-   prove one principal-bound authenticated-local semantic path while remaining
-   offline and separately gated. No active, approved, remote, or multi-host
-   implementation claim.
+   public/auth/network/storage/runtime activation. The 32-case shared corpus,
+   independent Python witness, recipient normalization proof, strict corpus
+   canaries, and closed sidecar fixtures do not yet satisfy the profile's full
+   exhaustive coverage gate. No active, approved, remote, or multi-host claim.
 8. **Slice 4D then 4E** - offline delivery-attempt/transport conformance, then
    deterministic two-host coordinator simulation; neither is implemented.
 
@@ -253,15 +253,17 @@ observable, not a daemon, dashboard, or service claim.
   ingress, runtime selection, network, persistence, delivery, execution,
   release, or activation.
 - [ ] **Slice 4C-1: principal-bound authenticated-local semantic path** —
-  designed, not implemented. The contract has one operation over independent
+  bounded offline evidence-alpha implemented, full profile still open. The
+  contract has one operation over independent
   raw `request_json` and unchanged 4A `envelope_json`, no wrapper/object-input
   path, and no
   public intermediate-success APIs; its admission plan is not acceptance,
   persistence, receipt, delivery, execution, or reusable authority. No released
-  version of `meshfleet` contains Slice 4B, Slice 4C-0, or Slice 4C-1 branch
-  work.
-  Proposed next, still offline and separately gated; do not treat it as active
-  or approved beyond proposal.
+  package export, MCP tool, CLI, runtime, DB, transport, or network consumer.
+  The current 32-case direct TypeScript/Python evidence and sidecar fixtures do
+  not close every exhaustive Section 9 family/cardinality/path gate. Keep the
+  row open and do not treat it as authenticated ingress, acceptance, remote,
+  multi-host, or released capability.
 - [ ] **Slice 4D: offline delivery-attempt and transport conformance** — compare
   stdio, mailbox, HTTP/SSE, and WebSocket semantic traces without live peers.
   **4D-alpha is implemented locally at reference-conformance:** the pure
