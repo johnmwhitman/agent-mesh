@@ -116,6 +116,16 @@ test("rejects missing required fields and invalid snapshot lifetime before proje
   );
 });
 
+test("validates now_ms before snapshot timing after accepting the snapshot version", () => {
+  assert.throws(
+    () => compileFleetBudgetObservations(input({
+      now_ms: Number.NaN,
+      snapshot: snapshot({ expires_at_ms: 600_101 }),
+    }) as never),
+    expects("input.now_ms", "must be a finite integer"),
+  );
+});
+
 test("rejects fleetbudget array bounds, identifiers, and exact unit grammar", () => {
   assert.throws(
     () => compileFleetBudgetObservations(input({ snapshot: snapshot({ lanes: Array.from({ length: 257 }, (_, index) => ({ ...snapshot().lanes[0], lane_id: `lane-${index}` })) }) }) as never),

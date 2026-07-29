@@ -167,7 +167,7 @@ function validateWindow(value: unknown, path: string, observedAtMs: number): Fle
   };
 }
 
-function validateSnapshotHeader(value: unknown): Omit<FleetBudgetSnapshot, "lanes"> & { lanes: unknown } {
+function validateSnapshotHeader(value: unknown): RecordValue {
   const snapshot = requireRecord(value, "input.snapshot");
   requireExactKeys(
     snapshot,
@@ -178,6 +178,12 @@ function validateSnapshotHeader(value: unknown): Omit<FleetBudgetSnapshot, "lane
   if (snapshot.version !== FLEETBUDGET_SNAPSHOT_VERSION) {
     invalid("input.snapshot.version", `must equal ${FLEETBUDGET_SNAPSHOT_VERSION}`);
   }
+  return snapshot;
+}
+
+function validateSnapshotTiming(
+  snapshot: RecordValue,
+): Omit<FleetBudgetSnapshot, "lanes"> & { lanes: unknown } {
   requireFiniteInteger(snapshot.observed_at_ms, "input.snapshot.observed_at_ms");
   requireFiniteInteger(snapshot.expires_at_ms, "input.snapshot.expires_at_ms");
   const ttlMs = snapshot.expires_at_ms - snapshot.observed_at_ms;
@@ -320,8 +326,9 @@ export function compileFleetBudgetObservations(
 ): FleetBudgetObservationResult {
   const record = requireRecord(input, "input");
   requireExactKeys(record, "input", ["snapshot", "bindings", "now_ms"], ["snapshot", "bindings", "now_ms"]);
-  const header = validateSnapshotHeader(record.snapshot);
+  const snapshotRecord = validateSnapshotHeader(record.snapshot);
   requireFiniteInteger(record.now_ms, "input.now_ms");
+  const header = validateSnapshotTiming(snapshotRecord);
   if (record.now_ms < header.observed_at_ms) {
     invalid("input.snapshot", "is future-dated");
   }
