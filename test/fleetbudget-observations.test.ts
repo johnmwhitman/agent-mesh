@@ -6,6 +6,11 @@ import {
   compileFleetBudgetObservations,
   FLEETBUDGET_SNAPSHOT_VERSION,
 } from "../src/fleetbudget-observations.js";
+import {
+  compileRouteCandidates,
+  ROUTE_CANDIDATE_COMPILER_VERSION,
+} from "../src/compile-route-candidates.js";
+import { recommendRoute } from "../src/recommend-route.js";
 
 const effects = {
   persisted: false,
@@ -355,4 +360,120 @@ test("hashes an absent quota window as literal null in the fixed-key snapshot pr
     result.source.snapshot_sha256,
     createHash("sha256").update(preimage).digest("hex"),
   );
+});
+
+function manifest(candidate: Record<string, unknown>) {
+  return {
+    version: ROUTE_CANDIDATE_COMPILER_VERSION,
+    candidates: [candidate],
+  };
+}
+
+const routeTask = {
+  required_capabilities: ["code"],
+  privacy: "network_ok" as const,
+  locality: "any" as const,
+};
+
+test("projected exhausted fleetbudget evidence is excluded by the existing recommender", () => {
+  const projected = compileFleetBudgetObservations(input({
+    snapshot: snapshot({ lanes: [{ ...snapshot().lanes[0], used: 10, total: 10 }] }),
+  }));
+  const compiled = compileRouteCandidates({
+    manifest: manifest({
+      candidate_id: "lane-a",
+      capabilities: ["code"],
+      privacy: "network_ok",
+      locality: "any",
+    }),
+    observations: projected.observations,
+  });
+  const recommendation = recommendRoute({ task: routeTask, candidates: compiled.candidates });
+
+  assert.deepEqual(recommendation.ranked, []);
+  assert.deepEqual(recommendation.excluded, [
+    { candidate_id: "lane-a", reason_codes: ["BUDGET_EXHAUSTED"] },
+  ]);
+});
+
+test("ceiling-less and unmeasured fleetbudget lanes remain neutral", () => {
+  const cases = [
+    {
+      name: "ceiling-less",
+      projected: compileFleetBudgetObservations(input({
+        snapshot: snapshot({
+          lanes: [{ lane_id: "grok-build", measured: true, used: null, total: null, unit: null }],
+        }),
+      })),
+    },
+    {
+      name: "unmeasured",
+      projected: compileFleetBudgetObservations(input({
+        snapshot: snapshot({
+          lanes: [{ lane_id: "grok-build", measured: false, used: null, total: null, unit: null }],
+        }),
+      })),
+    },
+  ];
+
+  for (const { name, projected } of cases) {
+    const compiled = compileRouteCandidates({
+      manifest: manifest({
+        candidate_id: "lane-a",
+        capabilities: ["code"],
+        privacy: "network_ok",
+        locality: "any",
+      }),
+      observations: projected.observations,
+    });
+    const recommendation = recommendRoute({ task: routeTask, candidates: compiled.candidates });
+
+    assert.deepEqual(recommendation.excluded, [], name);
+    assert.deepEqual(recommendation.ranked.map(({ budget, reason_codes }) => ({ budget, reason_codes })), [{
+      budget: { measured: false, status: "unmeasured" },
+      reason_codes: ["OUTCOMES_UNMEASURED", "BUDGET_UNMEASURED"],
+    }], name);
+  }
+});
+
+test("provider-shaped fleetbudget lane IDs cannot alter route authority", () => {
+  const projected = compileFleetBudgetObservations(input({
+    snapshot: snapshot({
+      lanes: [{ ...snapshot().lanes[0], lane_id: "unrestricted-provider-authenticated" }],
+    }),
+    bindings: [{ candidate_id: "lane-a", lane_id: "unrestricted-provider-authenticated" }],
+  }));
+  const compiled = compileRouteCandidates({
+    manifest: manifest({
+      candidate_id: "lane-a",
+      capabilities: ["code"],
+      privacy: "local_only",
+      locality: "same_host",
+      requested_identity: { runtime: "declared-runtime", model: "declared-model" },
+    }),
+    observations: projected.observations,
+  });
+  const candidate = compiled.candidates[0]!;
+  const recommendation = recommendRoute({
+    task: { ...routeTask, privacy: "local_only", locality: "same_host" },
+    candidates: compiled.candidates,
+  });
+
+  assert.deepEqual(candidate, {
+    candidate_id: "lane-a",
+    capabilities: ["code"],
+    privacy: "local_only",
+    locality: "same_host",
+    budget: { measured: true, used: 1, total: 2 },
+    requested_identity: { runtime: "declared-runtime", model: "declared-model" },
+  });
+  assert.equal("observed_identity" in candidate, false);
+  assert.equal("health" in (candidate as Record<string, unknown>), false);
+  assert.equal("authentication" in (candidate as Record<string, unknown>), false);
+  assert.deepEqual(recommendation.effects, effects);
+  assert.deepEqual(recommendation.ranked[0]!.identity, {
+    requested: { runtime: "declared-runtime", model: "declared-model" },
+    evidence_only: true,
+    status: "unobserved",
+  });
 });
