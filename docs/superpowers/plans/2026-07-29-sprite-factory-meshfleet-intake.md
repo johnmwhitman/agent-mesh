@@ -21,6 +21,7 @@
 - Every produced package remains review pending. Only the existing exact-byte review ledger may approve it.
 - Reuse `complete_family()`, `check_output_license()`, `write_generated_source()`, `reviews.gate()`, and engine/profile validators; do not fork their policy.
 - Existing `generate` and `pixellab-intake` commands remain available and unchanged.
+- The MeshFleet executable is one host-owned absolute path from trusted local configuration, never a manifest/CLI field. Resolve and validate a canonical regular non-symlink executable owned by the current user, owner-executable, and not group/other-writable; spawn with an empty environment plus the explicit locale allowlist.
 - Offline tests use a fake registered-consumer resolver; no provider call, live readiness probe, or spend is authorized.
 
 ## Baseline
@@ -42,6 +43,8 @@ Record any pre-existing failure before editing.
 **Files:**
 - Create: `schemas/meshfleet-intake-v1.schema.json`
 - Create: `spritefactory/meshfleet_intake.py`
+- Create: `tests/fixtures/meshfleet/sprite-factory.meshfleet-intake.v1.json`
+- Create: `tests/fixtures/meshfleet/provenance.json`
 - Create: `tests/test_meshfleet_intake.py`
 
 **Interfaces:**
@@ -50,7 +53,7 @@ Record any pre-existing failure before editing.
 
 - [ ] **Step 1: Write failing contract tests**
 
-Cover exact version, required fields, unknown fields, duplicate JSON keys, wrong JSON types, zero/duplicate artifacts, malformed IDs, malformed hashes, invalid review state, empty provider/model facts, missing prompt hash, and every unsupported license. The closed `sprite-factory.meshfleet-intake.v1` manifest MUST be produced by Core from completed artifacts and MUST include: prompt_sha256, requested/selected/observed model distinctions, license_declaration, and artifact hashes. Sprite pins and validates these committed fixtures (not live generation output).
+Vendor the committed Core public fixture and a provenance record containing the MeshFleet source commit, source relative path, and SHA-256. Cover exact version, required fields, unknown fields, duplicate JSON keys, wrong JSON types, zero/duplicate artifacts, malformed IDs, malformed hashes, invalid review state, empty provider/model facts, missing prompt hash, and every unsupported license. Pin the fixture byte-for-byte and prove it contains `prompt_sha256`, requested/selected/observed model distinctions, `license_declaration`, and artifact hashes. Never synthesize a local fixture from the prose contract.
 
 ```python
 def test_manifest_rejects_raw_paths_and_urls(tmp_path):
@@ -101,7 +104,7 @@ python -m pytest -q tests/test_provenance.py
 - [ ] **Step 5: Commit**
 
 ```bash
-git add schemas/meshfleet-intake-v1.schema.json spritefactory/meshfleet_intake.py tests/test_meshfleet_intake.py
+git add schemas/meshfleet-intake-v1.schema.json spritefactory/meshfleet_intake.py tests/fixtures/meshfleet tests/test_meshfleet_intake.py
 git commit -m "feat(spritefactory): add closed MeshFleet intake contract"
 ```
 
@@ -109,6 +112,7 @@ git commit -m "feat(spritefactory): add closed MeshFleet intake contract"
 
 **Files:**
 - Create: `spritefactory/meshfleet_materialize.py`
+- Create: `spritefactory/meshfleet_host.py`
 - Create: `tests/test_meshfleet_materialize.py`
 
 **Interfaces:**
@@ -117,7 +121,7 @@ git commit -m "feat(spritefactory): add closed MeshFleet intake contract"
 
 - [ ] **Step 1: Write failing fake-resolver tests**
 
-Use a temporary executable fixture. Cover fixed argv, bounded stdin/stdout/stderr, cleared environment, timeout, non-zero exit, unknown output fields, unregistered consumer, missing file, empty file, symlink, device/non-regular file, root escape, hash mismatch, duplicate output, partial failure cleanup, and sentinel-secret absence:
+Use a temporary executable fixture. Cover fixed argv, bounded stdin/stdout/stderr, cleared environment, timeout, non-zero exit, unknown output fields, unregistered consumer, missing file, empty file, symlink, device/non-regular file, root escape, hash mismatch, duplicate output, partial failure cleanup, and sentinel-secret absence. Host-config tests reject a relative executable, symlink, wrong owner, group/other-writable mode, non-file, and any manifest/CLI executable field. Concurrent startup wakes must exercise the committed Core singleton fixture and produce one polling worker:
 
 ```python
 assert fake.argv == ["artifacts", "materialize", "--consumer", "sprite-factory", "--json"]
@@ -134,7 +138,7 @@ python -m pytest -q tests/test_meshfleet_materialize.py
 
 - [ ] **Step 3: Implement the fixed resolver**
 
-Production uses the constant executable `meshfleet-media`, constant consumer identity `sprite-factory`, no shell, no inherited provider environment, bounded pipes, and a temporary staging root created by Sprite Factory. The bridge returns relative filenames only. Resolve each with `Path.resolve()`, prove confinement to the staging root, reject symlinks/non-regular files, stream SHA-256, and compare with the immutable manifest before returning.
+`meshfleet_host.py` resolves the trusted host-owned absolute executable described in Global Constraints and never consults the manifest or user-facing CLI arguments. At Sprite Factory command startup, invoke its fixed `worker --run-until-idle` wake before materialization; the committed Core SQLite singleton fixture proves competing Sprite/ArtCraft/CLI starters elect one worker and cannot duplicate dispatch. A wake failure leaves the MeshFleet execution untouched and fails with truthful remediation. Materialization uses the same exact executable, constant consumer identity `sprite-factory`, no shell, no inherited provider environment, bounded pipes, and a temporary staging root created by Sprite Factory. The bridge returns relative filenames only. Resolve each with `Path.resolve()`, prove confinement to the staging root, reject symlinks/non-regular files, stream SHA-256, and compare with the immutable manifest before returning.
 
 - [ ] **Step 4: Run focused tests twice**
 
@@ -148,7 +152,7 @@ Expected: both runs PASS and leave no partial staging tree.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add spritefactory/meshfleet_materialize.py tests/test_meshfleet_materialize.py
+git add spritefactory/meshfleet_host.py spritefactory/meshfleet_materialize.py tests/test_meshfleet_materialize.py
 git commit -m "feat(spritefactory): materialize admitted MeshFleet artifacts"
 ```
 

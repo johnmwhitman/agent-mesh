@@ -91,7 +91,7 @@ git commit -m "feat(tools): add closed media adapter protocol"
 
 ### Task 2: PixelLab machine mode (GUARDED)
 
-**Decision Gate (MANDATORY before Step 1):** Identify dirty-byte owner/base via `OPERATOR-LOCK.md`, worktree list, and `git log --oneline -5 Tools/pxl`. Record the finding. Proceed with Task 2 ONLY if the bytes are landed/reconciled in a committed branch or explicit handoff; otherwise DEFER the PixelLab wrapper task (record decision + rationale in handoff/lock) without blocking any non-overlapping wrapper tasks (Gemini, audio, Codex, MiniMax). Never copy dirty bytes.
+**Decision Gate (MANDATORY before Step 1):** Identify dirty-byte owner/base via `OPERATOR-LOCK.md`, worktree list, and `git log --oneline -5 Tools/pxl`. At the 2026-07-29 preflight, the primary dirty bytes were byte-identical to committed `codex/pixellab-fetch-state-closeout-20260727@d045b91`; re-verify that identity immediately before execution, then reconcile by cherry-picking the committed source into the isolated portfolio worktree. Proceed with Task 2 only from committed/reconciled bytes. If the identity changed or ownership is ambiguous, defer PixelLab (record decision and hashes in handoff/lock) without blocking Gemini, audio, Codex, or MiniMax. Never copy dirty bytes.
 
 **Files:**
 - Modify: `Tools/pxl`

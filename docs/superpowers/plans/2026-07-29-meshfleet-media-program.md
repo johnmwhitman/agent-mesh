@@ -16,7 +16,7 @@
 - Do not use `spawn_fleet`, OpenCode agents, or a generic command runner as the media execution boundary.
 - Do not add an unauthenticated TCP, SSE, or renderer-accessible listener.
 - All first attempts, retries, provider changes, and readiness probes remain behind their approved authority types.
-- Existing MeshFleet public behavior and the existing 36 MCP tools remain unchanged until the additive media registration task.
+- Existing MeshFleet public behavior and the pre-media MCP registry observed from the reconciled execution base remain unchanged until the additive media registration task.
 - ArtCraft does not add MeshFleet to `GenerationProvider`.
 - Sprite Factory retains licensing, provenance, exact-byte review, deterministic completion, and engine-validation authority.
 - Tests and receipts prove local behavior only; they do not authorize merge, push, install, provider execution, publication, or deployment.
@@ -33,7 +33,7 @@
 2. `docs/superpowers/plans/2026-07-29-fleet-media-machine-wrappers.md`
    - Repository: portfolio root `/Users/johnwhitman/AI`, bounded to `Tools/` plus its named handoff.
    - Consumes: MeshFleet Phase A adapter fixtures.
-   - Produces: fixed stdin/NDJSON modes for PixelLab, Gemini/Imagen, Google audio, Codex image, and a fixed MiniMax MCP stdio bridge.
+   - Produces: fixed stdin/NDJSON modes for PixelLab, Gemini/Imagen, Google audio, Codex image, and the canonical `Tools/mmx-media` MiniMax lane.
 3. `docs/superpowers/plans/2026-07-29-artcraft-meshfleet-media-client.md`
    - Repository: `artcraft`
    - Consumes: the built `meshfleet-media` CLI and its contract fixtures.
@@ -83,11 +83,7 @@ Expected: dirty primary bytes remain in place and are not copied into the execut
 
 - [ ] **Step 3: Create exact isolated worktrees**
 
-Use `superpowers:using-git-worktrees`, record one lock row per repository, and create branches with the `codex/` prefix from the exact approved bases. Create a portfolio-root worktree bounded to the named `Tools/` and handoff paths; do not borrow its dirty primary bytes. Do not reuse the current `/private/tmp/agent-mesh-codex-media-execution-suite-20260729` planning worktree for implementation if it cannot be cleanly reconciled with `origin/main`.
-
-- [ ] **Step 4: Cross-repo fixture vendoring after wrapper commit (EXPLICIT)**
-
-After the portfolio-root wrapper plan commits its protocol fixtures, copy ONLY the committed closed adapter fixtures and schema into `agent-mesh/test/fixtures/media-adapters/`. Create a `provenance.json` manifest recording: source repo, source commit SHA, file list, each file's SHA-256, and timestamp. Commit the vendored bytes + manifest BEFORE MeshFleet core adapter Task 9. ArtCraft and Sprite Factory consume only the committed public consumer fixtures from the same vendored set. Never copy uncommitted or dirty bytes.
+Use `superpowers:using-git-worktrees`, record one lock row per repository, and create branches with the `codex/` prefix from the exact approved bases. For MeshFleet, create the execution worktree from the current `origin/main`, record that SHA and the observed pre-media MCP tool count, then cherry-pick the approved design and plan commits. Create a portfolio-root worktree bounded to the named `Tools/` and handoff paths; do not borrow its dirty primary bytes. Do not reuse the current `/private/tmp/agent-mesh-codex-media-execution-suite-20260729` planning worktree for implementation.
 
 - [ ] **Step 4: Run repository baselines**
 
@@ -111,9 +107,16 @@ If the upstream reconciliation changes the approved spec or any task interface, 
 
 Execute Tasks 1–8 with a fresh subagent per task and run specification-compliance review before code-quality review. Commit the exact adapter fixtures before starting wrapper work.
 
-- [ ] **Step 2: Execute wrapper protocol and MeshFleet Phase B**
+- [ ] **Step 2: Execute wrapper protocol, vendor fixtures, and run MeshFleet Phase B**
 
-Execute the fleet wrapper plan in its isolated portfolio-root worktree. Feed only the committed wrapper commit ID and protocol fixtures back to the MeshFleet worktree, then execute MeshFleet Tasks 9–11. No live readiness probe or provider call occurs.
+Execute the fleet wrapper plan in its isolated portfolio-root worktree. After its protocol fixtures commit:
+
+1. copy only the committed closed adapter schema and fixture bytes into `agent-mesh/test/fixtures/media-adapters/`;
+2. create `provenance.json` with the source repository, exact source commit, sorted file list, each SHA-256, and fixture version;
+3. verify every copied hash against the source commit, stage only those bytes, and commit the vendored fixture set in the MeshFleet execution worktree; and
+4. begin MeshFleet Task 9 only from that committed vendoring tip.
+
+Never copy a working-tree or dirty byte. MeshFleet Tasks 9–11 consume only the vendored paths and recorded source commit. Task 8 also commits the public `sprite-factory.meshfleet-intake.v1` consumer fixture produced from fake completed artifacts; ArtCraft and Sprite Factory pin only those committed MeshFleet public consumer fixtures. No live readiness probe or provider call occurs.
 
 - [ ] **Step 3: Execute consumer plans**
 

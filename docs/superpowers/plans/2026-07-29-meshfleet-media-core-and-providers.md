@@ -45,7 +45,7 @@
 
 - [ ] **Step 1: Write the failing contract tests**
 
-Add table-driven tests that accept all twelve operations, reject unknown members, reject mismatched operation/input pairs, and prove JSON member order does not change the semantic hash:
+Add table-driven tests that accept all twelve operations, reject unknown members at every nested object, reject mismatched operation/input pairs, reject missing/invalid `completion_target`, reject every pixel operation without a non-empty `license_declaration`, and prove JSON member order does not change the semantic hash. The reorder fixture must include `client_context` so omission from the canonical preimage is detectable:
 
 ```ts
 test("canonical media intent identity ignores JSON member order", () => {
@@ -55,6 +55,7 @@ test("canonical media intent identity ignores JSON member order", () => {
     operation: left.operation,
     output: left.output,
     route: left.route,
+    client_context: left.client_context,
     submitted_by: left.submitted_by,
     idempotency_key: left.idempotency_key,
     version: left.version,
@@ -94,12 +95,75 @@ export type MediaOperation =
   | "pixel.state"
   | "pixel.animation";
 
+export interface MediaOutputPolicy {
+  accepted_mime_types: string[];
+  maximum_artifacts: number;
+  review: "none" | "required" | "provider_default";
+}
+
+export interface MediaClientContext {
+  consumer_job_id?: string;
+  project_ref?: string;
+  completion_target?:
+    | "artcraft-active-feed"
+    | "sprite-factory-intake"
+    | "meshfleet-only";
+}
+
+export interface MediaRoutePolicy {
+  preferred_provider?: string;
+  pinned_provider?: string;
+  forbidden_providers?: string[];
+  requested_model?: string;
+  allow_provider_change: boolean;
+  maximum_attempts: number;
+}
+
+export interface MediaPlanIntentBase {
+  version: typeof MEDIA_REQUEST_VERSION;
+  idempotency_key: string;
+  submitted_by: string;
+  route: MediaRoutePolicy;
+  output: MediaOutputPolicy;
+  client_context?: MediaClientContext;
+}
+
+export interface PixelInputBase {
+  prompt: string;
+  width_px: number;
+  height_px: number;
+  view?: "side" | "front" | "top_down" | "three_quarter";
+  transparent: boolean;
+  license_declaration: string;
+}
+
+export interface PixelRotate8Input {
+  source: MediaArtifactHandle;
+  directions: 8;
+  license_declaration: string;
+}
+
+export interface PixelStateInput {
+  source: MediaArtifactHandle;
+  state_description: string;
+  license_declaration: string;
+}
+
+export interface PixelAnimationInput {
+  source: MediaArtifactHandle;
+  animation_template: string;
+  requested_directions: 1 | 4 | 8;
+  license_declaration: string;
+}
+
 export interface MediaSubmission {
   version: typeof MEDIA_REQUEST_VERSION;
   plan_id: string;
   authority_ref: string;
 }
 ```
+
+`PixelImageInput`, `PixelCharacterInput`, and `PixelTilesetInput` extend `PixelInputBase`; `PixelRotate8Input`, `PixelStateInput`, and `PixelAnimationInput` carry their own required `license_declaration` exactly as above. Implement the twelve-operation discriminated union from the approved design, never an independently typed `{ operation, input }` pair. Every common, route, output, client-context, operation input, artifact-handle, and submission object is closed and included in the canonical hash preimage.
 
 Implement a closed-key helper and use it at every object layer:
 
@@ -381,7 +445,7 @@ git commit -m "feat(media): gate plans and attempts with authority"
 
 **Interfaces:**
 - Consumes: `MediaStore`, authority decisions, capability registry.
-- Produces: `MediaLifecycleCoordinator`, `MediaWorker`, `claimDueExecution()`, `renewMediaLease()`, `runMediaWorkerUntilIdle()`, `FakeMediaAdapter`.
+- Produces: `MediaLifecycleCoordinator`, `MediaWorker`, `claimDueExecution()`, `renewMediaLease()`, `runMediaWorkerUntilIdle()`, `ensureMediaWorkerRunning()`, `FakeMediaAdapter`.
 
 - [ ] **Step 1: Write failing state-machine tests**
 
@@ -400,7 +464,7 @@ type FakeScenario =
   | { kind: "late_after_cancel"; artifact: string };
 ```
 
-Prove MiniMax-style detach/restart, PixelLab-style review, and `interrupted_unknown`.
+Prove MiniMax-style detach/restart, PixelLab-style review, and `interrupted_unknown`. Also prove `ensureMediaWorkerRunning()` is safe from submit, status, review, ArtCraft startup, and Sprite Factory startup: concurrent callers elect one SQLite worker-singleton lease, the winner drains queued work, losers exit without polling, and a later trusted invocation reacquires a stalled queue after the lease expires.
 
 - [ ] **Step 3: Verify red**
 
@@ -412,7 +476,7 @@ Expected: FAIL because coordinator and worker modules are missing.
 
 - [ ] **Step 4: Implement state/attempt tables and worker election**
 
-Use a SQLite worker-singleton lease. Competing starters exit without polling. Execution writes require matching lease generation. Requeue only after the prior attempt is durably `settled_failure` and fenced.
+Use a SQLite worker-singleton lease. `ensureMediaWorkerRunning()` starts the fixed local `worker --run-until-idle` entry only when due work exists; competing starters exit without polling. Execution writes require matching lease generation. Requeue only after the prior attempt is durably `settled_failure` and fenced. The worker opens no listener, may outlive its invoking client, renews every 20 seconds under the 60-second default lease, and exits after 30 idle seconds. These clock values are host configuration and never request input.
 
 - [ ] **Step 5: Run the focused race matrix**
 
@@ -435,16 +499,18 @@ git commit -m "feat(media): add durable execution worker"
 - Create: `src/media-execution/artifacts/types.ts`
 - Create: `src/media-execution/artifacts/admission.ts`
 - Create: `src/media-execution/artifacts/store.ts`
+- Create: `src/media-execution/artifacts/sprite-factory-intake.ts`
 - Create: `test/helpers/media-fixtures.ts`
 - Create: `test/media-artifacts.test.ts`
+- Create: `test/fixtures/consumer/sprite-factory.meshfleet-intake.v1.json`
 
 **Interfaces:**
 - Consumes: execution/attempt IDs and store transaction.
-- Produces: `MediaArtifactHandle`, `MediaBundleHandle`, `admitMediaArtifacts()`, `materializeMediaArtifactForConsumer()`.
+- Produces: `MediaArtifactHandle`, `MediaBundleHandle`, `admitMediaArtifacts()`, `materializeMediaArtifactForConsumer()`, `buildSpriteFactoryMediaIntakeV1()`, and a committed public `sprite-factory.meshfleet-intake.v1` fixture.
 
 - [ ] **Step 1: Write failing adversarial artifact tests**
 
-Generate deterministic tiny valid PNG/WAV bytes and malformed fixtures through `test/helpers/media-fixtures.ts`. Cover traversal, absolute path, symlink, replacement race, directory, FIFO where supported, excess bytes/count, MIME mismatch, decode bomb headers, duplicate commit, and late files. Do not depend on provider-produced or user media.
+Generate deterministic tiny valid PNG/WAV bytes and malformed fixtures through `test/helpers/media-fixtures.ts`. Cover traversal, absolute path, symlink, replacement race, directory, FIFO where supported, excess bytes/count, MIME mismatch, decode bomb headers, duplicate commit, and late files. Do not depend on provider-produced or user media. From a fake completed pixel execution, assert the closed Sprite Factory manifest contains only artifact IDs/hashes plus execution/attempt IDs, `prompt_sha256`, requested/selected/observed provider-model distinctions, generation count, the exact plan-bound `license_declaration`, and review state. It must never contain raw paths, URLs, prompts, credentials, or an inferred license.
 
 - [ ] **Step 2: Verify red**
 
@@ -475,7 +541,11 @@ Validate every entry first, then commit the set and database rows in one transac
 
 Resolve only a host-configured consumer ID. Copy to a generated content-addressed destination under that root, verify the copied hash, and return no path through MCP.
 
-- [ ] **Step 5: Run artifact tests**
+- [ ] **Step 5: Implement and pin the Sprite Factory consumer manifest**
+
+`buildSpriteFactoryMediaIntakeV1()` accepts only a succeeded/needs-review execution projection plus admitted artifact handles and the immutable plan. It refuses a non-pixel operation, absent or changed license declaration, missing observed attempt, or artifact not owned by that attempt. Serialize with version `sprite-factory.meshfleet-intake.v1`, write the fake-plane fixture under `test/fixtures/consumer/`, and test it byte-for-byte. This committed MeshFleet fixture is the producer contract the Sprite Factory plan vendors and validates.
+
+- [ ] **Step 6: Run artifact tests**
 
 ```bash
 node --import tsx --test test/media-artifacts.test.ts
@@ -483,10 +553,10 @@ node --import tsx --test test/media-artifacts.test.ts
 
 Expected: PASS on valid image/audio/bundle and all hostile-path cases.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add src/media-execution/artifacts test/helpers/media-fixtures.ts test/media-artifacts.test.ts
+git add src/media-execution/artifacts test/helpers/media-fixtures.ts test/media-artifacts.test.ts test/fixtures/consumer/sprite-factory.meshfleet-intake.v1.json
 git commit -m "feat(media): admit and materialize artifacts safely"
 ```
 
@@ -576,11 +646,11 @@ git commit -m "feat(media): add fixed adapter process protocol"
 
 **Interfaces:**
 - Consumes: Tasks 1-7.
-- Produces: `MediaExecutionService`, `runMediaCli()`, executable `meshfleet-media`, plus first-class receipt events (`none` | `reported` | `observed` | `attested`) and projection. Self-report is never `observed`; artifact hash is never provider authorship; requested/selected/observed remain distinct.
+- Produces: `MediaExecutionService`, `runMediaCli()`, executable `meshfleet-media`, plus first-class receipt events and projections with evidence level `none | reported | observed | attested`. A wrapper self-report is at most `reported`; locally observed process/artifact facts may be `observed`; `attested` requires separately verified evidence. Artifact hashing never attests provider authorship, and requested/selected/observed provider-model identities remain distinct fields.
 
 - [ ] **Step 1: Write failing service tests**
 
-Exercise capabilities, readiness, plan, trusted confirm, submit, status, cancel, artifacts, registered-consumer materialization, review, and worker. Confirm cannot be called through a non-interactive context.
+Exercise capabilities, readiness, plan, trusted confirm, submit, status, cancel, artifacts, registered-consumer materialization, review, and worker. Confirm cannot be called through a non-interactive context. In `test/media-receipts.test.ts`, prove the evidence laws above, stable ordered event projection, and that status cannot promote wrapper claims or artifact hashes.
 
 - [ ] **Step 2: Write failing CLI black-box tests**
 
@@ -589,7 +659,7 @@ Spawn `src/bin/media.ts` with `--import tsx`. Assert one JSON document, exit cla
 - [ ] **Step 3: Verify red**
 
 ```bash
-node --import tsx --test test/media-service.test.ts test/media-trusted-host.test.ts test/media-cli.test.ts
+node --import tsx --test test/media-service.test.ts test/media-trusted-host.test.ts test/media-cli.test.ts test/media-receipts.test.ts
 ```
 
 Expected: FAIL because the service and bin do not exist.
@@ -618,14 +688,14 @@ export class MediaExecutionService {
 }
 ```
 
-The interactive CLI confirm path must require a TTY and must never accept `approved_by` from JSON. Add an internal `artcraft-host-confirm` mode that succeeds only when `verifyTrustedArtcraftHost()` consumes the fixed pre-opened anonymous descriptor supplied by the ArtCraft Tauri process. The mode reads only `plan_id`, fixes principal/channel/evidence in source, and refuses when invoked from an ordinary shell, fake renderer, MCP, or without the descriptor. Add `artifacts materialize` with fixed registered consumer IDs; it accepts execution/artifact IDs on stdin, returns only generated relative names and hashes to the trusted host, and never accepts or returns a consumer root through the request/MCP surface.
+The interactive CLI confirm path must require a TTY and must never accept `approved_by` from JSON. Add an internal `artcraft-host-confirm` mode that succeeds only when `verifyTrustedArtcraftHost()` consumes the fixed pre-opened anonymous descriptor supplied by the ArtCraft Tauri process. The mode reads only `plan_id`, fixes principal/channel/evidence in source, and refuses when invoked from an ordinary shell, fake renderer, MCP, or without the descriptor. Add `artifacts materialize` with fixed registered consumer IDs; it accepts execution/artifact IDs on stdin, returns only generated relative names and hashes to the trusted host, and never accepts or returns a consumer root through the request/MCP surface. Successful `submit`, `status`, and `review` commands call `ensureMediaWorkerRunning()` after their durable transaction commits. The `worker --run-until-idle` command is the only polling loop; simultaneous callers are harmless because Task 5's SQLite singleton lease elects one worker.
 
 - [ ] **Step 5: Run focused tests (black-box grammar lock)**
 
-Black-box test the full approved grammar: `capabilities`, `readiness`, `plan`, `confirm`, `submit`, `status`, `cancel`, `artifacts`, `review`, `worker --run-until-idle` plus exit classes (success, usage, invalid, auth, conflict, timeout). Lock the grammar surface before Task 9.
+Black-box test the full approved grammar: `capabilities`, `readiness`, `plan`, `confirm`, `submit`, `status`, `cancel`, `artifacts`, `review`, `worker --run-until-idle`. Pin the exact exit classes: `0` valid response, `2` closed validation failure, `3` capability absent, `4` registered but non-dispatchable, `5` authority/quote refusal, `6` durable execution/provider failure, and `7` internal/storage failure. Lock the grammar surface before Task 9.
 
 ```bash
-node --import tsx --test test/media-service.test.ts test/media-trusted-host.test.ts test/media-cli.test.ts
+node --import tsx --test test/media-service.test.ts test/media-trusted-host.test.ts test/media-cli.test.ts test/media-receipts.test.ts
 npm run build
 ```
 
@@ -634,7 +704,7 @@ Expected: PASS with fake adapters only.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/media-execution/service.ts src/media-execution/trusted-host.ts src/bin/media.ts test/media-service.test.ts test/media-trusted-host.test.ts test/media-cli.test.ts
+git add src/media-execution/service.ts src/media-execution/trusted-host.ts src/media-execution/receipts src/bin/media.ts test/media-service.test.ts test/media-trusted-host.test.ts test/media-cli.test.ts test/media-receipts.test.ts
 git commit -m "feat(media): expose fake-plane service and CLI"
 ```
 
@@ -653,7 +723,7 @@ git commit -m "feat(media): expose fake-plane service and CLI"
 - Create: `test/media-provider-adapters.test.ts`
 
 **Interfaces:**
-- Consumes: `MediaProviderAdapter`, fixed process boundary, capability registry, and the committed fleet machine-wrapper protocol conformance fixtures.
+- Consumes: `MediaProviderAdapter`, fixed process boundary, capability registry, and the vendored `test/fixtures/media-adapters/` protocol conformance set with verified `provenance.json`.
 - Produces: the complete named provider registry with honest readiness.
 
 - [ ] **Step 1: Write common adapter contract tests**
@@ -665,7 +735,7 @@ Each adapter must pass registration, closed validation, local readiness, quote, 
 Use these non-negotiable starting points:
 
 ```text
-MiniMax: fixed MCP stdio bridge code exists; unavailable until literal minimax-media-mcp and its required tools pass a separately authorized probe.
+MiniMax: canonical `Tools/mmx-media --meshfleet-machine` code exists; wrapper_present/configured_unverified until its separately authorized credential/provider probe succeeds.
 PixelLab: fixed machine mode supports its validated operations; wrapper_present/configured_unverified until separately authorized probe evidence.
 Gemini/Imagen: fixed machine mode supports generation/edit; Imagen references reject; wrapper_present/configured_unverified until probe evidence.
 Google audio/Lyria: fixed machine mode reports actual format and estimate evidence; wrapper_present/configured_unverified until probe evidence.
@@ -676,7 +746,7 @@ Sora/FAL/ArtCraft backend: describe/readiness only while Storyteller-coupled.
 
 - [ ] **Step 3: Implement adapters without duplicating credentials**
 
-Pin the wrapper source commit in compatibility evidence. Each fixed adapter launches only its named executable and `--meshfleet-machine`, sends `meshfleet.media-adapter-request.v1` on stdin, and consumes closed events on stdout. The Grok adapter recognizes only the fixed `grok-media-machine --stdio` host bridge and remains unavailable while it is absent; the request cannot supply an alternative. Readiness stays non-dispatchable until separately authorized, unexpired probe evidence exists; once it exists, PixelLab, Gemini/Imagen, Google audio, and available MiniMax operations may dispatch. Codex additionally requires an exact explicit pin. If the current host lacks the fixed wrapper commit, MiniMax MCP executable, or Grok machine bridge, `submit()` fails closed with `capability_not_dispatchable`.
+Pin the wrapper source commit and every vendored fixture hash in compatibility evidence; reject a missing or changed provenance record before adapter registration. Each fixed adapter launches only its named executable and `--meshfleet-machine`, sends `meshfleet.media-adapter-request.v1` on stdin, and consumes closed events on stdout. MiniMax launches only the canonical fixed `mmx-media --meshfleet-machine` lane and never the obsolete `minimax_media_pipeline.py` shim or a hypothetical MCP server. The Grok adapter recognizes only the fixed `grok-media-machine --stdio` host bridge and remains unavailable while it is absent; the request cannot supply an alternative. Readiness stays non-dispatchable until separately authorized, unexpired probe evidence exists; once it exists, PixelLab, Gemini/Imagen, Google audio, and available MiniMax operations may dispatch. Codex additionally requires an exact explicit pin. If the current host lacks the pinned wrapper commit or Grok machine bridge, `submit()` fails closed with `capability_not_dispatchable`.
 
 - [ ] **Step 4: Add provider-specific offline fixtures**
 
@@ -750,7 +820,7 @@ assert.equal(pkg.bin["meshfleet-media"], "dist/bin/media.js");
 assert.equal(pkg.exports["./media-execution"], "./dist/media-execution/service.js");
 ```
 
-Also assert built `dist/`, packed tarball contents, existing tool schemas, and the pre-media 36-tool compatibility fixture.
+Also assert built `dist/`, packed tarball contents, existing tool schemas, and the exact pre-media compatibility fixture captured from the reconciled base. The test reads that recorded fixture/count; it must not hardcode `36`.
 
 - [ ] **Step 4: Register thin MCP handlers and package entries**
 
