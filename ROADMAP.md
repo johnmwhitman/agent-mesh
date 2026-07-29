@@ -206,9 +206,14 @@ Direction, not commitment — items ship when real usage pulls them.
 - A quickstart demo that ends with a verification, not a wall of text (`npx agent-mesh demo`)
 - `agent-mesh doctor` — 30-second diagnosis of broken installs (`--json` supported)
 - Machine-readable `--json` output across every inspect subcommand
+- Incident-window timeline reconstruction: optional `--from` / `--to`
+  bounds select a half-open interval over the existing local-ledger timeline.
+  Bounded JSON uses an additive `timeline_window` kind with an explicit
+  local-timestamp evidence ceiling; unbounded output is unchanged. This does
+  not establish authenticity, completeness, tamper evidence, authenticated
+  provenance, or external time.
 
 **Later / exploring**
-- Incident-window timeline reconstruction from the ledger
 - Out-of-band ledger-head fingerprints and external timestamp anchoring
 - Verifiable cold-archive segments (retention without receipt loss)
 - MCP stateless-spec migration as host support lands

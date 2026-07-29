@@ -11,7 +11,10 @@
 ## Global Constraints
 
 - The interval is half-open on stored row timestamps: `from_ms <= row.ts < to_ms`.
-- Each bound is a digits-only epoch-millisecond value or an ISO-8601 value accepted by `Date.parse`, and must decode to a finite safe integer.
+- Each bound is a digits-only epoch-millisecond value, an ISO date
+  (`YYYY-MM-DD`), or a timezone-bearing ISO datetime
+  (`YYYY-MM-DDTHH:mm:ss[.fraction](Z|±HH:mm)`); fields must be valid and the
+  result must normalize to a finite safe epoch-millisecond integer.
 - Existing unbounded timeline text and `meshfleet.inspect/v1` `kind: "timeline"` JSON remain byte-for-byte unchanged.
 - Bounded JSON uses only additive `kind: "timeline_window"` and the exact closed shape in the design spec.
 - Bounded text states that local timestamps do not establish authenticity, completeness, tamper evidence, authenticated provenance, or external time.
@@ -259,4 +262,3 @@ git diff --check origin/main...HEAD
 
 Expected: clean status, design and implementation commits visible, no
 whitespace errors. Do not push, merge, deploy, or publish.
-

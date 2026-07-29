@@ -7,7 +7,10 @@ import assert from 'node:assert/strict'
 import {
   buildTimeline,
   buildTimelineJson,
+  buildTimelineWindowJson,
+  filterTimelineWindow,
   formatTimeline,
+  formatTimelineWindow,
   type TimelineRow,
 } from '../src/inspector.js'
 import type { Message, MeshData, Receipt, Ratification } from '../src/core.js'
@@ -196,6 +199,103 @@ test('buildTimeline returns an empty set for an empty ledger', () => {
 test('formatTimeline renders empty output as a single-line message', () => {
   const output = formatTimeline([])
   assert.equal(output, 'No timeline events recorded.')
+})
+
+test('filterTimelineWindow includes the lower bound and excludes the upper bound without mutating rows', () => {
+  const rows: TimelineRow[] = [
+    { ts: 999, kind: 'message', fleet_id: 'f1', summary: 'before', refs: { message_id: 'm0' } },
+    { ts: 1_000, kind: 'message', fleet_id: 'f1', summary: 'lower', refs: { message_id: 'm1' } },
+    { ts: 1_999, kind: 'receipt', fleet_id: 'f1', summary: 'inside', refs: { message_id: 'm1', agent_id: 'a1', action: 'ack' } },
+    { ts: 2_000, kind: 'council_open', fleet_id: 'f1', summary: 'upper', refs: { message_id: 'p1' } },
+  ]
+  const before = structuredClone(rows)
+
+  const selected = filterTimelineWindow(rows, { fromMs: 1_000, toMs: 2_000 })
+
+  assert.deepEqual(selected.map((row) => row.ts), [1_000, 1_999])
+  assert.deepEqual(rows, before)
+})
+
+test('filterTimelineWindow supports one open bound and composes after a fleet filter', () => {
+  const data = mesh({
+    messages: {
+      'f1-before': msg({ id: 'f1-before', fleet_id: 'f1', timestamp: 900 }),
+      'f1-after': msg({ id: 'f1-after', fleet_id: 'f1', timestamp: 1_100 }),
+      'f2-after': msg({ id: 'f2-after', fleet_id: 'f2', timestamp: 1_200 }),
+    },
+  })
+  const fleetRows = buildTimeline(data, { fleetId: 'f1' })
+
+  assert.deepEqual(
+    filterTimelineWindow(fleetRows, { fromMs: 1_000 }).map((row) => row.refs.message_id),
+    ['f1-after'],
+  )
+  assert.deepEqual(
+    filterTimelineWindow(fleetRows, { toMs: 1_000 }).map((row) => row.refs.message_id),
+    ['f1-before'],
+  )
+})
+
+test('buildTimelineWindowJson emits a closed additive evidence envelope', () => {
+  const rows: TimelineRow[] = [
+    {
+      ts: 1_000,
+      kind: 'message',
+      fleet_id: 'fleet-one',
+      summary: 'handoff a1→a2',
+      refs: { message_id: 'm-1' },
+    },
+  ]
+
+  assert.deepEqual(
+    buildTimelineWindowJson(rows, { fromMs: 1_000, fleetId: 'fleet-one' }),
+    {
+      schema: 'meshfleet.inspect/v1',
+      kind: 'timeline_window',
+      data: {
+        window: {
+          from_ms: 1_000,
+          to_ms: null,
+          interval: 'half_open',
+        },
+        fleet_id: 'fleet-one',
+        rows,
+        evidence: {
+          label: 'local_ledger_timestamps',
+          nonclaims: [
+            'authenticity',
+            'completeness',
+            'tamper_evidence',
+            'authenticated_provenance',
+            'external_time',
+          ],
+        },
+      },
+    },
+  )
+})
+
+test('formatTimelineWindow shows the selected local bounds and the fixed evidence ceiling', () => {
+  const rows: TimelineRow[] = [
+    {
+      ts: 1_000,
+      kind: 'message',
+      fleet_id: 'fleet-one',
+      summary: 'handoff a1→a2',
+      refs: { message_id: 'm-1' },
+    },
+  ]
+
+  assert.equal(
+    formatTimelineWindow(rows, { fromMs: 1_000, toMs: 2_000 }),
+    'Local ledger timestamps in [1000,2000) · not authenticity, completeness, tamper evidence, authenticated provenance, or external time\n' +
+      formatTimeline(rows),
+  )
+  assert.equal(
+    formatTimelineWindow([], { toMs: 2_000 }),
+    'Local ledger timestamps in [-∞,2000) · not authenticity, completeness, tamper evidence, authenticated provenance, or external time\n' +
+      'No timeline events recorded.',
+  )
 })
 
 test('the inspect CLI advertises timeline usage and wiring symbols', () => {

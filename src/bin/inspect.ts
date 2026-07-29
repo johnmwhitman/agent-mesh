@@ -22,11 +22,14 @@ import {
   formatAgentRow,
   buildTimeline,
   buildTimelineJson,
+  buildTimelineWindowJson,
+  filterTimelineWindow,
   formatEventLog,
   formatFleetSummary,
   getFleetMetrics,
   formatReceiptTrail,
   formatTimeline,
+  formatTimelineWindow,
   formatCouncil,
   formatVerifyReport,
   formatLiveMessage,
@@ -55,7 +58,7 @@ const USAGE = `agent-mesh inspect — CLI inspector for running fleets
   npx agent-mesh inspect --events [n]      Show recent events (default 20)
   npx agent-mesh inspect --receipts [fleet] Show message receipts (who saw / acked)
   npx agent-mesh inspect --councils [fleet] Show councils (tally vs quorum, who voted)
-  npx agent-mesh inspect timeline [fleet]    Reconstruct incident timeline
+  npx agent-mesh inspect timeline [fleet] [--from bound] [--to bound]  Reconstruct an optional half-open incident window
   npx agent-mesh inspect --follow|-f [--fleet id]  Live-tail new P2P messages (ctrl-c to stop)
   npx agent-mesh inspect --export [file]    Dump the full ledger as JSON (stdout if no file)
   npx agent-mesh inspect --verify [file]    Audit ledger integrity (exit 1 on errors); [file] audits that ledger file read-only
@@ -101,6 +104,22 @@ function main(): void {
   if (args.includes('--help') || args.includes('-h')) {
     process.stdout.write(USAGE)
     process.exit(0)
+  }
+
+  if (args[0] === 'timeline') {
+    let timelineArgs: ParsedTimelineArgs
+    try {
+      timelineArgs = parseTimelineArgs(args.slice(1))
+    } catch (err) {
+      process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`)
+      process.exit(2)
+    }
+    if (!timelineArgs.bounded) {
+      printTimeline(timelineArgs.fleetId, timelineArgs.json)
+      return
+    }
+    printTimelineWindow(timelineArgs)
+    return
   }
 
   const verifyV1 = args.includes('--verify')
@@ -201,11 +220,6 @@ function main(): void {
     return
   }
 
-  if (args[0] === 'timeline') {
-    printTimeline(positional[1], jsonMode)
-    return
-  }
-
   if (args.includes('--receipts')) {
     printReceipts(positional[0], jsonMode)
     return
@@ -226,6 +240,102 @@ function main(): void {
   }
 
   printOneFleet(positional[0] as string, jsonMode)
+}
+
+interface ParsedTimelineArgs {
+  fleetId?: string
+  fromMs?: number
+  toMs?: number
+  bounded: boolean
+  json: boolean
+}
+
+function parseTimelineBound(flag: '--from' | '--to', raw: string): number {
+  if (/^\d+$/.test(raw)) {
+    const parsed = Number(raw)
+    if (Number.isSafeInteger(parsed)) return parsed
+    throw new Error(`timeline: invalid ${flag} bound`)
+  }
+
+  const iso = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?(Z|[+-]\d{2}:\d{2}))?$/.exec(raw)
+  if (iso === null) {
+    throw new Error(`timeline: invalid ${flag} bound`)
+  }
+  const year = Number(iso[1])
+  const month = Number(iso[2])
+  const day = Number(iso[3])
+  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0)
+  const daysInMonth = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+  if (month < 1 || month > 12 || day < 1 || day > daysInMonth[month - 1]!) {
+    throw new Error(`timeline: invalid ${flag} bound`)
+  }
+  if (
+    iso[4] !== undefined &&
+    (Number(iso[4]) > 23 || Number(iso[5]) > 59 || Number(iso[6]) > 59)
+  ) {
+    throw new Error(`timeline: invalid ${flag} bound`)
+  }
+
+  const parsed = Date.parse(raw)
+  if (!Number.isSafeInteger(parsed)) {
+    throw new Error(`timeline: invalid ${flag} bound`)
+  }
+  return parsed
+}
+
+function parseTimelineArgs(args: string[]): ParsedTimelineArgs {
+  let fleetId: string | undefined
+  let fromMs: number | undefined
+  let toMs: number | undefined
+  let sawFrom = false
+  let sawTo = false
+  let json = false
+
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i]!
+    if (arg === '--json') {
+      if (json) throw new Error('timeline: --json may be specified once')
+      json = true
+      continue
+    }
+
+    if (arg === '--from' || arg === '--to') {
+      const alreadySeen = arg === '--from' ? sawFrom : sawTo
+      if (alreadySeen) throw new Error(`timeline: ${arg} may be specified once`)
+      if (arg === '--from') sawFrom = true
+      else sawTo = true
+
+      const raw = args[i + 1]
+      if (raw === undefined || raw.startsWith('-')) {
+        throw new Error(`timeline: ${arg} requires a bound`)
+      }
+      const parsed = parseTimelineBound(arg, raw)
+      if (arg === '--from') fromMs = parsed
+      else toMs = parsed
+      i += 1
+      continue
+    }
+
+    if (arg.startsWith('-')) {
+      throw new Error(`timeline: unknown option ${arg}`)
+    }
+    if (fleetId !== undefined) {
+      throw new Error('timeline: accepts at most one fleet id')
+    }
+    fleetId = arg
+  }
+
+  if (fromMs !== undefined && toMs !== undefined && fromMs >= toMs) {
+    throw new Error('timeline: --from must be < --to')
+  }
+
+  return {
+    fleetId,
+    fromMs,
+    toMs,
+    bounded: sawFrom || sawTo,
+    json,
+  }
 }
 
 /**
@@ -393,6 +503,25 @@ function printTimeline(fleetId?: string, json = false): void {
   const data = loadData()
   const rows = buildTimeline(data, fleetId ? { fleetId } : {})
   process.stdout.write(json ? JSON.stringify(buildTimelineJson(rows), null, 2) + '\n' : formatTimeline(rows) + '\n')
+}
+
+function printTimelineWindow(args: ParsedTimelineArgs): void {
+  const data = loadData()
+  const rows = buildTimeline(data, args.fleetId ? { fleetId: args.fleetId } : {})
+  const selected = filterTimelineWindow(rows, { fromMs: args.fromMs, toMs: args.toMs })
+  process.stdout.write(
+    args.json
+      ? JSON.stringify(
+          buildTimelineWindowJson(selected, {
+            fromMs: args.fromMs,
+            toMs: args.toMs,
+            fleetId: args.fleetId,
+          }),
+          null,
+          2,
+        ) + '\n'
+      : formatTimelineWindow(selected, { fromMs: args.fromMs, toMs: args.toMs }) + '\n',
+  )
 }
 
 function printAllFleets(): void {

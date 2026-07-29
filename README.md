@@ -207,11 +207,28 @@ TIMESTAMP            EVENT              DETAIL
 2026-07-02 12:40:12  agent_spawned       fleet=f-1 agent=a-2
 2026-07-02 12:40:12  fleet_created       fleet=f-1
 
+$ npx agent-mesh inspect timeline f-1 --from 2026-07-02T12:40:00Z --to 2026-07-02T12:45:00Z
+Local ledger timestamps in [1782996000000,1782996300000) · not authenticity, completeness, tamper evidence, authenticated provenance, or external time
+TIMESTAMP            KIND                SUMMARY
+──────────────────────────────────────────────────────────────────────
+2026-07-02 12:40:13  message             handoff agent-a→agent-b
+2026-07-02 12:40:18  receipt             ack by agent-b on 3f9c1a2b
+
 $ npx agent-mesh inspect --follow            # or -f; add --fleet <id> to scope to one fleet
 ledger: ~/.config/opencode/agent-mesh.db  · poll 400ms  · ctrl-c to stop
 watching… no messages yet  (spawn a fleet or send_message from MCP)
 2026-07-22 09:14:03  handoff  agent-a → agent-b  msg=3f9c1a2b  {"task":"review PR #42"}
 ```
+
+Timeline bounds are optional digits-only epoch milliseconds, ISO dates
+(`YYYY-MM-DD`), or timezone-bearing ISO datetimes
+(`YYYY-MM-DDTHH:mm:ss[.fraction](Z|±HH:mm)`). Fractional precision is
+normalized to epoch milliseconds. Bounds select the half-open interval
+`[from,to)` over timestamps stored in the local ledger. Add `--json` for the
+additive `timeline_window` inspect envelope. An unbounded `inspect timeline
+[fleet]` keeps the original text and JSON shapes. This is read-only
+local-record selection, not proof of authenticity, completeness, tamper
+evidence, authenticated provenance, or external time.
 
 ---
 

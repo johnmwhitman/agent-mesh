@@ -20,9 +20,11 @@ The existing command gains two optional flags:
 agent-mesh inspect timeline [fleet] [--from <bound>] [--to <bound>] [--json]
 ```
 
-Each bound is either a digits-only epoch-millisecond value or an ISO-8601 value
-accepted by `Date.parse`. Bounds must decode to finite safe integers. The
-interval is half-open:
+Each bound is either a digits-only epoch-millisecond value, an ISO date
+(`YYYY-MM-DD`), or a timezone-bearing ISO datetime
+(`YYYY-MM-DDTHH:mm:ss[.fraction](Z|±HH:mm)`). Calendar and clock fields must be
+valid, and the result must decode to a finite safe epoch-millisecond integer.
+Fractional precision is normalized to milliseconds. The interval is half-open:
 
 - `--from` includes rows whose stored `ts` equals the lower bound.
 - `--to` excludes rows whose stored `ts` equals the upper bound.
@@ -124,4 +126,3 @@ Focused tests will prove:
 8. successful empty windows;
 9. byte-identical unbounded text and JSON output;
 10. no ledger byte changes during a bounded read.
-
