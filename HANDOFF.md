@@ -1,6 +1,6 @@
 # MeshFleet Handoff
 
-**Last verified:** 2026-07-28 · **Main:** `7c646582` · **Tag:** `v0.19.0`
+**Last verified:** 2026-07-28 · **Main:** `0e203ea` · **Tag:** `v0.19.0`
 **Suite:** 1094/1094 · **Corpus:** 76 vectors · **Discussion:** 39 cases (23 finding codes) · **Conformance:** 133/133 · **npm:** 0.18.0 live; 0.19.0 auth-blocked
 
 ## Landed and tagged: caller-selected model execution
@@ -79,24 +79,22 @@ unanimously recommends substrate-first (HOOL governance); Skeptic argues park en
 **Stages 2–7 remain:** synthesis → PO → SM → two red-teams → reconcile → assemble.
 Charges preserved in `charges/`; all seat outputs in `board/seat-*.md`.
 
-## Pre-merge receipt: RoutePlane catalog snapshot adapter
+## Landed receipt: RoutePlane catalog snapshot adapter
 
 PR [#42](https://github.com/johnmwhitman/agent-mesh/pull/42) was opened from
 base `7c646582` at reviewed feature head `709224ff`. Pre-merge validation:
 `npm run typecheck`; `npm run release:verify` with 1117/1117 tests and both new
 package entry points in the dry-run tarball; `git diff --check`; live loopback
 smoke against a 32-model RoutePlane catalog; independent scoped re-review PASS.
-This receipt records review evidence only: at authoring time the branch was not
-merged, tagged, published, or authorized to execute provider work. The
-`[Unreleased]` changelog records the public package surface without moving the
-immutable `v0.19.0` tag or claiming npm publication.
+This receipt records the pre-merge review evidence. PR [#42](https://github.com/johnmwhitman/agent-mesh/pull/42)
+subsequently merged to `main` at `0e203ea`. The merge does not move the
+immutable `v0.19.0` tag, publish a package, or authorize provider execution.
 
 ## Current state
 
 - **34 MCP tools** across 11 families: lifecycle, messaging, inbox, receipts, ratification,
   capability-routing, health, discussions, templates, advisory-routing, verification
-- **Pending PR #42 merge — RoutePlane catalog discovery is host-side, not MCP:**
-  the separate
+- **RoutePlane catalog discovery is landed host-side, not MCP:** the separate
   `meshfleet-routeplane-catalog` CLI fetches the fixed loopback `/v1/models`
   catalog into an expiring canonical snapshot, and the library projects exact
   advertised model IDs plus caller-owned policy into advisory candidates. It
@@ -104,6 +102,13 @@ immutable `v0.19.0` tag or claiming npm publication.
   budget freshness, health, authentication, credential handling, or execution.
   RoutePlane retains those provider responsibilities; MeshFleet retains policy
   projection and advisory ranking. See `docs/ROUTEPLANE-CATALOG.md`.
+- **RoutePlane catalog recommendation is tested but UNLANDED:** the current
+  `codex/routeplane-catalog-recommendation-20260728` branch adds pure
+  `recommendRoutePlaneCatalog()` composition over an already-fetched snapshot.
+  Its `evaluated` and `no_compiled_candidates` statuses retain compilation
+  diagnostics separately from evaluator exclusions and all effects remain false.
+  It is pending final review and pull request; it is not merged, deployed,
+  published, provider selection, or execution authority.
 - **12 A2A conformance witnesses** under `blackbox/` — pure offline blackbox suites with JS
   runners, Python evaluators, corpora, and review records. The 12th (discussion-derivation)
   has an 18-case corpus and a 1,273-line Grok-produced pure JS evaluator verified against
@@ -113,7 +118,7 @@ immutable `v0.19.0` tag or claiming npm publication.
 - **`send_message` and `send_messages` at parity** — both surfaces now validate identities,
   types, and correlation_ids before the writer. COMPATIBILITY.md records the tightening
 - **`VerifyReport.scope`** — the legacy verification report carries its own guarantee boundary
-- **Main is clean at `11977b39` and aligned with `origin/main` before this
+- **Main is clean at `0e203ea` and aligned with `origin/main` before this
   factual handoff update.** Finished review worktrees are deliberately
   preserved under `/private/tmp`; no implementation work is active
 - **Tags:** v0.9.0–v0.19.0 complete and pushed; v0.19.0 npm publication is
