@@ -79,6 +79,15 @@ export interface RoutePlaneCatalogRecommendationInput {
   top_n?: number;
 }
 
+/**
+ * One explicit loopback refresh followed by the existing pure advisory projection.
+ * This does not cache, schedule, execute, authorize, or contact a provider.
+ */
+export interface FetchRoutePlaneCatalogRecommendationInput
+  extends Omit<RoutePlaneCatalogRecommendationInput, "snapshot"> {
+  fetch_options?: RoutePlaneFetchOptions;
+}
+
 export interface RoutePlaneCatalogRecommendation {
   status: "no_compiled_candidates" | "evaluated";
   advisory: true;
@@ -410,6 +419,18 @@ export function recommendRoutePlaneCatalog(
     ranked: recommendation.ranked,
     excluded: recommendation.excluded,
   };
+}
+
+/**
+ * Fetch RoutePlane's current fixed-loopback catalog, then make one advisory
+ * recommendation from that exact, expiring snapshot.
+ */
+export async function fetchAndRecommendRoutePlaneCatalog(
+  input: FetchRoutePlaneCatalogRecommendationInput,
+): Promise<RoutePlaneCatalogRecommendation> {
+  const { fetch_options, ...recommendationInput } = input;
+  const snapshot = await fetchRoutePlaneCatalog(fetch_options);
+  return recommendRoutePlaneCatalog({ ...recommendationInput, snapshot });
 }
 
 function compareStrings(left: string, right: string): number {
