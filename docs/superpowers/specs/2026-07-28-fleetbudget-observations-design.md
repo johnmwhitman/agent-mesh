@@ -90,7 +90,8 @@ An observation is emitted only when all of the following are true:
 2. The bound `lane_id` occurs exactly once in the sanitized snapshot.
 3. The lane is `measured: true`.
 4. `used` and `total` are finite numbers, `used >= 0`, `total > 0`, and `unit`
-   is a nonempty token string.
+   is a 1..64-character lowercase token matching
+   `^[a-z0-9][a-z0-9._:-]*$`.
 5. The lane has a valid typed half-open window `[starts_at_ms, ends_at_ms)`;
    it contains `observed_at_ms` and the effective `now_ms`.
 6. The snapshot is fresh: `observed_at_ms <= now_ms < expires_at_ms`.
@@ -116,8 +117,9 @@ These are projection diagnostics, distinct from compiler diagnostics such as
 
 Every input record has an exact allowed-key set. The validator rejects unknown
 keys before deeper checks at the same record. `candidate_id` and `lane_id` are
-nonempty strings no longer than 128 characters; a non-null `unit` is a token
-string no longer than 64 characters. Timestamps are finite integers. The snapshot TTL
+nonempty strings no longer than 128 characters; a non-null `unit` is a 1..64-
+character lowercase token matching `^[a-z0-9][a-z0-9._:-]*$`. This permits
+`tokens`, `generations`, and `gpu_seconds`, but not prose. Timestamps are finite integers. The snapshot TTL
 `expires_at_ms - observed_at_ms` must be positive and no greater than 600000 ms;
 windows may span their actual quota period and have no TTL cap. Numeric values,
 when not null, are finite numbers. `lanes` and `bindings` each contain 0..256

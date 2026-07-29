@@ -15,7 +15,7 @@
 - Accept only the closed versioned sanitized snapshot in the design; never raw fleetbudget `note`, `detail`, `routes`, or `state`.
 - Require one-to-one `candidate_id` to `lane_id` bindings; do not infer any trait, authority, identity, health, auth, execution, or provider fact from a lane ID.
 - Limit snapshots and bindings to 0..256; snapshot TTL is positive and at most 600000 ms, while quota windows use half-open `[start, end)` periods without that cap.
-- Emit only measured green/exhausted observations with finite `used >= 0`, `total > 0`, nonempty token unit, current valid window, and fresh snapshot; omit all other usable-but-incomplete evidence.
+- Emit only measured green/exhausted observations with finite `used >= 0`, `total > 0`, and a 1..64-character lowercase unit matching `^[a-z0-9][a-z0-9._:-]*$`, current valid window, and fresh snapshot; omit all other usable-but-incomplete evidence.
 - No CLI, fetch, process launch, scheduler, MCP, provider API, persistence, or telemetry polling.
 - This prevents spent-lane routing; it does not reward unused quota or maximize weekly burn.
 
@@ -109,7 +109,7 @@ assert.equal(
 assert.equal(FLEETBUDGET_SNAPSHOT_VERSION, "meshfleet.fleetbudget-snapshot.v1");
 ```
 
-Import `readFileSync` from `node:fs`. Cover exact outer, snapshot, lane, window, and binding keys; missing required keys; wrong version; 0..256 lane/binding bounds; TTL at/below zero and above 600000 ms; nonfinite timestamps/numbers; candidate/lane ID bounds at 128; unit token bounds at 64; duplicate lane IDs; duplicate candidate bindings; duplicate lane bindings; false-measured lanes carrying a non-null claim; empty/non-token units; reversed windows; and a window that excludes `observed_at_ms`.
+Import `readFileSync` from `node:fs`. Cover exact outer, snapshot, lane, window, and binding keys; missing required keys; wrong version; 0..256 lane/binding bounds; TTL at/below zero and above 600000 ms; nonfinite timestamps/numbers; candidate/lane ID bounds at 128; duplicate lane IDs; duplicate candidate bindings; duplicate lane bindings; false-measured lanes carrying a non-null claim; reversed windows; and a window that excludes `observed_at_ms`. Add unit witnesses accepting `tokens` and rejecting `token count`, uppercase `TOKENS`, an empty string, and 65 characters; the exact allowed grammar is `^[a-z0-9][a-z0-9._:-]*$`.
 
 - [ ] **Step 2: Run the focused test to verify it fails**
 
