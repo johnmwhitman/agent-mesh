@@ -258,7 +258,6 @@ function validateBindings(value: unknown): FleetBudgetObservationBinding[] {
     invalid("input.bindings", `must be an array with 0..${MAX_ITEMS} items`);
   }
   const candidates = new Set<string>();
-  const lanes = new Map<string, string>();
   return value.map((bindingValue, index) => {
     const path = `input.bindings[${index}]`;
     const binding = requireRecord(bindingValue, path);
@@ -269,11 +268,6 @@ function validateBindings(value: unknown): FleetBudgetObservationBinding[] {
       invalid(`${path}.candidate_id`, `is a duplicate candidate_id '${binding.candidate_id}'`);
     }
     candidates.add(binding.candidate_id);
-    const firstCandidate = lanes.get(binding.lane_id);
-    if (firstCandidate !== undefined) {
-      invalid(`${path}.lane_id`, `is already bound to candidate_id '${firstCandidate}'`);
-    }
-    lanes.set(binding.lane_id, binding.candidate_id);
     return { candidate_id: binding.candidate_id, lane_id: binding.lane_id };
   });
 }

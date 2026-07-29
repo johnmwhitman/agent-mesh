@@ -165,7 +165,7 @@ test("rejects fleetbudget array bounds, identifiers, and exact unit grammar", ()
   );
 });
 
-test("rejects duplicate bindings and contradictory lane claims", () => {
+test("rejects duplicate snapshot lanes, duplicate candidates, and contradictory lane claims", () => {
   assert.throws(
     () => compileFleetBudgetObservations(input({ snapshot: snapshot({ lanes: [{ ...snapshot().lanes[0] }, { ...snapshot().lanes[0] }] }) }) as never),
     expects("input.snapshot.lanes[1].lane_id", "is a duplicate lane_id 'grok-build'"),
@@ -173,10 +173,6 @@ test("rejects duplicate bindings and contradictory lane claims", () => {
   assert.throws(
     () => compileFleetBudgetObservations(input({ bindings: [{ candidate_id: "lane-a", lane_id: "grok-build" }, { candidate_id: "lane-a", lane_id: "other" }] }) as never),
     expects("input.bindings[1].candidate_id", "is a duplicate candidate_id 'lane-a'"),
-  );
-  assert.throws(
-    () => compileFleetBudgetObservations(input({ bindings: [{ candidate_id: "lane-a", lane_id: "grok-build" }, { candidate_id: "lane-b", lane_id: "grok-build" }] }) as never),
-    expects("input.bindings[1].lane_id", "is already bound to candidate_id 'lane-a'"),
   );
   assert.throws(
     () => compileFleetBudgetObservations(input({ snapshot: snapshot({ lanes: [{ ...snapshot().lanes[0], measured: false, used: 0 }] }) }) as never),
@@ -190,6 +186,72 @@ test("rejects duplicate bindings and contradictory lane claims", () => {
     () => compileFleetBudgetObservations(input({ snapshot: snapshot({ lanes: [{ ...snapshot().lanes[0], window: { id: "july", starts_at_ms: 101, ends_at_ms: 2_000 } }] }) }) as never),
     expects("input.snapshot.lanes[0].window", "must contain snapshot.observed_at_ms"),
   );
+});
+
+test("projects one shared green lane to two candidates without splitting or mutating evidence", () => {
+  const sharedInput = {
+    snapshot: snapshot(),
+    bindings: [
+      { candidate_id: "candidate-z", lane_id: "grok-build" },
+      { candidate_id: "candidate-a", lane_id: "grok-build" },
+    ],
+    now_ms: 100,
+  };
+  const permutedInput = {
+    now_ms: 100,
+    bindings: [
+      { lane_id: "grok-build", candidate_id: "candidate-a" },
+      { lane_id: "grok-build", candidate_id: "candidate-z" },
+    ],
+    snapshot: {
+      lanes: [{
+        window: { ends_at_ms: 2_000, starts_at_ms: 0, id: "july" },
+        unit: "tokens",
+        total: 2,
+        used: 1,
+        measured: true,
+        lane_id: "grok-build",
+      }],
+      expires_at_ms: 1_000,
+      observed_at_ms: 100,
+      version: FLEETBUDGET_SNAPSHOT_VERSION,
+    },
+  };
+  const sharedBefore = structuredClone(sharedInput);
+  const permutedBefore = structuredClone(permutedInput);
+
+  const projected = compileFleetBudgetObservations(sharedInput);
+  const permuted = compileFleetBudgetObservations(permutedInput);
+
+  assert.deepEqual(sharedInput, sharedBefore);
+  assert.deepEqual(permutedInput, permutedBefore);
+  assert.deepEqual(permuted, projected);
+  assert.deepEqual(projected.effects, effects);
+  assert.deepEqual(projected.observations, [
+    {
+      candidate_id: "candidate-a",
+      status: "green",
+      confidence: "measured",
+      budget: { used: 1, total: 2 },
+    },
+    {
+      candidate_id: "candidate-z",
+      status: "green",
+      confidence: "measured",
+      budget: { used: 1, total: 2 },
+    },
+  ]);
+  assert.deepEqual(projected.diagnostics, [
+    { candidate_id: "candidate-a", lane_id: "grok-build", reason_codes: [] },
+    { candidate_id: "candidate-z", lane_id: "grok-build", reason_codes: [] },
+  ]);
+  assert.deepEqual(projected.source, {
+    kind: "fleetbudget-sanitized-v1",
+    observed_at_ms: 100,
+    expires_at_ms: 1_000,
+    snapshot_sha256: "a8948c6050c1abc4b2a75001bb143c3222647744c6aa899d1756a5db651108b6",
+    bindings_sha256: "9dea6237e47669138ab909b5c6e082a5a809d04affefe743aa1a8e902b076eb4",
+  });
 });
 
 test("projects measured green evidence with its empty resolution ledger", () => {
