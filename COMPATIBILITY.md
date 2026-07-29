@@ -90,7 +90,7 @@ Future versions will increment `CURRENT_SCHEMA_VERSION` and add a migration step
 | 0.8.1 – 0.13.x | (no new tools; skill taxonomy is a library module, not a tool yet) | — |
 | 0.14.0 – 0.15.x | (no new tools; stdio handshake and host-neutral launch configuration are covered by integration tests) | — |
 | 0.16.0 | + ask_peer, wake_agent, reply_discussion, get_discussion (Discussions) | see the input-validation note below |
-| unreleased | + compile_route_candidates, recommend_route, verify_ledger_v2, verify_ledger_v3 (all advisory or read-only; no write authority) | ⚠️ `send_message` and `send_messages` schemas tightened and `verify_ledger` findings strengthened — see the narrowing note below |
+| unreleased | + compile_route_candidates, recommend_route, verify_ledger_v2, verify_ledger_v3, plan_speculative_backlog (all advisory, projection, or read-only; no write authority) | ⚠️ `send_message` and `send_messages` schemas tightened and `verify_ledger` findings strengthened — see the narrowing note below |
 
 **Promise so far**: every minor release has been additive. No tool has been removed. Two
 signatures have been tightened — `send_messages` batch items and `send_message`, unreleased —
@@ -172,8 +172,18 @@ execution, or external-time evidence.
 At tool dispatch, the v3 handler reads the configured ledger through the same
 dedicated read-only file snapshot boundary and performs no ledger writes. It
 does not change v1 or v2 output, `VerifyReport`/`VerifyFinding`, legacy CLI
-output, or their exits. v3 MCP is opt-in and raises the implemented MCP tool
-count to 35.
+output, or their exits. v3 MCP is opt-in and, together with
+`plan_speculative_backlog`, raises the implemented MCP tool count to 36.
+
+### Implemented speculative backlog projection MCP contract
+
+`plan_speculative_backlog` is an additive closed-input projection surface. It
+accepts caller-supplied approval evidence and route candidates, composes the
+existing route advisory gates, and returns no execution authority. Its explicit
+unmodeled capacity result, all-false effects, and canonical supplied-input hash
+are not allocation, reservation, provider state, freshness, provenance, or an
+execution commitment. It neither changes the v1/v2/v3 verifier contracts nor
+adds provider selection, polling, scheduling, spending, sending, or publication.
 
 **⚠️ Input handling changed in 0.16.0, and the old promise was the bug.** This table used to end
 "Tool inputs default to safe values when omitted." That was not a guarantee — it was a description

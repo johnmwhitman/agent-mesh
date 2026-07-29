@@ -176,6 +176,13 @@ Direction, not commitment — items ship when real usage pulls them.
   telemetry, infer typed quota windows, deploy or publish a package, or grant
   authority from provider labels. Structured collector versioning, timing, and
   quota windows remain prerequisites for actionable budget observations.
+- Caller-approved speculative backlog projection: the pure
+  `plan_speculative_backlog` MCP/library surface is intentionally a queue
+  projection, not a drain executor. It composes the established advisory gates,
+  treats approval as caller evidence only, keeps shared capacity unmodeled, and
+  records a canonical replay hash with all effects false. It adds no provider
+  selection, pool binding, budget polling, scheduling, allocation, reservation,
+  execution, publication, or authority.
 - Per-entry provenance confidence bands in verify output remain deferred; the
   shipped v3 local consistency labels deliberately do not establish that
   stronger evidence claim.

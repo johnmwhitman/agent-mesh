@@ -68,6 +68,10 @@ import {
 import { recordRoutingOutcome } from "./routing-feedback.js";
 import { recommendRoute, type RecommendRouteInput } from "./recommend-route.js";
 import {
+  planSpeculativeBacklog,
+  type PlanSpeculativeBacklogInput,
+} from "./speculative-backlog-planner.js";
+import {
   compileRouteCandidates,
   type CompileRouteCandidatesInput,
 } from "./compile-route-candidates.js";
@@ -912,6 +916,81 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       },
     },
     {
+      name: "plan_speculative_backlog",
+      description:
+        "Pure, caller-approved speculative backlog projection. Does not persist, execute, authorize, wake agents, contact providers, poll, allocate capacity, schedule, spend, send, or publish.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          version: { type: "string", const: "meshfleet.speculative-backlog.v0.1" },
+          candidate_limit: { type: "integer", minimum: 1, maximum: 8, default: 3 },
+          preference: {
+            type: "object", additionalProperties: false,
+            properties: {
+              objective: { type: "string", const: "prefer_near_reset" },
+              now_ms: { type: "integer", minimum: Number.MIN_SAFE_INTEGER, maximum: Number.MAX_SAFE_INTEGER },
+            },
+            required: ["objective", "now_ms"],
+          },
+          candidates: {
+            type: "array", minItems: 1, maxItems: 256,
+            items: {
+              type: "object", additionalProperties: false,
+              properties: {
+                candidate_id: { type: "string", minLength: 1, maxLength: 128 },
+                capabilities: { type: "array", minItems: 1, maxItems: 64, uniqueItems: true, items: { type: "string", pattern: "^[a-z0-9][a-z0-9._:-]*$" } },
+                privacy: { type: "string", enum: ["local_only", "network_ok", "unrestricted"] },
+                locality: { type: "string", enum: ["same_host", "same_fleet", "any"] },
+                coordination_modes: { type: "array", minItems: 1, maxItems: 2, uniqueItems: true, items: { type: "string", enum: ["solo", "pair_discussion"] } },
+                policy_tags: { type: "array", maxItems: 64, uniqueItems: true, items: { type: "string", pattern: "^[a-z0-9][a-z0-9._:-]*$" } },
+                context_window: { type: "integer", minimum: 0 },
+                observed_outcomes: { type: "object", additionalProperties: false, properties: { successes: { type: "integer", minimum: 0, maximum: 1_000_000 }, failures: { type: "integer", minimum: 0, maximum: 1_000_000 } }, required: ["successes", "failures"] },
+                budget: { type: "object", additionalProperties: false, properties: { measured: { type: "boolean" }, used: { type: "number", minimum: 0 }, total: { type: "number", exclusiveMinimum: 0 }, window: { type: "object", additionalProperties: false, properties: { starts_at_ms: { type: "integer", minimum: Number.MIN_SAFE_INTEGER, maximum: Number.MAX_SAFE_INTEGER }, ends_at_ms: { type: "integer", minimum: Number.MIN_SAFE_INTEGER, maximum: Number.MAX_SAFE_INTEGER } }, required: ["starts_at_ms", "ends_at_ms"] } }, required: ["measured"] },
+                requested_identity: { type: "object", additionalProperties: false, properties: { runtime: { type: "string", minLength: 1, maxLength: 256 }, model: { type: "string", minLength: 1, maxLength: 256 } }, anyOf: [{ required: ["runtime"] }, { required: ["model"] }] },
+                observed_identity: { type: "object", additionalProperties: false, properties: { runtime: { type: "string", minLength: 1, maxLength: 256 }, model: { type: "string", minLength: 1, maxLength: 256 }, source: { type: "string", minLength: 1, maxLength: 256 } }, required: ["source"], anyOf: [{ required: ["runtime"] }, { required: ["model"] }] },
+                quality_tags: { type: "array", maxItems: 32, uniqueItems: true, items: { type: "string", pattern: "^[a-z0-9][a-z0-9._:-]*$" } },
+              },
+              required: ["candidate_id", "capabilities", "privacy", "locality", "quality_tags"],
+            },
+          },
+          tasks: {
+            type: "array", minItems: 1, maxItems: 64,
+            items: {
+              type: "object", additionalProperties: false,
+              properties: {
+                task_id: { type: "string", minLength: 1, maxLength: 128 },
+                kind: { type: "string", enum: ["benchmark", "reusable_asset", "code_review", "test_generation", "video_candidate"] },
+                priority: { type: "integer", minimum: 0, maximum: 100 },
+                speculative_approval: {
+                  oneOf: [
+                    { type: "object", additionalProperties: false, properties: { state: { type: "string", const: "approved" }, approval_ref: { type: "string", minLength: 1, maxLength: 128, pattern: "^[a-z0-9][a-z0-9._:-]*$" } }, required: ["state", "approval_ref"] },
+                    { type: "object", additionalProperties: false, properties: { state: { type: "string", const: "not_approved" } }, required: ["state"] },
+                  ],
+                },
+                route: {
+                  type: "object", additionalProperties: false,
+                  properties: {
+                    required_capabilities: { type: "array", minItems: 1, maxItems: 64, uniqueItems: true, items: { type: "string", pattern: "^[a-z0-9][a-z0-9._:-]*$" } },
+                    optional_capabilities: { type: "array", maxItems: 64, uniqueItems: true, items: { type: "string", pattern: "^[a-z0-9][a-z0-9._:-]*$" } },
+                    privacy: { type: "string", enum: ["local_only", "network_ok", "unrestricted"] },
+                    locality: { type: "string", enum: ["same_host", "same_fleet", "any"] },
+                    coordination: { type: "string", enum: ["solo", "pair_discussion"] },
+                    policy_tags: { type: "array", maxItems: 64, uniqueItems: true, items: { type: "string", pattern: "^[a-z0-9][a-z0-9._:-]*$" } },
+                    min_context_tokens: { type: "integer", minimum: 0 },
+                  }, required: ["required_capabilities", "privacy", "locality"],
+                },
+                required_quality_tags: { type: "array", maxItems: 32, uniqueItems: true, items: { type: "string", pattern: "^[a-z0-9][a-z0-9._:-]*$" } },
+                artifact: { type: "object", additionalProperties: false, properties: { source_material: { type: "string", enum: ["text_only", "caller_attested_rights"] }, review_scope: { type: "string", const: "private_review_only" }, human_release_required: { type: "boolean", const: true } }, required: ["source_material", "review_scope", "human_release_required"] },
+              },
+              required: ["task_id", "kind", "priority", "speculative_approval", "route", "required_quality_tags"],
+            },
+          },
+        },
+        required: ["version", "candidates", "tasks"],
+      },
+    },
+    {
       name: "record_routing_outcome",
       description:
         "Record whether a routed task succeeded or failed. Future route_work calls for the same agent weight their score by accumulated outcomes (Wilson-style). NOTE: outcomes are currently accumulated PER AGENT, not per capability — capability_key is recorded for forward compatibility but does not yet scope the penalty, so a failure at one capability lowers the agent's score for all of them. Feedback is in-process and resets when the server restarts.",
@@ -1476,6 +1555,14 @@ toolHandlers["compile_route_candidates"] = async (args) => {
     return jsonResult(
       compileRouteCandidates(args as unknown as CompileRouteCandidatesInput),
     );
+  } catch (error) {
+    return jsonError(error instanceof Error ? error.message : String(error));
+  }
+};
+
+toolHandlers["plan_speculative_backlog"] = async (args) => {
+  try {
+    return jsonResult(planSpeculativeBacklog(args as PlanSpeculativeBacklogInput));
   } catch (error) {
     return jsonError(error instanceof Error ? error.message : String(error));
   }

@@ -31,6 +31,32 @@ gateway's job.
 `top_n` defaults to one and cannot exceed the supplied candidate count. Eligible
 candidates below that cutoff are intentionally omitted rather than labeled as excluded.
 
+## Speculative backlog projection
+
+`plan_speculative_backlog` is a distinct closed `meshfleet.speculative-backlog.v0.1`
+projection. It accepts only caller-supplied tasks and route candidates, and never
+executes a task. `state: "approved"` plus an opaque approval reference is caller evidence,
+not MeshFleet authority; `not_approved` tasks are returned only as
+`SPECULATIVE_APPROVAL_REQUIRED` blocks. The planner composes `recommend_route`
+for each quality-eligible task, so every existing privacy, locality, policy,
+capability, coordination, context, and measured-exhaustion gate remains in force.
+
+Queue order is priority descending then task ID ascending, with a zero-based
+`queue_index` on every proposed or blocked task. An optional landed
+`prefer_near_reset` preference is passed only to each task's existing route
+recommendation as its tie-break; it never changes queue order. Quality tags are
+declared eligibility, not observed quality. Asset and video tasks require exactly
+private-review artifact policy (`text_only` or `caller_attested_rights`,
+`private_review_only`, and a human release requirement), and the closed contract
+rejects prompts, content, identity, provider, source, license, likeness, voice,
+and publication fields.
+
+Several tasks may propose the same candidate. Capacity is deliberately returned
+as `{ mode: "unmodeled", status: "unknown" }`; no pool mapping, allocation,
+reservation, decrement, split, or sum is performed. The canonical SHA-256 is
+replay evidence only, not freshness, provenance, approval, provider state,
+receipt, or an execution commitment. Every effect remains false.
+
 An exhausted measured budget is returned under `excluded` with
 `BUDGET_EXHAUSTED`. It is never left in the ranked list with a zero score.
 
