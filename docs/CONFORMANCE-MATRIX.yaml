@@ -240,7 +240,7 @@
         "docs/A2A-PROGRAM.md",
         "docs/A2A-INGRESS-CONTRACT-v0.1.md"
       ],
-      "notes": "Absent from the MCP registry. Slice 4C-0 supplies only offline non-authorizing capability evidence; Slice 4C-1 principal-bound authenticated-local evidence remains proposed and separately gated, followed by a separate human-gated public-ingress review."
+      "notes": "Absent from the MCP registry. Slice 4C-0 supplies only offline non-authorizing capability evidence; Slice 4C-1 has bounded offline evidence-alpha implemented but remains incomplete and separately gated, followed by a separate human-gated public-ingress review."
     }
   ],
   "gates": [
@@ -285,6 +285,6 @@
       "cryptographic verification, trust store, or activation",
       "live provider interoperability"
     ],
-    "next_proposed_slice": "Slice 4C-1 principal-bound authenticated-local semantic path; offline, inactive, and separately gated"
+    "next_proposed_slice": "Complete the remaining Slice 4C-1 profile coverage; its bounded evidence-alpha is implemented but remains offline, inactive, incomplete, and separately gated"
   }
 }

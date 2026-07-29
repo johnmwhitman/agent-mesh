@@ -294,11 +294,13 @@ That's 34. We counted twice this time.
 RoutePlane catalog discovery is a separate package library and CLI, not an MCP
 tool: it fetches RoutePlane's fixed loopback model catalog and projects
 caller-owned policy into advisory candidates. Its package-library API,
-`recommendRoutePlaneCatalog()`, composes an already-fetched snapshot: its
-`evaluated` and `no_compiled_candidates` statuses preserve catalog diagnostics
-separately from task exclusions and remain advisory with all effects false. It
-never fetches, deploys, publishes, selects providers, executes models, contacts
-providers, polls budget telemetry, or infers authority from provider labels.
+`recommendRoutePlaneCatalog()`, composes an already-fetched snapshot; the opt-in
+`fetchAndRecommendRoutePlaneCatalog()` fetches that fixed loopback catalog once
+before the same composition. Their `evaluated` and `no_compiled_candidates`
+statuses preserve catalog diagnostics separately from task exclusions and remain
+advisory with all effects false. Neither API deploys, publishes, selects
+providers, executes models, contacts providers beyond that explicit loopback
+catalog fetch, polls budget telemetry, or infers authority from provider labels.
 [RoutePlane catalog boundary → docs/ROUTEPLANE-CATALOG.md](docs/ROUTEPLANE-CATALOG.md)
 
 Fleetbudget ingress and observation projection are separate package surfaces,

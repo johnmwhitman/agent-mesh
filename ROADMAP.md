@@ -162,9 +162,11 @@ Direction, not commitment — items ship when real usage pulls them.
 - Automatic provider choice, subscription-aware selection, token-pool draining,
   and Ollama Cloud's direct API. RoutePlane catalog discovery and caller-policy
   projection are shipped. `recommendRoutePlaneCatalog()` is a package-library
-  advisory composition over an already-fetched snapshot, not provider selection
-  or execution. A raw Fleetbudget sanitizer is implemented and reviewed on the
-  current in-flight branch as diagnostic-only ingress; it does not poll
+  advisory composition over an already-fetched snapshot, while
+  `fetchAndRecommendRoutePlaneCatalog()` explicitly fetches the fixed loopback
+  catalog before making one advisory recommendation. Neither is provider
+  selection or execution. A raw Fleetbudget sanitizer is implemented in the
+  current source tree as diagnostic-only ingress; it does not poll
   telemetry, infer typed quota windows, deploy or publish a package, or grant
   authority from provider labels. Structured collector versioning, timing, and
   quota windows remain prerequisites for actionable budget observations.
@@ -198,7 +200,10 @@ Direction, not commitment — items ship when real usage pulls them.
   preserves compilation diagnostics separately from evaluator exclusions, and
   remains advisory with all effects false. It does not deploy or publish a
   package, select providers, execute models, poll budget telemetry, or infer
-  routing authority from provider labels.
+  routing authority from provider labels. The opt-in
+  `fetchAndRecommendRoutePlaneCatalog()` fetches the same fixed loopback catalog
+  once before that composition; it neither caches nor schedules refreshes, and
+  retains the same advisory, all-false-effects boundary.
 - P1 spawn receipts and bounded public model selection: `spawn_fleet` / `attach_agent` accept an optional `model`, the request is persisted separately from the observed banner, legacy and durable retries plus Discussion wakeups preserve it, and missing or contradictory observation fails closed. Banner agreement remains observed evidence only. Capability `model` remains routing self-description.
 - A published corpus of tampered-ledger fixtures the verifier must catch — [`test/fixtures/corpus/`](test/fixtures/corpus/README.md). 76 vectors over a shared clean baseline, each one baseline-plus-declared-change so the baseline is a genuine near-neighbour control. Reported in three separate buckets, never blended: 54 `caught` (overclaims that must raise an error and fail the ledger), 12 `anomaly` (warning-only; deliberately not counted as caught), and 10 `undetectable` — vectors the unsigned local core structurally cannot see, published because a boundary you conceal is more dangerous than one you demonstrate. Coverage over all 48 non-`discussion` checks is re-derived from source each run, so a new check without a vector fails the suite.
 - `verify --explain` — failure triage for the ledger auditor
