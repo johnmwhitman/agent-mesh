@@ -154,6 +154,15 @@ Direction, not commitment — items ship when real usage pulls them.
 - Per-entry provenance confidence bands in verify output
 
 **Recently shipped from this list** (moved here rather than deleted, so the list stays auditable)
+- Fleetbudget observation projection: the package-only
+  `meshfleet/fleetbudget-observations` adapter accepts a caller-sanitized,
+  versioned snapshot, exact candidate-to-lane bindings, and caller-supplied
+  `now_ms`; it returns measured route observations, per-binding diagnostics,
+  canonical provenance hashes, and all-false effects. Complete measured
+  exhaustion reaches the existing `BUDGET_EXHAUSTED` advisory exclusion, while
+  incomplete or unmeasured evidence remains neutral. It has no raw Fleetbudget
+  parser, CLI, polling, provider inference, execution, unused-quota reward, or
+  weekly-burn optimization. See `docs/FLEETBUDGET-OBSERVATIONS.md`.
 - RoutePlane model-catalog discovery and caller-policy projection: the separate
   `meshfleet-routeplane-catalog` CLI fetches only RoutePlane's fixed loopback
   catalog and emits a bounded, expiring canonical snapshot; the library admits

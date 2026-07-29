@@ -284,7 +284,17 @@ never fetches, deploys, publishes, selects providers, executes models, contacts
 providers, polls budget telemetry, or infers authority from provider labels.
 [RoutePlane catalog boundary → docs/ROUTEPLANE-CATALOG.md](docs/ROUTEPLANE-CATALOG.md)
 
-[Advisory routing → docs/ADVISORY-ROUTING.md](docs/ADVISORY-ROUTING.md) · [Architecture orientation → AGENT-MESH-SPEC.md](AGENT-MESH-SPEC.md) · [P2P/receipts → SPEC-P2P.md](SPEC-P2P.md) · [Councils → SPEC-COUNCILS.md](SPEC-COUNCILS.md)
+Fleetbudget observation projection is a separate package library, not an MCP
+tool or Fleetbudget CLI. `compileFleetBudgetObservations()` accepts a
+caller-sanitized, versioned snapshot plus explicit candidate-to-lane bindings
+and `now_ms`; it returns measured observations, per-binding diagnostics,
+canonical provenance hashes, and all-false effects. Complete measured
+exhaustion can exclude a candidate through the existing advisory path;
+incomplete or unmeasured evidence stays neutral. It does not poll providers,
+infer authority from lane names, execute work, reward unused quota, or optimize
+weekly burn. [Fleetbudget observation boundary → docs/FLEETBUDGET-OBSERVATIONS.md](docs/FLEETBUDGET-OBSERVATIONS.md)
+
+[Advisory routing → docs/ADVISORY-ROUTING.md](docs/ADVISORY-ROUTING.md) · [Fleetbudget observations → docs/FLEETBUDGET-OBSERVATIONS.md](docs/FLEETBUDGET-OBSERVATIONS.md) · [Architecture orientation → AGENT-MESH-SPEC.md](AGENT-MESH-SPEC.md) · [P2P/receipts → SPEC-P2P.md](SPEC-P2P.md) · [Councils → SPEC-COUNCILS.md](SPEC-COUNCILS.md)
 
 ---
 
