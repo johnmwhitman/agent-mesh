@@ -8,6 +8,10 @@ import {
   RoutePlaneCatalogError,
   ROUTEPLANE_CATALOG_SNAPSHOT_VERSION,
 } from "../src/routeplane-catalog.js";
+import {
+  compileFleetBudgetObservations,
+  FLEETBUDGET_SNAPSHOT_VERSION,
+} from "../src/fleetbudget-observations.js";
 
 const routePlaneEffects = {
   persisted: false,
@@ -392,6 +396,140 @@ test("recommends exactly advertised RoutePlane policies", () => {
     },
   }]);
   assert.deepEqual(result.excluded, []);
+});
+
+test("recommends two distinct RoutePlane policies backed by one shared green pool", () => {
+  const catalogSnapshot = normalizeRoutePlaneCatalog(liveCatalog, 100, 60_000);
+  const projected = compileFleetBudgetObservations({
+    snapshot: {
+      version: FLEETBUDGET_SNAPSHOT_VERSION,
+      observed_at_ms: 100,
+      expires_at_ms: 1_000,
+      lanes: [{
+        lane_id: "shared-account",
+        measured: true,
+        used: 1,
+        total: 4,
+        unit: "tokens",
+        window: { id: "july", starts_at_ms: 0, ends_at_ms: 2_000 },
+      }],
+    },
+    bindings: [
+      { candidate_id: "candidate-z", lane_id: "shared-account" },
+      { candidate_id: "candidate-a", lane_id: "shared-account" },
+    ],
+    now_ms: 100,
+  });
+  const policies: Parameters<typeof recommendRoutePlaneCatalog>[0]["policies"] = [
+    {
+      candidate_id: "candidate-z",
+      model: "z-model",
+      capabilities: ["code", "review"],
+      privacy: "local_only",
+      locality: "same_host",
+      coordination_modes: ["solo", "pair_discussion"],
+      policy_tags: ["no_train", "zeta"],
+      context_window: 32_000,
+    },
+    {
+      candidate_id: "candidate-a",
+      model: "a-model",
+      capabilities: ["code"],
+      privacy: "local_only",
+      locality: "same_host",
+      coordination_modes: ["solo"],
+      policy_tags: ["no_train", "alpha"],
+      context_window: 16_000,
+    },
+  ];
+  const task: Parameters<typeof recommendRoutePlaneCatalog>[0]["task"] = {
+    required_capabilities: ["code"],
+    optional_capabilities: ["review"],
+    privacy: "network_ok",
+    locality: "same_fleet",
+    coordination: "solo",
+    policy_tags: ["no_train"],
+    min_context_tokens: 8_000,
+  };
+  const compilation = compileRoutePlaneCandidates({
+    snapshot: catalogSnapshot,
+    policies,
+    observations: projected.observations,
+    now_ms: 100,
+  });
+  const result = recommendRoutePlaneCatalog({
+    snapshot: catalogSnapshot,
+    policies,
+    observations: projected.observations,
+    task,
+    now_ms: 100,
+    top_n: 2,
+  });
+
+  assert.deepEqual(projected.effects, routePlaneEffects);
+  assert.deepEqual(compilation.effects, routePlaneEffects);
+  assert.deepEqual(compilation.candidates, [
+    {
+      candidate_id: "candidate-a",
+      capabilities: ["code"],
+      privacy: "local_only",
+      locality: "same_host",
+      coordination_modes: ["solo"],
+      policy_tags: ["no_train", "alpha"],
+      context_window: 16_000,
+      budget: { measured: true, used: 1, total: 4 },
+      requested_identity: { runtime: "routeplane", model: "a-model" },
+    },
+    {
+      candidate_id: "candidate-z",
+      capabilities: ["code", "review"],
+      privacy: "local_only",
+      locality: "same_host",
+      coordination_modes: ["solo", "pair_discussion"],
+      policy_tags: ["no_train", "zeta"],
+      context_window: 32_000,
+      budget: { measured: true, used: 1, total: 4 },
+      requested_identity: { runtime: "routeplane", model: "z-model" },
+    },
+  ]);
+  assert.deepEqual(result.compilation.diagnostics, [
+    { candidate_id: "candidate-a", reason_codes: [] },
+    { candidate_id: "candidate-z", reason_codes: [] },
+  ]);
+  assert.deepEqual(result.ranked.map(({
+    candidate_id,
+    budget,
+    identity,
+    reason_codes,
+  }) => ({
+    candidate_id,
+    budget,
+    identity,
+    reason_codes,
+  })), [
+    {
+      candidate_id: "candidate-z",
+      budget: { measured: true, status: "healthy", utilization: 0.25 },
+      identity: {
+        requested: { runtime: "routeplane", model: "z-model" },
+        evidence_only: true,
+        status: "unobserved",
+      },
+      reason_codes: ["OUTCOMES_UNMEASURED"],
+    },
+    {
+      candidate_id: "candidate-a",
+      budget: { measured: true, status: "healthy", utilization: 0.25 },
+      identity: {
+        requested: { runtime: "routeplane", model: "a-model" },
+        evidence_only: true,
+        status: "unobserved",
+      },
+      reason_codes: ["OUTCOMES_UNMEASURED"],
+    },
+  ]);
+  assert.deepEqual(result.excluded, []);
+  assert.deepEqual(result.effects, routePlaneEffects);
 });
 
 test("rejects malformed recommendation tasks when no catalog candidates compile", () => {
