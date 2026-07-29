@@ -1,5 +1,8 @@
 import { assertRouteCandidates } from "./route-candidate-validation.js";
 
+export { assertRouteCandidates } from "./route-candidate-validation.js";
+export type { RouteCandidateValidationOptions } from "./route-candidate-validation.js";
+
 export type RoutePrivacy = "local_only" | "network_ok" | "unrestricted";
 export type RouteLocality = "same_host" | "same_fleet" | "any";
 export type RouteCoordination = "solo" | "pair_discussion";

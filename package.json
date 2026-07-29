@@ -7,6 +7,7 @@
   "exports": {
     ".": "./dist/index.js",
     "./package.json": "./package.json",
+    "./recommend-route": "./dist/recommend-route.js",
     "./routeplane-catalog": "./dist/routeplane-catalog.js",
     "./fleetbudget-observations": "./dist/fleetbudget-observations.js",
     "./fleetbudget-sanitizer": "./dist/fleetbudget-sanitizer.js",
