@@ -53,7 +53,7 @@ route-candidate compiler, and recommendation modules.
 Add a test with a normalized fresh catalog containing `a-model`, one caller
 policy for `a-model`, and a task requiring that policy's `code` capability.
 Assert the return value has the snapshot source, a compiler projection with
-empty diagnostics, one rank with candidate ID `lane-a`, requested identity
+the compiler's unchanged diagnostics, one rank with candidate ID `lane-a`, requested identity
 `{runtime:"routeplane",model:"a-model"}`, `status:"evaluated"`,
 `advisory:true`, and the five false effect flags.
 
