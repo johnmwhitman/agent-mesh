@@ -3,6 +3,14 @@
   "corpus_sha256": "bf64c02aabc3daac7734ce3e95e16abe063a2f0c06be710243c9df6f10277a56",
   "corpus_cases": 39,
   "runner_modes": ["--corpus", "--self", "--hash-corpus"],
+  "fuzz_differential": {
+    "seed": 219529301,
+    "cases": 300,
+    "corpus_anchors": 35,
+    "javascript_strict_canaries": 7,
+    "mutation_canaries": 3,
+    "max_generated_bytes": 1048576
+  },
   "reference_implementation": "src/discussion.ts",
   "dimensions_covered": [
     "envelope-parsing",
