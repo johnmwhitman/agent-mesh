@@ -348,6 +348,99 @@ test('package boundary guard follows createRequire acquired through CommonJS and
   )
 })
 
+test('package boundary guard follows nested Module, import-equals, and computed createRequire forms', () => {
+  withFixture(
+    {
+      'src/entry.ts': [
+        'import { Module as NamedModule } from "node:module"',
+        'import * as moduleNamespace from "node:module"',
+        'import moduleDefault from "module"',
+        'import equalsModule = require("node:module")',
+        'NamedModule.createRequire(import.meta.url)("missing-named-module");',
+        'moduleNamespace.Module.createRequire(import.meta.url)("missing-namespace-module");',
+        'moduleDefault.Module.createRequire(import.meta.url)("missing-default-module");',
+        'equalsModule.createRequire(import.meta.url)("missing-import-equals");',
+        'moduleNamespace[("createRequire")](import.meta.url)("missing-parenthesized-key");',
+        'moduleDefault[`createRequire`](import.meta.url)("missing-template-key");',
+        'const { ["createRequire"]: computedCreateRequire } = moduleNamespace',
+        'computedCreateRequire(import.meta.url)("missing-computed-destructure");',
+        'const { [`createRequire`]: templateCreateRequire } = moduleDefault',
+        'templateCreateRequire(import.meta.url)("missing-template-destructure");',
+      ].join('\n'),
+    },
+    { name: 'fixture' },
+    (root) => {
+      assert.deepEqual(
+        findPackageBoundaryViolations(root).map(({ kind, specifier }) => ({ kind, specifier })),
+        [
+          { kind: 'require', specifier: 'missing-named-module' },
+          { kind: 'require', specifier: 'missing-namespace-module' },
+          { kind: 'require', specifier: 'missing-default-module' },
+          { kind: 'require', specifier: 'missing-import-equals' },
+          { kind: 'require', specifier: 'missing-parenthesized-key' },
+          { kind: 'require', specifier: 'missing-template-key' },
+          { kind: 'require', specifier: 'missing-computed-destructure' },
+          { kind: 'require', specifier: 'missing-template-destructure' },
+        ],
+      )
+    },
+  )
+})
+
+test('package boundary guard fails closed when a createRequire factory value escapes through a property', () => {
+  withFixture(
+    {
+      'src/entry.ts': [
+        'import * as moduleNamespace from "node:module"',
+        'const propertyBag = { factory: moduleNamespace.createRequire }',
+        'const target: { factory?: unknown } = {}',
+        'target.factory = moduleNamespace["createRequire"]',
+        'void propertyBag',
+      ].join('\n'),
+    },
+    { name: 'fixture' },
+    (root) => {
+      assert.deepEqual(findPackageBoundaryViolations(root), [
+        {
+          file: 'src/entry.ts',
+          kind: 'require',
+          specifier: '<ambiguous>',
+          reason: 'createRequire factory expression escapes static analysis',
+        },
+        {
+          file: 'src/entry.ts',
+          kind: 'require',
+          specifier: '<ambiguous>',
+          reason: 'createRequire factory expression escapes static analysis',
+        },
+      ])
+    },
+  )
+})
+
+test('package boundary guard fails closed on non-awaited dynamic module acquisition', () => {
+  withFixture(
+    {
+      'src/entry.ts': [
+        'import("node:module").then(({ createRequire }) => {',
+        '  createRequire(import.meta.url)("missing-from-callback")',
+        '})',
+      ].join('\n'),
+    },
+    { name: 'fixture' },
+    (root) => {
+      assert.deepEqual(findPackageBoundaryViolations(root), [
+        {
+          file: 'src/entry.ts',
+          kind: 'require',
+          specifier: '<ambiguous>',
+          reason: 'dynamic module import is not awaited and cannot be resolved statically',
+        },
+      ])
+    },
+  )
+})
+
 test('package boundary guard fails closed when a createRequire loader escapes static analysis', () => {
   withFixture(
     {

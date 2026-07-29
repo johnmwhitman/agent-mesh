@@ -137,8 +137,9 @@ type CollectedSpecifier = {
 }
 
 function staticSpecifier(expression: ts.Expression | undefined): string | undefined {
-  return expression && (ts.isStringLiteral(expression) || ts.isNoSubstitutionTemplateLiteral(expression))
-    ? expression.text
+  const unwrapped = expression && unwrapParentheses(expression)
+  return unwrapped && (ts.isStringLiteral(unwrapped) || ts.isNoSubstitutionTemplateLiteral(unwrapped))
+    ? unwrapped.text
     : undefined
 }
 
@@ -182,6 +183,15 @@ function collectSpecifiers(sourceFile: ts.SourceFile): CollectedSpecifier[] {
   const moduleObjectNames = new Set<string>()
 
   for (const statement of sourceFile.statements) {
+    if (ts.isImportEqualsDeclaration(statement) &&
+        ts.isExternalModuleReference(statement.moduleReference)) {
+      const moduleSpecifier = staticSpecifier(statement.moduleReference.expression)
+      if (moduleSpecifier && ['module', 'node:module'].includes(moduleSpecifier)) {
+        moduleObjectNames.add(statement.name.text)
+        continue
+      }
+    }
+
     if (!ts.isImportDeclaration(statement) ||
         !ts.isStringLiteral(statement.moduleSpecifier) ||
         !['module', 'node:module'].includes(statement.moduleSpecifier.text) ||
@@ -190,8 +200,11 @@ function collectSpecifiers(sourceFile: ts.SourceFile): CollectedSpecifier[] {
     const bindings = statement.importClause.namedBindings
     if (bindings && ts.isNamedImports(bindings)) {
       for (const binding of bindings.elements) {
-        if ((binding.propertyName?.text ?? binding.name.text) === 'createRequire') {
+        const importedName = binding.propertyName?.text ?? binding.name.text
+        if (importedName === 'createRequire') {
           createRequireNames.add(binding.name.text)
+        } else if (importedName === 'Module') {
+          moduleObjectNames.add(binding.name.text)
         }
       }
     } else if (bindings && ts.isNamespaceImport(bindings)) {
@@ -255,9 +268,15 @@ function collectSpecifiers(sourceFile: ts.SourceFile): CollectedSpecifier[] {
 
   const isModuleObjectExpression = (expression: ts.Expression): boolean => {
     const unwrapped = unwrapParentheses(expression)
-    return (ts.isIdentifier(unwrapped) && moduleObjectNames.has(unwrapped.text)) ||
+    if ((ts.isIdentifier(unwrapped) && moduleObjectNames.has(unwrapped.text)) ||
       isCommonJsModuleRequire(unwrapped) ||
-      isDynamicModuleImport(unwrapped)
+      isDynamicModuleImport(unwrapped)) {
+      return true
+    }
+    const receiver = propertyReceiver(unwrapped)
+    return propertyName(unwrapped) === 'Module' &&
+      !!receiver &&
+      isModuleObjectExpression(receiver)
   }
 
   const isCreateRequireExpression = (expression: ts.Expression): boolean => {
@@ -286,11 +305,15 @@ function collectSpecifiers(sourceFile: ts.SourceFile): CollectedSpecifier[] {
         } else if (ts.isObjectBindingPattern(node.name) && isModuleObjectExpression(node.initializer)) {
           for (const element of node.name.elements) {
             if (element.dotDotDotToken || !ts.isIdentifier(element.name)) continue
-            const importedName = element.propertyName
-              ? (ts.isIdentifier(element.propertyName) || ts.isStringLiteral(element.propertyName)
-                  ? element.propertyName.text
-                  : undefined)
-              : element.name.text
+            const importedName = !element.propertyName
+              ? element.name.text
+              : ts.isIdentifier(element.propertyName) ||
+                  ts.isStringLiteral(element.propertyName) ||
+                  ts.isNoSubstitutionTemplateLiteral(element.propertyName)
+                ? element.propertyName.text
+                : ts.isComputedPropertyName(element.propertyName)
+                  ? staticSpecifier(element.propertyName.expression)
+                  : undefined
             if (importedName === 'createRequire' && !createRequireNames.has(element.name.text)) {
               createRequireNames.add(element.name.text)
               bindingsChanged = true
@@ -383,7 +406,19 @@ function collectSpecifiers(sourceFile: ts.SourceFile): CollectedSpecifier[] {
       } else if (ts.isIdentifier(called) && aliases.has(called.text)) {
         add('require', node.arguments[0], 'create-require')
       } else if (called.kind === ts.SyntaxKind.ImportKeyword) {
-        add('dynamic-import', node.arguments[0])
+        let reference: ts.Node = node
+        while (ts.isParenthesizedExpression(reference.parent) && reference.parent.expression === reference) {
+          reference = reference.parent
+        }
+        if (isModuleSpecifier(node.arguments[0]) && !ts.isAwaitExpression(reference.parent)) {
+          specifiers.push({
+            kind: 'require',
+            specifier: '<ambiguous>',
+            reason: 'dynamic module import is not awaited and cannot be resolved statically',
+          })
+        } else {
+          add('dynamic-import', node.arguments[0])
+        }
       } else if (ts.isIdentifier(called) && called.text === 'require') {
         const specifier = staticSpecifier(node.arguments[0]) ?? '<dynamic>'
         if (requireIsShadowed) {
@@ -398,6 +433,26 @@ function collectSpecifiers(sourceFile: ts.SourceFile): CollectedSpecifier[] {
         } else {
           add('require', node.arguments[0])
         }
+      }
+    } else if ((ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) &&
+        isCreateRequireExpression(node)) {
+      let reference: ts.Node = node
+      while (ts.isParenthesizedExpression(reference.parent) && reference.parent.expression === reference) {
+        reference = reference.parent
+      }
+      const isFactoryCall = ts.isCallExpression(reference.parent) && reference.parent.expression === reference
+      const isTrackedInitializer = ts.isVariableDeclaration(reference.parent) &&
+        reference.parent.initializer === reference &&
+        ts.isIdentifier(reference.parent.name) &&
+        createRequireNames.has(reference.parent.name.text) &&
+        ts.isVariableDeclarationList(reference.parent.parent) &&
+        !!(reference.parent.parent.flags & ts.NodeFlags.Const)
+      if (!isFactoryCall && !isTrackedInitializer) {
+        specifiers.push({
+          kind: 'require',
+          specifier: '<ambiguous>',
+          reason: 'createRequire factory expression escapes static analysis',
+        })
       }
     } else if (ts.isIdentifier(node) && aliases.has(node.text)) {
       const declaration = aliases.get(node.text)!
