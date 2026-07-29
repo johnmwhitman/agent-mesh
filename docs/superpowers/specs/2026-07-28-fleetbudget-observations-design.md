@@ -31,7 +31,7 @@ export interface FleetBudgetObservationInput {
     version: typeof FLEETBUDGET_SNAPSHOT_VERSION;
     observed_at_ms: number;
     expires_at_ms: number;
-    lanes: Array<{
+    lanes: Array<{ // 0..256 items
       lane_id: string;
       measured: boolean;
       used: number | null;
@@ -44,8 +44,8 @@ export interface FleetBudgetObservationInput {
       };
     }>;
   };
-  bindings: Array<{ candidate_id: string; lane_id: string }>;
-  now_ms?: number;
+  bindings: Array<{ candidate_id: string; lane_id: string }>; // 0..256 items
+  now_ms: number;
 }
 
 export interface FleetBudgetObservationResult {
@@ -75,8 +75,11 @@ export interface FleetBudgetObservationResult {
 
 `observations` and `diagnostics` are sorted ascending by `candidate_id`.
 Diagnostics contain one entry per binding; a usable binding has an empty
-`reason_codes` array. Snapshot and binding hashes derive from cloned, sorted,
-canonical JSON values, so source provenance does not depend on caller ordering.
+`reason_codes` array as a resolution ledger. Snapshot and binding hashes use
+SHA-256 over `JSON.stringify` of reconstructed fixed-key objects: snapshot
+lanes are sorted by `lane_id`, bindings by `candidate_id`, and every absent
+`window` is represented as `null`. Object key insertion order therefore cannot
+change either hash or output.
 
 ## Projection law
 
@@ -87,9 +90,9 @@ An observation is emitted only when all of the following are true:
 2. The bound `lane_id` occurs exactly once in the sanitized snapshot.
 3. The lane is `measured: true`.
 4. `used` and `total` are finite numbers, `used >= 0`, `total > 0`, and `unit`
-   is a nonempty string.
-5. The lane has a valid typed window, the window contains
-   `observed_at_ms`, and it also contains the effective `now_ms`.
+   is a nonempty token string.
+5. The lane has a valid typed half-open window `[starts_at_ms, ends_at_ms)`;
+   it contains `observed_at_ms` and the effective `now_ms`.
 6. The snapshot is fresh: `observed_at_ms <= now_ms < expires_at_ms`.
 
 The emitted entry has `confidence: "measured"`, its original finite
@@ -97,14 +100,14 @@ The emitted entry has `confidence: "measured"`, its original finite
 `status` is `"exhausted"` when `used >= total`, otherwise `"green"`. Overage
 is preserved rather than capped. The projector never emits `"assumed"`.
 
-Valid but unusable bindings are omitted and retain a precise diagnostic:
-
-- `LANE_NOT_REPORTED` when the caller-bound lane is absent;
-- `LANE_UNMEASURED` when `measured` is false;
-- `BUDGET_USED_UNAVAILABLE`, `BUDGET_TOTAL_UNAVAILABLE`, or
-  `BUDGET_UNIT_UNAVAILABLE` for null required telemetry;
-- `WINDOW_MISSING` when no typed window was supplied;
-- `WINDOW_NOT_CURRENT` when a valid window does not contain `now_ms`.
+Valid but unusable bindings are omitted and retain a precise diagnostic. A
+missing lane has exactly `LANE_NOT_REPORTED`; an unmeasured lane has exactly
+`LANE_UNMEASURED`. A measured lane accumulates only applicable codes in this
+fixed order: `BUDGET_USED_UNAVAILABLE`, `BUDGET_TOTAL_UNAVAILABLE`,
+`BUDGET_UNIT_UNAVAILABLE`, then `WINDOW_MISSING` or `WINDOW_NOT_CURRENT`.
+An all-null measured lane therefore has the first four codes. `null` means
+unavailable; an empty or non-token unit is malformed and rejects rather than
+becoming a diagnostic.
 
 These are projection diagnostics, distinct from compiler diagnostics such as
 `BUDGET_UNMEASURED` and recommendation exclusions such as `BUDGET_EXHAUSTED`.
@@ -112,12 +115,17 @@ These are projection diagnostics, distinct from compiler diagnostics such as
 ## Closed validation and precedence
 
 Every input record has an exact allowed-key set. The validator rejects unknown
-keys before deeper checks at the same record. All identifiers are nonempty,
-bounded strings; timestamps are finite integers. Numeric values, when not
-null, are finite numbers. A numeric `used < 0`, `total <= 0`, a false-measured
-lane with any non-null budget/unit/window claim, a duplicate lane ID, duplicate
-candidate binding, duplicate lane binding, or malformed/reversed window is a
-hard error.
+keys before deeper checks at the same record. `candidate_id` and `lane_id` are
+nonempty strings no longer than 128 characters; a non-null `unit` is a token
+string no longer than 64 characters. Timestamps are finite integers. The snapshot TTL
+`expires_at_ms - observed_at_ms` must be positive and no greater than 600000 ms;
+windows may span their actual quota period and have no TTL cap. Numeric values,
+when not null, are finite numbers. `lanes` and `bindings` each contain 0..256
+items, so the returned observations are directly consumable by the compiler. A
+numeric `used < 0`, `total <= 0`, an empty/non-token non-null unit, a
+false-measured lane with any non-null budget/unit/window claim, a duplicate lane
+ID, duplicate candidate binding, duplicate lane binding, or malformed/reversed
+window is a hard error.
 
 Validation order is: outer input and required fields; snapshot/version; `now_ms`;
 snapshot timestamps and freshness; lanes and their windows; bindings and their
@@ -128,8 +136,9 @@ A present window must contain `observed_at_ms`; otherwise it is contradictory
 and rejects. A valid historical window simply produces `WINDOW_NOT_CURRENT`.
 
 The function clones before sorting and has no network, filesystem, process,
-timer, persistence, scheduler, or provider side effect. With an explicit
-`now_ms`, equivalent input permutations produce byte-equivalent results.
+timer, persistence, scheduler, or provider side effect. `now_ms` is required,
+so equivalent input permutations produce byte-equivalent results without a clock
+dependency.
 
 ## Authority boundary and non-goals
 
@@ -148,14 +157,16 @@ pick a provider, refresh telemetry, or change the recommendation score law.
 - Exact complete evidence projects measured green and measured exhausted entries;
   exhausted overage is retained.
 - Ceiling-less measured and unmeasured live-shaped lanes project no observation
-  with explicit diagnostics.
+  with explicit diagnostics, including the fixed-order all-null measured case.
 - Freshness, window containment/currentness, and reset-window transitions have
   deterministic acceptance or rejection behavior.
+- Snapshot TTL above 600000 ms or at/below zero rejects, while a longer valid
+  quota window remains admissible.
 - Closed schemas, duplicate lane IDs, duplicate candidate/lane bindings,
   malformed timestamps, nonfinite values, and contradictory claims fail at the
   documented precedence paths.
 - Provider-shaped lane IDs cannot alter candidate traits, authority, identity,
   health, authentication, or execution behavior.
-- Permuted inputs preserve output and caller input exactly.
+- Permuted arrays and object-key order preserve output, hashes, and caller input exactly.
 - Feeding projected observations to `compileRouteCandidates()` and
   `recommendRoute()` proves only measured exhaustion excludes a candidate.

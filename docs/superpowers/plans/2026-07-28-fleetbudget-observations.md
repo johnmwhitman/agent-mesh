@@ -11,10 +11,11 @@
 ## Global Constraints
 
 - Package subpath is exactly `meshfleet/fleetbudget-observations`.
-- The API is `compileFleetBudgetObservations()` and is pure, synchronous, and non-mutating.
+- The API is `compileFleetBudgetObservations()` and is pure, synchronous, non-mutating, and requires caller-supplied `now_ms`; it never reads a clock.
 - Accept only the closed versioned sanitized snapshot in the design; never raw fleetbudget `note`, `detail`, `routes`, or `state`.
 - Require one-to-one `candidate_id` to `lane_id` bindings; do not infer any trait, authority, identity, health, auth, execution, or provider fact from a lane ID.
-- Emit only measured green/exhausted observations with finite `used >= 0`, `total > 0`, nonempty unit, current valid window, and fresh snapshot; omit all other usable-but-incomplete evidence.
+- Limit snapshots and bindings to 0..256; snapshot TTL is positive and at most 600000 ms, while quota windows use half-open `[start, end)` periods without that cap.
+- Emit only measured green/exhausted observations with finite `used >= 0`, `total > 0`, nonempty token unit, current valid window, and fresh snapshot; omit all other usable-but-incomplete evidence.
 - No CLI, fetch, process launch, scheduler, MCP, provider API, persistence, or telemetry polling.
 - This prevents spent-lane routing; it does not reward unused quota or maximize weekly burn.
 
@@ -95,17 +96,20 @@ git commit -m "refactor: export route candidate observations"
 - [ ] **Step 1: Write failing schema and package-export tests**
 
 ```ts
+const completeInput = { snapshot: validSnapshot, bindings: [], now_ms: 100 };
 assert.throws(
-  () => compileFleetBudgetObservations({ snapshot: { extra: true } } as never),
+  () => compileFleetBudgetObservations({ ...completeInput, snapshot: { ...validSnapshot, extra: true } } as never),
   /fleetbudget_observations: 'input\.snapshot\.extra' is not allowed/,
 );
+const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 assert.equal(
-  require("../package.json").exports["./fleetbudget-observations"],
+  packageJson.exports["./fleetbudget-observations"],
   "./dist/fleetbudget-observations.js",
 );
+assert.equal(FLEETBUDGET_SNAPSHOT_VERSION, "meshfleet.fleetbudget-snapshot.v1");
 ```
 
-Cover exact outer, snapshot, lane, window, and binding keys; missing required keys; wrong version; nonfinite timestamps/numbers; duplicate lane IDs; duplicate candidate bindings; duplicate lane bindings; false-measured lanes carrying a non-null claim; reversed windows; and a window that excludes `observed_at_ms`.
+Import `readFileSync` from `node:fs`. Cover exact outer, snapshot, lane, window, and binding keys; missing required keys; wrong version; 0..256 lane/binding bounds; TTL at/below zero and above 600000 ms; nonfinite timestamps/numbers; candidate/lane ID bounds at 128; unit token bounds at 64; duplicate lane IDs; duplicate candidate bindings; duplicate lane bindings; false-measured lanes carrying a non-null claim; empty/non-token units; reversed windows; and a window that excludes `observed_at_ms`.
 
 - [ ] **Step 2: Run the focused test to verify it fails**
 
@@ -115,13 +119,13 @@ Expected: module/export or function is absent.
 
 - [ ] **Step 3: Implement only closed validation and canonical helpers**
 
-Define exact record/key validators, finite timestamp/number checks, one-to-one duplicate sets, cloned sorting helpers, and SHA-256 canonical JSON hash helpers. Reject `now_ms < observed_at_ms` as future-dated and `now_ms >= expires_at_ms` as expired before resolution. Do not add any I/O.
+Define exact record/key validators, finite timestamp/number checks, 0..256 bounds, one-to-one duplicate sets, cloned sorting helpers, and SHA-256 helpers. Hash `JSON.stringify` of reconstructed fixed-key snapshot/binding objects: sort lanes by `lane_id`, bindings by `candidate_id`, and write absent windows as `null`. Reject snapshot TTL outside `(0, 600000]`, `now_ms < observed_at_ms`, and `now_ms >= expires_at_ms` before resolution. Do not add any I/O.
 
 - [ ] **Step 4: Verify validation and export behavior**
 
 Run: `node --import tsx --test test/fleetbudget-observations.test.ts && npm run typecheck && npm run build`
 
-Expected: schema witnesses pass and `dist/fleetbudget-observations.js` is in the dry-run package payload.
+Expected: schema witnesses pass, the exported version is exact, and the built `dist/fleetbudget-observations.js` exists. Do not claim dry-run tarball coverage until Task 4.
 
 - [ ] **Step 5: Independent review gate and commit**
 
@@ -155,7 +159,7 @@ assert.deepEqual(result.observations, [{
 }]);
 ```
 
-Add an over-budget `used: 12, total: 10` witness that emits `exhausted` without clamping. Add live-shaped ceiling-less measured (`used: null`, `total: null`) and unmeasured cases that emit no observation and exact diagnostics. Cover missing lane, missing unit, missing window, and a valid-but-not-current window.
+Add an over-budget `used: 12, total: 10` witness that emits `exhausted` without clamping. Add live-shaped ceiling-less measured (`used: null`, `total: null`) and unmeasured cases that emit no observation and exact diagnostics. Assert usable bindings retain `reason_codes: []`, missing lanes have only `LANE_NOT_REPORTED`, unmeasured lanes have only `LANE_UNMEASURED`, and an all-null measured lane accumulates `BUDGET_USED_UNAVAILABLE`, `BUDGET_TOTAL_UNAVAILABLE`, `BUDGET_UNIT_UNAVAILABLE`, `WINDOW_MISSING` in exactly that order. Cover missing unit, missing window, a valid-but-not-current window, and all-false effects.
 
 - [ ] **Step 2: Run the focused tests to verify projection fails**
 
@@ -169,7 +173,7 @@ Resolve each validated binding against the lane map. Emit only the exact measure
 
 - [ ] **Step 4: Prove determinism and non-mutation**
 
-Add a permuted lanes/bindings fixture and `structuredClone` snapshots. Assert identical full output, candidate-ID sorting, stable hashes, and unchanged caller objects.
+Add permuted lanes/bindings and object-key-order fixtures with `structuredClone` snapshots. Assert identical full output, candidate-ID sorting, stable hashes, canonical absent-window `null` hashing, and unchanged caller objects.
 
 - [ ] **Step 5: Independent review gate and commit**
 
@@ -212,11 +216,11 @@ assert.deepEqual(recommendation.excluded, [
 
 Add a ceiling-less/unmeasured projected input that remains neutral. Use a lane ID such as `"unrestricted-provider-authenticated"` and assert it cannot alter capabilities, privacy, locality, requested/observed identity, health, auth, or execution fields.
 
-- [ ] **Step 2: Run integration tests to verify the intended boundary**
+- [ ] **Step 2: Run integration tests to verify the existing boundary**
 
 Run: `node --import tsx --test test/fleetbudget-observations.test.ts test/compile-route-candidates.test.ts test/recommend-route.test.ts`
 
-Expected: only complete measured exhaustion excludes; all incomplete evidence remains unmeasured.
+Expected: this boundary test may already be green because the existing compiler/recommender bridge maps measured exhausted observations to `BUDGET_EXHAUSTED`; only complete measured exhaustion excludes and incomplete evidence remains unmeasured.
 
 - [ ] **Step 3: Make only test corrections if the existing consumers disagree**
 
