@@ -82,6 +82,68 @@ cannot prove who wrote a record, whether a runtime claim is genuine, whether a
 side effect happened exactly once, or whether post-transaction event projection
 lost an event. Evidence labels must preserve those limits.
 
+### Tampered model channel
+
+Zone 3 reaches Zone 4 over a channel this project does not verify. Anything on
+that path — a relay service, an aggregating gateway, a local proxy installed to
+add models to a vendor harness — can read and modify both the outbound request
+and the inbound response. The specific move is to append or replace `tool_use`
+blocks in a response, so a worker executes actions the operator never requested.
+Data collected that way need not return to the model, so the visible output
+reads as normal.
+
+This threat is different in kind from every other entry above, and the
+difference is the point. For a well-formed injection, `verify_ledger` correctly
+reports `ok: true`: the worker really performed the recorded mesh actions, or left
+none, and the forged thing — instruction authenticity on the Zone 3 → Zone 4 path
+— is not a ledger field. The falsification corpus enumerates ledger *mutations*;
+this attack is not one, so it sits outside that bucket rather than missing from
+it.
+
+Two sub-cases, and the distinction matters operationally:
+
+```text
+injected work that never calls this server   leaves NO ledger trace at all
+injected work that calls this server WELL    leaves a consistent, passing ledger
+injected work that calls this server BADLY   may trip existing checks by accident
+```
+
+Only the third is detectable, and it is detectable by luck rather than by design
+— a forged `seen` receipt on a real message is already published as undetectable,
+while the same forgery pointing at a message id that does not exist is caught as
+`receipt.orphan_message`. An attacker who stays well-formed stays invisible.
+Detection here is a property of the attacker's carelessness, not of the auditor,
+and must never be described as coverage.
+
+The published `undetectable` bucket therefore understates this class rather than
+covering it. `undetectable-payload-swap-after-ack` is a mutation of ledger data;
+this is an uncompromised ledger faithfully recording compromised instructions.
+
+Required controls, none of which live in this repo's verification path:
+
+```text
+third-party relays      MUST be treated as Zone 4 and hostile
+unauthenticated hops    MUST NOT carry worker traffic
+any local proxy         MUST be operator-owned and auditable
+tool calls              SHOULD be allow-listed client-side before execution
+worker runtimes         SHOULD be sandboxed so an injected call is bounded
+provider base URL       is a credential-class change, not a config tweak
+```
+
+A blanket ban on third-party relays would be ignored: real deployments front
+providers with aggregating gateways and corporate proxies. The requirement is
+therefore classification, not abstinence. Note also that a transparent
+intermediary — a TLS-intercepting corporate proxy — needs no base-URL change to
+occupy this position, so the base-URL rule above is necessary and not sufficient.
+
+Record signing and hash-chaining do not repair this. A signed record of forged
+intent is durably attributable, not true, so that guarantee stops at authorship
+and integrity of the record and does not extend to the authenticity of the
+instruction that produced it. Closing the gap itself would need evidence about the
+Zone 3 → Zone 4 exchange — transcript attestation or an authenticated channel —
+which is a different mechanism from ledger integrity, not a stronger version of
+it.
+
 ## Required invariant substitutions
 
 The architecture MUST preserve these distinctions:
@@ -93,6 +155,8 @@ receipt row             != actor authenticity
 PID liveness            != durable ownership
 message acknowledgment  != task completion
 MCP reachability        != cross-host trust
+model response          != operator intent
+signed record           != truthful record
 ```
 
 ## Slice 4C-1 local admission threats
