@@ -321,6 +321,64 @@ function canonicalBindings(bindings: FleetBudgetObservationBinding[]): object {
   };
 }
 
+function projectObservations(
+  snapshot: FleetBudgetSnapshot,
+  bindings: FleetBudgetObservationBinding[],
+  nowMs: number,
+): Pick<FleetBudgetObservationResult, "observations" | "diagnostics"> {
+  const lanes = new Map(snapshot.lanes.map((lane) => [lane.lane_id, lane]));
+  const observations: CompileRouteCandidateObservation[] = [];
+  const diagnostics: FleetBudgetObservationResult["diagnostics"] = [];
+
+  for (const binding of [...bindings].sort((left, right) =>
+    compareStrings(left.candidate_id, right.candidate_id),
+  )) {
+    const lane = lanes.get(binding.lane_id);
+    if (lane === undefined) {
+      diagnostics.push({
+        candidate_id: binding.candidate_id,
+        lane_id: binding.lane_id,
+        reason_codes: ["LANE_NOT_REPORTED"],
+      });
+      continue;
+    }
+    if (!lane.measured) {
+      diagnostics.push({
+        candidate_id: binding.candidate_id,
+        lane_id: binding.lane_id,
+        reason_codes: ["LANE_UNMEASURED"],
+      });
+      continue;
+    }
+
+    const reasonCodes: string[] = [];
+    if (lane.used === null) reasonCodes.push("BUDGET_USED_UNAVAILABLE");
+    if (lane.total === null) reasonCodes.push("BUDGET_TOTAL_UNAVAILABLE");
+    if (lane.unit === null) reasonCodes.push("BUDGET_UNIT_UNAVAILABLE");
+    if (lane.window === undefined) {
+      reasonCodes.push("WINDOW_MISSING");
+    } else if (nowMs < lane.window.starts_at_ms || nowMs >= lane.window.ends_at_ms) {
+      reasonCodes.push("WINDOW_NOT_CURRENT");
+    }
+
+    diagnostics.push({
+      candidate_id: binding.candidate_id,
+      lane_id: binding.lane_id,
+      reason_codes: reasonCodes,
+    });
+    if (reasonCodes.length === 0) {
+      observations.push({
+        candidate_id: binding.candidate_id,
+        status: lane.used! >= lane.total! ? "exhausted" : "green",
+        confidence: "measured",
+        budget: { used: lane.used!, total: lane.total! },
+      });
+    }
+  }
+
+  return { observations, diagnostics };
+}
+
 export function compileFleetBudgetObservations(
   input: FleetBudgetObservationInput,
 ): FleetBudgetObservationResult {
@@ -340,6 +398,7 @@ export function compileFleetBudgetObservations(
     lanes: validateLanes(header.lanes, header.observed_at_ms),
   };
   const bindings = validateBindings(record.bindings);
+  const projection = projectObservations(snapshot, bindings, record.now_ms);
 
   return {
     projection: true,
@@ -357,7 +416,7 @@ export function compileFleetBudgetObservations(
       snapshot_sha256: sha256(canonicalSnapshot(snapshot)),
       bindings_sha256: sha256(canonicalBindings(bindings)),
     },
-    observations: [],
-    diagnostics: [],
+    observations: projection.observations,
+    diagnostics: projection.diagnostics,
   };
 }

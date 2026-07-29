@@ -58,8 +58,6 @@ test("exports the fleetbudget observation subpath and accepts a closed valid sch
   const result = compileFleetBudgetObservations(input());
   assert.equal(result.projection, true);
   assert.deepEqual(result.effects, effects);
-  assert.deepEqual(result.observations, []);
-  assert.deepEqual(result.diagnostics, []);
   assert.equal(result.source.kind, "fleetbudget-sanitized-v1");
 });
 test("rejects closed fleetbudget observation ingress before deeper validation", () => {
@@ -186,4 +184,149 @@ test("rejects duplicate bindings and contradictory lane claims", () => {
     () => compileFleetBudgetObservations(input({ snapshot: snapshot({ lanes: [{ ...snapshot().lanes[0], window: { id: "july", starts_at_ms: 101, ends_at_ms: 2_000 } }] }) }) as never),
     expects("input.snapshot.lanes[0].window", "must contain snapshot.observed_at_ms"),
   );
+});
+
+test("projects measured green evidence with its empty resolution ledger", () => {
+  const result = compileFleetBudgetObservations(input());
+
+  assert.deepEqual(result.effects, effects);
+  assert.deepEqual(result.observations, [{
+    candidate_id: "lane-a",
+    status: "green",
+    confidence: "measured",
+    budget: { used: 1, total: 2 },
+  }]);
+  assert.deepEqual(result.diagnostics, [{
+    candidate_id: "lane-a",
+    lane_id: "grok-build",
+    reason_codes: [],
+  }]);
+  assert.deepEqual(result.source, {
+    kind: "fleetbudget-sanitized-v1",
+    observed_at_ms: 100,
+    expires_at_ms: 1_000,
+    snapshot_sha256: "a8948c6050c1abc4b2a75001bb143c3222647744c6aa899d1756a5db651108b6",
+    bindings_sha256: "7119e8fbd4105f36ea4912ed1796385d17f3f8ae50ebff378566f353f53da1b4",
+  });
+});
+
+test("projects exact exhaustion without clamping overage", () => {
+  const result = compileFleetBudgetObservations(input({
+    snapshot: snapshot({ lanes: [{ ...snapshot().lanes[0], used: 12, total: 10 }] }),
+  }));
+
+  assert.deepEqual(result.observations, [{
+    candidate_id: "lane-a",
+    status: "exhausted",
+    confidence: "measured",
+    budget: { used: 12, total: 10 },
+  }]);
+  assert.deepEqual(result.diagnostics, [{ candidate_id: "lane-a", lane_id: "grok-build", reason_codes: [] }]);
+});
+
+test("diagnoses missing, unmeasured, incomplete, and stale telemetry without assumptions", () => {
+  const missing = compileFleetBudgetObservations(input({
+    bindings: [{ candidate_id: "lane-a", lane_id: "missing" }],
+  }));
+  assert.deepEqual(missing.observations, []);
+  assert.deepEqual(missing.diagnostics, [{
+    candidate_id: "lane-a", lane_id: "missing", reason_codes: ["LANE_NOT_REPORTED"],
+  }]);
+
+  const unmeasured = compileFleetBudgetObservations(input({
+    snapshot: snapshot({
+      lanes: [{ lane_id: "grok-build", measured: false, used: null, total: null, unit: null }],
+    }),
+  }));
+  assert.deepEqual(unmeasured.observations, []);
+  assert.deepEqual(unmeasured.diagnostics, [{
+    candidate_id: "lane-a", lane_id: "grok-build", reason_codes: ["LANE_UNMEASURED"],
+  }]);
+
+  const allNull = compileFleetBudgetObservations(input({
+    snapshot: snapshot({
+      lanes: [{ lane_id: "grok-build", measured: true, used: null, total: null, unit: null }],
+    }),
+  }));
+  assert.deepEqual(allNull.observations, []);
+  assert.deepEqual(allNull.diagnostics, [{
+    candidate_id: "lane-a",
+    lane_id: "grok-build",
+    reason_codes: [
+      "BUDGET_USED_UNAVAILABLE",
+      "BUDGET_TOTAL_UNAVAILABLE",
+      "BUDGET_UNIT_UNAVAILABLE",
+      "WINDOW_MISSING",
+    ],
+  }]);
+
+  const missingUnit = compileFleetBudgetObservations(input({
+    snapshot: snapshot({ lanes: [{ ...snapshot().lanes[0], unit: null }] }),
+  }));
+  assert.deepEqual(missingUnit.diagnostics, [{
+    candidate_id: "lane-a", lane_id: "grok-build", reason_codes: ["BUDGET_UNIT_UNAVAILABLE"],
+  }]);
+
+  const missingWindow = compileFleetBudgetObservations(input({
+    snapshot: snapshot({ lanes: [{ ...snapshot().lanes[0], window: undefined }] }),
+  }));
+  assert.deepEqual(missingWindow.diagnostics, [{
+    candidate_id: "lane-a", lane_id: "grok-build", reason_codes: ["WINDOW_MISSING"],
+  }]);
+
+  const historical = compileFleetBudgetObservations(input({
+    now_ms: 200,
+    snapshot: snapshot({
+      lanes: [{
+        ...snapshot().lanes[0],
+        window: { id: "july", starts_at_ms: 0, ends_at_ms: 150 },
+      }],
+    }),
+  }));
+  assert.deepEqual(historical.diagnostics, [{
+    candidate_id: "lane-a", lane_id: "grok-build", reason_codes: ["WINDOW_NOT_CURRENT"],
+  }]);
+});
+
+test("projects deterministically without mutating array or object-key permutations", () => {
+  const baselineInput = {
+    snapshot: snapshot({
+      lanes: [
+        { ...snapshot().lanes[0], lane_id: "lane-z" },
+        { ...snapshot().lanes[0], lane_id: "lane-a" },
+      ],
+    }),
+    bindings: [
+      { candidate_id: "candidate-z", lane_id: "lane-z" },
+      { candidate_id: "candidate-a", lane_id: "lane-a" },
+    ],
+    now_ms: 100,
+  };
+  const permutedInput = {
+    now_ms: 100,
+    bindings: [
+      { lane_id: "lane-a", candidate_id: "candidate-a" },
+      { lane_id: "lane-z", candidate_id: "candidate-z" },
+    ],
+    snapshot: {
+      lanes: [
+        { window: { ends_at_ms: 2_000, starts_at_ms: 0, id: "july" }, unit: "tokens", total: 2, used: 1, measured: true, lane_id: "lane-a" },
+        { window: { ends_at_ms: 2_000, starts_at_ms: 0, id: "july" }, unit: "tokens", total: 2, used: 1, measured: true, lane_id: "lane-z" },
+      ],
+      expires_at_ms: 1_000,
+      observed_at_ms: 100,
+      version: FLEETBUDGET_SNAPSHOT_VERSION,
+    },
+  };
+  const baselineBefore = structuredClone(baselineInput);
+  const permutedBefore = structuredClone(permutedInput);
+
+  const baseline = compileFleetBudgetObservations(baselineInput);
+  const permuted = compileFleetBudgetObservations(permutedInput);
+
+  assert.deepEqual(baselineInput, baselineBefore);
+  assert.deepEqual(permutedInput, permutedBefore);
+  assert.deepEqual(permuted, baseline);
+  assert.deepEqual(baseline.observations.map(({ candidate_id }) => candidate_id), ["candidate-a", "candidate-z"]);
+  assert.deepEqual(baseline.diagnostics.map(({ candidate_id }) => candidate_id), ["candidate-a", "candidate-z"]);
 });
