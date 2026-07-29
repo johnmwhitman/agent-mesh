@@ -30,8 +30,25 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
   `meshfleet/routeplane-catalog` library and `meshfleet-routeplane-catalog`
   host CLI fetch only RoutePlane's fixed loopback `/v1/models` endpoint,
   canonicalize an expiring snapshot, and project exact advertised model IDs
-  plus caller-owned policy into advisory candidates. This adds no MCP tool,
-  credentials, provider execution, automatic selection, or budget authority.
+  plus caller-owned policy into advisory candidates. The library also offers
+  `fetchAndRecommendRoutePlaneCatalog()` for one explicit fixed-loopback fetch
+  followed by the existing advisory composition; it does not cache or schedule
+  refreshes. This adds no MCP tool, credentials, provider execution, automatic
+  selection, or budget authority.
+- **Bounded local-admission evidence-alpha** — one offline raw-text
+  `evaluate-local-admission` operation, its independent Python witness, closed
+  corpus, and static-harness sidecar now exercise the local admission profile.
+  The result is only an ephemeral plan or closed non-admission disposition; it
+  is not public ingress, an authentication provider, durable acceptance, a
+  replay store, transport, delivery, execution, or multi-host evidence. The
+  full profile gate remains open.
+- **Internal replay-decision seam** — local admission now uses a closed,
+  transport-neutral oracle-to-outcome mapping after authorization. The seam is
+  not exported and adds no principal validation, persistence, transport, or
+  replay-store integration.
+- **Discussion derivation fuzz differential** — an offline deterministic
+  cross-language fuzz check now exercises bounded Discussion derivation parity;
+  it neither launches agents nor changes Discussion authority or durable state.
 - **Strict raw Fleetbudget diagnostic ingress** — use the
   `meshfleet/fleetbudget-sanitizer` library or
   `meshfleet-fleetbudget-sanitize` stdin CLI to validate the current

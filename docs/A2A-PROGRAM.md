@@ -1,8 +1,8 @@
 # Agent-to-Agent Program
 
 This is the canonical strategy and sequencing document for the next Agent Mesh
-A2A program. It describes work that is planned or designed; it does not turn a
-design into an implementation claim.
+A2A program. It separates planned or designed work from implemented evidence;
+it does not turn a design into an implementation claim.
 
 ## Current position
 
