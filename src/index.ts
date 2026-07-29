@@ -2227,7 +2227,9 @@ if (!isChildInstance) {
   // Close fleets written before the completion lattice existed, which no normal
   // write path can ever revisit. LOUD, because this rewrites stored statuses in
   // the operator's ledger on first start after upgrade; each move also leaves a
-  // `fleet_reconciled` receipt in the event log naming its before and after.
+  // `fleet_reconciled` EVENT in the event log naming its before and after. Not a
+  // "receipt": receipts are rows keyed to a real message, and there is no message
+  // here to attest to.
   const reconciledCount = reconcileAbandonedFleets();
   if (reconciledCount > 0) {
     console.error(`Agent Mesh v${MESH_VERSION} — reconciled ${reconciledCount} fleet(s) whose agents had all finished but which were still recorded as running (see fleet_reconciled events)`);

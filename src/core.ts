@@ -662,9 +662,16 @@ function emitFleetTransitions(transitions: FleetTransition[], via: string): void
  * it writes through the normal ledger path, it applies the same lattice as every
  * other caller, it cannot touch a sealed fleet, it leaves empty fleets alone
  * (they are stuck, not finished), and every move it makes emits a
- * `fleet_reconciled` receipt naming the before and after. A silent status
+ * `fleet_reconciled` EVENT naming the before and after. A silent status
  * mutation in an evidence product would fail the same bar that disqualified
  * "just write `failed` and accept the lost distinction".
+ *
+ * Deliberately an event and not a "receipt". A receipt is a row in the
+ * `receipts` table keyed to a real message — `receipt.orphan_message` is an
+ * ERROR precisely so a receipt cannot exist without the message it attests to.
+ * Calling event-log entries "receipts" invites the conclusion that the fan-out
+ * path produces audit receipts. It does not, and it should not: emitting one per
+ * spawn would require fabricating a message for it to point at.
  *
  * Returns the number of fleets moved.
  */
