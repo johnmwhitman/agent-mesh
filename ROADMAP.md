@@ -68,6 +68,17 @@ one lane ID as unsplit shared evidence. That acceptance widening preserves
 byte-identical results for prior exclusive inputs; it does not add pooling,
 allocation, reservation, concurrency control, or authority.
 
+The current raw Fleetbudget report now has a strict bytes-to-snapshot sanitizer
+and bounded stdin CLI. This is diagnostic ingress only: the raw `lane` survives
+as an opaque evidence identifier, while `routes`, `state`, `utilization`,
+`note`, and `detail` are erased. Because the producer has no schema version,
+per-probe timing, or typed quota windows, sanitized lanes have no `window`;
+complete and exhausted raw ceilings therefore produce `WINDOW_MISSING` and no
+observation. They cannot establish availability, exhaustion, allocation,
+ranking, routing, provider identity, authentication, health, locality, or
+execution authority. The CLI reads stdin and never invokes Fleetbudget or a
+provider process.
+
 ## Shipped
 
 | Version | Theme | Highlights |
@@ -152,8 +163,11 @@ Direction, not commitment — items ship when real usage pulls them.
   and Ollama Cloud's direct API. RoutePlane catalog discovery and caller-policy
   projection are shipped. `recommendRoutePlaneCatalog()` is a package-library
   advisory composition over an already-fetched snapshot, not provider selection
-  or execution; it does not deploy or publish a package, poll budget telemetry,
-  or infer authority from provider labels.
+  or execution. A raw Fleetbudget sanitizer is implemented and reviewed on the
+  current in-flight branch as diagnostic-only ingress; it does not poll
+  telemetry, infer typed quota windows, deploy or publish a package, or grant
+  authority from provider labels. Structured collector versioning, timing, and
+  quota windows remain prerequisites for actionable budget observations.
 - Per-entry provenance confidence bands in verify output
 
 **Recently shipped from this list** (moved here rather than deleted, so the list stays auditable)
@@ -167,9 +181,11 @@ Direction, not commitment — items ship when real usage pulls them.
   are byte-identical; only repeated lane bindings are newly accepted. Complete
   measured exhaustion reaches the existing `BUDGET_EXHAUSTED` advisory
   exclusion, while incomplete or unmeasured evidence remains neutral. It has no
-  raw Fleetbudget parser, CLI, polling, provider inference, execution, pool
+  polling, provider inference, execution, pool
   accounting, reservation, concurrency control, unused-quota reward, or
-  weekly-burn optimization. Raw sanitization and drain scoring remain future.
+  weekly-burn optimization. Raw sanitization is now a separate
+  diagnostic-only package/CLI surface; typed collector windows and drain
+  scoring remain future.
   See `docs/FLEETBUDGET-OBSERVATIONS.md`.
 - RoutePlane model-catalog discovery and caller-policy projection: the separate
   `meshfleet-routeplane-catalog` CLI fetches only RoutePlane's fixed loopback

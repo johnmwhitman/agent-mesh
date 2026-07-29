@@ -12,6 +12,18 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
   canonicalize an expiring snapshot, and project exact advertised model IDs
   plus caller-owned policy into advisory candidates. This adds no MCP tool,
   credentials, provider execution, automatic selection, or budget authority.
+- **Strict raw Fleetbudget diagnostic ingress** — use the
+  `meshfleet/fleetbudget-sanitizer` library or
+  `meshfleet-fleetbudget-sanitize` stdin CLI to validate the current
+  unversioned `fleetbudget --json` byte shape against an explicit local
+  collection interval. The sanitizer keeps each `lane` only as an opaque
+  evidence identifier with measured metrics and erases `routes`, `state`,
+  `utilization`, `note`, and `detail`. It emits no typed quota window, so even
+  complete or exhausted raw ceilings remain `WINDOW_MISSING` diagnostics with
+  no availability, exhaustion, allocation, ranking, route, provider, auth,
+  health, locality, or execution authority. The CLI never invokes Fleetbudget
+  or provider processes; see `docs/FLEETBUDGET-OBSERVATIONS.md` for the
+  host-owned private-file collection recipe.
 
 ## [0.19.0] — 2026-07-28
 
