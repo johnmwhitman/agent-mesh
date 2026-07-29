@@ -200,7 +200,7 @@ and bounded intervals; a result proves no operational freshness, revocation, or
 provenance authority. Static harness mapping is a closed sidecar outside
 `RendererResult` and the admission corpus and emits null identity fields for all
 targets; its validator and seven-positive/fourteen-negative fixtures are now
-executable. The shared local-admission corpus has 39 mandatory cases, direct
+executable. The shared local-admission corpus has 44 mandatory cases, direct
 TypeScript/Python agreement, recipient-order normalization, and strict witness
 mutation checks. It does not yet close every exhaustive family, cardinality,
 and exact-path row in the profile, so full Slice 4C-1 conformance remains open.

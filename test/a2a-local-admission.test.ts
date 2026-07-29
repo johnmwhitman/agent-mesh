@@ -24,6 +24,7 @@ const localAdmissionCorpusCountDocs = [
   join(root, "COMPATIBILITY.md"),
   join(root, "docs", "A2A-PROGRAM.md"),
   join(root, "docs", "A2A-HANDOFF-CURRENT.md"),
+  join(root, "docs", "A2A-LOCAL-ADMISSION-PROFILE-v0.1.md"),
 ];
 
 function evaluate(item: CorpusCase) {
@@ -78,6 +79,44 @@ test("authorization boundary evidence covers the next feasible Section 9 cardina
       "authorization.boundary.duplicate-message-type",
       "authorization.boundary.duplicate-recipient",
       "authorization.boundary.all-recipient-denied",
+    ],
+  );
+});
+
+test("authentication-evidence boundaries stay ordered and preserve their terminal semantics", () => {
+  const evidenceCases = corpus.cases.filter((item) => item.id.startsWith("evidence."));
+  assert.deepEqual(
+    evidenceCases.map((item) => item.id),
+    [
+      "evidence.invalid",
+      "evidence.provenance-invalid",
+      "evidence.issued-at-evaluation-valid",
+      "evidence.expires-at-evaluation-denied",
+      "evidence.lifetime-300000-valid",
+      "evidence.lifetime-300001-denied",
+    ],
+  );
+  assert.deepEqual(
+    evidenceCases.slice(1).map((item) => item.expected),
+    [
+      { result: { kind: "rejected", code: "INVALID_AUTHENTICATION_EVIDENCE", field_path: "$.authentication_evidence.provenance" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+      corpus.cases[0]!.expected,
+      { result: { kind: "rejected", code: "AUTHORIZATION_DENIED", field_path: "$" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+      corpus.cases[0]!.expected,
+      { result: { kind: "rejected", code: "AUTHORIZATION_DENIED", field_path: "$" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+    ],
+  );
+  assert.deepEqual(
+    evidenceCases.slice(1).map((item) => {
+      const request = JSON.parse(item.invocation_args.request_json) as { authentication_evidence: unknown };
+      return request.authentication_evidence;
+    }),
+    [
+      { adapter_id: "local.adapter", principal_ref: "principal-ref", audience: "local-audience", session_ref: "session-ref", issued_at_ms: 0, expires_at_ms: 200, provenance: "untrusted_local_adapter" },
+      { adapter_id: "local.adapter", principal_ref: "principal-ref", audience: "local-audience", session_ref: "session-ref", issued_at_ms: 100, expires_at_ms: 200, provenance: "trusted_local_adapter" },
+      { adapter_id: "local.adapter", principal_ref: "principal-ref", audience: "local-audience", session_ref: "session-ref", issued_at_ms: 0, expires_at_ms: 100, provenance: "trusted_local_adapter" },
+      { adapter_id: "local.adapter", principal_ref: "principal-ref", audience: "local-audience", session_ref: "session-ref", issued_at_ms: 0, expires_at_ms: 300000, provenance: "trusted_local_adapter" },
+      { adapter_id: "local.adapter", principal_ref: "principal-ref", audience: "local-audience", session_ref: "session-ref", issued_at_ms: 0, expires_at_ms: 300001, provenance: "trusted_local_adapter" },
     ],
   );
 });
