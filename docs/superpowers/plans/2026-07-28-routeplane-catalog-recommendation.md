@@ -22,6 +22,8 @@ route-candidate compiler, and recommendation modules.
   failover and execution authority.
 - Caller policy remains the sole source of traits and any budget observation.
 - Provider labels never infer authority, traits, availability, execution or budget.
+- Provider-list changes are catalog provenance: they intentionally change
+  `source.payload_sha256`, but no routing-authority comparison includes `source`.
 - The result is advisory and all effects remain false.
 - `top_n` is a finite positive integer no greater than 256; when compilation
   produces candidates the existing stricter candidate-count maximum applies.
@@ -102,7 +104,10 @@ Add four focused tests:
 // Missing: MODEL_NOT_ADVERTISED is compilation-only, not evaluator exclusion.
 // Exhausted: compiler reports BUDGET_EXHAUSTED_EVIDENCE; evaluator excludes BUDGET_EXHAUSTED.
 // Unmeasured: an advertised compatible policy ranks with BUDGET_UNMEASURED.
-// Labels: replacing providers with ["budget-available", "unrestricted"] changes none of those results.
+// Labels: replacing providers with ["budget-available", "unrestricted"] changes
+// source.payload_sha256 only. Compare all non-source result fields and assert
+// status, ranked, excluded, compilation diagnostics, effects, ranked budget status,
+// caller-owned traits, and requested identity are unchanged.
 ```
 
 Use caller observations for the budget cases. Do not add a provider field to
@@ -119,6 +124,9 @@ Expected: FAIL until the composition result preserves both layers exactly.
 Keep `compilation.diagnostics` as the compiler returns it. Set `excluded` only
 from `recommendRoute`; do not append compiler diagnostics, translate reason
 codes, synthesize an observation, or inspect `snapshot.models[*].providers`.
+The provider-label regression must compare source digest separately: a changed
+provider list is a changed canonical catalog payload, not a changed routing
+authority input.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -186,7 +194,50 @@ git add src/routeplane-catalog.ts test/routeplane-catalog.test.ts
 git commit -m "feat: return empty RoutePlane catalog recommendations"
 ```
 
-### Task 4: Publish factual documentation and perform review
+### Task 4: Prove composition determinism and non-mutation
+
+**Files:**
+- Modify: `test/routeplane-catalog.test.ts`
+- Modify: `src/routeplane-catalog.ts` only if the test reveals mutation
+
+**Interfaces:**
+- Verifies: `recommendRoutePlaneCatalog(input): RoutePlaneCatalogRecommendation`
+
+- [ ] **Step 1: Write the failing full-input determinism and non-mutation test**
+
+Build one input with a normalized snapshot, mixed advertised and unadvertised
+policies, a valid task, measured and assumed observations, fixed `now_ms`, and
+`top_n`. Deep-freeze the full input or retain a deep clone before invoking the
+function. Call `recommendRoutePlaneCatalog(input)` twice, then assert the input
+matches its pre-call deep clone and both outputs are deeply equal.
+
+- [ ] **Step 2: Run test to verify it fails if composition mutates or is nondeterministic**
+
+Run: `node --import tsx --test --test-name-pattern='RoutePlane catalog recommendation is deterministic and does not mutate input' test/routeplane-catalog.test.ts`
+
+Expected: FAIL until the composition preserves the full caller-owned input and
+does not introduce clock-dependent or order-dependent output.
+
+- [ ] **Step 3: Write the minimal repair only if the red test exposes one**
+
+Do not clone merely to satisfy the test. Preserve existing compiler/evaluator
+copies, avoid in-place sorting/filtering of caller arrays, and keep all output
+ordering delegated to their existing deterministic contracts.
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `node --import tsx --test test/routeplane-catalog.test.ts test/compile-route-candidates.test.ts test/recommend-route.test.ts`
+
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/routeplane-catalog.ts test/routeplane-catalog.test.ts
+git commit -m "test: pin RoutePlane recommendation determinism"
+```
+
+### Task 5: Publish factual documentation and perform review
 
 **Files:**
 - Modify: `docs/ROUTEPLANE-CATALOG.md`
@@ -219,7 +270,9 @@ Expected: all commands exit zero.
 
 Review only introduced behavior: result shape, fresh-snapshot delegation, empty
 branch, `top_n`, diagnostic separation, provider-label non-authority and no new
-I/O. Reproduce every actionable finding through a new red-green cycle.
+I/O. Verify that provider-label review compares the changed provenance digest
+separately from unchanged routing authority. Reproduce every actionable finding
+through a new red-green cycle.
 
 - [ ] **Step 5: Commit**
 

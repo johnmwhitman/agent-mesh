@@ -130,9 +130,17 @@ weekly budget poller.
 override capability, privacy, locality, policy tags, context window, budget,
 availability, authentication, execution authority or an observed identity.
 
+Provider labels are nevertheless canonical catalog provenance. Replacing a
+model's provider list intentionally changes the normalized snapshot's
+`source.payload_sha256`; the non-authority comparison must exclude `source`
+from equality. With otherwise identical caller policy, task, observation and
+clock input, the change must leave `status`, `ranked`, `excluded`,
+`compilation.diagnostics`, `effects`, every ranked budget status, caller-owned
+candidate traits, and requested identity unchanged.
+
 ## TDD verification cases
 
-`test/routeplane-catalog.test.ts` receives these seven behavior tests:
+`test/routeplane-catalog.test.ts` receives these eight behavior tests:
 
 1. A fresh snapshot with one exact advertised, task-compatible policy returns
    `status: "evaluated"`, one advisory rank, copies source and compilation
@@ -146,9 +154,10 @@ availability, authentication, execution authority or an observed identity.
 4. The same advertised policy with no observation stays eligible and reports
    `BUDGET_UNMEASURED`; it is never treated as exhausted or deprioritized for
    an invented budget.
-5. Provider labels shaped like authority claims cannot change ranking,
-   compilation diagnostics, candidate traits, requested identity or budget
-   status.
+5. Changing provider labels to authority-shaped strings intentionally changes
+   only `source.payload_sha256`; comparing results without `source` proves it
+   cannot change `status`, ranking, exclusions, compilation diagnostics,
+   effects, budget status, caller-owned traits or requested identity.
 6. Expired and future-dated snapshots reject before an advisory result; the
    error remains the compiler's freshness error and no fetch seam is involved.
 7. An empty catalog or all-unadvertised policy set yields
@@ -156,6 +165,10 @@ availability, authentication, execution authority or an observed identity.
    `excluded` arrays, sorted compilation diagnostics, all five effects false,
    and accepts `top_n` values from 1 through 256. Invalid `top_n` values and a
    non-empty compilation with `top_n` above its candidate count still reject.
+8. Deep-freeze or deep-clone one full input containing a snapshot, mixed
+   advertised/unadvertised policies, task, observations, `now_ms`, and `top_n`;
+   call the composition twice and assert the input is unchanged and both outputs
+   are deeply identical.
 
 Existing `recommend-route` and compiler tests remain the regression proof for
 closed schemas, hard task constraints, deterministic scoring and the
