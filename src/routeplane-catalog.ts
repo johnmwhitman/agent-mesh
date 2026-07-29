@@ -385,7 +385,7 @@ export function normalizeRoutePlaneCatalog(
   };
 }
 
-async function readBoundedBody(response: Response): Promise<string> {
+async function readBoundedBody(response: Response, signal: AbortSignal): Promise<string> {
   if (response.body === null) {
     return "";
   }
@@ -393,9 +393,22 @@ async function readBoundedBody(response: Response): Promise<string> {
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let size = 0;
+  let rejectAbort: ((reason: unknown) => void) | undefined;
+  const abortPromise = new Promise<never>((_resolve, reject) => {
+    rejectAbort = reject;
+  });
+  const abortBodyRead = () => {
+    rejectAbort?.(new Error("RoutePlane catalog request timed out"));
+    void reader.cancel().catch(() => {});
+  };
+  if (signal.aborted) {
+    abortBodyRead();
+  } else {
+    signal.addEventListener("abort", abortBodyRead, { once: true });
+  }
   try {
     for (;;) {
-      const { done, value } = await reader.read();
+      const { done, value } = await Promise.race([reader.read(), abortPromise]);
       if (done) {
         break;
       }
@@ -414,8 +427,12 @@ async function readBoundedBody(response: Response): Promise<string> {
     if (error instanceof RoutePlaneCatalogError) {
       throw error;
     }
+    if (signal.aborted) {
+      throw new RoutePlaneCatalogError("timeout", "RoutePlane catalog request timed out");
+    }
     throw new RoutePlaneCatalogError("body_read_failed", "Unable to read RoutePlane catalog response");
   } finally {
+    signal.removeEventListener("abort", abortBodyRead);
     reader.releaseLock();
   }
 
@@ -441,6 +458,14 @@ export async function fetchRoutePlaneCatalog(
 ): Promise<RoutePlaneCatalogSnapshot> {
   const ttlMs = options.ttl_ms ?? DEFAULT_TTL_MS;
   const timeoutMs = options.timeout_ms ?? DEFAULT_TIMEOUT_MS;
+  if (
+    !Number.isFinite(timeoutMs) ||
+    !Number.isInteger(timeoutMs) ||
+    timeoutMs <= 0 ||
+    timeoutMs > MAX_TTL_MS
+  ) {
+    fail("timeout_ms", `must be a positive finite integer no greater than ${MAX_TTL_MS}`);
+  }
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -470,7 +495,7 @@ export async function fetchRoutePlaneCatalog(
       );
     }
 
-    const body = await readBoundedBody(response);
+    const body = await readBoundedBody(response, controller.signal);
     let payload: unknown;
     try {
       payload = JSON.parse(body);

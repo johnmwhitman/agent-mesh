@@ -66,6 +66,7 @@ test("RoutePlane catalog CLI emits one valid snapshot JSON document", () => {
     assert.equal(result.status, 0, result.stderr);
     assert.equal(result.stderr, "");
     const snapshot = JSON.parse(result.stdout);
+    assert.equal(result.stdout, `${JSON.stringify(snapshot)}\n`);
     assert.equal(snapshot.version, "meshfleet.routeplane-model-snapshot.v1");
     assert.equal(snapshot.source.endpoint, LOOPBACK_ENDPOINT);
     assert.equal(snapshot.source.expires_at_ms - snapshot.source.fetched_at_ms, 1234);

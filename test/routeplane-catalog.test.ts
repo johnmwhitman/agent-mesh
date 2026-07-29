@@ -59,6 +59,29 @@ test("gives semantically reordered live catalogs the same canonical digest", () 
   assert.deepEqual(first.models, second.models);
 });
 
+test("changes the catalog digest when models or their providers change", () => {
+  const baseline = normalizeRoutePlaneCatalog(liveCatalog, 100, 60_000);
+  const added = normalizeRoutePlaneCatalog(
+    { ...liveCatalog, data: [...liveCatalog.data, { id: "new-model", object: "model", providers: ["gamma"] }] },
+    100,
+    60_000,
+  );
+  const removed = normalizeRoutePlaneCatalog(
+    { ...liveCatalog, data: [liveCatalog.data[0]!] },
+    100,
+    60_000,
+  );
+  const providerChanged = normalizeRoutePlaneCatalog(
+    { ...liveCatalog, data: [{ ...liveCatalog.data[0]!, providers: ["zeta"] }, liveCatalog.data[1]!] },
+    100,
+    60_000,
+  );
+
+  assert.notEqual(added.source.payload_sha256, baseline.source.payload_sha256);
+  assert.notEqual(removed.source.payload_sha256, baseline.source.payload_sha256);
+  assert.notEqual(providerChanged.source.payload_sha256, baseline.source.payload_sha256);
+});
+
 test("rejects duplicate model IDs, unknown fields, and catalog bounds", () => {
   const validModel = { id: "model-a", object: "model", providers: ["provider-a"] };
 
@@ -195,6 +218,23 @@ test("turns a fetch timeout into a typed catalog error", async () => {
   assert.equal(observedSignal?.aborted, true);
 });
 
+test("rejects invalid timeout values before contacting RoutePlane", async () => {
+  for (const timeout_ms of [0, -1, Number.NaN, Number.POSITIVE_INFINITY, 1.5, 600_001]) {
+    let fetchCalls = 0;
+    await assert.rejects(
+      fetchRoutePlaneCatalog({
+        timeout_ms,
+        fetch_impl: async () => {
+          fetchCalls += 1;
+          return validCatalogResponse();
+        },
+      }),
+      /timeout_ms.*positive finite integer.*600000/i,
+    );
+    assert.equal(fetchCalls, 0, `timeout_ms=${String(timeout_ms)}`);
+  }
+});
+
 test("rejects non-success responses and invalid JSON with typed catalog errors", async () => {
   await assert.rejects(
     fetchRoutePlaneCatalog({ fetch_impl: async () => new Response("unavailable", { status: 503 }) }),
@@ -228,6 +268,40 @@ test("cancels the response reader and rejects bodies larger than one MiB", async
     hasCatalogError("body_too_large"),
   );
   assert.equal(cancelled, true);
+});
+
+test("turns an aborted stalled response body into a typed timeout", async () => {
+  let cancelled = false;
+  const stalledBody = new ReadableStream<Uint8Array>({
+    pull() {
+      return new Promise<void>(() => {});
+    },
+    cancel() {
+      cancelled = true;
+    },
+  });
+
+  await assert.rejects(
+    fetchRoutePlaneCatalog({
+      timeout_ms: 10,
+      fetch_impl: async () => new Response(stalledBody),
+    }),
+    hasCatalogError("timeout"),
+  );
+  assert.equal(cancelled, true);
+});
+
+test("turns a response stream read error into a typed body-read failure", async () => {
+  const failingBody = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.error(new Error("stream exploded"));
+    },
+  });
+
+  await assert.rejects(
+    fetchRoutePlaneCatalog({ fetch_impl: async () => new Response(failingBody) }),
+    hasCatalogError("body_read_failed"),
+  );
 });
 
 test("compiles only exactly advertised RoutePlane models with caller-owned traits", () => {
