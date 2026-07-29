@@ -3,6 +3,7 @@ import { classifySpawnResult } from "../spawn-result.js";
 import {
   cancelProcessExecution,
   startProcessExecution,
+  resolveChildEnvironment,
   waitForProcessExecution,
   type RawProcessResult,
   type SpawnProcess,
@@ -74,7 +75,11 @@ export class OpenCodeRuntimeAdapter implements RuntimeAdapter {
   }
 
   validate(spec: ExecutionSpec): ValidationResult {
-    return validateExecutionSpec(spec);
+    const validation = validateExecutionSpec(spec);
+    // OpenCode is intentionally left on its verified argv/ignored-stdin
+    // contract. Native adapters may opt into ProcessExecution stdin delivery.
+    if (spec.input) validation.errors.push("OpenCode CLI does not support stdin input");
+    return { ok: validation.errors.length === 0, errors: validation.errors };
   }
 
   async start(spec: ExecutionSpec): Promise<RuntimeHandle> {
@@ -87,7 +92,13 @@ export class OpenCodeRuntimeAdapter implements RuntimeAdapter {
         args: this.buildArgs(spec),
         cwd: spec.cwd,
         // Preserve current OpenCode behavior while allowing explicit overrides.
-        environment: { ...process.env, ...spec.environment, AGENT_MESH_CHILD: "1" },
+        environment: resolveChildEnvironment(
+          process.env,
+          spec.environment,
+          spec.environmentPolicy,
+          { AGENT_MESH_CHILD: "1" },
+          "inherit",
+        ),
         timeoutMs: spec.timeoutMs,
         terminationGraceMs: this.terminationGraceMs,
         normalizeClose: (raw) => {
@@ -117,6 +128,8 @@ export class OpenCodeRuntimeAdapter implements RuntimeAdapter {
         normalizeSpawnError: (raw, error) => failure(raw, error.message),
         normalizeTimeout: (raw) => failure(raw, `Timed out after ${spec.timeoutMs}ms`, "timeout"),
         normalizeCancellation: (raw, reason) => failure(raw, `Cancelled: ${reason}`, "cancelled"),
+        normalizeOutputOverflow: (raw, stream, limit) =>
+          failure(raw, `${stream} exceeded configured limit of ${limit} bytes`),
       },
       this.spawnProcess,
     );

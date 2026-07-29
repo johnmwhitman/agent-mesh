@@ -247,13 +247,17 @@ limit, not a defect:
 | Timeout sends a catchable `SIGTERM` first | yes | **no** |
 | Child may trap the signal, flush trailing output, exit on its own terms | yes | **no** |
 | Unresponsive child escalated to `SIGKILL` after the grace window | yes | n/a — the first kill is already unconditional |
-| Timeout and cancellation still settle exactly once, child never left alive | yes | yes |
+| Timeout and cancellation settle exactly once | yes | yes |
+| Timeout and cancellation contain the full descendant process group | yes | **no** — only the launched process is terminated |
 
 On Windows, `process.kill(pid, "SIGTERM")` maps onto `TerminateProcess`, which
 is immediate and cannot be handled, so the grace window has no meaning there. A
-timeout or cancellation on Windows terminates the child at once; the resulting
-`RuntimeResult` status is still correct, but trailing output written after the
-kill request is lost and `result.signal` does not report `SIGTERM`.
+timeout or cancellation on Windows terminates the launched process at once; the
+resulting `RuntimeResult` status is still correct, but trailing output written
+after the kill request is lost, `result.signal` does not report `SIGTERM`, and
+descendant containment is not claimed. Native adapters that can create
+subprocess trees require a separate Windows job-object or equivalent boundary
+before unattended Windows execution can be called contained.
 
 The tests asserting the cooperative path are skipped on `win32` with that
 reason in the skip message. Portable behaviour — exit-code normalisation,

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -67,6 +67,42 @@ async function waitForReady(marker: string, ceilingMs = 30_000): Promise<void> {
       throw new Error(`child never reported readiness at ${marker} within ${ceilingMs}ms`);
     }
     await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
+async function waitForProcessGone(pid: number, ceilingMs = 5_000): Promise<void> {
+  const deadline = Date.now() + ceilingMs;
+  for (;;) {
+    try {
+      process.kill(pid, 0);
+    } catch {
+      return;
+    }
+    if (Date.now() > deadline) throw new Error(`process ${pid} survived containment for ${ceilingMs}ms`);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
+async function waitForProcessGroupGone(pgid: number, ceilingMs = 5_000): Promise<void> {
+  const deadline = Date.now() + ceilingMs;
+  for (;;) {
+    try {
+      process.kill(-pgid, 0);
+    } catch {
+      return;
+    }
+    if (Date.now() > deadline) throw new Error(`process group ${pgid} survived containment for ${ceilingMs}ms`);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
+function forceFixtureCleanup(pid: number | undefined): void {
+  if (pid === undefined) return;
+  try {
+    if (process.platform !== "win32") process.kill(-pid, "SIGKILL");
+    else process.kill(pid, "SIGKILL");
+  } catch {
+    // The successful containment path has already reaped the process group.
   }
 }
 
@@ -227,6 +263,7 @@ test("cancellation wins the timeout race and settles exactly once after forced k
       cancellationNormalizations += 1;
       return normalized(raw, "cancelled", reason);
     },
+    normalizeOutputOverflow: (raw, stream, limit) => normalized(raw, "failure", `${stream}:${limit}`),
   });
   const controller = new AbortController();
   const pending = waitForProcessExecution(handle, controller.signal);
@@ -263,6 +300,174 @@ test("local process adapter keeps argv data, cwd, explicit env, and child output
     assert.deepEqual(RUNTIME_CHILD_STDIO, ["ignore", "pipe", "pipe"]);
   } finally {
     rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("process execution stdin delivery keeps prompt bytes out of argv and environment", async () => {
+  const input = "stdin-only $() secret-shaped bytes";
+  const request = spec({
+    prompt: "compatibility prompt",
+    input: { transport: "stdin", bytes: Buffer.from(input) },
+  });
+  const normalize = (
+    raw: RawProcessResult,
+    status: RuntimeResult["status"],
+    error?: string,
+  ): RuntimeResult => ({
+    status,
+    stdout: raw.stdout,
+    stderr: raw.stderr,
+    exitCode: raw.exitCode,
+    signal: raw.signal,
+    error,
+    diagnostics: [],
+    identity: { adapterId: "process-test", evidence: "none" },
+  });
+  const handle = startProcessExecution(request, {
+    command: process.execPath,
+    args: [FIXTURE, "success"],
+    cwd: request.cwd,
+    environment: {},
+    timeoutMs: request.timeoutMs,
+    normalizeClose: (raw) => normalize(raw, raw.exitCode === 0 ? "success" : "failure"),
+    normalizeSpawnError: (raw) => normalize(raw, "failure", "spawn failed"),
+    normalizeTimeout: (raw) => normalize(raw, "timeout", "timeout"),
+    normalizeCancellation: (raw) => normalize(raw, "cancelled", "cancelled"),
+    normalizeOutputOverflow: (raw) => normalize(raw, "failure", "output overflow"),
+  });
+  const result = await waitForProcessExecution(handle);
+  assert.equal(result.status, "success");
+  const body = JSON.parse(result.stdout) as { argv: string[]; stdin: string };
+  assert.equal(body.stdin, input);
+  assert.equal(body.argv.includes(input), false);
+  assert.equal(body.argv.includes("compatibility prompt"), false);
+  assert.deepEqual(RUNTIME_CHILD_STDIO, ["ignore", "pipe", "pipe"], "default remains compatibility-safe");
+});
+
+test("local process adapter rejects stdin so prompt delivery cannot be duplicated", () => {
+  const validation = local("success").validate(spec({
+    input: { transport: "stdin", bytes: Buffer.from("duplicate") },
+  }));
+  assert.equal(validation.ok, false);
+  assert.match(validation.errors.join(" "), /argv-only.*does not support stdin/i);
+});
+
+test("runtime environment allowlist excludes ambient values while retaining explicit baseline", async () => {
+  const ambient = process.env.MESH_AMBIENT_FOR_TEST;
+  process.env.MESH_AMBIENT_FOR_TEST = "do-not-inherit";
+  try {
+    const adapter = local("success");
+    const result = await execute(adapter, spec({
+      environment: { MESH_ALLOWED: "explicit", MESH_SECRET: "also-explicit" },
+      environmentPolicy: { mode: "allowlist", allowlist: ["MESH_AMBIENT_FOR_TEST"] },
+    }));
+    const body = JSON.parse(result.stdout) as { allowed: string; inheritedSecret: string; ambient: string | null };
+    assert.equal(body.allowed, "explicit");
+    assert.equal(body.inheritedSecret, "also-explicit");
+    assert.equal(body.ambient, "do-not-inherit", "only a named inherited value is admitted");
+  } finally {
+    if (ambient === undefined) delete process.env.MESH_AMBIENT_FOR_TEST;
+    else process.env.MESH_AMBIENT_FOR_TEST = ambient;
+  }
+});
+
+test("runtime output limits truncate deterministically and fail after containment", async () => {
+  const adapter = new LocalProcessRuntimeAdapter({
+    command: process.execPath,
+    buildArgs: () => ["-e", "process.stdout.write('abcdef')"],
+  });
+  const result = await execute(adapter, spec({ output: { maxStdoutBytes: 3 } }));
+  assert.equal(result.status, "failure");
+  assert.equal(result.stdout, "abc");
+  assert.equal(result.stderr, "");
+  assert.match(result.error ?? "", /stdout exceeded configured limit of 3 bytes/);
+});
+
+test("timeout terminates the POSIX descendant process group", { skip: POSIX_SIGNALS_ONLY }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), "meshfleet-descendant-"));
+  const ready = join(dir, "ready");
+  const descendantPid = join(dir, "descendant.pid");
+  const adapter = new LocalProcessRuntimeAdapter({
+    command: process.execPath,
+    buildArgs: () => [FIXTURE, "tree-term-ignore"],
+    terminationGraceMs: TERMINATION_GRACE_MS,
+  });
+  let handle: Awaited<ReturnType<LocalProcessRuntimeAdapter["start"]>> | undefined;
+  try {
+    handle = await adapter.start(spec({
+      // The timeout starts at spawn, so this must leave a material startup
+      // window before waiting on the child's ready marker.
+      timeoutMs: 5_000,
+      environment: { MESH_READY_FILE: ready, MESH_DESCENDANT_PID_FILE: descendantPid },
+    }));
+    await waitForReady(ready);
+    const result = await adapter.wait(handle);
+    assert.equal(result.status, "timeout");
+    const pid = Number(readFileSync(descendantPid, "utf8"));
+    await waitForProcessGone(pid);
+    await waitForProcessGroupGone(handle.pid!);
+  } finally {
+    // This must run on any readiness or assertion failure: detached fixture
+    // groups deliberately do not die with the node:test parent.
+    forceFixtureCleanup(handle?.pid);
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});
+
+test("leader close cannot cancel SIGKILL for a pipe-detached descendant", { skip: POSIX_SIGNALS_ONLY }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), "meshfleet-detached-descendant-"));
+  const ready = join(dir, "ready");
+  const descendantPid = join(dir, "descendant.pid");
+  const adapter = new LocalProcessRuntimeAdapter({
+    command: process.execPath,
+    buildArgs: () => [FIXTURE, "tree-leader-exits-child-detached"],
+    terminationGraceMs: TERMINATION_GRACE_MS,
+  });
+  let handle: Awaited<ReturnType<LocalProcessRuntimeAdapter["start"]>> | undefined;
+  try {
+    handle = await adapter.start(spec({
+      timeoutMs: 5_000,
+      environment: { MESH_READY_FILE: ready, MESH_DESCENDANT_PID_FILE: descendantPid },
+    }));
+    await waitForReady(ready);
+    const pid = Number(readFileSync(descendantPid, "utf8"));
+    const result = await adapter.wait(handle);
+    assert.equal(result.status, "timeout");
+    await waitForProcessGone(pid);
+    await waitForProcessGroupGone(handle.pid!);
+  } finally {
+    forceFixtureCleanup(handle?.pid);
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});
+
+test("output overflow contains a POSIX descendant group without a pipe hang", { skip: POSIX_SIGNALS_ONLY }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), "meshfleet-overflow-descendant-"));
+  const ready = join(dir, "ready");
+  const descendantPid = join(dir, "descendant.pid");
+  const adapter = new LocalProcessRuntimeAdapter({
+    command: process.execPath,
+    buildArgs: () => [FIXTURE, "tree-output-ignore"],
+    terminationGraceMs: TERMINATION_GRACE_MS,
+  });
+  let handle: Awaited<ReturnType<LocalProcessRuntimeAdapter["start"]>> | undefined;
+  try {
+    handle = await adapter.start(spec({
+      timeoutMs: 30_000,
+      output: { maxStdoutBytes: 3 },
+      environment: { MESH_READY_FILE: ready, MESH_DESCENDANT_PID_FILE: descendantPid },
+    }));
+    await waitForReady(ready);
+    const result = await adapter.wait(handle);
+    assert.equal(result.status, "failure");
+    assert.equal(result.stdout, "ove");
+    assert.match(result.error ?? "", /stdout exceeded configured limit of 3 bytes/);
+    const pid = Number(readFileSync(descendantPid, "utf8"));
+    await waitForProcessGone(pid);
+    await waitForProcessGroupGone(handle.pid!);
+  } finally {
+    forceFixtureCleanup(handle?.pid);
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -396,8 +601,22 @@ test("OpenCode adapter default argv omits --model when no model is requested", a
   assert.equal(observedArgs?.includes("--model"), false);
 });
 
+test("OpenCode preserves its ignored-stdin compatibility contract", async () => {
+  const adapter = new OpenCodeRuntimeAdapter();
+  const validation = adapter.validate(spec({
+    input: { transport: "stdin", bytes: Buffer.from("future-native-input") },
+  }));
+  assert.equal(validation.ok, false);
+  assert.match(validation.errors.join(" "), /does not support stdin input/);
+  assert.deepEqual(RUNTIME_CHILD_STDIO, ["ignore", "pipe", "pipe"]);
+});
+
 test("runtime adapters reject invalid execution specs before launch", async () => {
   const adapter = local("success");
   assert.equal(adapter.validate(spec({ timeoutMs: 0 })).ok, false);
+  assert.equal(adapter.validate(spec({ input: { transport: "stdin", bytes: Buffer.from("too large"), maxBytes: 1 } })).ok, false);
+  assert.equal(adapter.validate(spec({ environmentPolicy: { mode: "allowlist", allowlist: ["OK", "BAD=NAME"] } })).ok, false);
+  assert.equal(adapter.validate(spec({ workspace: { isolation: "verified", bindingId: "/machine/path" } })).ok, false);
+  assert.equal(adapter.validate(spec({ session: { mode: "resume" } })).ok, false);
   await assert.rejects(adapter.start(spec({ timeoutMs: 0 })), /timeoutMs/);
 });

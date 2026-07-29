@@ -4,8 +4,20 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 
 ## [Unreleased]
 
+### Changed
+
+- **Runtime child output is now bounded by default.** The OpenCode compatibility
+  path and native adapters fail closed when either captured stdout or stderr
+  exceeds 1 MiB unless the caller supplies an explicit limit. This
+  replaces the prior unbounded in-memory capture and is an intentional
+  wire-visible failure mode for oversized agent output.
+
 ### Fixed
 
+- **POSIX descendant escalation survives an early process-group leader exit.**
+  Timeout, cancellation, and output-overflow settlement now preserve the
+  correctness-critical grace timer until a pipe-detached, SIGTERM-resistant
+  descendant group receives `SIGKILL`.
 - **Discussion notification failures no longer contaminate durable control flow.**
   Notification remains post-commit and best-effort, but a throwing subscriber
   can no longer hide a committed root or reply, strand a reserved wake before

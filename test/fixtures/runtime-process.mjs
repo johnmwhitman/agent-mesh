@@ -1,4 +1,5 @@
-import { writeFileSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
 
 const [mode = "success", prompt = ""] = process.argv.slice(2);
 
@@ -32,6 +33,57 @@ if (mode === "timeout") {
   });
   setInterval(() => {}, 1_000);
   announceReady();
+} else if (mode === "term-ignore-ready") {
+  process.on("SIGTERM", () => {});
+  announceReady();
+  setInterval(() => {}, 1_000);
+} else if (mode === "term-ignore-ipc") {
+  process.on("SIGTERM", () => {});
+  if (process.send) process.send({ state: "signal-handler-armed" });
+  setInterval(() => {}, 1_000);
+} else if (mode === "tree-leader-exits-child-detached") {
+  const descendant = spawn(process.execPath, [process.argv[1], "term-ignore-ipc"], {
+    env: process.env,
+    stdio: ["ignore", "ignore", "ignore", "ipc"],
+  });
+  const descendantFile = process.env.MESH_DESCENDANT_PID_FILE;
+  if (descendantFile && descendant.pid) writeFileSync(descendantFile, String(descendant.pid));
+  descendant.once("message", (message) => {
+    if (
+      typeof message === "object" &&
+      message !== null &&
+      message.state === "signal-handler-armed"
+    ) {
+      announceReady();
+    }
+  });
+  // Intentionally install no SIGTERM handler. Group TERM kills this leader
+  // while the pipe-detached descendant survives until group SIGKILL.
+  setInterval(() => {}, 1_000);
+} else if (mode === "tree-term-ignore") {
+  const descendant = spawn(process.execPath, [process.argv[1], "term-ignore"], {
+    env: process.env,
+    stdio: "inherit",
+  });
+  const descendantFile = process.env.MESH_DESCENDANT_PID_FILE;
+  if (descendantFile && descendant.pid) writeFileSync(descendantFile, String(descendant.pid));
+  process.on("SIGTERM", () => {});
+  setInterval(() => {}, 1_000);
+} else if (mode === "tree-output-ignore") {
+  const descendant = spawn(process.execPath, [process.argv[1], "term-ignore-ready"], {
+    env: process.env,
+    stdio: "inherit",
+  });
+  const descendantFile = process.env.MESH_DESCENDANT_PID_FILE;
+  if (descendantFile && descendant.pid) writeFileSync(descendantFile, String(descendant.pid));
+  process.on("SIGTERM", () => {});
+  const ready = process.env.MESH_READY_FILE;
+  const arm = setInterval(() => {
+    if (!ready || !existsSync(ready)) return;
+    clearInterval(arm);
+    process.stdout.write("overflow-output");
+  }, 5);
+  setInterval(() => {}, 1_000);
 } else if (mode === "signal") {
   process.kill(process.pid, "SIGTERM");
 } else if (mode === "failure") {
@@ -44,10 +96,16 @@ if (mode === "timeout") {
   process.stdout.write(`answer:${prompt}`);
   process.stderr.write("> oracle · anthropic/claude-sonnet-4\n");
 } else {
-  process.stdout.write(JSON.stringify({
+  let stdin = "";
+  process.stdin.setEncoding("utf8");
+  process.stdin.on("data", (chunk) => { stdin += chunk; });
+  process.stdin.on("end", () => process.stdout.write(JSON.stringify({
+    argv: process.argv.slice(2),
     prompt,
+    stdin,
     cwd: process.cwd(),
     allowed: process.env.MESH_ALLOWED ?? null,
     inheritedSecret: process.env.MESH_SECRET ?? null,
-  }));
+    ambient: process.env.MESH_AMBIENT_FOR_TEST ?? null,
+  })));
 }

@@ -1,6 +1,7 @@
 import {
   cancelProcessExecution,
   startProcessExecution,
+  resolveChildEnvironment,
   waitForProcessExecution,
   type RawProcessResult,
   type SpawnProcess,
@@ -60,7 +61,11 @@ export class LocalProcessRuntimeAdapter implements RuntimeAdapter {
   }
 
   validate(spec: ExecutionSpec): ValidationResult {
-    return validateExecutionSpec(spec);
+    const errors = [...validateExecutionSpec(spec).errors];
+    if (spec.input !== undefined) {
+      errors.push("Local process adapter is argv-only and does not support stdin input");
+    }
+    return { ok: errors.length === 0, errors };
   }
 
   async start(spec: ExecutionSpec): Promise<RuntimeHandle> {
@@ -73,7 +78,7 @@ export class LocalProcessRuntimeAdapter implements RuntimeAdapter {
         args: this.buildArgs(spec),
         cwd: spec.cwd,
         // The local adapter never inherits ambient process credentials implicitly.
-        environment: spec.environment ?? {},
+        environment: resolveChildEnvironment(process.env, spec.environment, spec.environmentPolicy),
         timeoutMs: spec.timeoutMs,
         terminationGraceMs: this.terminationGraceMs,
         normalizeClose: (raw) => {
@@ -84,6 +89,8 @@ export class LocalProcessRuntimeAdapter implements RuntimeAdapter {
         normalizeSpawnError: (raw, error) => normalized(raw, "failure", error.message),
         normalizeTimeout: (raw) => normalized(raw, "timeout", `Timed out after ${spec.timeoutMs}ms`),
         normalizeCancellation: (raw, reason) => normalized(raw, "cancelled", `Cancelled: ${reason}`),
+        normalizeOutputOverflow: (raw, stream, limit) =>
+          normalized(raw, "failure", `${stream} exceeded configured limit of ${limit} bytes`),
       },
       this.spawnProcess,
     );

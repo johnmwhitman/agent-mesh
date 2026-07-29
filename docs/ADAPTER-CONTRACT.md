@@ -77,9 +77,11 @@ interface RuntimeAdapter {
 ```
 
 The core MUST NOT branch on provider names, banners, commands, or requested
-models. Prompts MUST be passed as argv data, never shell-interpolated. Child
-stdin MUST be controlled, and child output MUST NOT contaminate the MCP stdout
-protocol channel.
+models. An adapter MUST deliver a prompt either as one non-shell-interpolated
+argv element or through controlled stdin, never both. Native harness adapters
+SHOULD prefer stdin so prompt bytes do not appear in process listings. Child
+stdin MUST be controlled, and bounded child output MUST NOT contaminate the MCP
+stdout protocol channel.
 
 ### ConfigRenderer
 
@@ -102,6 +104,7 @@ before a renderer is called supported.
 | OpenCode result normalization | `runtime-launch-verified` | OpenCode command, banner parsing, fallback, and provider diagnostics are isolated behind `OpenCodeRuntimeAdapter` |
 | Provider-neutral runtime SPI | `runtime-launch-verified` | Core orchestration uses normalized execution contracts and an internal registry; there is no public runtime-adapter selector (a public `model` selector is exposed at the MCP boundary and flows through the default OpenCode adapter) |
 | Local-process proof adapter | `runtime-launch-verified` | Deterministic local argv-only adapter covers process lifecycle without a provider, network, or credentials |
+| Kimi CLI native adapter | `fixture-verified` | An explicitly registered, non-default adapter proves stdin-only prompts, scrubbed environment policy, bounded final-message JSONL, isolation-gated unattended edits, and descendant cleanup against a fake executable; no live provider execution, OAuth inspection, version attestation, account binding, quota observation, or public selector is claimed |
 | Multi-host coordinator | `deferred` | No shared remote ownership authority exists |
 | Slice 3B config renderers (generic/OpenCode/Claude/Codex) | `static-config-verified` | Canonical spec + 4 recursive-preflight renderers with deterministic tests; live client execution, Antigravity/Gemini/Grok schemas, real vendor outbound adapters, auth, network, remote relay remain unverified/deferred |
 
@@ -205,8 +208,44 @@ or lifecycle state.
    private-data policy.
 6. Design a shared coordinator before using the phrase multi-host.
 
-Real vendor adapters remain separate work. Additional target renderers require
-separate schema evidence before they can be added to the verified matrix.
+Additional live vendor adapters remain separate work. Additional target
+renderers require separate schema evidence before they can be added to the
+verified matrix.
+
+## Native Kimi CLI boundary
+
+`KimiRuntimeAdapter` implements only the official Kimi CLI 1.49 print contract
+verified from installed source: text arrives on stdin and final assistant output
+is emitted as newline-delimited JSON under `--print --input-format text
+--output-format stream-json --final-message-only`. The adapter:
+
+- requires an absolute operator-resolved executable path and a configured
+  harness version; it does not search `PATH` or attest that version itself;
+- refuses ambient environment inheritance and all `KIMI_*` / `OPENAI_*`
+  overrides so a Kimi Code subscription binding cannot silently become an API
+  key or alternate-base-URL accounting lane;
+- never reads, imports, refreshes, or serializes OAuth credentials—the official
+  CLI remains their sole owner;
+- permits plan mode only with workspace edits forbidden, and permits unattended
+  workspace edits only when the request names an opaque workspace binding
+  pre-admitted by the adapter owner; the binding is authorization metadata, not
+  an OS sandbox or proof that `--work-dir` contains shell access, and CLI-owned
+  OAuth/session state remains outside that workspace claim;
+- supports new one-shot sessions only; resume and interactive permission are
+  rejected rather than silently widened;
+- returns the last bounded final assistant text while rejecting malformed,
+  empty, oversized, partial, role-changed, or schema-drifted JSONL; and
+- drops raw Kimi stderr from normalized results because vendor diagnostics may
+  repeat prompts, paths, or authentication details;
+- labels the requested model as request data only. Kimi print JSON does not
+  prove the effective model, provider account, entitlement, or billing lane.
+
+The private Operator must verify the exact executable and configured version
+(for example through the official machine-readable `kimi info --json` command),
+map an opaque runtime/workspace binding to an authenticated installation, and
+observe quota windows. None of those machine/account facts belong in public
+Core descriptors or receipts.
+
 # Minimum interoperable implementation
 
 A codec-only implementation is conforming at the protocol layer when it
