@@ -1,6 +1,6 @@
 # MeshFleet Handoff
 
-**Last verified:** 2026-07-28 · **Main:** `11977b39` · **Tag:** `v0.19.0`
+**Last verified:** 2026-07-28 · **Main:** `7c646582` · **Tag:** `v0.19.0`
 **Suite:** 1094/1094 · **Corpus:** 76 vectors · **Discussion:** 39 cases (23 finding codes) · **Conformance:** 133/133 · **npm:** 0.18.0 live; 0.19.0 auth-blocked
 
 ## Landed and tagged: caller-selected model execution
@@ -78,6 +78,18 @@ release provenance.
 unanimously recommends substrate-first (HOOL governance); Skeptic argues park entirely.
 **Stages 2–7 remain:** synthesis → PO → SM → two red-teams → reconcile → assemble.
 Charges preserved in `charges/`; all seat outputs in `board/seat-*.md`.
+
+## Pre-merge receipt: RoutePlane catalog snapshot adapter
+
+PR [#42](https://github.com/johnmwhitman/agent-mesh/pull/42) was opened from
+base `7c646582` at reviewed feature head `709224ff`. Pre-merge validation:
+`npm run typecheck`; `npm run release:verify` with 1117/1117 tests and both new
+package entry points in the dry-run tarball; `git diff --check`; live loopback
+smoke against a 32-model RoutePlane catalog; independent scoped re-review PASS.
+This receipt records review evidence only: at authoring time the branch was not
+merged, tagged, published, or authorized to execute provider work. The
+`[Unreleased]` changelog records the public package surface without moving the
+immutable `v0.19.0` tag or claiming npm publication.
 
 ## Current state
 

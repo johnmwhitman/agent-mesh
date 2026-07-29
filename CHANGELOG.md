@@ -4,6 +4,15 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 
 ## [Unreleased]
 
+### Added
+
+- **Bounded RoutePlane model-catalog snapshots** — the
+  `meshfleet/routeplane-catalog` library and `meshfleet-routeplane-catalog`
+  host CLI fetch only RoutePlane's fixed loopback `/v1/models` endpoint,
+  canonicalize an expiring snapshot, and project exact advertised model IDs
+  plus caller-owned policy into advisory candidates. This adds no MCP tool,
+  credentials, provider execution, automatic selection, or budget authority.
+
 ## [0.19.0] — 2026-07-28
 
 **The model-selected execution release.** Callers can bind each spawned or
