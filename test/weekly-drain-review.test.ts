@@ -1,0 +1,285 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { test } from "node:test";
+import { fileURLToPath } from "node:url";
+import { join } from "node:path";
+import {
+  compileWeeklyDrainReview,
+  WEEKLY_DRAIN_REVIEW_VERSION,
+} from "../src/weekly-drain-review.js";
+import { normalizeRoutePlaneCatalog } from "../src/routeplane-catalog.js";
+
+const repoRoot = join(fileURLToPath(new URL(".", import.meta.url)), "..");
+const packageJson = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8")) as {
+  exports: Record<string, string>;
+};
+
+test("exports the weekly drain review as a package library subpath", () => {
+  assert.equal(
+    packageJson.exports["./weekly-drain-review"],
+    "./dist/weekly-drain-review.js",
+  );
+});
+
+const NOW_MS = 1_800_000_000_000;
+const EMPTY_SHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+
+function wrapperUsage(overrides: Record<string, unknown> = {}) {
+  return {
+    schema_version: "fleet.wrapper-usage-summary/v1",
+    window: { start_ms: NOW_MS - 60_000, end_ms: NOW_MS },
+    source: { bytes: 0, lines: 0, sha256: EMPTY_SHA256 },
+    effect_flags: {
+      logging_activated: false,
+      meshfleet_projected: false,
+      provider_calls_made: false,
+      provider_identity_inferred: false,
+      quota_or_balance_inferred: false,
+      routing_or_scheduling_changed: false,
+      source_modified: false,
+      unused_quota_rewarded: false,
+    },
+    rejections: {
+      duplicate_begin: 0,
+      duplicate_finish: 0,
+      invalid_event_invariant: 0,
+      invalid_field_set: 0,
+      invalid_field_type: 0,
+      invalid_field_value: 0,
+      invalid_json: 0,
+      invalid_schema_version: 0,
+      non_canonical_json: 0,
+      non_object_json: 0,
+      orphan_finish: 0,
+      pair_mismatch: 0,
+    },
+    groups: [],
+    ...overrides,
+  };
+}
+
+function weeklyInput(overrides: Record<string, unknown> = {}) {
+  return {
+    version: WEEKLY_DRAIN_REVIEW_VERSION,
+    now_ms: NOW_MS,
+    routeplane: {
+      snapshot: normalizeRoutePlaneCatalog({
+        object: "list",
+        data: [{ id: "model-a", object: "model", providers: ["provider-a"] }],
+      }, NOW_MS - 1_000, 2_000),
+      policies: [{
+        candidate_id: "candidate-a",
+        model: "model-a",
+        capabilities: ["code"],
+        privacy: "network_ok",
+        locality: "any",
+      }],
+    },
+    fleetbudget: {
+      snapshot: {
+        version: "meshfleet.fleetbudget-snapshot.v1",
+        observed_at_ms: NOW_MS - 1_000,
+        expires_at_ms: NOW_MS + 1_000,
+        lanes: [{
+          lane_id: "shared-lane",
+          measured: true,
+          used: 10,
+          total: 100,
+          unit: "requests",
+          window: { id: "weekly", starts_at_ms: NOW_MS - 10_000, ends_at_ms: NOW_MS + 10_000 },
+        }],
+      },
+      bindings: [{ candidate_id: "candidate-a", lane_id: "shared-lane" }],
+    },
+    quality_annotations: [{ candidate_id: "candidate-a", quality_tags: ["reviewed"] }],
+    backlog: {
+      tasks: [{
+        task_id: "task-a",
+        kind: "code_review",
+        priority: 50,
+        speculative_approval: { state: "approved", approval_ref: "john-approval-1" },
+        route: { required_capabilities: ["code"], privacy: "network_ok", locality: "any" },
+        required_quality_tags: ["reviewed"],
+      }],
+    },
+    wrapper_usage: wrapperUsage(),
+    ...overrides,
+  };
+}
+
+test("preserves annotations for catalog-excluded policies and returns no compiled candidates", () => {
+  const source = weeklyInput({
+    routeplane: {
+      ...weeklyInput().routeplane,
+      snapshot: normalizeRoutePlaneCatalog({
+        object: "list",
+        data: [{ id: "model-b", object: "model", providers: ["provider-b"] }],
+      }, NOW_MS - 1_000, 2_000),
+    },
+  });
+
+  const result = compileWeeklyDrainReview(source);
+
+  assert.equal(result.status, "no_compiled_candidates");
+  assert.equal(result.proposal, null);
+  assert.deepEqual(result.catalog_compilation.diagnostics, [{
+    candidate_id: "candidate-a",
+    reason_codes: ["MODEL_NOT_ADVERTISED"],
+  }]);
+});
+
+test("composes supplied catalog, sanitized budget, quality evidence, and approved backlog without effects", () => {
+  const source = weeklyInput();
+  const before = structuredClone(source);
+  const result = compileWeeklyDrainReview(source);
+
+  assert.equal(result.review_version, WEEKLY_DRAIN_REVIEW_VERSION);
+  assert.equal(result.status, "evaluated");
+  assert.deepEqual(result.proposal?.proposed.map(({ task_id, candidate_ids, reason_codes }) => ({ task_id, candidate_ids, reason_codes })), [{
+    task_id: "task-a",
+    candidate_ids: ["candidate-a"],
+    reason_codes: ["CAPACITY_UNMODELED"],
+  }]);
+  assert.deepEqual(result.budget.observations, [{
+    candidate_id: "candidate-a",
+    status: "green",
+    confidence: "measured",
+    budget: {
+      used: 10,
+      total: 100,
+      window: { starts_at_ms: NOW_MS - 10_000, ends_at_ms: NOW_MS + 10_000 },
+    },
+  }]);
+  assert.deepEqual(result.effects, {
+    persisted: false,
+    executed: false,
+    authorized: false,
+    woke_agents: false,
+    contacted_providers: false,
+    fetched_catalog: false,
+    polled: false,
+    read_credentials: false,
+    inferred_provider: false,
+    changed_routing: false,
+    allocated_pool: false,
+    reserved_capacity: false,
+    scheduled: false,
+    spent_budget: false,
+    sent: false,
+    published: false,
+    used_external_identity: false,
+    claimed_budget_freshness: false,
+    claimed_provider_availability: false,
+  });
+  assert.deepEqual(source, before, "weekly review must not mutate caller input");
+});
+
+test("fails closed on stale evidence and on raw-report-shaped input", () => {
+  assert.throws(() => compileWeeklyDrainReview(weeklyInput({
+    fleetbudget: {
+      ...weeklyInput().fleetbudget,
+      snapshot: { ...weeklyInput().fleetbudget.snapshot, expires_at_ms: NOW_MS },
+    },
+  })), /expired/);
+  assert.throws(() => compileWeeklyDrainReview(weeklyInput({ report_bytes: "never accepted" })), /report_bytes/);
+  assert.throws(() => compileWeeklyDrainReview(weeklyInput({ provider: "never accepted" })), /provider/);
+});
+
+test("quality annotation coverage is exact for policy candidates", () => {
+  assert.throws(() => compileWeeklyDrainReview(weeklyInput({ quality_annotations: [] })), /missing candidate_id 'candidate-a'/);
+  assert.throws(() => compileWeeklyDrainReview(weeklyInput({
+    quality_annotations: [
+      { candidate_id: "candidate-a", quality_tags: ["reviewed"] },
+      { candidate_id: "candidate-a", quality_tags: ["reviewed"] },
+    ],
+  })), /duplicate candidate_id/);
+  assert.throws(() => compileWeeklyDrainReview(weeklyInput({
+    quality_annotations: [{ candidate_id: "unknown", quality_tags: ["reviewed"] }],
+  })), /not declared by a policy/);
+});
+
+test("validates backlog bounds before a catalog-empty review can suppress planning", () => {
+  assert.throws(() => compileWeeklyDrainReview(weeklyInput({
+    backlog: { tasks: [], candidate_limit: 9 },
+  })), /backlog\.tasks/);
+  assert.throws(() => compileWeeklyDrainReview(weeklyInput({
+    backlog: { ...weeklyInput().backlog, candidate_limit: 9 },
+  })), /backlog\.candidate_limit/);
+});
+
+test("wrapper usage stays context-only even when measured durations and outcomes change", () => {
+  const baseline = compileWeeklyDrainReview(weeklyInput());
+  const contextual = compileWeeklyDrainReview(weeklyInput({
+    wrapper_usage: wrapperUsage({
+      source: { bytes: 2, lines: 2, sha256: "b".repeat(64) },
+      groups: [{
+        wrapper: "mmx",
+        accounting_lane: "minimax-text",
+        requested_service: "minimax-text",
+        transport: "direct",
+        model_tag: "default",
+        success: 1,
+        failure: 0,
+        incomplete: 0,
+        failure_class_counts: {
+          auth: 0, empty: 0, interrupted: 0, invalid_request: 0, none: 1,
+          protocol: 0, quota: 0, rate_limit: 0, route_unavailable: 0,
+          timeout: 0, transport: 0, unknown: 0,
+        },
+        input_tokens_total: 99,
+        input_tokens_observations: 1,
+        output_tokens_total: 77,
+        output_tokens_observations: 1,
+        duration_ms_total: 55,
+        duration_ms_observations: 1,
+      }],
+    }),
+  }));
+
+  assert.deepEqual(contextual.proposal, baseline.proposal);
+  assert.equal(contextual.wrapper_usage_context.groups[0]?.duration_ms_total, 55);
+  assert.equal(contextual.wrapper_usage_context.authority.changes_routing, false);
+});
+
+test("shared lane evidence is copied to every bound candidate without allocation", () => {
+  const source = weeklyInput({
+    routeplane: {
+      snapshot: normalizeRoutePlaneCatalog({ object: "list", data: [
+        { id: "model-a", object: "model", providers: ["provider-a"] },
+        { id: "model-b", object: "model", providers: ["provider-b"] },
+      ] }, NOW_MS - 1_000, 2_000),
+      policies: [
+        ...weeklyInput().routeplane.policies,
+        { candidate_id: "candidate-b", model: "model-b", capabilities: ["code"], privacy: "network_ok", locality: "any" },
+      ],
+    },
+    fleetbudget: {
+      ...weeklyInput().fleetbudget,
+      bindings: [
+        { candidate_id: "candidate-a", lane_id: "shared-lane" },
+        { candidate_id: "candidate-b", lane_id: "shared-lane" },
+      ],
+    },
+    quality_annotations: [
+      { candidate_id: "candidate-a", quality_tags: ["reviewed"] },
+      { candidate_id: "candidate-b", quality_tags: ["reviewed"] },
+    ],
+    backlog: { ...weeklyInput().backlog, candidate_limit: 2 },
+  });
+  const result = compileWeeklyDrainReview(source);
+
+  assert.deepEqual(result.budget.observations.map(({ candidate_id, budget }) => ({ candidate_id, budget })), [
+    { candidate_id: "candidate-a", budget: { used: 10, total: 100, window: { starts_at_ms: NOW_MS - 10_000, ends_at_ms: NOW_MS + 10_000 } } },
+    { candidate_id: "candidate-b", budget: { used: 10, total: 100, window: { starts_at_ms: NOW_MS - 10_000, ends_at_ms: NOW_MS + 10_000 } } },
+  ]);
+  assert.deepEqual(result.proposal?.capacity, { mode: "unmodeled", status: "unknown" });
+  assert.equal(result.effects.allocated_pool, false);
+});
+
+test("is a pure package module without fetch, process, provider, or persistence imports", () => {
+  const source = readFileSync(join(repoRoot, "src", "weekly-drain-review.ts"), "utf8");
+  assert.doesNotMatch(source, /from\s+["']node:(?:child_process|fs|http|https|net|sqlite)["']/);
+  assert.doesNotMatch(source, /\bfetch\s*\(/);
+  assert.doesNotMatch(source, /\bprocess\./);
+  assert.doesNotMatch(source, /provider[_-]?(?:api|key|token|client)/i);
+});

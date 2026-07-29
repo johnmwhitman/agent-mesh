@@ -347,6 +347,20 @@ The `proposed` and `blocked` arrays are priority-descending/task-ID-ascending,
 and each entry carries its zero-based `queue_index` in that global order.
 [Advisory routing → docs/ADVISORY-ROUTING.md](docs/ADVISORY-ROUTING.md)
 
+`compileWeeklyDrainReview()` is a package-only, caller-invoked composition for
+one weekly advisory review. It accepts only an already-fetched canonical
+RoutePlane snapshot, a caller-sanitized Fleetbudget snapshot and bindings,
+caller-declared quality tags, caller-approved backlog tasks, and a sanitized
+wrapper-usage summary. It compiles catalog and budget evidence before planning;
+catalog-excluded policies remain visible as diagnostics and yield an honest
+`no_compiled_candidates` result rather than an implicit fallback. Quality tags
+must cover every declared policy candidate and are eligibility labels, not a
+measurement. Wrapper usage is copied solely as context and cannot change
+catalog eligibility, ranking, queue order, budget evidence, or the proposal.
+The function performs no fetch, poll, persistence, routing change, allocation,
+reservation, scheduling, provider contact, execution, or spend; it asserts no
+budget freshness or provider availability. It is not an MCP tool.
+
 Sanitized fleet wrapper usage is available through the separate pure
 `meshfleet/wrapper-usage-observations` package surface. It accepts only the
 closed, already-decoded `fleet.wrapper-usage-summary/v1` object and returns a

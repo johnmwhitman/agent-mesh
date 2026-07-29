@@ -159,6 +159,14 @@ the reviewed implementation through committed code head `168996c`:
   `recommend_route` can separately opt in to use current window evidence only
   after existing final score as a near-reset tie-break. It does not refresh,
   attest, reserve, select, or execute. See `docs/FLEETBUDGET-OBSERVATIONS.md`.
+- **Weekly drain review is package-library-only:** pure
+  `compileWeeklyDrainReview()` composes caller-owned RoutePlane catalog and
+  Fleetbudget snapshots, exact quality annotations, caller-approved backlog
+  tasks, and sanitized wrapper-usage context into one advisory proposal. It
+  preserves absent catalog models as diagnostics, leaves shared capacity
+  unmodeled, and makes wrapper usage context-only. It adds no MCP tool,
+  polling, fetch, provider inference, allocation, scheduling, execution,
+  spending, freshness claim, provider-availability claim, or authority.
 - **12 A2A conformance witnesses** under `blackbox/` — pure offline blackbox suites with JS
   runners, Python evaluators, corpora, and review records. The 12th (discussion-derivation)
   has an 18-case corpus and a 1,273-line Grok-produced pure JS evaluator verified against
