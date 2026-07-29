@@ -387,6 +387,351 @@ test('package boundary guard follows nested Module, import-equals, and computed 
   )
 })
 
+test('package boundary guard follows Module aliases acquired through destructuring', () => {
+  withFixture(
+    {
+      'src/entry.ts': [
+        'import * as moduleNamespace from "node:module"',
+        'const { Module: ModuleAlias } = moduleNamespace',
+        'ModuleAlias.createRequire(import.meta.url)("missing-destructured-module")',
+        'const { Module: { createRequire: nestedCreateRequire } } = moduleNamespace',
+        'nestedCreateRequire(import.meta.url)("missing-nested-module")',
+      ].join('\n'),
+    },
+    { name: 'fixture' },
+    (root) => {
+      assert.deepEqual(
+        findPackageBoundaryViolations(root).map(({ kind, specifier }) => ({ kind, specifier })),
+        [
+          { kind: 'require', specifier: 'missing-destructured-module' },
+          { kind: 'require', specifier: 'missing-nested-module' },
+        ],
+      )
+    },
+  )
+})
+
+test('package boundary guard follows wrapped module objects without leaking through lexical shadows', () => {
+  withFixture(
+    {
+      'src/entry.ts': [
+        'import * as moduleNamespace from "node:module"',
+        'const { Module: ModuleAlias } = moduleNamespace as typeof moduleNamespace',
+        'ModuleAlias.createRequire(import.meta.url)("missing-wrapped-module")',
+        'const { ...moduleRest } = moduleNamespace satisfies typeof moduleNamespace',
+        'moduleRest.createRequire(import.meta.url)("missing-wrapped-rest")',
+        'const key = "createRequire";',
+        '(moduleNamespace!)[key](import.meta.url)("missing-wrapped-computed")',
+        'const { [key]: wrappedFactory } = <typeof moduleNamespace>moduleNamespace',
+        'wrappedFactory(import.meta.url)("missing-wrapped-binding")',
+        'function harmless(ModuleAlias: { createRequire: () => (value: string) => string }) {',
+        '  return ModuleAlias.createRequire()("ordinary-value")',
+        '}',
+        'void harmless',
+      ].join('\n'),
+    },
+    { name: 'fixture' },
+    (root) => {
+      assert.deepEqual(
+        findPackageBoundaryViolations(root).map(({ kind, specifier }) => ({ kind, specifier })),
+        [
+          { kind: 'require', specifier: 'missing-wrapped-module' },
+          { kind: 'require', specifier: 'missing-wrapped-rest' },
+          { kind: 'require', specifier: '<ambiguous>' },
+          { kind: 'require', specifier: '<ambiguous>' },
+        ],
+      )
+    },
+  )
+})
+
+test('package boundary guard follows module bindings through for-of declarations, parameter defaults, and arrays', () => {
+  withFixture(
+    {
+      'src/entry.ts': [
+        'import * as moduleNamespace from "node:module"',
+        'for (const { createRequire: loopFactory } of [moduleNamespace]) {',
+        '  loopFactory(import.meta.url)("missing-for-of-binding")',
+        '}',
+        'function load({ createRequire: parameterFactory } = moduleNamespace) {',
+        '  parameterFactory(import.meta.url)("missing-parameter-binding")',
+        '}',
+        'const [arrayModule] = [moduleNamespace]',
+        'arrayModule.createRequire(import.meta.url)("missing-array-binding")',
+        'void load',
+      ].join('\n'),
+    },
+    { name: 'fixture' },
+    (root) => {
+      assert.deepEqual(
+        findPackageBoundaryViolations(root).map(({ kind, specifier }) => ({ kind, specifier })),
+        [
+          { kind: 'require', specifier: 'missing-for-of-binding' },
+          { kind: 'require', specifier: 'missing-parameter-binding' },
+          { kind: 'require', specifier: 'missing-array-binding' },
+        ],
+      )
+    },
+  )
+})
+
+test('package boundary guard follows binding defaults, merged var bindings, and value-preserving wrappers', () => {
+  withFixture(
+    {
+      'src/entry.ts': [
+        'import * as moduleNamespace from "node:module"',
+        'const { value: defaultModule = moduleNamespace } = {} as { value?: typeof moduleNamespace }',
+        'defaultModule.createRequire(import.meta.url)("missing-binding-default")',
+        'var mergedModule: unknown = {}',
+        'var mergedModule = moduleNamespace',
+        'mergedModule.createRequire(import.meta.url)("missing-merged-var")',
+        ';(0, moduleNamespace).createRequire(import.meta.url)("missing-comma-wrapper")',
+        ';(true ? moduleNamespace : {}).createRequire(import.meta.url)("missing-conditional-wrapper")',
+      ].join('\n'),
+    },
+    { name: 'fixture' },
+    (root) => {
+      assert.deepEqual(
+        findPackageBoundaryViolations(root).map(({ kind, specifier }) => ({ kind, specifier })),
+        [
+          { kind: 'require', specifier: 'missing-binding-default' },
+          { kind: 'require', specifier: 'missing-merged-var' },
+          { kind: 'require', specifier: 'missing-comma-wrapper' },
+          { kind: 'require', specifier: 'missing-conditional-wrapper' },
+        ],
+      )
+    },
+  )
+})
+
+test('package boundary guard fails closed when assignments acquire module objects by identifier', () => {
+  withFixture(
+    {
+      'src/entry.ts': [
+        'import * as moduleNamespace from "node:module"',
+        'let directModule: unknown',
+        'let arrayModule: unknown',
+        'let loopModule: unknown',
+        'directModule = moduleNamespace;',
+        '[arrayModule] = [moduleNamespace];',
+        'for (loopModule of [moduleNamespace]) {}',
+      ].join('\n'),
+    },
+    { name: 'fixture' },
+    (root) => {
+      assert.deepEqual(findPackageBoundaryViolations(root), [
+        {
+          file: 'src/entry.ts',
+          kind: 'require',
+          specifier: '<ambiguous>',
+          reason: 'module object destructuring assignment cannot be resolved statically',
+        },
+        {
+          file: 'src/entry.ts',
+          kind: 'require',
+          specifier: '<ambiguous>',
+          reason: 'module object destructuring assignment cannot be resolved statically',
+        },
+        {
+          file: 'src/entry.ts',
+          kind: 'require',
+          specifier: '<ambiguous>',
+          reason: 'module object destructuring assignment cannot be resolved statically',
+        },
+      ])
+    },
+  )
+})
+
+test('package boundary guard resolves loader, catch, and method-name bindings lexically', () => {
+  withFixture(
+    {
+      'src/entry.ts': [
+        'import * as moduleNamespace from "node:module"',
+        'const req = moduleNamespace.createRequire(import.meta.url)',
+        'req("missing-loader-alias")',
+        'function harmless(req: (value: string) => string) {',
+        '  return req("ordinary-shadowed-loader")',
+        '}',
+        'try { throw moduleNamespace } catch (moduleNamespace) {',
+        '  void moduleNamespace.createRequire()("ordinary-catch-binding")',
+        '}',
+        'class Local {',
+        '  require() { return 1 }',
+        '}',
+        'class Accessor {',
+        '  get require() { return 1 }',
+        '  set require(value: number) { void value }',
+        '}',
+        'require("missing-global-require")',
+        'void [harmless, Local, Accessor]',
+      ].join('\n'),
+    },
+    { name: 'fixture' },
+    (root) => {
+      assert.deepEqual(
+        findPackageBoundaryViolations(root).map(({ kind, specifier, reason }) => ({ kind, specifier, reason })),
+        [
+          {
+            kind: 'require',
+            specifier: 'missing-loader-alias',
+            reason: 'external package "missing-loader-alias" is not declared in dependencies, optionalDependencies, or peerDependencies',
+          },
+          {
+            kind: 'require',
+            specifier: 'missing-global-require',
+            reason: 'external package "missing-global-require" is not declared in dependencies, optionalDependencies, or peerDependencies',
+          },
+        ],
+      )
+    },
+  )
+})
+
+test('package boundary guard fails closed on module object destructuring assignments', () => {
+  withFixture(
+    {
+      'src/entry.ts': [
+        'import * as moduleNamespace from "node:module"',
+        'let createRequireAlias: unknown',
+        '({ createRequire: createRequireAlias } = moduleNamespace)',
+      ].join('\n'),
+    },
+    { name: 'fixture' },
+    (root) => {
+      assert.deepEqual(findPackageBoundaryViolations(root), [
+        {
+          file: 'src/entry.ts',
+          kind: 'require',
+          specifier: '<ambiguous>',
+          reason: 'module object destructuring assignment cannot be resolved statically',
+        },
+      ])
+    },
+  )
+})
+
+test('package boundary guard recursively analyzes module object assignment patterns', () => {
+  withFixture(
+    {
+      'src/entry.ts': [
+        'import * as moduleNamespace from "node:module"',
+        'let createRequireAlias: unknown',
+        'let nestedCreateRequireAlias: unknown',
+        'let builtinModules: unknown',
+        '({ builtinModules } = moduleNamespace)',
+        '([{ createRequire: createRequireAlias }] = [moduleNamespace])',
+        'for ({ Module: { createRequire: nestedCreateRequireAlias } } of [moduleNamespace]) {}',
+      ].join('\n'),
+    },
+    { name: 'fixture' },
+    (root) => {
+      assert.deepEqual(findPackageBoundaryViolations(root), [
+        {
+          file: 'src/entry.ts',
+          kind: 'require',
+          specifier: '<ambiguous>',
+          reason: 'module object destructuring assignment cannot be resolved statically',
+        },
+        {
+          file: 'src/entry.ts',
+          kind: 'require',
+          specifier: '<ambiguous>',
+          reason: 'module object destructuring assignment cannot be resolved statically',
+        },
+      ])
+    },
+  )
+})
+
+test('package boundary guard follows module object aliases acquired through object rest', () => {
+  withFixture(
+    {
+      'src/entry.ts': [
+        'import * as moduleNamespace from "node:module"',
+        'const { ...moduleRest } = moduleNamespace',
+        'moduleRest.createRequire(import.meta.url)("missing-object-rest")',
+      ].join('\n'),
+    },
+    { name: 'fixture' },
+    (root) => {
+      assert.deepEqual(
+        findPackageBoundaryViolations(root).map(({ kind, specifier }) => ({ kind, specifier })),
+        [
+          { kind: 'require', specifier: 'missing-object-rest' },
+        ],
+      )
+    },
+  )
+})
+
+test('package boundary guard does not propagate object rest after loader properties are excluded', () => {
+  withFixture(
+    {
+      'src/entry.ts': [
+        'import * as moduleNamespace from "node:module"',
+        'const { createRequire, Module, ...metadata } = moduleNamespace',
+        'const key = "builtinModules"',
+        'void metadata[key]',
+      ].join('\n'),
+    },
+    { name: 'fixture' },
+    (root) => {
+      assert.deepEqual(findPackageBoundaryViolations(root), [])
+    },
+  )
+})
+
+test('package boundary guard fails closed on dynamic computed module object keys', () => {
+  withFixture(
+    {
+      'src/computed-access.ts': [
+        'import * as moduleNamespace from "node:module"',
+        'const key = "createRequire"',
+        'moduleNamespace[key](import.meta.url)("missing-dynamic-key")',
+      ].join('\n'),
+      'src/computed-binding.ts': [
+        'import * as moduleNamespace from "node:module"',
+        'const key = "createRequire"',
+        'const { [key]: dynamicCreateRequire } = moduleNamespace',
+        'dynamicCreateRequire(import.meta.url)("missing-dynamic-binding")',
+      ].join('\n'),
+      'src/nested-computed-binding.ts': [
+        'import * as moduleNamespace from "node:module"',
+        'const key = "createRequire"',
+        'const { Module: { [key]: dynamicCreateRequire } } = moduleNamespace',
+        'dynamicCreateRequire(import.meta.url)("missing-nested-dynamic-binding")',
+      ].join('\n'),
+    },
+    { name: 'fixture' },
+    (root) => {
+      assert.deepEqual(
+        findPackageBoundaryViolations(root),
+        [
+          {
+            file: 'src/computed-access.ts',
+            kind: 'require',
+            specifier: '<ambiguous>',
+            reason: 'module object computed property cannot be resolved statically',
+          },
+          {
+            file: 'src/computed-binding.ts',
+            kind: 'require',
+            specifier: '<ambiguous>',
+            reason: 'module object computed property cannot be resolved statically',
+          },
+          {
+            file: 'src/nested-computed-binding.ts',
+            kind: 'require',
+            specifier: '<ambiguous>',
+            reason: 'module object computed property cannot be resolved statically',
+          },
+        ],
+      )
+    },
+  )
+})
+
 test('package boundary guard fails closed when a createRequire factory value escapes through a property', () => {
   withFixture(
     {

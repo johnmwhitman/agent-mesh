@@ -145,8 +145,17 @@ function staticSpecifier(expression: ts.Expression | undefined): string | undefi
 
 function unwrapParentheses(expression: ts.Expression): ts.Expression {
   let current = expression
-  while (ts.isParenthesizedExpression(current)) current = current.expression
-  return current
+  while (true) {
+    if (ts.isParenthesizedExpression(current) ||
+        ts.isAsExpression(current) ||
+        ts.isTypeAssertionExpression(current) ||
+        ts.isNonNullExpression(current) ||
+        ts.isSatisfiesExpression(current)) {
+      current = current.expression
+      continue
+    }
+    return current
+  }
 }
 
 function isImportMetaUrl(expression: ts.Expression | undefined): boolean {
@@ -167,6 +176,8 @@ function isDeclarationName(identifier: ts.Identifier): boolean {
     (ts.isFunctionExpression(parent) && parent.name === identifier) ||
     (ts.isMethodDeclaration(parent) && parent.name === identifier) ||
     (ts.isMethodSignature(parent) && parent.name === identifier) ||
+    (ts.isGetAccessorDeclaration(parent) && parent.name === identifier) ||
+    (ts.isSetAccessorDeclaration(parent) && parent.name === identifier) ||
     (ts.isPropertyDeclaration(parent) && parent.name === identifier) ||
     (ts.isPropertySignature(parent) && parent.name === identifier) ||
     (ts.isClassDeclaration(parent) && parent.name === identifier) ||
@@ -174,20 +185,112 @@ function isDeclarationName(identifier: ts.Identifier): boolean {
     (ts.isCatchClause(parent) && parent.variableDeclaration?.name === identifier) ||
     (ts.isImportClause(parent) && parent.name === identifier) ||
     (ts.isImportSpecifier(parent) && parent.name === identifier) ||
+    (ts.isImportEqualsDeclaration(parent) && parent.name === identifier) ||
     ts.isNamespaceImport(parent)
 }
 
 function collectSpecifiers(sourceFile: ts.SourceFile): CollectedSpecifier[] {
   const specifiers: CollectedSpecifier[] = []
-  const createRequireNames = new Set<string>()
-  const moduleObjectNames = new Set<string>()
+  const createRequireBindings = new Set<ts.Identifier>()
+  const moduleObjectBindings = new Set<ts.Identifier>()
+  const ambiguousModuleBindingElements = new Set<ts.BindingElement>()
+
+  const nearestAncestor = (node: ts.Node, predicate: (candidate: ts.Node) => boolean): ts.Node | undefined => {
+    let current: ts.Node | undefined = node.parent
+    while (current) {
+      if (predicate(current)) return current
+      current = current.parent
+    }
+    return undefined
+  }
+
+  const lexicalScope = (name: ts.Identifier): ts.Node | undefined => {
+    let declaration: ts.Node = name.parent
+    while (ts.isBindingElement(declaration)) declaration = declaration.parent.parent
+
+    if (ts.isParameter(declaration)) return declaration.parent
+    if (ts.isCatchClause(declaration)) return declaration
+    if (ts.isVariableDeclaration(declaration)) {
+      if (ts.isCatchClause(declaration.parent)) return declaration.parent
+      const list = declaration.parent
+      if (!ts.isVariableDeclarationList(list)) return undefined
+      if (!(list.flags & ts.NodeFlags.BlockScoped)) {
+        return nearestAncestor(list, (candidate) => ts.isFunctionLike(candidate) || ts.isSourceFile(candidate))
+      }
+      return nearestAncestor(list, (candidate) =>
+        ts.isBlock(candidate) ||
+        ts.isSourceFile(candidate) ||
+        ts.isCaseBlock(candidate) ||
+        ts.isForStatement(candidate) ||
+        ts.isForInStatement(candidate) ||
+        ts.isForOfStatement(candidate))
+    }
+    if (ts.isImportClause(declaration) ||
+        ts.isImportSpecifier(declaration) ||
+        ts.isNamespaceImport(declaration) ||
+        ts.isImportEqualsDeclaration(declaration)) {
+      return sourceFile
+    }
+    if (ts.isFunctionExpression(declaration) || ts.isClassExpression(declaration)) return declaration
+    if (ts.isFunctionDeclaration(declaration) || ts.isClassDeclaration(declaration)) {
+      return nearestAncestor(declaration, (candidate) => ts.isBlock(candidate) || ts.isSourceFile(candidate))
+    }
+    return undefined
+  }
+
+  const lexicalBindings: Array<{ name: ts.Identifier, scope: ts.Node }> = []
+  const collectLexicalBindings = (node: ts.Node): void => {
+    if (ts.isIdentifier(node) && isDeclarationName(node)) {
+      const scope = lexicalScope(node)
+      if (scope) lexicalBindings.push({ name: node, scope })
+    }
+    ts.forEachChild(node, collectLexicalBindings)
+  }
+  collectLexicalBindings(sourceFile)
+
+  const resolveLexicalBinding = (reference: ts.Identifier): ts.Identifier | undefined =>
+    lexicalBindings
+      .filter(({ name, scope }) =>
+        name.text === reference.text &&
+        scope.pos <= reference.pos &&
+        reference.end <= scope.end)
+      .sort((left, right) =>
+        (left.scope.end - left.scope.pos) - (right.scope.end - right.scope.pos))[0]?.name
+
+  const owningVariableDeclaration = (name: ts.Identifier): ts.VariableDeclaration | undefined => {
+    let current: ts.Node = name.parent
+    while (ts.isBindingElement(current)) current = current.parent.parent
+    return ts.isVariableDeclaration(current) ? current : undefined
+  }
+
+  const isVarBinding = (name: ts.Identifier): boolean => {
+    const declaration = owningVariableDeclaration(name)
+    return !!declaration &&
+      ts.isVariableDeclarationList(declaration.parent) &&
+      !(declaration.parent.flags & ts.NodeFlags.BlockScoped)
+  }
+
+  const resolvesToTrackedBinding = (
+    reference: ts.Identifier,
+    tracked: ReadonlySet<ts.Identifier>,
+  ): boolean => {
+    const declaration = resolveLexicalBinding(reference)
+    if (!declaration) return false
+    if (tracked.has(declaration)) return true
+    if (!isVarBinding(declaration)) return false
+    const scope = lexicalScope(declaration)
+    return [...tracked].some((candidate) =>
+      candidate.text === declaration.text &&
+      isVarBinding(candidate) &&
+      lexicalScope(candidate) === scope)
+  }
 
   for (const statement of sourceFile.statements) {
     if (ts.isImportEqualsDeclaration(statement) &&
         ts.isExternalModuleReference(statement.moduleReference)) {
       const moduleSpecifier = staticSpecifier(statement.moduleReference.expression)
       if (moduleSpecifier && ['module', 'node:module'].includes(moduleSpecifier)) {
-        moduleObjectNames.add(statement.name.text)
+        moduleObjectBindings.add(statement.name)
         continue
       }
     }
@@ -202,30 +305,18 @@ function collectSpecifiers(sourceFile: ts.SourceFile): CollectedSpecifier[] {
       for (const binding of bindings.elements) {
         const importedName = binding.propertyName?.text ?? binding.name.text
         if (importedName === 'createRequire') {
-          createRequireNames.add(binding.name.text)
+          createRequireBindings.add(binding.name)
         } else if (importedName === 'Module') {
-          moduleObjectNames.add(binding.name.text)
+          moduleObjectBindings.add(binding.name)
         }
       }
     } else if (bindings && ts.isNamespaceImport(bindings)) {
-      moduleObjectNames.add(bindings.name.text)
+      moduleObjectBindings.add(bindings.name)
     }
-    if (statement.importClause.name) moduleObjectNames.add(statement.importClause.name.text)
+    if (statement.importClause.name) moduleObjectBindings.add(statement.importClause.name)
   }
 
-  const aliases = new Map<string, ts.VariableDeclaration>()
-
-  let requireIsShadowed = false
-  const findRequireShadow = (node: ts.Node): void => {
-    if (ts.isIdentifier(node) &&
-        node.text === 'require' &&
-        isDeclarationName(node) &&
-        aliases.get('require')?.name !== node) {
-      requireIsShadowed = true
-    }
-    ts.forEachChild(node, findRequireShadow)
-  }
-  findRequireShadow(sourceFile)
+  const loaderAliasBindings = new Set<ts.Identifier>()
 
   const isModuleSpecifier = (expression: ts.Expression | undefined): boolean => {
     const specifier = staticSpecifier(expression)
@@ -257,21 +348,34 @@ function collectSpecifiers(sourceFile: ts.SourceFile): CollectedSpecifier[] {
   }
 
   const isCommonJsModuleRequire = (expression: ts.Expression): boolean => {
-    if (requireIsShadowed) return false
     const unwrapped = unwrapParentheses(expression)
     if (!ts.isCallExpression(unwrapped)) return false
     const called = unwrapParentheses(unwrapped.expression)
     return ts.isIdentifier(called) &&
       called.text === 'require' &&
+      resolveLexicalBinding(called) === undefined &&
       isModuleSpecifier(unwrapped.arguments[0])
   }
 
   const isModuleObjectExpression = (expression: ts.Expression): boolean => {
     const unwrapped = unwrapParentheses(expression)
-    if ((ts.isIdentifier(unwrapped) && moduleObjectNames.has(unwrapped.text)) ||
+    if ((ts.isIdentifier(unwrapped) && resolvesToTrackedBinding(unwrapped, moduleObjectBindings)) ||
       isCommonJsModuleRequire(unwrapped) ||
       isDynamicModuleImport(unwrapped)) {
       return true
+    }
+    if (ts.isBinaryExpression(unwrapped)) {
+      if (unwrapped.operatorToken.kind === ts.SyntaxKind.CommaToken) {
+        return isModuleObjectExpression(unwrapped.right)
+      }
+      if (unwrapped.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken ||
+          unwrapped.operatorToken.kind === ts.SyntaxKind.BarBarToken ||
+          unwrapped.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken) {
+        return isModuleObjectExpression(unwrapped.left) || isModuleObjectExpression(unwrapped.right)
+      }
+    }
+    if (ts.isConditionalExpression(unwrapped)) {
+      return isModuleObjectExpression(unwrapped.whenTrue) || isModuleObjectExpression(unwrapped.whenFalse)
     }
     const receiver = propertyReceiver(unwrapped)
     return propertyName(unwrapped) === 'Module' &&
@@ -281,7 +385,7 @@ function collectSpecifiers(sourceFile: ts.SourceFile): CollectedSpecifier[] {
 
   const isCreateRequireExpression = (expression: ts.Expression): boolean => {
     const unwrapped = unwrapParentheses(expression)
-    if (ts.isIdentifier(unwrapped) && createRequireNames.has(unwrapped.text)) return true
+    if (ts.isIdentifier(unwrapped) && resolvesToTrackedBinding(unwrapped, createRequireBindings)) return true
     if (propertyName(unwrapped) !== 'createRequire') return false
     const receiver = propertyReceiver(unwrapped)
     return !!receiver && isModuleObjectExpression(receiver)
@@ -290,33 +394,103 @@ function collectSpecifiers(sourceFile: ts.SourceFile): CollectedSpecifier[] {
   // Resolve module-object and createRequire factory aliases to a fixed point so
   // declaration order and multi-hop const aliases cannot open a scan bypass.
   let bindingsChanged = true
+  const collectModuleObjectBinding = (pattern: ts.ObjectBindingPattern): void => {
+    const excludedNames = new Set(pattern.elements.flatMap((element) => {
+      if (element.dotDotDotToken) return []
+      const name = !element.propertyName
+        ? ts.isIdentifier(element.name) ? element.name.text : undefined
+        : ts.isIdentifier(element.propertyName) ||
+            ts.isStringLiteral(element.propertyName) ||
+            ts.isNoSubstitutionTemplateLiteral(element.propertyName)
+          ? element.propertyName.text
+          : ts.isComputedPropertyName(element.propertyName)
+            ? staticSpecifier(element.propertyName.expression)
+            : undefined
+      return name === undefined ? [] : [name]
+    }))
+    for (const element of pattern.elements) {
+      if (element.dotDotDotToken) {
+        if (ts.isIdentifier(element.name) &&
+            !(excludedNames.has('createRequire') && excludedNames.has('Module')) &&
+            !moduleObjectBindings.has(element.name)) {
+          moduleObjectBindings.add(element.name)
+          bindingsChanged = true
+        }
+        continue
+      }
+      if (element.propertyName &&
+          ts.isComputedPropertyName(element.propertyName) &&
+          staticSpecifier(element.propertyName.expression) === undefined) {
+        ambiguousModuleBindingElements.add(element)
+        continue
+      }
+      const importedName = !element.propertyName
+        ? ts.isIdentifier(element.name) ? element.name.text : undefined
+        : ts.isIdentifier(element.propertyName) ||
+            ts.isStringLiteral(element.propertyName) ||
+            ts.isNoSubstitutionTemplateLiteral(element.propertyName)
+          ? element.propertyName.text
+          : ts.isComputedPropertyName(element.propertyName)
+            ? staticSpecifier(element.propertyName.expression)
+            : undefined
+      if (importedName === 'createRequire' &&
+          ts.isIdentifier(element.name) &&
+          !createRequireBindings.has(element.name)) {
+        createRequireBindings.add(element.name)
+        bindingsChanged = true
+      } else if (importedName === 'Module') {
+        if (ts.isIdentifier(element.name) && !moduleObjectBindings.has(element.name)) {
+          moduleObjectBindings.add(element.name)
+          bindingsChanged = true
+        } else if (ts.isObjectBindingPattern(element.name)) {
+          collectModuleObjectBinding(element.name)
+        }
+      }
+    }
+  }
+
+  const collectBindingFromValue = (pattern: ts.BindingName, value: ts.Expression): void => {
+    const unwrappedValue = unwrapParentheses(value)
+    if (ts.isIdentifier(pattern)) {
+      if (isModuleObjectExpression(unwrappedValue) && !moduleObjectBindings.has(pattern)) {
+        moduleObjectBindings.add(pattern)
+        bindingsChanged = true
+      } else if (isCreateRequireExpression(unwrappedValue) && !createRequireBindings.has(pattern)) {
+        createRequireBindings.add(pattern)
+        bindingsChanged = true
+      }
+      return
+    }
+    if (ts.isObjectBindingPattern(pattern)) {
+      if (isModuleObjectExpression(unwrappedValue)) collectModuleObjectBinding(pattern)
+      return
+    }
+    if (!ts.isArrayLiteralExpression(unwrappedValue)) return
+    pattern.elements.forEach((element, index) => {
+      const item = unwrappedValue.elements[index]
+      if (!item || ts.isOmittedExpression(element) || ts.isOmittedExpression(item)) return
+      collectBindingFromValue(element.name, item as ts.Expression)
+    })
+  }
+
   while (bindingsChanged) {
     bindingsChanged = false
     const collectBindings = (node: ts.Node): void => {
       if (ts.isVariableDeclaration(node) && node.initializer) {
-        if (ts.isIdentifier(node.name)) {
-          if (isModuleObjectExpression(node.initializer) && !moduleObjectNames.has(node.name.text)) {
-            moduleObjectNames.add(node.name.text)
-            bindingsChanged = true
-          } else if (isCreateRequireExpression(node.initializer) && !createRequireNames.has(node.name.text)) {
-            createRequireNames.add(node.name.text)
-            bindingsChanged = true
-          }
-        } else if (ts.isObjectBindingPattern(node.name) && isModuleObjectExpression(node.initializer)) {
-          for (const element of node.name.elements) {
-            if (element.dotDotDotToken || !ts.isIdentifier(element.name)) continue
-            const importedName = !element.propertyName
-              ? element.name.text
-              : ts.isIdentifier(element.propertyName) ||
-                  ts.isStringLiteral(element.propertyName) ||
-                  ts.isNoSubstitutionTemplateLiteral(element.propertyName)
-                ? element.propertyName.text
-                : ts.isComputedPropertyName(element.propertyName)
-                  ? staticSpecifier(element.propertyName.expression)
-                  : undefined
-            if (importedName === 'createRequire' && !createRequireNames.has(element.name.text)) {
-              createRequireNames.add(element.name.text)
-              bindingsChanged = true
+        collectBindingFromValue(node.name, node.initializer)
+      } else if (ts.isParameter(node) && node.initializer) {
+        collectBindingFromValue(node.name, node.initializer)
+      } else if (ts.isBindingElement(node) && node.initializer) {
+        collectBindingFromValue(node.name, node.initializer)
+      } else if (ts.isForOfStatement(node) &&
+          ts.isVariableDeclarationList(node.initializer)) {
+        const iterable = unwrapParentheses(node.expression)
+        if (ts.isArrayLiteralExpression(iterable)) {
+          for (const declaration of node.initializer.declarations) {
+            for (const item of iterable.elements) {
+              if (!ts.isOmittedExpression(item)) {
+                collectBindingFromValue(declaration.name, item as ts.Expression)
+              }
             }
           }
         }
@@ -351,14 +525,14 @@ function collectSpecifiers(sourceFile: ts.SourceFile): CollectedSpecifier[] {
         if (!ts.isIdentifier(declaration.name) ||
             !ts.isVariableDeclarationList(declarationList) ||
             !(declarationList.flags & ts.NodeFlags.Const) ||
-            aliases.has(declaration.name.text)) {
+            loaderAliasBindings.has(declaration.name)) {
           specifiers.push({
             kind: 'require',
             specifier: '<ambiguous>',
             reason: 'createRequire loader binding cannot be resolved statically',
           })
         } else {
-          aliases.set(declaration.name.text, declaration)
+          loaderAliasBindings.add(declaration.name)
         }
       } else {
         specifiers.push({
@@ -390,8 +564,71 @@ function collectSpecifiers(sourceFile: ts.SourceFile): CollectedSpecifier[] {
     }
   }
 
-  const escapedAliases = new Set<string>()
+  const escapedAliases = new Set<ts.Identifier>()
   let requireEscapeReported = false
+
+  const assignmentPropertyName = (name: ts.PropertyName): string | undefined => {
+    if (ts.isIdentifier(name) ||
+        ts.isStringLiteral(name) ||
+        ts.isNumericLiteral(name) ||
+        ts.isNoSubstitutionTemplateLiteral(name)) {
+      return name.text
+    }
+    return ts.isComputedPropertyName(name) ? staticSpecifier(name.expression) : undefined
+  }
+
+  const objectAssignmentLoadsModule = (pattern: ts.ObjectLiteralExpression): boolean => {
+    const excludedNames = new Set(pattern.properties.flatMap((property) => {
+      if (ts.isSpreadAssignment(property)) return []
+      const name = assignmentPropertyName(property.name)
+      return name === undefined ? [] : [name]
+    }))
+
+    return pattern.properties.some((property) => {
+      if (ts.isSpreadAssignment(property)) {
+        return !(excludedNames.has('createRequire') && excludedNames.has('Module'))
+      }
+      const name = assignmentPropertyName(property.name)
+      if (name === undefined) return true
+      if (name === 'createRequire') return true
+      if (name !== 'Module') return false
+      if (ts.isPropertyAssignment(property)) {
+        const initializer = unwrapParentheses(property.initializer)
+        return ts.isObjectLiteralExpression(initializer)
+          ? objectAssignmentLoadsModule(initializer)
+          : true
+      }
+      return true
+    })
+  }
+
+  const assignmentLoadsModule = (left: ts.Expression, right: ts.Expression): boolean => {
+    const unwrappedLeft = unwrapParentheses(left)
+    const unwrappedRight = unwrapParentheses(right)
+    if (isModuleObjectExpression(unwrappedRight)) {
+      return ts.isIdentifier(unwrappedLeft) ||
+        (ts.isObjectLiteralExpression(unwrappedLeft) && objectAssignmentLoadsModule(unwrappedLeft))
+    }
+    if (ts.isArrayLiteralExpression(unwrappedLeft) && ts.isArrayLiteralExpression(unwrappedRight)) {
+      return unwrappedLeft.elements.some((element, index) => {
+        const value = unwrappedRight.elements[index]
+        return !!value &&
+          !ts.isOmittedExpression(element) &&
+          !ts.isOmittedExpression(value) &&
+          assignmentLoadsModule(element as ts.Expression, value as ts.Expression)
+      })
+    }
+    return false
+  }
+
+  const addAmbiguousModuleAssignment = (): void => {
+    specifiers.push({
+      kind: 'require',
+      specifier: '<ambiguous>',
+      reason: 'module object destructuring assignment cannot be resolved statically',
+    })
+  }
+
   const visit = (node: ts.Node): void => {
     if (ts.isImportDeclaration(node)) {
       add(node.importClause?.isTypeOnly ? 'import-type' : 'import', node.moduleSpecifier)
@@ -403,7 +640,7 @@ function collectSpecifiers(sourceFile: ts.SourceFile): CollectedSpecifier[] {
       const called = unwrapParentheses(node.expression)
       if (isCreateRequireCall(called)) {
         add('require', node.arguments[0], 'create-require')
-      } else if (ts.isIdentifier(called) && aliases.has(called.text)) {
+      } else if (ts.isIdentifier(called) && resolvesToTrackedBinding(called, loaderAliasBindings)) {
         add('require', node.arguments[0], 'create-require')
       } else if (called.kind === ts.SyntaxKind.ImportKeyword) {
         let reference: ts.Node = node
@@ -421,19 +658,45 @@ function collectSpecifiers(sourceFile: ts.SourceFile): CollectedSpecifier[] {
         }
       } else if (ts.isIdentifier(called) && called.text === 'require') {
         const specifier = staticSpecifier(node.arguments[0]) ?? '<dynamic>'
-        if (requireIsShadowed) {
+        if (resolveLexicalBinding(called)) {
           specifiers.push({ kind: 'require', specifier, reason: 'local binding shadows CommonJS require' })
         } else {
           add('require', node.arguments[0])
         }
       } else if (isCommonJsRequireResolve(called)) {
         const specifier = staticSpecifier(node.arguments[0]) ?? '<dynamic>'
-        if (requireIsShadowed) {
+        const receiver = unwrapParentheses(called.expression)
+        if (ts.isIdentifier(receiver) && resolveLexicalBinding(receiver)) {
           specifiers.push({ kind: 'require', specifier, reason: 'local binding shadows CommonJS require' })
         } else {
           add('require', node.arguments[0])
         }
       }
+    } else if (ts.isBinaryExpression(node) &&
+        node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+        assignmentLoadsModule(node.left, node.right)) {
+      addAmbiguousModuleAssignment()
+    } else if (ts.isForOfStatement(node) &&
+        ts.isExpression(node.initializer) &&
+        ts.isArrayLiteralExpression(unwrapParentheses(node.expression)) &&
+        unwrapParentheses(node.expression).elements.some((element) =>
+          !ts.isOmittedExpression(element) &&
+          assignmentLoadsModule(node.initializer as ts.Expression, element as ts.Expression))) {
+      addAmbiguousModuleAssignment()
+    } else if (ts.isElementAccessExpression(node) &&
+        staticSpecifier(node.argumentExpression) === undefined &&
+        isModuleObjectExpression(node.expression)) {
+      specifiers.push({
+        kind: 'require',
+        specifier: '<ambiguous>',
+        reason: 'module object computed property cannot be resolved statically',
+      })
+    } else if (ts.isBindingElement(node) && ambiguousModuleBindingElements.has(node)) {
+      specifiers.push({
+        kind: 'require',
+        specifier: '<ambiguous>',
+        reason: 'module object computed property cannot be resolved statically',
+      })
     } else if ((ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) &&
         isCreateRequireExpression(node)) {
       let reference: ts.Node = node
@@ -444,7 +707,7 @@ function collectSpecifiers(sourceFile: ts.SourceFile): CollectedSpecifier[] {
       const isTrackedInitializer = ts.isVariableDeclaration(reference.parent) &&
         reference.parent.initializer === reference &&
         ts.isIdentifier(reference.parent.name) &&
-        createRequireNames.has(reference.parent.name.text) &&
+        createRequireBindings.has(reference.parent.name) &&
         ts.isVariableDeclarationList(reference.parent.parent) &&
         !!(reference.parent.parent.flags & ts.NodeFlags.Const)
       if (!isFactoryCall && !isTrackedInitializer) {
@@ -454,19 +717,19 @@ function collectSpecifiers(sourceFile: ts.SourceFile): CollectedSpecifier[] {
           reason: 'createRequire factory expression escapes static analysis',
         })
       }
-    } else if (ts.isIdentifier(node) && aliases.has(node.text)) {
-      const declaration = aliases.get(node.text)!
-      const isDeclaration = declaration.name === node
+    } else if (ts.isIdentifier(node) && resolvesToTrackedBinding(node, loaderAliasBindings)) {
+      const declaration = resolveLexicalBinding(node)!
+      const isDeclaration = declaration === node
       const isLoaderCall = ts.isCallExpression(node.parent) && node.parent.expression === node
-      if (!isDeclaration && !isLoaderCall && !escapedAliases.has(node.text)) {
-        escapedAliases.add(node.text)
+      if (!isDeclaration && !isLoaderCall && !escapedAliases.has(declaration)) {
+        escapedAliases.add(declaration)
         specifiers.push({
           kind: 'require',
           specifier: '<ambiguous>',
           reason: `createRequire loader "${node.text}" escapes static analysis`,
         })
       }
-    } else if (ts.isIdentifier(node) && createRequireNames.has(node.text)) {
+    } else if (ts.isIdentifier(node) && resolvesToTrackedBinding(node, createRequireBindings)) {
       let reference: ts.Node = node
       while (ts.isParenthesizedExpression(reference.parent) && reference.parent.expression === reference) {
         reference = reference.parent
