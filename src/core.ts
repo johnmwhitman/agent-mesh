@@ -174,11 +174,22 @@ export interface Ratification {
 
 export const CURRENT_SCHEMA_VERSION = 2;
 
+export type AgentExecutionCapability =
+  | "builder"
+  | "review-only"
+  | "unknown";
+
 export interface PremadeAgent {
   filename: string;
   name: string;
   description: string;
   mode: string;
+  /**
+   * Conservative frontmatter declaration, not effective-runtime proof.
+   * Optional so existing TypeScript callers that construct PremadeAgent values
+   * remain source-compatible; discovery always emits the field.
+   */
+  execution_capability?: AgentExecutionCapability;
 }
 
 export interface RouteMatch {
@@ -363,6 +374,129 @@ function migrateLedger(raw: Record<string, unknown>): Record<string, unknown> {
 // Premade Agent Discovery
 // ---------------------------------------------------------------------------
 
+type ClosedFrontmatterSection = {
+  present: boolean;
+  ambiguous: boolean;
+  values: Map<string, string>;
+};
+
+/**
+ * Parse only direct scalar children of one top-level frontmatter section.
+ *
+ * This is deliberately not a general YAML parser. Discovery must never echo
+ * arbitrary frontmatter, commands, paths, provider identity, or nested
+ * permission patterns. Duplicate, inline, malformed, or non-scalar evidence
+ * is marked ambiguous so classification fails closed to `unknown`.
+ */
+function parseClosedFrontmatterSection(
+  frontmatter: string,
+  section: string,
+  allowedKeys: ReadonlySet<string>,
+  allowedValues: ReadonlySet<string>,
+  rejectUnknownKeys = false,
+): ClosedFrontmatterSection {
+  const lines = frontmatter.split("\n");
+  const declarations = lines
+    .map((line, index) => ({ line, index }))
+    .filter(({ line }) => line.startsWith(`${section}:`));
+
+  if (declarations.length === 0) {
+    return { present: false, ambiguous: false, values: new Map() };
+  }
+  if (
+    declarations.length !== 1
+    || declarations[0].line.trim() !== `${section}:`
+  ) {
+    return { present: true, ambiguous: true, values: new Map() };
+  }
+
+  const childLines: string[] = [];
+  for (let index = declarations[0].index + 1; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (line.trim() === "") continue;
+    if (!line.startsWith(" ") && !line.startsWith("\t")) break;
+    childLines.push(line);
+  }
+
+  const indents = childLines
+    .filter((line) => !line.trimStart().startsWith("#"))
+    .map((line) => line.match(/^ */)?.[0].length ?? 0)
+    .filter((indent) => indent > 0);
+  if (
+    childLines.some((line) => line.startsWith("\t"))
+    || indents.length === 0
+  ) {
+    return { present: true, ambiguous: true, values: new Map() };
+  }
+
+  const directIndent = Math.min(...indents);
+  const values = new Map<string, string>();
+  let ambiguous = false;
+  for (const line of childLines) {
+    if (line.trimStart().startsWith("#")) continue;
+    const indent = line.match(/^ */)?.[0].length ?? 0;
+    if (indent !== directIndent) continue;
+
+    const scalar = line.slice(directIndent).match(
+      /^([a-zA-Z0-9_-]+):\s*([^#]*?)\s*(?:#.*)?$/,
+    );
+    if (!scalar || !allowedKeys.has(scalar[1])) {
+      if (rejectUnknownKeys) ambiguous = true;
+      continue;
+    }
+    const [, key, value] = scalar;
+    if (values.has(key) || !allowedValues.has(value)) {
+      ambiguous = true;
+      continue;
+    }
+    values.set(key, value);
+  }
+
+  return { present: true, ambiguous, values };
+}
+
+function classifyPremadeAgentExecution(
+  frontmatter: string,
+): AgentExecutionCapability {
+  const tools = parseClosedFrontmatterSection(
+    frontmatter,
+    "tools",
+    new Set(["write", "edit", "bash"]),
+    new Set(["true", "false"]),
+  );
+  const permissions = parseClosedFrontmatterSection(
+    frontmatter,
+    "permission",
+    new Set(["edit", "bash"]),
+    new Set(["allow", "deny"]),
+    true,
+  );
+
+  const classifyTools = (): AgentExecutionCapability => {
+    if (!tools.present || tools.ambiguous) return "unknown";
+    const values = ["write", "edit", "bash"].map((key) => tools.values.get(key));
+    if (values.every((value) => value === "true")) return "builder";
+    if (values.every((value) => value === "false")) return "review-only";
+    return "unknown";
+  };
+  const classifyPermissions = (): AgentExecutionCapability => {
+    if (!permissions.present || permissions.ambiguous) return "unknown";
+    const values = ["edit", "bash"].map((key) => permissions.values.get(key));
+    if (values.every((value) => value === "allow")) return "builder";
+    if (values.every((value) => value === "deny")) return "review-only";
+    return "unknown";
+  };
+
+  const toolClass = classifyTools();
+  const permissionClass = classifyPermissions();
+  if (tools.present && permissions.present) {
+    return toolClass === permissionClass ? toolClass : "unknown";
+  }
+  if (tools.present) return toolClass;
+  if (permissions.present) return permissionClass;
+  return "unknown";
+}
+
 export function discoverPremadeAgents(
   searchDirs: readonly string[] = [
     join(process.cwd(), ".opencode", "agents"),
@@ -396,6 +530,7 @@ export function discoverPremadeAgents(
           name: nameMatch ? nameMatch[1].trim() : stem,
           description: descMatch ? descMatch[1].trim() : "",
           mode: modeMatch ? modeMatch[1].trim() : "subagent",
+          execution_capability: classifyPremadeAgentExecution(fm),
         });
       } catch {
         // skip unreadable files

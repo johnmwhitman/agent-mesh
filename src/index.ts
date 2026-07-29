@@ -1007,7 +1007,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "list_agents",
       description:
-        "List all available premade agents from .opencode/agents/ directories.",
+        "List available premade agents with a sanitized, frontmatter-declared execution_capability classification: builder, review-only, or unknown. This is configured intent, not effective-runtime proof.",
       inputSchema: { type: "object", properties: {} },
     },
     {

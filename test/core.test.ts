@@ -239,6 +239,146 @@ mode: subagent
   assert.equal(agents[0].name, "Test Agent");
   assert.equal(agents[0].description, "A test agent for unit tests");
   assert.equal(agents[0].mode, "subagent");
+  assert.equal(agents[0].execution_capability, "unknown");
+  cleanup();
+});
+
+test("discoverPremadeAgents: classifies only explicit build tool access", () => {
+  const { cleanup, dir } = freshLedger();
+  const agentsDir = join(dir, "agents");
+  mkdirSync(agentsDir, { recursive: true });
+  writeFileSync(
+    join(agentsDir, "builder.md"),
+    `---
+name: Builder
+description: Builds and tests code
+mode: subagent
+model: private/provider-id
+tools:
+  write: true
+  edit: true
+  bash: true
+  arbitrary_tool: true
+---
+`
+  );
+
+  const [agent] = discoverPremadeAgents([agentsDir]);
+  assert.deepEqual(agent, {
+    filename: "builder",
+    name: "Builder",
+    description: "Builds and tests code",
+    mode: "subagent",
+    execution_capability: "builder",
+  });
+  cleanup();
+});
+
+test("discoverPremadeAgents: classifies explicit tool denial as review-only", () => {
+  const { cleanup, dir } = freshLedger();
+  const agentsDir = join(dir, "agents");
+  mkdirSync(agentsDir, { recursive: true });
+  writeFileSync(
+    join(agentsDir, "reviewer.md"),
+    `---
+name: Reviewer
+description: Reviews without modifying files
+tools:
+  write: false
+  edit: false
+  bash: false
+---
+`
+  );
+
+  const [agent] = discoverPremadeAgents([agentsDir]);
+  assert.equal(agent.execution_capability, "review-only");
+  cleanup();
+});
+
+test("discoverPremadeAgents: accepts only closed scalar permission evidence", () => {
+  const { cleanup, dir } = freshLedger();
+  const agentsDir = join(dir, "agents");
+  mkdirSync(agentsDir, { recursive: true });
+  writeFileSync(
+    join(agentsDir, "permission-builder.md"),
+    `---
+name: Permission Builder
+description: Explicit edit and shell permission
+permission:
+  edit: allow
+  bash: allow
+---
+`
+  );
+  writeFileSync(
+    join(agentsDir, "permission-reviewer.md"),
+    `---
+name: Permission Reviewer
+description: Explicit edit and shell denial
+permission:
+  edit: deny
+  bash: deny
+---
+`
+  );
+
+  const byName = new Map(
+    discoverPremadeAgents([agentsDir]).map((agent) => [
+      agent.filename,
+      agent.execution_capability,
+    ])
+  );
+  assert.equal(byName.get("permission-builder"), "builder");
+  assert.equal(byName.get("permission-reviewer"), "review-only");
+  cleanup();
+});
+
+test("discoverPremadeAgents: mixed, approval-gated, or patterned access is unknown", () => {
+  const { cleanup, dir } = freshLedger();
+  const agentsDir = join(dir, "agents");
+  mkdirSync(agentsDir, { recursive: true });
+  const fixtures = {
+    mixed: `tools:
+  write: true
+  edit: false
+  bash: true`,
+    gated: `permission:
+  edit: ask
+  bash: allow`,
+    patterned: `permission:
+  edit: allow
+  bash:
+    "git status": allow`,
+    wildcard: `permission:
+  "*": deny
+  edit: allow
+  bash: allow`,
+    conflicting: `tools:
+  write: true
+  edit: true
+  bash: true
+permission:
+  edit: deny
+  bash: deny`,
+  };
+  for (const [name, access] of Object.entries(fixtures)) {
+    writeFileSync(
+      join(agentsDir, `${name}.md`),
+      `---
+name: ${name}
+description: ambiguous execution access
+${access}
+---
+`
+    );
+  }
+
+  const agents = discoverPremadeAgents([agentsDir]);
+  assert.equal(agents.length, Object.keys(fixtures).length);
+  for (const agent of agents) {
+    assert.equal(agent.execution_capability, "unknown", agent.filename);
+  }
   cleanup();
 });
 
