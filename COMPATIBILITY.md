@@ -92,6 +92,10 @@ Future versions will increment `CURRENT_SCHEMA_VERSION` and add a migration step
 | 0.16.0 | + ask_peer, wake_agent, reply_discussion, get_discussion (Discussions) | see the input-validation note below |
 | unreleased | + compile_route_candidates, recommend_route, verify_ledger_v2, verify_ledger_v3, plan_speculative_backlog (all advisory, projection, or read-only; no write authority) | ⚠️ `send_message` and `send_messages` schemas tightened and `verify_ledger` findings strengthened — see the narrowing note below |
 
+The additive `meshfleet/recommend-route` library subpath exposes only the pure
+advisory evaluator and validators over caller-supplied sanitized evidence. It is
+not selection or execution authority.
+
 **Promise so far**: every minor release has been additive. No tool has been removed. Two
 signatures have been tightened — `send_messages` batch items and `send_message`, unreleased —
 deliberately and documented in the narrowing note below: the wire shapes they now refuse were
