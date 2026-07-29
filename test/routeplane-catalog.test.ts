@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  fetchRoutePlaneCatalog,
   normalizeRoutePlaneCatalog,
+  RoutePlaneCatalogError,
   ROUTEPLANE_CATALOG_SNAPSHOT_VERSION,
 } from "../src/routeplane-catalog.js";
 
@@ -118,4 +120,103 @@ test("rejects closed model fields and every required model and provider bound", 
   for (const { name, payload, expected } of invalidCases) {
     assert.throws(() => normalizeRoutePlaneCatalog(payload, 1, 1), expected, name);
   }
+});
+
+function validCatalogResponse(): Response {
+  return Response.json(liveCatalog);
+}
+
+function hasCatalogError(code: string): (error: unknown) => boolean {
+  return (error: unknown): boolean => {
+    assert.ok(error instanceof RoutePlaneCatalogError);
+    assert.equal(error.code, code);
+    return true;
+  };
+}
+
+test("fetches only the fixed loopback endpoint without headers and refuses redirects", async () => {
+  let requestedUrl: string | undefined;
+  let requestedInit: RequestInit | undefined;
+
+  const snapshot = await fetchRoutePlaneCatalog({
+    fetch_impl: async (url, init) => {
+      requestedUrl = String(url);
+      requestedInit = init;
+      return validCatalogResponse();
+    },
+  });
+
+  assert.equal(requestedUrl, "http://127.0.0.1:4356/v1/models");
+  assert.equal(requestedInit?.method, "GET");
+  assert.equal(requestedInit?.redirect, "error");
+  assert.equal("headers" in (requestedInit ?? {}), false);
+  assert.ok(requestedInit?.signal instanceof AbortSignal);
+  assert.deepEqual(snapshot.models, [
+    { id: "a-model", providers: ["beta"] },
+    { id: "z-model", providers: ["alpha", "zeta"] },
+  ]);
+});
+
+test("turns a refused redirect into a typed catalog error", async () => {
+  await assert.rejects(
+    fetchRoutePlaneCatalog({
+      fetch_impl: async () => {
+        throw new TypeError("fetch failed: redirect mode is set to error");
+      },
+    }),
+    hasCatalogError("redirect"),
+  );
+});
+
+test("turns a fetch timeout into a typed catalog error", async () => {
+  let observedSignal: AbortSignal | undefined;
+
+  await assert.rejects(
+    fetchRoutePlaneCatalog({
+      timeout_ms: 1,
+      fetch_impl: async (_url, init) => {
+        observedSignal = init?.signal ?? undefined;
+        return await new Promise<Response>((_resolve, reject) => {
+          observedSignal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+        });
+      },
+    }),
+    hasCatalogError("timeout"),
+  );
+  assert.equal(observedSignal?.aborted, true);
+});
+
+test("rejects non-success responses and invalid JSON with typed catalog errors", async () => {
+  await assert.rejects(
+    fetchRoutePlaneCatalog({ fetch_impl: async () => new Response("unavailable", { status: 503 }) }),
+    hasCatalogError("http_status"),
+  );
+  await assert.rejects(
+    fetchRoutePlaneCatalog({ fetch_impl: async () => new Response("{not json") }),
+    hasCatalogError("invalid_json"),
+  );
+});
+
+test("cancels the response reader and rejects bodies larger than one MiB", async () => {
+  let cancelled = false;
+  let chunk = 0;
+  const oversizedBody = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (chunk === 0) {
+        controller.enqueue(new Uint8Array(1_048_576));
+      } else {
+        controller.enqueue(new Uint8Array(1));
+      }
+      chunk += 1;
+    },
+    cancel() {
+      cancelled = true;
+    },
+  });
+
+  await assert.rejects(
+    fetchRoutePlaneCatalog({ fetch_impl: async () => new Response(oversizedBody) }),
+    hasCatalogError("body_too_large"),
+  );
+  assert.equal(cancelled, true);
 });

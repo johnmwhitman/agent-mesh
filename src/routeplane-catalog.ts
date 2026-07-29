@@ -9,6 +9,9 @@ const MAX_MODEL_ID_LENGTH = 256;
 const MAX_PROVIDERS_PER_MODEL = 64;
 const MAX_PROVIDER_LABEL_LENGTH = 128;
 const MAX_TTL_MS = 10 * 60 * 1_000;
+const DEFAULT_TTL_MS = 60 * 1_000;
+const DEFAULT_TIMEOUT_MS = 5 * 1_000;
+const MAX_RESPONSE_BYTES = 1_024 * 1_024;
 
 export interface RoutePlaneCatalogSnapshot {
   version: typeof ROUTEPLANE_CATALOG_SNAPSHOT_VERSION;
@@ -20,6 +23,35 @@ export interface RoutePlaneCatalogSnapshot {
     payload_sha256: string;
   };
   models: Array<{ id: string; providers: string[] }>;
+}
+
+export interface RoutePlaneFetchOptions {
+  ttl_ms?: number;
+  timeout_ms?: number;
+  /** Test-only seam; production always uses the global loopback fetch. */
+  fetch_impl?: typeof fetch;
+}
+
+export type RoutePlaneCatalogErrorCode =
+  | "timeout"
+  | "redirect"
+  | "fetch_failed"
+  | "http_status"
+  | "body_too_large"
+  | "body_read_failed"
+  | "invalid_json"
+  | "invalid_catalog";
+
+export class RoutePlaneCatalogError extends Error {
+  readonly code: RoutePlaneCatalogErrorCode;
+  readonly status?: number;
+
+  constructor(code: RoutePlaneCatalogErrorCode, message: string, status?: number) {
+    super(message);
+    this.name = "RoutePlaneCatalogError";
+    this.code = code;
+    this.status = status;
+  }
 }
 
 type RecordValue = Record<string, unknown>;
@@ -135,4 +167,107 @@ export function normalizeRoutePlaneCatalog(
     },
     models,
   };
+}
+
+async function readBoundedBody(response: Response): Promise<string> {
+  if (response.body === null) {
+    return "";
+  }
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      size += value.byteLength;
+      if (size > MAX_RESPONSE_BYTES) {
+        try {
+          await reader.cancel();
+        } catch {
+          // The size violation remains authoritative even if stream cancellation fails.
+        }
+        throw new RoutePlaneCatalogError("body_too_large", "RoutePlane catalog response exceeds 1 MiB");
+      }
+      chunks.push(value);
+    }
+  } catch (error) {
+    if (error instanceof RoutePlaneCatalogError) {
+      throw error;
+    }
+    throw new RoutePlaneCatalogError("body_read_failed", "Unable to read RoutePlane catalog response");
+  } finally {
+    reader.releaseLock();
+  }
+
+  const body = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(body);
+}
+
+function isRedirectFailure(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (/redirect/i.test(error.message) ||
+      (error.cause instanceof Error && /redirect/i.test(error.cause.message)))
+  );
+}
+
+export async function fetchRoutePlaneCatalog(
+  options: RoutePlaneFetchOptions = {},
+): Promise<RoutePlaneCatalogSnapshot> {
+  const ttlMs = options.ttl_ms ?? DEFAULT_TTL_MS;
+  const timeoutMs = options.timeout_ms ?? DEFAULT_TIMEOUT_MS;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    let response: Response;
+    try {
+      response = await (options.fetch_impl ?? fetch)(ROUTEPLANE_MODELS_ENDPOINT, {
+        method: "GET",
+        redirect: "error",
+        signal: controller.signal,
+      });
+    } catch (error) {
+      if (controller.signal.aborted) {
+        throw new RoutePlaneCatalogError("timeout", "RoutePlane catalog request timed out");
+      }
+      if (isRedirectFailure(error)) {
+        throw new RoutePlaneCatalogError("redirect", "RoutePlane catalog redirect was refused");
+      }
+      throw new RoutePlaneCatalogError("fetch_failed", "Unable to fetch RoutePlane catalog");
+    }
+
+    if (!response.ok) {
+      throw new RoutePlaneCatalogError(
+        "http_status",
+        `RoutePlane catalog request returned HTTP ${response.status}`,
+        response.status,
+      );
+    }
+
+    const body = await readBoundedBody(response);
+    let payload: unknown;
+    try {
+      payload = JSON.parse(body);
+    } catch {
+      throw new RoutePlaneCatalogError("invalid_json", "RoutePlane catalog response is not valid JSON");
+    }
+
+    try {
+      return normalizeRoutePlaneCatalog(payload, Date.now(), ttlMs);
+    } catch {
+      throw new RoutePlaneCatalogError("invalid_catalog", "RoutePlane catalog response is invalid");
+    }
+  } finally {
+    clearTimeout(timeout);
+  }
 }
