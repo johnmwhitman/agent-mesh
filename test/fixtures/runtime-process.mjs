@@ -37,6 +37,29 @@ if (mode === "timeout") {
   process.on("SIGTERM", () => {});
   announceReady();
   setInterval(() => {}, 1_000);
+} else if (mode === "term-ignore-ipc") {
+  process.on("SIGTERM", () => {});
+  if (process.send) process.send({ state: "signal-handler-armed" });
+  setInterval(() => {}, 1_000);
+} else if (mode === "tree-leader-exits-child-detached") {
+  const descendant = spawn(process.execPath, [process.argv[1], "term-ignore-ipc"], {
+    env: process.env,
+    stdio: ["ignore", "ignore", "ignore", "ipc"],
+  });
+  const descendantFile = process.env.MESH_DESCENDANT_PID_FILE;
+  if (descendantFile && descendant.pid) writeFileSync(descendantFile, String(descendant.pid));
+  descendant.once("message", (message) => {
+    if (
+      typeof message === "object" &&
+      message !== null &&
+      message.state === "signal-handler-armed"
+    ) {
+      announceReady();
+    }
+  });
+  // Intentionally install no SIGTERM handler. Group TERM kills this leader
+  // while the pipe-detached descendant survives until group SIGKILL.
+  setInterval(() => {}, 1_000);
 } else if (mode === "tree-term-ignore") {
   const descendant = spawn(process.execPath, [process.argv[1], "term-ignore"], {
     env: process.env,

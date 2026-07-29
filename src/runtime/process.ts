@@ -130,6 +130,9 @@ export function startProcessExecution(
   let processError: Error | undefined;
   let sigtermSent = false;
   let sigkillSent = false;
+  let pendingTerminalClose:
+    | { exitCode: number | null; signal: NodeJS.Signals | null }
+    | undefined;
   let finish!: (result: RuntimeResult) => void;
   const stdoutLimit = spec.output?.maxStdoutBytes ?? DEFAULT_RUNTIME_OUTPUT_LIMIT_BYTES;
   const stderrLimit = spec.output?.maxStderrBytes ?? DEFAULT_RUNTIME_OUTPUT_LIMIT_BYTES;
@@ -183,6 +186,11 @@ export function startProcessExecution(
       if (settled || sigkillSent) return;
       sigkillSent = true;
       terminate(child, "SIGKILL");
+      if (pendingTerminalClose) {
+        const closed = pendingTerminalClose;
+        pendingTerminalClose = undefined;
+        settleAfterClose(closed.exitCode, closed.signal);
+      }
     }, launch.terminationGraceMs ?? DEFAULT_TERMINATION_GRACE_MS);
     // This is the correctness-critical half of TERM→KILL containment. It
     // must keep the worker alive while SIGTERM-resistant descendants still
@@ -215,6 +223,19 @@ export function startProcessExecution(
     requestProcessTermination();
   }
   function onClose(exitCode: number | null, signal: NodeJS.Signals | null): void {
+    // A POSIX process-group leader can close before a SIGTERM-resistant
+    // descendant when that descendant does not inherit the leader's pipes.
+    // Do not let leader close cancel the correctness-critical group SIGKILL.
+    if (
+      process.platform !== "win32" &&
+      terminalRequest !== undefined &&
+      sigtermSent &&
+      !sigkillSent &&
+      terminationGrace !== undefined
+    ) {
+      pendingTerminalClose = { exitCode, signal };
+      return;
+    }
     settleAfterClose(exitCode, signal);
   }
 

@@ -414,6 +414,33 @@ test("timeout terminates the POSIX descendant process group", { skip: POSIX_SIGN
   }
 });
 
+test("leader close cannot cancel SIGKILL for a pipe-detached descendant", { skip: POSIX_SIGNALS_ONLY }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), "meshfleet-detached-descendant-"));
+  const ready = join(dir, "ready");
+  const descendantPid = join(dir, "descendant.pid");
+  const adapter = new LocalProcessRuntimeAdapter({
+    command: process.execPath,
+    buildArgs: () => [FIXTURE, "tree-leader-exits-child-detached"],
+    terminationGraceMs: TERMINATION_GRACE_MS,
+  });
+  let handle: Awaited<ReturnType<LocalProcessRuntimeAdapter["start"]>> | undefined;
+  try {
+    handle = await adapter.start(spec({
+      timeoutMs: 5_000,
+      environment: { MESH_READY_FILE: ready, MESH_DESCENDANT_PID_FILE: descendantPid },
+    }));
+    await waitForReady(ready);
+    const pid = Number(readFileSync(descendantPid, "utf8"));
+    const result = await adapter.wait(handle);
+    assert.equal(result.status, "timeout");
+    await waitForProcessGone(pid);
+    await waitForProcessGroupGone(handle.pid!);
+  } finally {
+    forceFixtureCleanup(handle?.pid);
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});
+
 test("output overflow contains a POSIX descendant group without a pipe hang", { skip: POSIX_SIGNALS_ONLY }, async () => {
   const dir = mkdtempSync(join(tmpdir(), "meshfleet-overflow-descendant-"));
   const ready = join(dir, "ready");

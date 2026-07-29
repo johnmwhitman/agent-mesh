@@ -247,7 +247,8 @@ limit, not a defect:
 | Timeout sends a catchable `SIGTERM` first | yes | **no** |
 | Child may trap the signal, flush trailing output, exit on its own terms | yes | **no** |
 | Unresponsive child escalated to `SIGKILL` after the grace window | yes | n/a — the first kill is already unconditional |
-| Timeout and cancellation settle exactly once and contain the full descendant process group | yes | **no** — only the launched process is terminated |
+| Timeout and cancellation settle exactly once | yes | yes |
+| Timeout and cancellation contain the full descendant process group | yes | **no** — only the launched process is terminated |
 
 On Windows, `process.kill(pid, "SIGTERM")` maps onto `TerminateProcess`, which
 is immediate and cannot be handled, so the grace window has no meaning there. A

@@ -4,6 +4,14 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 
 ## [Unreleased]
 
+### Changed
+
+- **Runtime child output is now bounded by default.** The OpenCode compatibility
+  path and native adapters fail closed when either captured stdout or stderr
+  exceeds 1 MiB unless the caller supplies a smaller explicit limit. This
+  replaces the prior unbounded in-memory capture and is an intentional
+  wire-visible failure mode for oversized agent output.
+
 ### Fixed
 
 - **Discussion notification failures no longer contaminate durable control flow.**

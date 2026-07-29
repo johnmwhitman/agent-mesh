@@ -25,7 +25,9 @@ if (mode === "tree-child") {
 } else if (mode === "tree-ignore") {
   const child = spawn(process.execPath, [process.argv[1]], {
     env: { ...process.env, MESH_KIMI_FAKE_MODE: "tree-child" },
-    stdio: ["inherit", "inherit", "inherit", "ipc"],
+    // Do not let inherited output pipes keep the group leader's close event
+    // open. Containment must remain correct even for pipe-detached tools.
+    stdio: ["ignore", "ignore", "ignore", "ipc"],
   });
   if (process.env.MESH_KIMI_DESCENDANT_PID_FILE && child.pid) {
     writeFileSync(process.env.MESH_KIMI_DESCENDANT_PID_FILE, String(child.pid));
