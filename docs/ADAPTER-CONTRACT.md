@@ -136,10 +136,11 @@ input, not runtime identity:
 Omitting `model` preserves the prior launch and classification behavior
 exactly: no `--model` argument, no banner requirement, no new failure. The
 default execution remains OpenCode; there is still no public runtime-adapter
-selector, no vendor SDK or catalog, no credential flow, no automatic model
-choice, no default token-budget drain policy, no remote relay, no publish, and
-no deploy in this slice. Ollama Cloud's direct API and automatic executing
-subscription-aware selection remain future work. The separate pure
+selector, no vendor SDK or catalog, no credential flow, no account-control
+plane, no automatic model choice, no default token-budget policy, no remote
+relay, no publish, and no deploy in this slice.
+Account-specific provider operations are outside this public adapter contract.
+The separate pure
 `recommend_route` surface may opt in to caller-evidenced near-reset tie-breaking;
 it never selects or runs this adapter. Local smoke tests exercised
 the installed OpenCode IDs `opencode-go/minimax-m3` and

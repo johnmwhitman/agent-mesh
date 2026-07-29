@@ -126,8 +126,9 @@ evidence is fresh, or query provider health.
 
 ## Non-goals
 
-This slice does not add automatic provider selection, token-pool draining,
-budget freshness, provider health checks, authentication or credential handling,
+This slice does not add automatic provider selection, a default token-pool
+policy, account-specific provider control, budget freshness, provider health
+checks, authentication or credential handling,
 provider execution, retry, failover, authorization, persistence, or a remote
 control plane. It adds the `meshfleet/routeplane-catalog` package subpath and
 the `meshfleet-routeplane-catalog` CLI only; the MCP catalog remains at 34

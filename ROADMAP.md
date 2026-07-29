@@ -156,16 +156,20 @@ API freeze. Production-ready. Backward-compatible.
 ## Now / Next / Later (post-0.14)
 
 Direction, not commitment — items ship when real usage pulls them.
+This roadmap covers the public MIT coordination and trust substrate only.
+Commercial assurance and account-specific provider operations are outside this
+public roadmap.
 
 **Now**
 - Provenance-signed npm releases (the "prove it" project practicing its own thesis at the package layer) — the workflow is built (`.github/workflows/release.yml`, OIDC + `npm publish --provenance`); it is waiting on a working `NPM_TOKEN` repository secret, not on code.
 - VS Code extension marketplace listing (the read-only inspector MVP already lives in `editors/vscode/`) — waiting on a publisher account, not on code.
 
 **Next**
-- Automatic provider choice, executing subscription-aware selection, default
-  token-pool draining, and Ollama Cloud's direct API. The pure recommender now
-  has an explicit near-reset tie-break over caller-supplied measured window
-  evidence, but does not poll, choose a provider, or execute. RoutePlane catalog
+- Stabilize the provider-neutral advisory evidence contracts already in the
+  public core. The pure recommender has an explicit near-reset tie-break over
+  caller-supplied measured window evidence, but does not automatically select,
+  poll an account, grant provider authority, schedule work, spend quota, or
+  execute. RoutePlane catalog
   discovery and caller-policy projection are shipped.
   `recommendRoutePlaneCatalog()` is a package-library
   advisory composition over an already-fetched snapshot, while
@@ -209,7 +213,8 @@ Direction, not commitment — items ship when real usage pulls them.
   exclusion, while incomplete or unmeasured evidence remains neutral. It has no
   polling, provider inference, execution, pool
   accounting, reservation, concurrency control, freshness attestation, or
-  default weekly-burn optimization. The explicit `prefer_near_reset`
+  automatic selection, default reset-window optimization, or account-specific
+  operating policy. The explicit `prefer_near_reset`
   preference is a final-score-preserving advisory tie-break, not selection or
   execution. Raw sanitization remains a separate diagnostic-only package/CLI
   surface.
@@ -218,8 +223,9 @@ Direction, not commitment — items ship when real usage pulls them.
   `meshfleet-routeplane-catalog` CLI fetches only RoutePlane's fixed loopback
   catalog and emits a bounded, expiring canonical snapshot; the library admits
   only exact advertised model IDs into the existing advisory candidate compiler.
-  It adds no MCP tool, automatic selection, token-pool draining, budget
-  freshness, health, authentication, or execution authority.
+  It adds no MCP tool, automatic provider selection, default token-pool policy,
+  account control, budget freshness, health, authentication, or execution
+  authority.
 - RoutePlane catalog recommendation composition: the package-library
   `recommendRoutePlaneCatalog()` consumes an already-fetched snapshot,
   preserves compilation diagnostics separately from evaluator exclusions, and
