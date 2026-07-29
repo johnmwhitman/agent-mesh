@@ -48,6 +48,11 @@ replay/conflict/expiry are lowercase
 `not_admitted` dispositions. Internal parsing, validation, binding,
 authorization, replay classification, and unseen-only expiry are not APIs.
 
+The internal replay-decision seam now fixes the copied canonical query shape and
+closed oracle-to-outcome mapping used after authorization. It is not exported,
+an authentication provider, a replay store, persistence integration, or a
+transport implementation.
+
 The design passes `envelope_json` unchanged to 4A, preserves its
 envelope/recipient/numeric/depth/byte/digest semantics independently of request
 parsing, projects every inherited failure as `MALFORMED_ENVELOPE`, keeps Slice 4B behind

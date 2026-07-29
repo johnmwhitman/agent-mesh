@@ -302,11 +302,14 @@ test("the static sidecar has seven exact-null positives and all required closed 
 
 test("local admission and sidecar stay offline, dormant, and outside renderer and package surfaces", () => {
   const localSource = readFileSync(join(root, "src", "a2a", "local-admission.ts"), "utf8");
+  const replaySource = readFileSync(join(root, "src", "a2a", "replay-decision.ts"), "utf8");
   const sidecarSource = readFileSync(join(root, "src", "a2a", "static-harness-mapping.ts"), "utf8");
   const witnessSource = readFileSync(pythonWitness, "utf8");
   assert.match(localSource, /^import .*"\.\/codec\.js";$/m);
   assert.doesNotMatch(localSource, /^import .*"\.\/(?:db|mcp|runtime|transport|lifecycle|durable-acceptance)/m);
+  assert.match(replaySource, /^import type \{ AgentRef \} from "\.\/types\.js";$/m);
+  assert.doesNotMatch(replaySource, /^import .*"\.\/(?:codec|db|mcp|runtime|transport|lifecycle|durable-acceptance)/m);
   assert.doesNotMatch(sidecarSource, /^\s*import /m);
   assert.doesNotMatch(witnessSource, /^\s*(?:from|import)\s+(?:sqlite3|socket|urllib|http|requests|subprocess)\b/m);
-  assert.doesNotMatch(readFileSync(join(root, "package.json"), "utf8"), /static-harness-mapping|local-admission/);
+  assert.doesNotMatch(readFileSync(join(root, "package.json"), "utf8"), /static-harness-mapping|local-admission|replay-decision/);
 });

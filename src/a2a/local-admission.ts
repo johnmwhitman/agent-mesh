@@ -1,4 +1,5 @@
 import { canonicalEnvelopeDigest, decodeEnvelope } from "./codec.js";
+import { decideReplay, type ReplayOracle, type ReplayQuery } from "./replay-decision.js";
 import { A2A_MESSAGE_TYPES, type A2AEnvelopeV01, type AgentRef } from "./types.js";
 
 const PROFILE_VERSION = "meshfleet.a2a.local-admission.v0.1";
@@ -21,7 +22,6 @@ type RejectCode =
   | "MALFORMED_ENVELOPE" | "INVALID_AUTHENTICATION_EVIDENCE" | "INVALID_BINDING_SNAPSHOT"
   | "INVALID_AUTHORIZATION_SNAPSHOT" | "AUTHORIZATION_DENIED" | "REPLAY_PROTECTION_UNAVAILABLE";
 
-type ReplayVerdict = "unseen" | "replayed_request" | "request_id_reuse" | "duplicate" | "message_id_conflict" | "unavailable";
 type AdmissionResult =
   | { kind: "rejected"; code: RejectCode; field_path: string }
   | { kind: "not_admitted"; disposition: "replayed_request" | "request_id_reuse" | "duplicate" | "message_id_conflict" | "expired_at_acceptance" }
@@ -41,16 +41,6 @@ type AdmissionResult =
       authorization_snapshot: { snapshot_version: string; snapshot_id: string; effective_from_ms: number; effective_until_ms: number };
     };
   };
-
-type ReplayArgument = {
-  principal_ref: string;
-  request_id: string;
-  sender: AgentRef;
-  message_id: string;
-  envelope_digest: string;
-};
-
-type ReplayOracle = (argument: ReplayArgument) => ReplayVerdict;
 
 type LocalEvidence = {
   adapter_id: string;
@@ -579,23 +569,16 @@ export function evaluateLocalAdmission(requestJson: string, envelopeJson: string
     return rejected("AUTHORIZATION_DENIED", "$");
   }
 
-  const oracleArgument: ReplayArgument = {
+  const oracleQuery: ReplayQuery = {
     principal_ref: localEvidence.principal_ref,
     request_id: request.request_id,
     sender: { namespace: envelope.sender.namespace, agent_id: envelope.sender.agent_id },
     message_id: envelope.message_id,
     envelope_digest: envelopeDigest,
   };
-  let replay: unknown;
-  try {
-    replay = replayOracle(oracleArgument);
-  } catch {
-    return rejected("REPLAY_PROTECTION_UNAVAILABLE", "$");
-  }
-  if (replay === "replayed_request" || replay === "request_id_reuse" || replay === "duplicate" || replay === "message_id_conflict") {
-    return { kind: "not_admitted", disposition: replay };
-  }
-  if (replay !== "unseen") return rejected("REPLAY_PROTECTION_UNAVAILABLE", "$");
+  const replay = decideReplay(oracleQuery, replayOracle);
+  if (replay.kind === "unavailable") return rejected("REPLAY_PROTECTION_UNAVAILABLE", "$");
+  if (replay.kind === "not_admitted") return replay;
   if (envelope.expires_at_ms !== undefined && envelope.expires_at_ms <= evaluationTime) {
     return { kind: "not_admitted", disposition: "expired_at_acceptance" };
   }
