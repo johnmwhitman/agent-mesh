@@ -1,3 +1,7 @@
+> **Superseded on 2026-07-29:** The current shared-evidence implementation plan is
+> [Fleetbudget Shared-Pool Evidence Implementation Plan](2026-07-29-fleetbudget-shared-pools.md).
+> This historical plan body is preserved unchanged.
+
 # Fleetbudget Observation Projection Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

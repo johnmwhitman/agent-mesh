@@ -1,3 +1,7 @@
+> **Superseded on 2026-07-29:** Shared lane evidence is now specified in
+> [Fleetbudget Shared-Pool Evidence Design](2026-07-29-fleetbudget-shared-pools-design.md).
+> This historical design body is preserved unchanged.
+
 # Fleetbudget Observation Projection Design
 
 ## Goal

@@ -286,13 +286,16 @@ providers, polls budget telemetry, or infers authority from provider labels.
 
 Fleetbudget observation projection is a separate package library, not an MCP
 tool or Fleetbudget CLI. `compileFleetBudgetObservations()` accepts a
-caller-sanitized, versioned snapshot plus explicit candidate-to-lane bindings
-and `now_ms`; it returns measured observations, per-binding diagnostics,
-canonical provenance hashes, and all-false effects. Complete measured
-exhaustion can exclude a candidate through the existing advisory path;
-incomplete or unmeasured evidence stays neutral. It does not poll providers,
-infer authority from lane names, execute work, reward unused quota, or optimize
-weekly burn. [Fleetbudget observation boundary → docs/FLEETBUDGET-OBSERVATIONS.md](docs/FLEETBUDGET-OBSERVATIONS.md)
+caller-sanitized, versioned snapshot plus explicit bindings with unique
+candidate IDs; several candidates may share a lane ID as copied, unsplit
+evidence. It returns measured observations, per-binding diagnostics, canonical
+provenance hashes, and all-false effects. Observations and compiled candidates
+do not retain shared-pool co-location, but bindings and diagnostics do. Existing
+exclusive inputs are byte-identical; only repeated lane bindings are newly
+accepted. Complete measured exhaustion can exclude a candidate through the
+existing advisory path; incomplete or unmeasured evidence stays neutral. It
+does not sum, allocate, reserve, synchronize, or authorize a pool; pollers,
+raw sanitization, and drain scoring remain future work. [Fleetbudget observation boundary → docs/FLEETBUDGET-OBSERVATIONS.md](docs/FLEETBUDGET-OBSERVATIONS.md)
 
 [Advisory routing → docs/ADVISORY-ROUTING.md](docs/ADVISORY-ROUTING.md) · [Fleetbudget observations → docs/FLEETBUDGET-OBSERVATIONS.md](docs/FLEETBUDGET-OBSERVATIONS.md) · [Architecture orientation → AGENT-MESH-SPEC.md](AGENT-MESH-SPEC.md) · [P2P/receipts → SPEC-P2P.md](SPEC-P2P.md) · [Councils → SPEC-COUNCILS.md](SPEC-COUNCILS.md)
 
