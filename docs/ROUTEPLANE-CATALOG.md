@@ -14,10 +14,11 @@ arguments:
 meshfleet-routeplane-catalog --ttl-ms 60000 --timeout-ms 5000
 ```
 
-It sends no headers, accepts no endpoint or credential arguments, refuses
-redirects, and does not cache the response. A successful run writes one
-canonical JSON snapshot to stdout. The snapshot records the fixed endpoint,
-fetch and expiry timestamps, a SHA-256 digest, and deterministically sorted
+It sends no credentials or caller-provided headers, accepts no endpoint or
+credential arguments, refuses redirects, and does not cache the response. A
+successful run writes one canonical JSON snapshot to stdout. The snapshot
+records the fixed endpoint, fetch and expiry timestamps, a SHA-256 digest, and
+deterministically sorted
 model IDs and provider labels. Its version is
 `meshfleet.routeplane-model-snapshot.v1`.
 
@@ -66,5 +67,6 @@ evidence is fresh, or query provider health.
 This slice does not add automatic model selection, token-pool draining, budget
 freshness, provider health checks, authentication or credential handling,
 provider execution, retry, failover, authorization, persistence, or a remote
-control plane. It adds a package library and CLI only; the MCP catalog remains
-at 34 tools.
+control plane. It adds the `meshfleet/routeplane-catalog` package subpath and
+the `meshfleet-routeplane-catalog` CLI only; the MCP catalog remains at 34
+tools.
