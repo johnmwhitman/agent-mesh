@@ -168,8 +168,14 @@ test("README advertises the 36-tool registry including verifier v3 and speculati
 test("compatibility record includes the opt-in verifier-v3 and speculative backlog tools", () => {
   assert.match(
     compatibility,
-    /^\| unreleased \| \+ compile_route_candidates, recommend_route, verify_ledger_v2, verify_ledger_v3, plan_speculative_backlog /m,
-    "unreleased compatibility row must include verifier-v3 and plan_speculative_backlog",
+    // These five tools were pinned as literally `unreleased` because they had
+    // never shipped. 0.20.0 ships them, so the row names that version and this
+    // guard now pins it. Deliberately NOT widened to accept `unreleased` again:
+    // that would let the row silently regress to claiming the tools are still
+    // unshipped. The next batch of tools gets its own row and its own assertion,
+    // which is what keeps this a release tripwire rather than a formality.
+    /^\| 0\.20\.0 \| \+ compile_route_candidates, recommend_route, verify_ledger_v2, verify_ledger_v3, plan_speculative_backlog /m,
+    "the 0.20.0 compatibility row must include verifier-v3 and plan_speculative_backlog",
   );
   assert.match(
     compatibility,
