@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync, statSync } from "node:fs";
+import { lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
@@ -33,21 +34,13 @@ function trackedFiles(): string[] {
   return output.split("\0").filter(Boolean);
 }
 
-test("tracked public files contain no session artifacts or local operational disclosures", () => {
-  const files = trackedFiles();
-  assert.ok(files.length > 0, "git returned no tracked files; the scan would pass vacuously");
-  assert.ok(files.length <= maxTrackedFiles, `tracked-file scan exceeds ${maxTrackedFiles} files`);
-
-  const artifacts = files.filter((file) =>
-    sessionArtifactRoots.some((root) => file === root || file.startsWith(`${root}/`)),
-  );
-  assert.deepEqual(artifacts, [], "tracked session-only artifacts must not return");
-
+function scanTrackedContent(root: string, files: string[]): string[] {
   const findings: string[] = [];
   for (const file of files) {
-    const absolutePath = join(repoRoot, ...file.split("/"));
-    const size = statSync(absolutePath).size;
-    assert.ok(size <= maxTrackedFileBytes, `${file} exceeds the ${maxTrackedFileBytes}-byte scan limit`);
+    const absolutePath = join(root, ...file.split("/"));
+    const fileStat = lstatSync(absolutePath);
+    assert.equal(fileStat.isSymbolicLink(), false, `${file} is a tracked symlink`);
+    assert.ok(fileStat.size <= maxTrackedFileBytes, `${file} exceeds the ${maxTrackedFileBytes}-byte scan limit`);
 
     const content = readFileSync(absolutePath, "utf8");
     for (const forbidden of forbiddenContent) {
@@ -60,6 +53,37 @@ test("tracked public files contain no session artifacts or local operational dis
       }
     }
   }
+  return findings;
+}
 
+test("tracked public files contain no session artifacts or local operational disclosures", () => {
+  const files = trackedFiles();
+  assert.ok(files.length > 0, "git returned no tracked files; the scan would pass vacuously");
+  assert.ok(files.length <= maxTrackedFiles, `tracked-file scan exceeds ${maxTrackedFiles} files`);
+
+  const artifacts = files.filter((file) =>
+    sessionArtifactRoots.some((root) => file === root || file.startsWith(`${root}/`)),
+  );
+  assert.deepEqual(artifacts, [], "tracked session-only artifacts must not return");
+
+  const findings = scanTrackedContent(repoRoot, files);
   assert.deepEqual(findings, [], "tracked public files contain local-only operational details");
+});
+
+test("tracked symlinks are rejected before their targets are read", () => {
+  const temp = mkdtempSync(join(tmpdir(), "meshfleet-public-surface-"));
+  const root = join(temp, "repo");
+  const outside = join(temp, "outside");
+
+  try {
+    mkdirSync(root);
+    mkdirSync(outside);
+    symlinkSync(outside, join(root, "tracked-link"), process.platform === "win32" ? "junction" : "dir");
+    assert.throws(
+      () => scanTrackedContent(root, ["tracked-link"]),
+      /tracked symlink/,
+    );
+  } finally {
+    rmSync(temp, { recursive: true, force: true });
+  }
 });
