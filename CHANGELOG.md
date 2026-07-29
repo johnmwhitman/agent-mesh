@@ -11,6 +11,11 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
   can no longer hide a committed root or reply, strand a reserved wake before
   launch, escape a child-exit callback, or stop later stranded-attempt
   reconciliation. The ledger remains the authoritative recovery surface.
+- **Same-process durable recovery no longer strands a retry behind its expired
+  local handle.** Runtime handles are tracked by attempt and owner epoch, then
+  pruned against SQLite's current lease authority before due work is launched.
+  A late completion from the expired attempt cannot erase the replacement
+  handle or renewal timer; PID-less handles follow the same lease-only rule.
 
 ### Added
 

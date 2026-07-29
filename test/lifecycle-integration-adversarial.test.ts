@@ -22,17 +22,19 @@ function deferred<T>() {
 class ControlledRuntime implements RuntimeAdapter {
   readonly id = "controlled";
   starts = 0;
+  readonly cancelled: string[] = [];
   readonly waits: Array<ReturnType<typeof deferred<RuntimeResult>>> = [];
+  constructor(private readonly includePid = true) {}
   describe() { return { id: this.id, displayName: "Controlled", defaultTimeoutMs: 1_000 }; }
   validate() { return { ok: true, errors: [] }; }
   async start(): Promise<RuntimeHandle> {
     this.starts++;
     const wait = deferred<RuntimeResult>();
     this.waits.push(wait);
-    return { id: `h-${this.starts}`, pid: 4242, startedAt: Date.now(), isAlive: () => true };
+    return { id: `h-${this.starts}`, ...(this.includePid ? { pid: 4242 } : {}), startedAt: Date.now(), isAlive: () => true };
   }
   wait(): Promise<RuntimeResult> { return this.waits.at(-1)!.promise; }
-  async cancel() { return { accepted: true }; }
+  async cancel(handle: RuntimeHandle) { this.cancelled.push(handle.id); return { accepted: true }; }
 }
 
 class HangingStartRuntime implements RuntimeAdapter {
@@ -600,5 +602,56 @@ test("recovery still contains and reclaims once the lease is unambiguously expir
     assert.deepEqual(contained, [999_999], "an unambiguously expired lease must contain its pid");
     assert.equal(runtime.starts, 1, "and must reclaim the work");
     coordinator.stop();
+  } finally { temp.cleanup(); }
+});
+
+test("same coordinator replaces an expired registered handle and a stale completion cannot untrack the replacement", async () => {
+  const temp = withTempDb();
+  try {
+    let now = 100;
+    const runtime = new ControlledRuntime(false);
+    const contained: number[] = [];
+    const coordinator = new LifecycleExecutionCoordinator(runtime, {
+      ownerId: "same-owner",
+      now: () => now,
+      leaseMs: 10,
+      retryBaseMs: 0,
+      maxAttempts: 3,
+      terminatePid: (pid) => contained.push(pid),
+    });
+    coordinator.createFleet("f", [{ fleetId: "f", agentId: "a", role: "r", prompt: "p" }]);
+    await waitUntil(
+      () => new LifecycleStore({ now: () => now }).getState("a")?.attempts[0]?.launch_registered_at !== null,
+      "the first durable handle to register",
+    );
+    const first = new LifecycleStore({ now: () => now }).getState("a")!.attempts[0]!;
+
+    now = first.lease_until! + 1;
+    coordinator.recover();
+
+    await waitUntil(
+      () => runtime.starts === 2,
+      "same-coordinator recovery to launch the replacement attempt",
+      2_000,
+      () => `runtime.starts=${runtime.starts} contained=[${contained.join(",")}]`,
+    );
+    assert.deepEqual(contained, [], "PID-less recovery remains authorized by SQLite lease expiry");
+    await waitUntil(
+      () => {
+        const state = new LifecycleStore({ now: () => now }).getState("a");
+        const current = state?.attempts.find((attempt) => attempt.attempt_id === state.work.current_attempt_id);
+        return current?.launch_registered_at !== null;
+      },
+      "the replacement durable handle to register",
+    );
+
+    runtime.waits[0]!.resolve(success("late old result"));
+    await tick();
+    coordinator.stop();
+
+    assert.ok(
+      runtime.cancelled.includes("h-2"),
+      `a stale completion must not erase replacement tracking (cancelled=[${runtime.cancelled.join(",")}])`,
+    );
   } finally { temp.cleanup(); }
 });
