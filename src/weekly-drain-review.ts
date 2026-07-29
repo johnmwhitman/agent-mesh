@@ -28,6 +28,13 @@ const MAX_QUALITY_ANNOTATIONS = 256;
 const MAX_JSON_DEPTH = 64;
 const MAX_JSON_NODES = 100_000;
 const QUALITY_TAG = /^[a-z0-9][a-z0-9._:-]*$/;
+const TASK_VALIDATION_CANDIDATE: SpeculativeBacklogCandidate = {
+  candidate_id: "weekly-validation-only",
+  capabilities: ["validation-only"],
+  privacy: "unrestricted",
+  locality: "any",
+  quality_tags: [],
+};
 
 type RecordValue = Record<string, unknown>;
 
@@ -418,17 +425,13 @@ export function compileWeeklyDrainReview(input: unknown): WeeklyDrainReviewResul
   });
   const candidates = candidatesWithQuality(catalog, validated.quality_annotations, validated.routeplane.policies);
   const wrapperUsage = compileWrapperUsageStatus(validated.wrapper_usage);
+  // The planner's closed validator requires a candidate. When catalog
+  // compilation yields none, this internal candidate exercises that validator
+  // for every task; its plan is unconditionally discarded and cannot become
+  // output or replay material.
   const plannedProposal = planSpeculativeBacklog({
     version: "meshfleet.speculative-backlog.v0.1",
-    candidates: candidates.length === 0
-      ? [{
-        candidate_id: "weekly-validation-only",
-        capabilities: ["validation-only"],
-        privacy: "unrestricted",
-        locality: "any",
-        quality_tags: [],
-      }]
-      : candidates,
+    candidates: candidates.length === 0 ? [TASK_VALIDATION_CANDIDATE] : candidates,
     tasks: validated.backlog.tasks,
     ...(validated.backlog.candidate_limit === undefined ? {} : { candidate_limit: validated.backlog.candidate_limit }),
     ...(validated.backlog.preference === undefined

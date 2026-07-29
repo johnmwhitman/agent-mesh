@@ -164,6 +164,56 @@ test("catalog-empty reviews still validate every backlog task through the planne
   })), /tasks\[1\]\.artifact\.prompt/);
 });
 
+test("catalog-empty validation candidate never escapes output or weakens task privacy and quality validation", () => {
+  const base = weeklyInput();
+  const emptyRouteplane = {
+    ...base.routeplane,
+    snapshot: normalizeRoutePlaneCatalog({
+      object: "list",
+      data: [{ id: "model-b", object: "model", providers: ["provider-b"] }],
+    }, NOW_MS - 1_000, 2_000),
+  };
+  const privacyAndQualityConstrained = {
+    ...base.backlog.tasks[0]!,
+    route: {
+      required_capabilities: ["code"],
+      privacy: "local_only",
+      locality: "same_host",
+    },
+    required_quality_tags: ["private-reviewed"],
+  };
+  const input = weeklyInput({
+    routeplane: emptyRouteplane,
+    backlog: { tasks: [privacyAndQualityConstrained] },
+  });
+
+  const result = compileWeeklyDrainReview(input);
+  const replay = compileWeeklyDrainReview(input);
+  assert.equal(result.status, "no_compiled_candidates");
+  assert.equal(result.proposal, null);
+  assert.deepEqual(replay, result);
+  assert.doesNotMatch(JSON.stringify(result), /weekly-validation-only|validation-only/);
+
+  assert.throws(() => compileWeeklyDrainReview(weeklyInput({
+    routeplane: emptyRouteplane,
+    backlog: {
+      tasks: [{
+        ...privacyAndQualityConstrained,
+        route: { ...privacyAndQualityConstrained.route, privacy: "private-enough" },
+      }],
+    },
+  })), /task\.privacy/);
+  assert.throws(() => compileWeeklyDrainReview(weeklyInput({
+    routeplane: emptyRouteplane,
+    backlog: {
+      tasks: [{
+        ...privacyAndQualityConstrained,
+        required_quality_tags: ["Private Reviewed"],
+      }],
+    },
+  })), /tasks\[0\]\.required_quality_tags\[0\]/);
+});
+
 test("composes supplied catalog, sanitized budget, quality evidence, and approved backlog without effects", () => {
   const source = weeklyInput();
   const before = structuredClone(source);
@@ -347,6 +397,67 @@ test("rejects nested prototype-backed objects and sparse, decorated, or exotic a
   assert.throws(() => compileWeeklyDrainReview(exotic), /ordinary array/);
 });
 
+test("preflight clones repeated non-cyclic references and rejects proxy inspection failures", () => {
+  const sharedRoute = {
+    required_capabilities: ["code"],
+    privacy: "network_ok",
+    locality: "any",
+  };
+  const sharedApproval = {
+    state: "approved",
+    approval_ref: "john-shared-approval",
+  };
+  const sharedQualityTags = ["reviewed"];
+  const baseTask = weeklyInput().backlog.tasks[0]!;
+  const repeated = weeklyInput({
+    backlog: {
+      tasks: [
+        {
+          ...baseTask,
+          task_id: "shared-a",
+          route: sharedRoute,
+          speculative_approval: sharedApproval,
+          required_quality_tags: sharedQualityTags,
+        },
+        {
+          ...baseTask,
+          task_id: "shared-b",
+          route: sharedRoute,
+          speculative_approval: sharedApproval,
+          required_quality_tags: sharedQualityTags,
+        },
+      ],
+    },
+  });
+  assert.deepEqual(
+    compileWeeklyDrainReview(repeated).proposal?.proposed.map(({ task_id }) => task_id),
+    ["shared-a", "shared-b"],
+  );
+
+  for (const trap of ["ownKeys", "getOwnPropertyDescriptor"] as const) {
+    const source = weeklyInput();
+    let descriptorReads = 0;
+    const target = Object.defineProperty({ bytes: 0, lines: 0, sha256: EMPTY_SHA256 }, "poison", {
+      configurable: true,
+      enumerable: true,
+      get() {
+        descriptorReads += 1;
+        return "never";
+      },
+    });
+    const handler: ProxyHandler<typeof target> = trap === "ownKeys"
+      ? { ownKeys() { throw new Error("opaque ownKeys failure"); } }
+      : { getOwnPropertyDescriptor() { throw new Error("opaque descriptor failure"); } };
+    (source.wrapper_usage as ReturnType<typeof wrapperUsage>).source = new Proxy(target, handler);
+
+    assert.throws(
+      () => compileWeeklyDrainReview(source),
+      trap === "ownKeys" ? /inspectable JSON object or array/ : /<non-json-member>/,
+    );
+    assert.equal(descriptorReads, 0, `${trap} failure must not read nested accessors`);
+  }
+});
+
 test("validates backlog bounds before a catalog-empty review can suppress planning", () => {
   assert.throws(() => compileWeeklyDrainReview(weeklyInput({
     backlog: { tasks: [], candidate_limit: 9 },
@@ -427,6 +538,8 @@ test("shared lane evidence is copied to every bound candidate without allocation
 
 test("is a pure package module without fetch, process, provider, or persistence imports", () => {
   const source = readFileSync(join(repoRoot, "src", "weekly-drain-review.ts"), "utf8");
+  assert.match(source, /const MAX_JSON_DEPTH = 64;/);
+  assert.match(source, /const MAX_JSON_NODES = 100_000;/);
   assert.doesNotMatch(source, /from\s+["']node:(?:child_process|fs|http|https|net|sqlite)["']/);
   assert.doesNotMatch(source, /\bfetch\s*\(/);
   assert.doesNotMatch(source, /\bprocess\./);
