@@ -4,6 +4,14 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 
 ## [Unreleased]
 
+### Fixed
+
+- **Discussion notification failures no longer contaminate durable control flow.**
+  Notification remains post-commit and best-effort, but a throwing subscriber
+  can no longer hide a committed root or reply, strand a reserved wake before
+  launch, escape a child-exit callback, or stop later stranded-attempt
+  reconciliation. The ledger remains the authoritative recovery surface.
+
 ### Added
 
 - **Bounded RoutePlane model-catalog snapshots** — the

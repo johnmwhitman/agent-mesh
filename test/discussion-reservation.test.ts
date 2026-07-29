@@ -328,6 +328,7 @@ function makeHarness(
     guardConfig?: GuardConfig;
     state?: FakeState;
     registerDefaultAgents?: boolean;
+    notify?: NotifyFn;
   } = {}
 ): Harness {
   const state = opts.state ?? makeFakeState();
@@ -370,7 +371,7 @@ function makeHarness(
     spawn,
     kill,
     clock,
-    notify,
+    notify: opts.notify ?? notify,
     guardConfig: opts.guardConfig ?? DEFAULT_GUARD_CONFIG,
   };
 
@@ -1014,6 +1015,132 @@ test("D2-red #51 — notification occurs only after commit", async () => {
   await assert.rejects(() => openRoot(h2.store), isNotTheNotImplementedStub);
   assert.equal(h2.ledgerFaults.throwOnWriteReceipt, undefined, "expected the injected fault to actually fire");
   assert.equal(h2.notifyEvents.length, 0, "a rolled-back transaction must produce zero notifications");
+});
+
+test("D2 reliability — notifier failure cannot hide a committed root or block its reserved launch", async () => {
+  const h = makeHarness({
+    notify: () => {
+      throw new Error("subscriber transport unavailable");
+    },
+  });
+
+  const opened = await openRoot(h.store, { wake_peer: true });
+
+  assert.ok(opened.discussion_id, "the committed root must still be returned");
+  assert.equal(opened.wake_reserved, true);
+  assert.equal(h.spawnCalls.length, 1, "the reserved attempt must still launch");
+  const view = h.store.getDiscussion({ discussion_id: opened.discussion_id });
+  assert.equal(view.transcript.length, 1, "the committed root remains readable");
+  assert.equal(view.attempts[0]?.state, "started");
+});
+
+test("D2 reliability — notifier failure cannot block an explicitly reserved wake launch", async () => {
+  let notificationsFail = false;
+  const h = makeHarness({
+    notify: () => {
+      if (notificationsFail) throw new Error("subscriber transport unavailable");
+    },
+  });
+  const opened = await openRoot(h.store);
+  notificationsFail = true;
+
+  const wake = await h.store.wakeAgent({
+    agent_id: AGENT_B,
+    discussion_id: opened.discussion_id,
+    expected_head_message_id: opened.root_message_id,
+  });
+
+  assert.ok(wake.attempt_id);
+  assert.equal(h.spawnCalls.length, 1, "post-commit notification failure must not strand the reservation");
+  assert.equal(
+    h.store.getDiscussion({ discussion_id: opened.discussion_id }).attempts[0]?.state,
+    "started"
+  );
+});
+
+test("D2 reliability — notifier failure cannot turn a committed reply into an apparent rejection", async () => {
+  let notificationsFail = false;
+  const h = makeHarness({
+    notify: () => {
+      if (notificationsFail) throw new Error("subscriber transport unavailable");
+    },
+  });
+  const opened = await openRoot(h.store);
+  const wake = await h.store.wakeAgent({
+    agent_id: AGENT_B,
+    discussion_id: opened.discussion_id,
+    expected_head_message_id: opened.root_message_id,
+  });
+  notificationsFail = true;
+
+  const reply = await h.store.replyDiscussion({
+    agent_id: AGENT_B,
+    discussion_id: opened.discussion_id,
+    attempt_id: wake.attempt_id,
+    reply_to_message_id: opened.root_message_id,
+    type: "result",
+    payload: "answer",
+    close: true,
+  });
+
+  assert.equal(reply.status, "closed");
+  const view = h.store.getDiscussion({ discussion_id: opened.discussion_id });
+  assert.equal(view.status, "closed");
+  assert.equal(view.transcript.length, 2);
+});
+
+test("D2 reliability — notifier failure cannot escape a child exit callback after durable settlement", async () => {
+  let notificationsFail = false;
+  const h = makeHarness({
+    notify: () => {
+      if (notificationsFail) throw new Error("subscriber transport unavailable");
+    },
+  });
+  const opened = await openRoot(h.store);
+  await h.store.wakeAgent({
+    agent_id: AGENT_B,
+    discussion_id: opened.discussion_id,
+    expected_head_message_id: opened.root_message_id,
+  });
+  notificationsFail = true;
+
+  assert.doesNotThrow(() => h.spawnCalls[0]!.triggerExit({ code: 1 }));
+  assert.equal(
+    h.store.getDiscussion({ discussion_id: opened.discussion_id }).attempts[0]?.state,
+    "failed"
+  );
+});
+
+test("D2 reliability — notifier failure cannot stop a stranded-attempt sweep after its first settlement", async () => {
+  let notificationsFail = false;
+  const h = makeHarness({
+    notify: () => {
+      if (notificationsFail) throw new Error("subscriber transport unavailable");
+    },
+  });
+  const first = await openRoot(h.store);
+  await h.store.wakeAgent({
+    agent_id: AGENT_B,
+    discussion_id: first.discussion_id,
+    expected_head_message_id: first.root_message_id,
+  });
+  const second = await openRoot(h.store);
+  await h.store.wakeAgent({
+    agent_id: AGENT_B,
+    discussion_id: second.discussion_id,
+    expected_head_message_id: second.root_message_id,
+  });
+  notificationsFail = true;
+  h.clockRef.value += 301_000;
+
+  const swept = await h.store.sweepStranded(h.clockRef.value);
+
+  assert.equal(swept.terminalized.length, 2, "both durable settlements must be returned");
+  assert.deepEqual(
+    new Set(swept.terminalized.map((entry) => entry.discussion_id)),
+    new Set([first.discussion_id, second.discussion_id])
+  );
+  assert.equal(h.killCalls.length, 2, "both local child handles must still be killed");
 });
 
 test("D2-red #52 — no asynchronous callback is ever passed to the ledger seam", async () => {
