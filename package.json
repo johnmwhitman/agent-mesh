@@ -9,12 +9,14 @@
     "./package.json": "./package.json",
     "./routeplane-catalog": "./dist/routeplane-catalog.js",
     "./fleetbudget-observations": "./dist/fleetbudget-observations.js",
+    "./fleetbudget-sanitizer": "./dist/fleetbudget-sanitizer.js",
     "./bin/inspect": "./dist/bin/inspect.js",
     "./bin/dashboard": "./dist/bin/dashboard.js"
   },
   "bin": {
     "meshfleet": "dist/index.js",
     "meshfleet-routeplane-catalog": "dist/bin/routeplane-catalog.js",
+    "meshfleet-fleetbudget-sanitize": "dist/bin/fleetbudget-sanitize.js",
     "agent-mesh": "dist/bin/inspect.js",
     "agent-mesh-dashboard": "dist/bin/dashboard.js"
   },

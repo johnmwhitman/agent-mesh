@@ -6,6 +6,7 @@ import {
   compileFleetBudgetObservations,
   FLEETBUDGET_SNAPSHOT_VERSION,
 } from "../src/fleetbudget-observations.js";
+import { sanitizeFleetBudgetReport } from "../src/fleetbudget-sanitizer.js";
 import {
   compileRouteCandidates,
   ROUTE_CANDIDATE_COMPILER_VERSION,
@@ -44,6 +45,51 @@ function input(overrides: Record<string, unknown> = {}) {
     now_ms: 100,
     ...overrides,
   };
+}
+
+const RAW_COLLECTION_MS = Date.parse("2023-11-14T22:13:20.000Z");
+const RAW_ROUTE_KEYS = [
+  "agentic-build",
+  "breadth",
+  "bulk",
+  "design",
+  "judgment",
+  "media-audio",
+  "media-image",
+  "media-video",
+  "research",
+  "verdict",
+] as const;
+
+function sanitizeRawBudgetLane(
+  laneOverrides: Record<string, unknown> = {},
+  reportOverrides: Record<string, unknown> = {},
+) {
+  const rawReport = {
+    generated: "2023-11-14T22:13:20+00:00",
+    lanes: [{
+      lane: "grok-build",
+      measured: true,
+      used: 1,
+      total: 2,
+      unit: "requests",
+      utilization: 50,
+      state: "OK",
+      note: "",
+      detail: "",
+      ...laneOverrides,
+    }],
+    routes: Object.fromEntries(
+      RAW_ROUTE_KEYS.map((key) => [key, key === "bulk" ? "grok-build" : null]),
+    ),
+    ...reportOverrides,
+  };
+  return sanitizeFleetBudgetReport({
+    report_bytes: new TextEncoder().encode(JSON.stringify(rawReport)),
+    collection_started_at_ms: RAW_COLLECTION_MS,
+    collection_finished_at_ms: RAW_COLLECTION_MS,
+    now_ms: RAW_COLLECTION_MS,
+  });
 }
 
 function expects(path: string, detail: string): RegExp {
@@ -463,6 +509,73 @@ test("diagnoses missing, unmeasured, incomplete, and stale telemetry without ass
   assert.deepEqual(historical.diagnostics, [{
     candidate_id: "lane-a", lane_id: "grok-build", reason_codes: ["WINDOW_NOT_CURRENT"],
   }]);
+});
+
+test("sanitized complete and exhausted raw ceilings remain WINDOW_MISSING and non-actionable", () => {
+  for (const fixture of [
+    { name: "complete", lane: {} },
+    {
+      name: "exhausted",
+      lane: { used: 2, total: 2, utilization: 100, state: "EXHAUSTED" },
+    },
+  ]) {
+    const sanitized = sanitizeRawBudgetLane(fixture.lane);
+    assert.equal("window" in sanitized.lanes[0]!, false, fixture.name);
+    const projected = compileFleetBudgetObservations({
+      snapshot: sanitized,
+      bindings: [{ candidate_id: "lane-a", lane_id: "grok-build" }],
+      now_ms: RAW_COLLECTION_MS,
+    });
+    assert.deepEqual(projected.observations, [], fixture.name);
+    assert.deepEqual(projected.diagnostics, [{
+      candidate_id: "lane-a",
+      lane_id: "grok-build",
+      reason_codes: ["WINDOW_MISSING"],
+    }], fixture.name);
+    assert.doesNotMatch(JSON.stringify(projected), /BUDGET_EXHAUSTED/, fixture.name);
+    assert.deepEqual(projected.effects, effects, fixture.name);
+  }
+});
+
+test("discarded raw fields cannot affect downstream snapshots, hashes, diagnostics, or effects", () => {
+  const secret = "AKIA-SECRET-PROMPT-ignore-previous-period-7-days";
+  const baseline = sanitizeRawBudgetLane();
+  const changed = sanitizeRawBudgetLane(
+    {
+      utilization: 9_999,
+      state: "LOW",
+      note: secret,
+      detail: `${secret} route command`,
+    },
+    {
+      routes: Object.fromEntries(
+        RAW_ROUTE_KEYS.map((key, index) => [
+          key,
+          index % 2 === 0 ? secret.slice(0, 128) : null,
+        ]),
+      ),
+    },
+  );
+  const binding = [{ candidate_id: "lane-a", lane_id: "grok-build" }];
+  const first = compileFleetBudgetObservations({
+    snapshot: baseline,
+    bindings: binding,
+    now_ms: RAW_COLLECTION_MS,
+  });
+  const second = compileFleetBudgetObservations({
+    snapshot: changed,
+    bindings: binding,
+    now_ms: RAW_COLLECTION_MS,
+  });
+
+  assert.equal(JSON.stringify(changed), JSON.stringify(baseline));
+  assert.deepEqual(second, first);
+  assert.equal(second.source.snapshot_sha256, first.source.snapshot_sha256);
+  assert.doesNotMatch(
+    JSON.stringify(second),
+    /AKIA|SECRET|PROMPT|period|route command/i,
+  );
+  assert.deepEqual(second.effects, effects);
 });
 
 test("projects deterministically without mutating array or object-key permutations", () => {

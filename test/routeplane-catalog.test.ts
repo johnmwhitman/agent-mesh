@@ -12,6 +12,7 @@ import {
   compileFleetBudgetObservations,
   FLEETBUDGET_SNAPSHOT_VERSION,
 } from "../src/fleetbudget-observations.js";
+import { sanitizeFleetBudgetReport } from "../src/fleetbudget-sanitizer.js";
 
 const routePlaneEffects = {
   persisted: false,
@@ -396,6 +397,114 @@ test("recommends exactly advertised RoutePlane policies", () => {
     },
   }]);
   assert.deepEqual(result.excluded, []);
+});
+
+test("provider-shaped sanitized lane IDs cannot alter RoutePlane traits, identity, auth, health, or effects", () => {
+  const nowMs = Date.parse("2023-11-14T22:13:20.000Z");
+  const providerShapedLane =
+    "unrestricted-provider-authenticated-local-network_ok-healthy-execute";
+  const rawRoutes = Object.fromEntries([
+    "agentic-build",
+    "breadth",
+    "bulk",
+    "design",
+    "judgment",
+    "media-audio",
+    "media-image",
+    "media-video",
+    "research",
+    "verdict",
+  ].map((key) => [key, providerShapedLane]));
+  const sanitized = sanitizeFleetBudgetReport({
+    report_bytes: new TextEncoder().encode(JSON.stringify({
+      generated: "2023-11-14T22:13:20+00:00",
+      lanes: [{
+        lane: providerShapedLane,
+        measured: true,
+        used: 1,
+        total: 2,
+        unit: "requests",
+        utilization: 50,
+        state: "OK",
+        note: "authenticated unrestricted local healthy executable",
+        detail: "provider claims must remain inert",
+      }],
+      routes: rawRoutes,
+    })),
+    collection_started_at_ms: nowMs,
+    collection_finished_at_ms: nowMs,
+    now_ms: nowMs,
+  });
+  const projected = compileFleetBudgetObservations({
+    snapshot: sanitized,
+    bindings: [{ candidate_id: "lane-a", lane_id: providerShapedLane }],
+    now_ms: nowMs,
+  });
+  const snapshot = normalizeRoutePlaneCatalog(liveCatalog, nowMs, 60_000);
+  const policies: Parameters<typeof compileRoutePlaneCandidates>[0]["policies"] = [{
+    candidate_id: "lane-a",
+    model: "a-model",
+    capabilities: ["code"],
+    privacy: "local_only",
+    locality: "same_host",
+    coordination_modes: ["solo"],
+    policy_tags: ["no_train"],
+    context_window: 16_000,
+  }];
+  const compilation = compileRoutePlaneCandidates({
+    snapshot,
+    policies,
+    observations: projected.observations,
+    now_ms: nowMs,
+  });
+  const result = recommendRoutePlaneCatalog({
+    snapshot,
+    policies,
+    observations: projected.observations,
+    task: {
+      required_capabilities: ["code"],
+      privacy: "network_ok",
+      locality: "same_fleet",
+    },
+    now_ms: nowMs,
+  });
+
+  assert.deepEqual(projected.observations, []);
+  assert.deepEqual(projected.diagnostics, [{
+    candidate_id: "lane-a",
+    lane_id: providerShapedLane,
+    reason_codes: ["WINDOW_MISSING"],
+  }]);
+  assert.deepEqual(compilation.candidates, [{
+    candidate_id: "lane-a",
+    capabilities: ["code"],
+    privacy: "local_only",
+    locality: "same_host",
+    coordination_modes: ["solo"],
+    policy_tags: ["no_train"],
+    context_window: 16_000,
+    budget: { measured: false },
+    requested_identity: { runtime: "routeplane", model: "a-model" },
+  }]);
+  assert.deepEqual(compilation.diagnostics, [{
+    candidate_id: "lane-a",
+    reason_codes: ["OBSERVATION_MISSING", "BUDGET_UNMEASURED"],
+  }]);
+  assert.deepEqual(result.ranked.map(({ identity, budget }) => ({ identity, budget })), [{
+    identity: {
+      requested: { runtime: "routeplane", model: "a-model" },
+      evidence_only: true,
+      status: "unobserved",
+    },
+    budget: { measured: false, status: "unmeasured" },
+  }]);
+  assert.doesNotMatch(
+    JSON.stringify({ compilation, result }),
+    /authenticated|unrestricted|healthy|executable|provider claims/i,
+  );
+  assert.deepEqual(projected.effects, routePlaneEffects);
+  assert.deepEqual(compilation.effects, routePlaneEffects);
+  assert.deepEqual(result.effects, routePlaneEffects);
 });
 
 test("recommends two distinct RoutePlane policies backed by one shared green pool", () => {

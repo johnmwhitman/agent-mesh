@@ -52,6 +52,7 @@ descriptive prose, not a status label.
 | Provider-neutral runtime adapters | `runtime-launch-verified` | Isolated RuntimeAdapter SPI, OpenCode adapter, and deterministic local-process adapter are verified. A public `model` (`provider/model`) selector is exposed on `spawn_fleet` / `attach_agent` and flows through the default OpenCode adapter; there is no public runtime-adapter selector and no vendor adapter is wired | `docs/ADAPTER-CONTRACT.md`, `src/runtime`, `test/runtime-adapter.test.ts` |
 | Advisory subscription-lane snapshots | `fixture-verified` | The portable v0.1 corpus and real MCP stdio contract test verify sanitized offline snapshot ranking and rejection of provider/control-plane smuggling. This remains advisory-only and does not prove provider availability, authentication, catalog access, execution, or metering. | `test/fixtures/routing/subscription-lanes/v0.1/corpus.json`, `test/recommend-route-subscription-lanes.test.ts`, `test/recommend-route-mcp.test.ts` |
 | Offline route-candidate snapshot compiler | `fixture-verified` | The pure compiler and real MCP contract deterministically project sanitized caller evidence without I/O or authority. This is not provider availability, authentication, budget freshness, execution, failover, or metering evidence. | `src/compile-route-candidates.ts`, `test/fixtures/routing/route-candidate-snapshots/v0.1/corpus.json`, `test/compile-route-candidates.test.ts`, `test/compile-route-candidates-mcp.test.ts` |
+| Raw Fleetbudget diagnostic sanitizer | `unverified` | The unreleased pure package sanitizer and bounded stdin CLI have TypeScript unit, integration, and packed-consumer evidence, but no language-neutral fixture corpus required for a stronger registered status. They lock the current unversioned raw byte shape, erase raw control/prose fields, and emit windowless diagnostic evidence; they do not invoke Fleetbudget or prove availability, exhaustion, allocation, ranking, routing, provider identity, authentication, health, locality, or execution. | `src/fleetbudget-sanitizer.ts`, `src/bin/fleetbudget-sanitize.ts`, `test/fleetbudget-sanitizer.test.ts`, `test/fleetbudget-sanitizer-cli.test.ts` |
 | Dormant durable acceptance journal (**writer deleted from `main` 2026-07-25**; the physical SQLite v4 tables remain, unused) | `dormant-internal-durable-verified` | Branch `codex/a2a-seamless-foundation` implements and locally verifies physical SQLite v4, three private append-only tables, exact schema validation, pre-tokenized keyed identities, request-first replay/conflict ordering, and accepted-only local receipts. It remains unmerged, unpublished, inactive, and has no public ingress, auth provider, delivery, or execution claim. | `docs/A2A-DURABLE-ACCEPTANCE-v0.1.md`, `docs/adr/0005-dormant-durable-acceptance-journal.md`, `acc4090..f1f98fb` |
 | Slice 4C-0 capability profile and evidence taxonomy | `reference-conformance` | Offline/dormant semantic foundation implemented at `ea69cb9` over `234cd55..ea69cb9`; 363 exact five-operation cases, 363/363 direct TypeScript/Python byte differential, 530/530 full tests, passed typecheck, and two APPROVED independent reviews. Translation evidence is `static-translation-verified`. No public ingress, auth, runtime selection, network, persistence, provider call, delivery, execution, cryptographic verification, durable registry, release, or activation claim. | `docs/A2A-CAPABILITY-PROFILE-v0.1.md`, `docs/adr/0006-capability-evidence-is-not-authority.md`, `reference/python/a2a_capability_profile_reference.py`, `234cd55..ea69cb9` |
 | Multi-host coordination | `deferred` | No shared remote ownership authority exists | `docs/A2A-PROGRAM.md` |
@@ -263,6 +264,41 @@ input, distinct from every other evidence field:
   the installed OpenCode IDs `opencode-go/minimax-m3` and
   `kilo/kilo-auto/free`; this is environment-local observed execution, not a
   general provider-availability claim.
+
+## Raw Fleetbudget sanitizer compatibility (unreleased)
+
+The new `meshfleet/fleetbudget-sanitizer` package subpath and
+`meshfleet-fleetbudget-sanitize` executable are additive. They add no MCP tool
+and do not change `FleetBudgetSnapshot`,
+`meshfleet.fleetbudget-snapshot.v1`, or
+`compileFleetBudgetObservations()`. Existing caller-sanitized snapshots,
+bindings, diagnostics, hashes, and exclusive/shared projection behavior remain
+unchanged.
+
+The raw input is intentionally version-locked to the producer shape observed
+when this slice was built. The root must contain exactly `generated`, `lanes`,
+and the current ten-key `routes` object; every lane must contain exactly
+`lane`, `measured`, `used`, `total`, `unit`, `utilization`, `state`, `note`,
+and `detail`. Schema drift fails closed instead of being guessed into a
+compatible shape. The public library accepts raw bytes plus explicit
+caller-owned collection start, finish, and current time. The CLI accepts only
+separate required integer flag/value pairs for those timestamps, an optional
+`--ttl-ms`, and stdin.
+
+Only `lane`, `measured`, `used`, `total`, and `unit` reach the snapshot.
+`lane` remains an opaque evidence identifier. `routes`, `state`,
+`utilization`, `note`, and `detail` are validated and erased. No lane receives
+a typed quota window, so complete and exhausted raw metrics still compile to
+`WINDOW_MISSING`, emit no observation, and cannot establish availability,
+exhaustion, allocation, ranking, route choice, provider identity,
+authentication, health, locality, or execution authority.
+
+The CLI does not spawn or invoke Fleetbudget, providers, route commands, or
+other processes. It reads only stdin. An authorized host runner must collect
+the raw report, own the collection timestamps, wait for the producer to exit
+and its report file to close, and then invoke the CLI. Structured collector
+versioning, producer-owned observation timing, and typed quota windows are
+compatibility prerequisites before this raw evidence can become actionable.
 
 ## When v1.0 lands
 

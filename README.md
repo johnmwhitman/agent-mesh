@@ -284,18 +284,27 @@ never fetches, deploys, publishes, selects providers, executes models, contacts
 providers, polls budget telemetry, or infers authority from provider labels.
 [RoutePlane catalog boundary → docs/ROUTEPLANE-CATALOG.md](docs/ROUTEPLANE-CATALOG.md)
 
-Fleetbudget observation projection is a separate package library, not an MCP
-tool or Fleetbudget CLI. `compileFleetBudgetObservations()` accepts a
-caller-sanitized, versioned snapshot plus explicit bindings with unique
-candidate IDs; several candidates may share a lane ID as copied, unsplit
-evidence. It returns measured observations, per-binding diagnostics, canonical
-provenance hashes, and all-false effects. Observations and compiled candidates
-do not retain shared-pool co-location, but bindings and diagnostics do. Existing
-exclusive inputs are byte-identical; only repeated lane bindings are newly
-accepted. Complete measured exhaustion can exclude a candidate through the
-existing advisory path; incomplete or unmeasured evidence stays neutral. It
-does not sum, allocate, reserve, synchronize, or authorize a pool; pollers,
-raw sanitization, and drain scoring remain future work. [Fleetbudget observation boundary → docs/FLEETBUDGET-OBSERVATIONS.md](docs/FLEETBUDGET-OBSERVATIONS.md)
+Fleetbudget ingress and observation projection are separate package surfaces,
+not MCP tools. The new `meshfleet/fleetbudget-sanitizer` library and
+`meshfleet-fleetbudget-sanitize` stdin CLI strictly validate the current
+unversioned `fleetbudget --json` byte shape against a caller-owned collection
+interval. They retain `lane` only as an opaque evidence identifier plus
+`measured`, `used`, `total`, and `unit`; `routes`, `state`, `utilization`,
+`note`, and `detail` are validated and erased. The CLI reads stdin and never
+invokes Fleetbudget, another provider process, or a route command.
+
+Sanitized raw lanes deliberately contain no typed quota window, so even a
+complete or exhausted raw ceiling remains diagnostic-only: it produces
+`WINDOW_MISSING`, no observation, and no availability, exhaustion, allocation,
+ranking, or route authority. `compileFleetBudgetObservations()` still accepts
+caller-supplied versioned snapshots with explicit candidate bindings when a
+real typed quota window exists. Several candidates may share a lane ID as
+copied, unsplit evidence; the compiler returns observations or diagnostics,
+canonical provenance hashes, and all-false effects. Neither surface sums,
+allocates, reserves, synchronizes, executes, authorizes, rewards unused quota,
+or implements a drain policy. Structured collector versioning,
+producer-owned observation timing, and typed quota windows are required before
+raw measured budget can become actionable. [Safe host collection and exact boundary → docs/FLEETBUDGET-OBSERVATIONS.md](docs/FLEETBUDGET-OBSERVATIONS.md)
 
 [Advisory routing → docs/ADVISORY-ROUTING.md](docs/ADVISORY-ROUTING.md) · [Fleetbudget observations → docs/FLEETBUDGET-OBSERVATIONS.md](docs/FLEETBUDGET-OBSERVATIONS.md) · [Architecture orientation → AGENT-MESH-SPEC.md](AGENT-MESH-SPEC.md) · [P2P/receipts → SPEC-P2P.md](SPEC-P2P.md) · [Councils → SPEC-COUNCILS.md](SPEC-COUNCILS.md)
 

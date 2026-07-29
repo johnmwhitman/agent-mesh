@@ -90,6 +90,34 @@ This receipt records the pre-merge review evidence. PR [#42](https://github.com/
 subsequently merged to `main` at `0e203ea`. The merge does not move the
 immutable `v0.19.0` tag, publish a package, or authorize provider execution.
 
+## In-flight: Fleetbudget raw-report diagnostic sanitizer
+
+The isolated feature branch `codex/fleetbudget-raw-sanitizer-20260729` contains
+the reviewed implementation through committed code head `168996c`:
+
+- `meshfleet/fleetbudget-sanitizer` accepts bounded raw UTF-8 bytes plus
+  caller-owned collection start, finish, and current time. It locks the current
+  unversioned report shape and returns the existing
+  `meshfleet.fleetbudget-snapshot.v1` shape without a lane `window`.
+- `meshfleet-fleetbudget-sanitize` is a bounded stdin CLI with closed integer
+  flags and compact value-free JSON errors. It never invokes
+  `~/AI/Tools/fleetbudget`, a provider process, or a route command; an
+  authorized host runner owns collection and timing.
+- The sanitizer preserves `lane` only as an opaque evidence identifier plus
+  `measured`, `used`, `total`, and `unit`. It validates and erases `routes`,
+  `state`, `utilization`, `note`, and `detail`.
+- Complete and exhausted raw metrics remain `WINDOW_MISSING` diagnostics with
+  no observation or `BUDGET_EXHAUSTED`. Without structured collector
+  versioning, producer-owned observation timing, and typed quota windows, this
+  evidence establishes no
+  availability, exhaustion, allocation, ranking, routing, provider identity,
+  authentication, health, locality, or execution authority.
+- Tasks 1–3 are committed as `194384c`, `e2de945`, and `168996c`. At the time
+  of this branch receipt they were not merged, published, deployed, or
+  activated. This receipt does not establish any later publication state;
+  verify Git and release state directly, and keep those as independent human
+  gates.
+
 ## Current state
 
 - **34 MCP tools** across 11 families: lifecycle, messaging, inbox, receipts, ratification,
@@ -122,8 +150,9 @@ immutable `v0.19.0` tag, publish a package, or authorize provider execution.
   stays neutral. It adds no MCP tool, raw Fleetbudget parser/CLI/poller,
   provider inference, pool accounting, allocation, reservation, concurrency
   control, authority, provider execution, unused-quota reward, or weekly-burn
-  policy. Raw sanitization and drain scoring remain future work. See
-  `docs/FLEETBUDGET-OBSERVATIONS.md`.
+  policy. Raw sanitization now exists on the in-flight feature branch as a
+  separate diagnostic-only package/CLI surface; typed quota windows and drain
+  scoring remain future work. See `docs/FLEETBUDGET-OBSERVATIONS.md`.
 - **12 A2A conformance witnesses** under `blackbox/` — pure offline blackbox suites with JS
   runners, Python evaluators, corpora, and review records. The 12th (discussion-derivation)
   has an 18-case corpus and a 1,273-line Grok-produced pure JS evaluator verified against
