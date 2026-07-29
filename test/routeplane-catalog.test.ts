@@ -408,6 +408,119 @@ test("rejects malformed recommendation tasks when no catalog candidates compile"
   );
 });
 
+test("keeps catalog diagnostics distinct when a policy model is missing", () => {
+  const snapshot = normalizeRoutePlaneCatalog(liveCatalog, 100, 60_000);
+  const result = recommendRoutePlaneCatalog({
+    snapshot,
+    now_ms: 100,
+    policies: [{
+      candidate_id: "lane-missing",
+      model: "not-advertised",
+      capabilities: ["code"],
+      privacy: "network_ok",
+      locality: "any",
+    }],
+    task: { required_capabilities: ["code"], privacy: "network_ok", locality: "any" },
+  });
+
+  assert.equal(result.status, "no_compiled_candidates");
+  assert.deepEqual(result.compilation.diagnostics, [
+    { candidate_id: "lane-missing", reason_codes: ["MODEL_NOT_ADVERTISED"] },
+  ]);
+  assert.deepEqual(result.ranked, []);
+  assert.deepEqual(result.excluded, []);
+});
+
+test("excludes only measured exhausted budget after compiling RoutePlane policy evidence", () => {
+  const snapshot = normalizeRoutePlaneCatalog(liveCatalog, 100, 60_000);
+  const result = recommendRoutePlaneCatalog({
+    snapshot,
+    now_ms: 100,
+    policies: [{
+      candidate_id: "lane-a",
+      model: "a-model",
+      capabilities: ["code"],
+      privacy: "network_ok",
+      locality: "any",
+    }],
+    observations: [{
+      candidate_id: "lane-a",
+      status: "exhausted",
+      confidence: "measured",
+      budget: { used: 10, total: 10 },
+    }],
+    task: { required_capabilities: ["code"], privacy: "network_ok", locality: "any" },
+  });
+
+  assert.equal(result.status, "evaluated");
+  assert.deepEqual(result.compilation.diagnostics, [
+    { candidate_id: "lane-a", reason_codes: ["BUDGET_EXHAUSTED_EVIDENCE"] },
+  ]);
+  assert.deepEqual(result.ranked, []);
+  assert.deepEqual(result.excluded, [
+    { candidate_id: "lane-a", reason_codes: ["BUDGET_EXHAUSTED"] },
+  ]);
+});
+
+test("keeps unmeasured budget neutral for an advertised RoutePlane policy", () => {
+  const snapshot = normalizeRoutePlaneCatalog(liveCatalog, 100, 60_000);
+  const result = recommendRoutePlaneCatalog({
+    snapshot,
+    now_ms: 100,
+    policies: [{
+      candidate_id: "lane-a",
+      model: "a-model",
+      capabilities: ["code"],
+      privacy: "network_ok",
+      locality: "any",
+    }],
+    task: { required_capabilities: ["code"], privacy: "network_ok", locality: "any" },
+  });
+
+  assert.deepEqual(result.compilation.diagnostics, [
+    { candidate_id: "lane-a", reason_codes: ["OBSERVATION_MISSING", "BUDGET_UNMEASURED"] },
+  ]);
+  assert.deepEqual(result.ranked.map(({ candidate_id, budget, reason_codes }) => ({
+    candidate_id,
+    budget,
+    reason_codes,
+  })), [{
+    candidate_id: "lane-a",
+    budget: { measured: false, status: "unmeasured" },
+    reason_codes: ["OUTCOMES_UNMEASURED", "BUDGET_UNMEASURED"],
+  }]);
+  assert.deepEqual(result.excluded, []);
+});
+
+test("does not infer recommendation authority from RoutePlane provider labels", () => {
+  const baselineSnapshot = normalizeRoutePlaneCatalog(liveCatalog, 100, 60_000);
+  const relabeledSnapshot = normalizeRoutePlaneCatalog({
+    ...liveCatalog,
+    data: [
+      liveCatalog.data[0]!,
+      { ...liveCatalog.data[1]!, providers: ["budget-available", "unrestricted"] },
+    ],
+  }, 100, 60_000);
+  const input = {
+    now_ms: 100,
+    policies: [{
+      candidate_id: "lane-a",
+      model: "a-model",
+      capabilities: ["code"],
+      privacy: "network_ok" as const,
+      locality: "any" as const,
+    }],
+    task: { required_capabilities: ["code"], privacy: "network_ok" as const, locality: "any" as const },
+  };
+  const baseline = recommendRoutePlaneCatalog({ snapshot: baselineSnapshot, ...input });
+  const relabeled = recommendRoutePlaneCatalog({ snapshot: relabeledSnapshot, ...input });
+  const { source: baselineSource, ...baselineAuthority } = baseline;
+  const { source: relabeledSource, ...relabeledAuthority } = relabeled;
+
+  assert.notEqual(relabeledSource.payload_sha256, baselineSource.payload_sha256);
+  assert.deepEqual(relabeledAuthority, baselineAuthority);
+});
+
 test("rejects expired, future-dated, malformed, and unknown-version catalog snapshots", () => {
   const snapshot = normalizeRoutePlaneCatalog(liveCatalog, 100, 60_000);
   const policies = [{
