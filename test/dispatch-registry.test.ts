@@ -115,23 +115,25 @@ const PRE_D3_TOOL_NAMES = [
 
 const D3_DISCUSSION_TOOL_NAMES = ["ask_peer", "wake_agent", "reply_discussion", "get_discussion"];
 
-test("registry includes D3 plus additive routing and verifier-v2 tools (34 total)", () => {
+test("registry includes D3 plus additive routing, verifier-v2, and speculative backlog tools (35 total)", () => {
   const declared = declaredToolNames(source);
   const registered = registeredHandlerNames(source);
 
-  assert.equal(declared.size, 34, `expected 34 advertised tools, got ${declared.size}: ${[...declared].sort().join(", ")}`);
-  assert.equal(registered.size, 34, `expected 34 registered handlers, got ${registered.size}: ${[...registered].sort().join(", ")}`);
+  assert.equal(declared.size, 35, `expected 35 advertised tools, got ${declared.size}: ${[...declared].sort().join(", ")}`);
+  assert.equal(registered.size, 35, `expected 35 registered handlers, got ${registered.size}: ${[...registered].sort().join(", ")}`);
   assert.ok(declared.has("recommend_route"));
   assert.ok(registered.has("recommend_route"));
   assert.ok(declared.has("compile_route_candidates"));
   assert.ok(registered.has("compile_route_candidates"));
   assert.ok(declared.has("verify_ledger_v2"));
   assert.ok(registered.has("verify_ledger_v2"));
+  assert.ok(declared.has("plan_speculative_backlog"));
+  assert.ok(registered.has("plan_speculative_backlog"));
 });
 
-test("README advertises the 34-tool registry including verifier v2", () => {
-  assert.match(readme, /^## 34 MCP tools$/m, "README must advertise the 34-tool registry");
-  assert.match(readme, /^That's 34\. We counted twice this time\.$/m, "README summary must agree with the 34-tool registry");
+test("README advertises the 35-tool registry including verifier v2 and speculative backlog", () => {
+  assert.match(readme, /^## 35 MCP tools$/m, "README must advertise the 35-tool registry");
+  assert.match(readme, /^That's 35\. We counted twice this time\.$/m, "README summary must agree with the 35-tool registry");
   assert.match(
     readme,
     /^\| `compile_route_candidates` \| Pure offline projection of sanitized manifest\/observation snapshots; does not rank, persist, execute, authorize, wake, or contact providers \|$/m,
@@ -141,6 +143,11 @@ test("README advertises the 34-tool registry including verifier v2", () => {
     readme,
     /^\| `verify_ledger_v2` \| Versioned unsigned-snapshot consistency envelope around the unchanged verifier report from a dedicated read-only file snapshot; the handler performs no ledger writes \|$/m,
     "README must describe verify_ledger_v2 at its read-only handler boundary",
+  );
+  assert.match(
+    readme,
+    /^\| `plan_speculative_backlog` \| Pure projection of caller-approved speculative work, preserving route gates and explicitly leaving capacity unmodeled \|$/m,
+    "README must describe plan_speculative_backlog at its projection boundary",
   );
 });
 
