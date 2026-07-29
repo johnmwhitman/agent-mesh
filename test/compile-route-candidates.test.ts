@@ -5,6 +5,7 @@ import {
   compileRouteCandidates,
   ROUTE_CANDIDATE_COMPILER_VERSION,
 } from "../src/compile-route-candidates.js";
+import type { CompileRouteCandidateObservation } from "../src/compile-route-candidates.js";
 import { recommendRoute } from "../src/recommend-route.js";
 
 type Corpus = {
@@ -30,6 +31,17 @@ const effects = {
   woke_agents: false,
   contacted_providers: false,
 } as const;
+
+test("exports the route candidate observation contract", () => {
+  const observation: CompileRouteCandidateObservation = {
+    candidate_id: "lane-a",
+    status: "green",
+    confidence: "measured",
+    budget: { used: 1, total: 2 },
+  };
+
+  assert.equal(observation.candidate_id, "lane-a");
+});
 
 function corpusInput(fixture: Corpus["cases"][number]) {
   return { manifest: corpus.manifest, ...fixture.input };

@@ -8,6 +8,7 @@
     ".": "./dist/index.js",
     "./package.json": "./package.json",
     "./routeplane-catalog": "./dist/routeplane-catalog.js",
+    "./fleetbudget-observations": "./dist/fleetbudget-observations.js",
     "./bin/inspect": "./dist/bin/inspect.js",
     "./bin/dashboard": "./dist/bin/dashboard.js"
   },

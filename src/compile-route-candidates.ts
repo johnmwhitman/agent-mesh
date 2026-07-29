@@ -9,6 +9,25 @@ import type {
 export const ROUTE_CANDIDATE_COMPILER_VERSION =
   "meshfleet.route-candidates.v0.1" as const;
 
+export interface CompileRouteCandidateObservation {
+  candidate_id: string;
+  status: "green" | "degraded" | "exhausted" | "unconfigured";
+  confidence: "measured" | "assumed";
+  budget?: {
+    used: number;
+    total: number;
+  };
+  observed_outcomes?: {
+    successes: number;
+    failures: number;
+  };
+  observed_identity?: {
+    runtime?: string;
+    model?: string;
+    source: string;
+  };
+}
+
 export interface CompileRouteCandidatesInput {
   manifest: {
     version: typeof ROUTE_CANDIDATE_COMPILER_VERSION;
@@ -26,24 +45,7 @@ export interface CompileRouteCandidatesInput {
       };
     }>;
   };
-  observations?: Array<{
-    candidate_id: string;
-    status: "green" | "degraded" | "exhausted" | "unconfigured";
-    confidence: "measured" | "assumed";
-    budget?: {
-      used: number;
-      total: number;
-    };
-    observed_outcomes?: {
-      successes: number;
-      failures: number;
-    };
-    observed_identity?: {
-      runtime?: string;
-      model?: string;
-      source: string;
-    };
-  }>;
+  observations?: CompileRouteCandidateObservation[];
 }
 
 export interface CompileRouteCandidatesResult {
@@ -67,7 +69,7 @@ const MAX_OBSERVATIONS = 256;
 const MAX_OUTCOME_COUNT = 1_000_000;
 
 type RecordValue = Record<string, unknown>;
-type Observation = NonNullable<CompileRouteCandidatesInput["observations"]>[number];
+type Observation = CompileRouteCandidateObservation;
 
 function invalid(path: string, detail: string): never {
   throw new Error(`compile_route_candidates: '${path}' ${detail}`);
