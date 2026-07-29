@@ -133,9 +133,10 @@ immutable `v0.19.0` tag, publish a package, or authorize provider execution.
 - **`send_message` and `send_messages` at parity** — both surfaces now validate identities,
   types, and correlation_ids before the writer. COMPATIBILITY.md records the tightening
 - **`VerifyReport.scope`** — the legacy verification report carries its own guarantee boundary
-- **Main is clean at `0e203ea` and aligned with `origin/main` before this
-  factual handoff update.** Finished review worktrees are deliberately
-  preserved under `/private/tmp`; no implementation work is active
+- **The shared-pool branch began from clean, aligned `main` at `efc805c`.**
+  Finished review worktrees are deliberately preserved under `/private/tmp`;
+  the shared-pool evidence slice remains in its isolated worktree until its
+  review and integration gates complete
 - **Tags:** v0.9.0–v0.19.0 complete and pushed; v0.19.0 npm publication is
   blocked on the credential refresh above
 - **meshfleet-app:** synced to 34 tools / 1021 tests / 8 tool categories, live on Vercel

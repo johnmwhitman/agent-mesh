@@ -406,7 +406,7 @@ test("recommends two distinct RoutePlane policies backed by one shared green poo
       observed_at_ms: 100,
       expires_at_ms: 1_000,
       lanes: [{
-        lane_id: "shared-account",
+        lane_id: "unrestricted-provider-authenticated",
         measured: true,
         used: 1,
         total: 4,
@@ -415,8 +415,8 @@ test("recommends two distinct RoutePlane policies backed by one shared green poo
       }],
     },
     bindings: [
-      { candidate_id: "candidate-z", lane_id: "shared-account" },
-      { candidate_id: "candidate-a", lane_id: "shared-account" },
+      { candidate_id: "candidate-z", lane_id: "unrestricted-provider-authenticated" },
+      { candidate_id: "candidate-a", lane_id: "unrestricted-provider-authenticated" },
     ],
     now_ms: 100,
   });

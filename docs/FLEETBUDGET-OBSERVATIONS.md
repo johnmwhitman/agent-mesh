@@ -47,7 +47,9 @@ A measured observation is emitted only when the bound lane has finite
 window containing both `observed_at_ms` and `now_ms`. A window can be absent
 from the sanitized input, but then the lane is diagnostic-only rather than an
 observation. The library accepts at most 256 lanes and bindings, rejects
-duplicates and contradictory claims, and rejects unknown keys.
+duplicate snapshot lane IDs, duplicate candidate bindings, contradictory
+claims, and unknown keys. Repeated binding `lane_id` values are accepted only
+as explicit shared evidence.
 
 Do not pass raw `fleetbudget --json` output. In particular, `routes`, `state`,
 `note`, `detail`, provider labels, and other descriptive fields are not part of
