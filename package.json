@@ -7,11 +7,13 @@
   "exports": {
     ".": "./dist/index.js",
     "./package.json": "./package.json",
+    "./routeplane-catalog": "./dist/routeplane-catalog.js",
     "./bin/inspect": "./dist/bin/inspect.js",
     "./bin/dashboard": "./dist/bin/dashboard.js"
   },
   "bin": {
     "meshfleet": "dist/index.js",
+    "meshfleet-routeplane-catalog": "dist/bin/routeplane-catalog.js",
     "agent-mesh": "dist/bin/inspect.js",
     "agent-mesh-dashboard": "dist/bin/dashboard.js"
   },
