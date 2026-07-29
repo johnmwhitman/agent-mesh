@@ -3,8 +3,8 @@
   "profile": "meshfleet.a2a.handoff-quorum.v0.1",
   "recorded_at": "2026-07-27T14:19:00Z",
   "branch": "codex/a2a-handoff-quorum-v01-20260727",
-  "worktree": "/private/tmp/agent-mesh-codex-a2a-handoff-quorum-v01-20260727",
-  "acceptance_clone": "/private/tmp/agent-mesh-codex-a2a-handoff-quorum-v01-acceptance-20260727",
+  "worktree": "[private-worktree]",
+  "acceptance_clone": "[private-worktree]",
   "base_commit": "041500fd9aec6e482875f6339236ffdcc46fc7ed",
   "routing_lane_observed_head": "d90f04914217c435899c5bdb0c031eb9011e7ed9",
   "owned_path": "blackbox/a2a-handoff-quorum-v0.1/**",
@@ -20,7 +20,7 @@
       "inode": 67762217,
       "mtime_epoch": 1785141454,
       "sha256": "ae0ba6aa348c38ef06dad88463ac495ecb616b98001484cd309e9d3315942747",
-      "external_record": "/Users/johnwhitman/AI/scratch/a2a-slice4f-external-anchor-20260727.md",
+      "external_record": "[private-external-record]",
       "custody_only": true
     }
   },
@@ -45,47 +45,47 @@
   },
   "command_receipts": {
     "javascript_self_test": {
-      "path": "/private/tmp/a2a4f-js-self.json",
+      "path": "[private-temporary-file]",
       "bytes": 79,
       "sha256": "1df8b120b9880bfb7e5fa68379f88f874ef61e957ecdd082d456e48c1c9edb73"
     },
     "python_self_test": {
-      "path": "/private/tmp/a2a4f-py-self.json",
+      "path": "[private-temporary-file]",
       "bytes": 79,
       "sha256": "1df8b120b9880bfb7e5fa68379f88f874ef61e957ecdd082d456e48c1c9edb73"
     },
     "javascript_corpus": {
-      "path": "/private/tmp/a2a4f-js-corpus.json",
+      "path": "[private-temporary-file]",
       "bytes": 12260,
       "sha256": "9f1984fbb3d794176d5dfd6923e4c5bef221cb29ce04a3507f423fc5a1ae9f10"
     },
     "python_corpus": {
-      "path": "/private/tmp/a2a4f-py-corpus.json",
+      "path": "[private-temporary-file]",
       "bytes": 12260,
       "sha256": "9f1984fbb3d794176d5dfd6923e4c5bef221cb29ce04a3507f423fc5a1ae9f10"
     },
     "corpus_differential": {
-      "path": "/private/tmp/a2a4f-differential.json",
+      "path": "[private-temporary-file]",
       "bytes": 177,
       "sha256": "a1f9abec4360079c53267bc124d47b58e0866c898c33dbcf3ab6849f79e31598"
     },
     "generated_differential": {
-      "path": "/private/tmp/a2a4f-fuzz.json",
+      "path": "[private-temporary-file]",
       "bytes": 267,
       "sha256": "7f5105764c396e830f25067e5592fb5759c84c7cd2380b7d9ff9972217854474"
     },
     "build_log": {
-      "path": "/private/tmp/a2a4f-build.log",
+      "path": "[private-temporary-file]",
       "bytes": 146,
       "sha256": "138cfb17434721bec3538b9ecc76a52561061b95772c5e79c3cca47eefcc77c6"
     },
     "typecheck_log": {
-      "path": "/private/tmp/a2a4f-typecheck.log",
+      "path": "[private-temporary-file]",
       "bytes": 46,
       "sha256": "5a862f20195baa92a43d9cf02b903eace2643a8ac54936b60b3cb9826c19f514"
     },
     "full_test_log": {
-      "path": "/private/tmp/a2a4f-full-test.log",
+      "path": "[private-temporary-file]",
       "bytes": 86312,
       "sha256": "87e0499314f597539a71e3bd341e087dddb725d8fc03a5f03a90edadbd86462c"
     }

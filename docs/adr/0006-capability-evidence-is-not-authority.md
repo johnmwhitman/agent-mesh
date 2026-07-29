@@ -103,11 +103,9 @@ an ingestion API exists and cannot be claimed through generation calls.
 
 Verification receipts are `npm test` 530/530 after local-loopback permission,
 `npm run typecheck` passed, and two final independent reviews with no Critical
-or Important findings and APPROVED. The review artifact at review-package head
-`3d092d1` is
-`.superpowers/sdd/review-234cd55..ea69cb9-a2a-capability-attestation.diff`,
-SHA-256
-`d1f5c11f7b6013b3f46c48daf9dcd2b6961fea4627b2b9db70f921e36f1aa82a`.
+or Important findings and APPROVED. Review provenance is public commit `3d092d1`;
+the executable corpus and verification receipts are the public evidence
+pointers for this decision.
 
 ## Deferred questions
 

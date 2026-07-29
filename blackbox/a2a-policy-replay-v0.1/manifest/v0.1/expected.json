@@ -92,47 +92,47 @@
   },
   "command_receipts": {
     "javascript_self_test": {
-      "path": "/private/tmp/a2a4g-js-self.json",
+      "path": "[private-temporary-file]",
       "bytes": 124,
       "sha256": "27e63cfed200f1146697f4e3c28dceaf1777644342e869de5f940983199d3e9b"
     },
     "python_self_test": {
-      "path": "/private/tmp/a2a4g-py-self.json",
+      "path": "[private-temporary-file]",
       "bytes": 124,
       "sha256": "27e63cfed200f1146697f4e3c28dceaf1777644342e869de5f940983199d3e9b"
     },
     "javascript_corpus": {
-      "path": "/private/tmp/a2a4g-js-corpus.json",
+      "path": "[private-temporary-file]",
       "bytes": 9921,
       "sha256": "ef2ee93fbbe5f86dbb118f46531aa89c58d340a05931bc11846144a3af427ad6"
     },
     "python_corpus": {
-      "path": "/private/tmp/a2a4g-py-corpus.json",
+      "path": "[private-temporary-file]",
       "bytes": 9921,
       "sha256": "ef2ee93fbbe5f86dbb118f46531aa89c58d340a05931bc11846144a3af427ad6"
     },
     "corpus_differential": {
-      "path": "/private/tmp/a2a4g-differential.json",
+      "path": "[private-temporary-file]",
       "bytes": 182,
       "sha256": "113dbf0cbaf9452257d2810c6675b651045586079daf291cd8d1aa03a04914c9"
     },
     "generated_differential": {
-      "path": "/private/tmp/a2a4g-fuzz.json",
+      "path": "[private-temporary-file]",
       "bytes": 312,
       "sha256": "0afa8c2e8808af05321a832585efd31db6761083e1ec1afd4f6fd8d674e0faa6"
     },
     "build_log": {
-      "path": "/private/tmp/a2a4g-build.log",
+      "path": "[private-temporary-file]",
       "bytes": 146,
       "sha256": "138cfb17434721bec3538b9ecc76a52561061b95772c5e79c3cca47eefcc77c6"
     },
     "typecheck_log": {
-      "path": "/private/tmp/a2a4g-typecheck.log",
+      "path": "[private-temporary-file]",
       "bytes": 46,
       "sha256": "5a862f20195baa92a43d9cf02b903eace2643a8ac54936b60b3cb9826c19f514"
     },
     "full_test_log": {
-      "path": "/private/tmp/a2a4g-full-test.log",
+      "path": "[private-temporary-file]",
       "bytes": 86318,
       "sha256": "d95a33f846a11f44b59276a23a1597d059bd49c0578dbeafdde812630b7f4a47"
     }

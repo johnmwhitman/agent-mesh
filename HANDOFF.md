@@ -37,11 +37,6 @@ points at that commit and is pushed. The implementation:
   contract, security, performance, and red-team reviews PASS; MiniMax M3
   completed an independent 7,790-line review, reran build/typecheck/package
   verification and all tests, and returned `MERGE: PASS`.
-- Local smoke receipts are preserved (ignored, not committed) at
-  `.superpowers/sdd/2026-07-28-model-selected-execution/live-opencode-go-minimax-m3.json`,
-  `.superpowers/sdd/2026-07-28-model-selected-execution/live-kilo-auto-free.json`,
-  and
-  `.superpowers/sdd/2026-07-28-model-selected-execution/live-kilo-auto-free-after-fix.json`.
 - MiniMax performed bounded implementation/documentation work and final review;
   Grok performed independent contract/claims/security/performance/red-team
   reviews. No credential change, provider spend policy, or automatic token
@@ -77,13 +72,6 @@ The detailed development history remains preserved only in the finished local
 worktree; public PR #40 used a clean squash, so that trailer is not in public
 release provenance.
 
-## In-flight: Roadmap Board (Stage 1 complete)
-
-8/8 executive seats landed at `~/AI/SUCCESSION/meshfleet-roadmap-2026-07-28/`. Board
-unanimously recommends substrate-first (HOOL governance); Skeptic argues park entirely.
-**Stages 2–7 remain:** synthesis → PO → SM → two red-teams → reconcile → assemble.
-Charges preserved in `charges/`; all seat outputs in `board/seat-*.md`.
-
 ## Landed receipt: RoutePlane catalog snapshot adapter
 
 PR [#42](https://github.com/johnmwhitman/agent-mesh/pull/42) was opened from
@@ -105,8 +93,8 @@ the reviewed implementation through committed code head `168996c`:
   unversioned report shape and returns the existing
   `meshfleet.fleetbudget-snapshot.v1` shape without a lane `window`.
 - `meshfleet-fleetbudget-sanitize` is a bounded stdin CLI with closed integer
-  flags and compact value-free JSON errors. It never invokes
-  `~/AI/Tools/fleetbudget`, a provider process, or a route command; an
+  flags and compact value-free JSON errors. It never invokes a host-owned
+  collector command, a provider process, or a route command; an
   authorized host runner owns collection and timing.
 - The sanitizer preserves `lane` only as an opaque evidence identifier plus
   `measured`, `used`, `total`, and `unit`. It validates and erases `routes`,
@@ -169,12 +157,9 @@ the reviewed implementation through committed code head `168996c`:
   types, and correlation_ids before the writer. COMPATIBILITY.md records the tightening
 - **`VerifyReport.scope`** — the legacy verification report carries its own guarantee boundary
 - **The shared-pool branch began from clean, aligned `main` at `efc805c`.**
-  Finished review worktrees are deliberately preserved under `/private/tmp`;
+  Finished review worktrees are deliberately preserved in private storage;
   the shared-pool evidence slice remains in its isolated worktree until its
   review and integration gates complete
-- **Tags:** v0.9.0–v0.19.0 complete and pushed; v0.19.0 npm publication is
-  blocked on the credential refresh above
-- **meshfleet-app:** synced to 34 tools / 1021 tests / 8 tool categories, live on Vercel
 
 ## What the A2A witnesses cover
 
@@ -233,7 +218,6 @@ fuzz differentials (lifecycle-terminal + two-host-coordinator), wire fault expan
 - **Subsumed branches are invisible until you diff.** Always diff vs main first
 - **Conformance manifest members must be probed from the live server.** Discussion tools
   register schemas in `src/discussion-mcp.ts`, not `src/index.ts`
-- **Codex is back online** (token reset 2026-07-28). Available for final verdicts again
 - **Fleet anti-pattern (earned 2026-07-27):** 307 branches from fleet-dispatched long-lived
   lanes. **Rule: bounded tasks, merge within session, no parking lanes.** Take the output,
   verify, merge yourself, move on. Never let a fleet agent own a long-lived branch

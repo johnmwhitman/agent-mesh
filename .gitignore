@@ -13,6 +13,12 @@ scratch/
 # committed — a node_modules symlink inside one was committed once.
 .wt-meshfleet/
 
+# Local agent-session instructions, review patches, and working plans are not
+# part of the public Core surface.
+.claude/
+.superpowers/
+docs/superpowers/
+
 # Python reference-witness bytecode (reference/python/)
 __pycache__/
 *.pyc

@@ -16,7 +16,7 @@
     "runner.mjs": "0cde6ed3919ff9c98ebfec1efdaa881503e8c5a82306f9821911fdf107c0d2fa"
   },
   "focused_acceptance": {
-    "worktree": "/private/tmp/agent-mesh-codex-a2a-lifecycle-terminal-v01-acceptance-20260727",
+    "worktree": "[private-worktree]",
     "commands": [
       "node --test blackbox/a2a-lifecycle-terminal-v0.1/runner.mjs",
       "python3 blackbox/a2a-lifecycle-terminal-v0.1/python/runner.py",
@@ -36,7 +36,7 @@
     "differential_transcript_sha256": "3bec2551224ebea2fc0274141806fa8a0261ea04104e13cabe0a5a2197c64bc4"
   },
   "repository_acceptance": {
-    "worktree": "/private/tmp/agent-mesh-codex-a2a-lifecycle-terminal-v01-acceptance-20260727",
+    "worktree": "[private-worktree]",
     "build": {
       "command": "npm run build",
       "status": "PASS"
