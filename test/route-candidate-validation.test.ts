@@ -99,7 +99,7 @@ test("assertRouteCandidates rejects invalid closed candidate snapshots", () => {
       name: "unmeasured budgets with usage",
       value: [{ ...valid, budget: { measured: false, used: 0 } }],
       expected:
-        /'manifest\.candidates\[0\]\.budget' must omit used and total when measured is false/,
+        /'manifest\.candidates\[0\]\.budget' must omit used and total, and window when measured is false/,
     },
     {
       name: "empty requested identities",

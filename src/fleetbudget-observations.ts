@@ -97,6 +97,12 @@ function requireFiniteInteger(value: unknown, path: string): asserts value is nu
   }
 }
 
+function requireFiniteSafeInteger(value: unknown, path: string): asserts value is number {
+  if (!Number.isSafeInteger(value)) {
+    invalid(path, "must be a finite safe integer");
+  }
+}
+
 function requireIdentifier(value: unknown, path: string): asserts value is string {
   if (
     typeof value !== "string" ||
@@ -149,8 +155,8 @@ function validateWindow(value: unknown, path: string, observedAtMs: number): Fle
     ["id", "starts_at_ms", "ends_at_ms"],
   );
   requireIdentifier(window.id, `${path}.id`);
-  requireFiniteInteger(window.starts_at_ms, `${path}.starts_at_ms`);
-  requireFiniteInteger(window.ends_at_ms, `${path}.ends_at_ms`);
+  requireFiniteSafeInteger(window.starts_at_ms, `${path}.starts_at_ms`);
+  requireFiniteSafeInteger(window.ends_at_ms, `${path}.ends_at_ms`);
   if (window.ends_at_ms <= window.starts_at_ms) {
     invalid(`${path}.ends_at_ms`, "must be greater than starts_at_ms");
   }
@@ -365,7 +371,14 @@ function projectObservations(
         candidate_id: binding.candidate_id,
         status: lane.used! >= lane.total! ? "exhausted" : "green",
         confidence: "measured",
-        budget: { used: lane.used!, total: lane.total! },
+        budget: {
+          used: lane.used!,
+          total: lane.total!,
+          window: {
+            starts_at_ms: lane.window!.starts_at_ms,
+            ends_at_ms: lane.window!.ends_at_ms,
+          },
+        },
       });
     }
   }

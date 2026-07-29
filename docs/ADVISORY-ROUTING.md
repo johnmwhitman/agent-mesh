@@ -20,14 +20,55 @@ gateway's job.
    components.
 4. Apply a budget multiplier in `[0, 1]`. Budget can only demote or exclude; it never
    rewards an idle lane. Unknown budget is neutral and returned as `unmeasured`.
-5. Sort by final score, then declared fit, then the opaque `candidate_id` for a stable
-   deterministic tie-break.
+5. By default, sort by final score, then declared fit, then the opaque `candidate_id`
+   for a stable deterministic tie-break.
+6. Only when the caller supplies
+   `preference: { objective: "prefer_near_reset", now_ms }`, insert
+   `reset_urgency` between final score and declared fit as an advisory tie-break.
+   This never changes the budget multiplier or `final_score`, and therefore never
+   lets urgency overcome a better existing score.
 
 `top_n` defaults to one and cannot exceed the supplied candidate count. Eligible
 candidates below that cutoff are intentionally omitted rather than labeled as excluded.
 
 An exhausted measured budget is returned under `excluded` with
 `BUDGET_EXHAUSTED`. It is never left in the ranked list with a zero score.
+
+## Opt-in near-reset preference
+
+A measured candidate budget may carry a closed, caller-supplied window:
+
+```json
+{
+  "measured": true,
+  "used": 20,
+  "total": 100,
+  "window": {
+    "starts_at_ms": 1800000000000,
+    "ends_at_ms": 1800604800000
+  }
+}
+```
+
+The window is inert unless the request opts in with
+`preference.objective: "prefer_near_reset"`. For a window containing the
+caller-supplied `now_ms` (both endpoints inclusive), the tie-break value is:
+
+```text
+remaining_fraction * clamp(1 - ms_left / 604800000, 0, 1)
+```
+
+Missing, unmeasured, and non-current window evidence yields zero urgency and is
+neutral. Exhaustion remains an exclusion before urgency is calculated. The opt-in
+response adds a result-level evidence-only preference record,
+`components.reset_urgency`, and a reset-window reason code. Without the preference,
+those fields and reason codes are omitted and both output bytes and ranking law remain
+the prior default even when candidate windows are present.
+
+This is not a default drain policy. `now_ms`, usage, totals, and window bounds all come
+from the caller. MeshFleet does not refresh them, attest freshness, infer a provider or
+account, divide a shared pool, reserve quota, dispatch work, or claim that using the
+candidate will consume the reported pool.
 
 Requested runtime/model identity and observed runtime/model identity are returned as
 separate evidence. Observed identity requires a caller-supplied source label and does
@@ -43,11 +84,11 @@ accepted by `recommend_route`. The projection may be passed unchanged to
 `recommend_route`; compilation itself does not rank candidates.
 
 Missing observations, and observations marked `assumed`, remain unmeasured. Measured
-caller values are copied without probing, freshness checks, normalization, or
-authentication. Observation status labels never pass into ranking. Manifest static
-traits remain the source of declared fit and requested identity; valid caller-asserted
-measured observations only add the bounded dynamic evidence fields that
-`recommend_route` may consider.
+caller values, including an optional co-located budget window, are copied without
+probing, freshness checks, normalization, or authentication. Observation status labels
+never pass into ranking. Manifest static traits remain the source of declared fit and
+requested identity; valid caller-asserted measured observations only add the bounded
+dynamic evidence fields that `recommend_route` may consider.
 
 ```json
 {
@@ -67,7 +108,14 @@ measured observations only add the bounded dynamic evidence fields that
       "candidate_id": "lane-a",
       "status": "degraded",
       "confidence": "measured",
-      "budget": { "used": 6, "total": 10 }
+      "budget": {
+        "used": 6,
+        "total": 10,
+        "window": {
+          "starts_at_ms": 1800000000000,
+          "ends_at_ms": 1800604800000
+        }
+      }
     }
   ]
 }

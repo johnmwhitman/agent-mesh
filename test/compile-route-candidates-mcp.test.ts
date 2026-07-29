@@ -106,6 +106,7 @@ test("compile_route_candidates advertises a closed snapshot compiler schema", as
       candidate,
       observation,
       observation.properties.budget,
+      observation.properties.budget.properties.window,
       observation.properties.observed_outcomes,
       candidate.properties.requested_identity,
       observation.properties.observed_identity,
@@ -130,6 +131,10 @@ test("compile_route_candidates advertises a closed snapshot compiler schema", as
     assert.equal(observation.properties.observed_identity.properties.source.maxLength, 256);
     assert.equal(observation.properties.observed_outcomes.properties.successes.maximum, 1_000_000);
     assert.equal(observation.properties.observed_outcomes.properties.failures.maximum, 1_000_000);
+    assert.deepEqual(
+      observation.properties.budget.properties.window.required,
+      ["starts_at_ms", "ends_at_ms"],
+    );
     assertNoWrite(dataDir, before, "tool discovery");
   });
 });

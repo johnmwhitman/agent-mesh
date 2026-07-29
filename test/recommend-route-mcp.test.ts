@@ -81,6 +81,14 @@ test("recommend_route advertises a caller-supplied advisory candidate contract",
     assert.equal(properties.candidates.maxItems, 256);
     assert.equal(properties.top_n.type, "integer");
     assert.equal(properties.top_n.maximum, 256);
+    assert.equal(properties.preference.additionalProperties, false);
+    assert.deepEqual(properties.preference.required, ["objective", "now_ms"]);
+    assert.equal(properties.preference.properties.objective.const, "prefer_near_reset");
+    assert.equal(properties.preference.properties.now_ms.type, "integer");
+    assert.equal(
+      properties.preference.properties.now_ms.maximum,
+      Number.MAX_SAFE_INTEGER,
+    );
 
     const taskProperties = properties.task.properties as Record<string, any>;
     assert.deepEqual(
@@ -116,6 +124,14 @@ test("recommend_route advertises a caller-supplied advisory candidate contract",
       1_000_000,
     );
     assert.ok(candidateProperties.budget.allOf, "budget measured-state rules must be in schema");
+    assert.equal(
+      candidateProperties.budget.properties.window.additionalProperties,
+      false,
+    );
+    assert.deepEqual(
+      candidateProperties.budget.properties.window.required,
+      ["starts_at_ms", "ends_at_ms"],
+    );
     assert.ok(
       candidateProperties.requested_identity.anyOf,
       "requested identity must name a runtime or model",
@@ -124,6 +140,91 @@ test("recommend_route advertises a caller-supplied advisory candidate contract",
       candidateProperties.observed_identity.anyOf,
       "observed identity must name a runtime or model",
     );
+  });
+});
+
+test("recommend_route exposes opt-in reset urgency without writing or changing existing scores", async () => {
+  await withServer(async (client, dataDir) => {
+    const snapshot = (): Array<[string, string]> =>
+      readdirSync(dataDir)
+        .sort()
+        .map((name) => [name, readFileSync(join(dataDir, name)).toString("base64")]);
+    const before = snapshot();
+    const nowMs = 1_800_000_000_000;
+    const response = await client.callTool({
+      name: "recommend_route",
+      arguments: {
+        task: {
+          required_capabilities: ["code"],
+          privacy: "network_ok",
+          locality: "any",
+        },
+        candidates: [
+          {
+            candidate_id: "a-far",
+            capabilities: ["code"],
+            privacy: "network_ok",
+            locality: "any",
+            budget: {
+              measured: true,
+              used: 10,
+              total: 100,
+              window: {
+                starts_at_ms: nowMs - 1,
+                ends_at_ms: nowMs + 604_800_000,
+              },
+            },
+          },
+          {
+            candidate_id: "z-near",
+            capabilities: ["code"],
+            privacy: "network_ok",
+            locality: "any",
+            budget: {
+              measured: true,
+              used: 10,
+              total: 100,
+              window: {
+                starts_at_ms: nowMs - 1,
+                ends_at_ms: nowMs,
+              },
+            },
+          },
+        ],
+        preference: {
+          objective: "prefer_near_reset",
+          now_ms: nowMs,
+        },
+        top_n: 2,
+      },
+    });
+
+    assert.equal((response as { isError?: boolean }).isError, undefined);
+    const body = JSON.parse(textOf(response));
+    assert.deepEqual(body.ranked.map(({ candidate_id }: { candidate_id: string }) => candidate_id), [
+      "z-near",
+      "a-far",
+    ]);
+    assert.deepEqual(
+      body.ranked.map(
+        ({ components }: { components: Record<string, number> }) => ({
+          final_score: components.final_score,
+          budget_adjustment: components.budget_adjustment,
+        }),
+      ),
+      [
+        { final_score: 1, budget_adjustment: 1 },
+        { final_score: 1, budget_adjustment: 1 },
+      ],
+    );
+    assert.deepEqual(body.effects, {
+      persisted: false,
+      executed: false,
+      authorized: false,
+      woke_agents: false,
+      contacted_providers: false,
+    });
+    assert.deepEqual(snapshot(), before);
   });
 });
 

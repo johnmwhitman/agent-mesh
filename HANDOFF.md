@@ -141,18 +141,18 @@ the reviewed implementation through committed code head `168996c`:
   `compileFleetBudgetObservations()` accepts only a caller-sanitized,
   versioned snapshot, unique candidate bindings, and caller-supplied `now_ms`.
   Several candidates may bind one lane ID as copied, unsplit shared evidence;
-  prior exclusive inputs remain byte-identical, while repeated lane bindings
-  that formerly failed are now accepted. It returns existing compiler
-  observations, one diagnostic entry per binding, canonical source hashes, and
-  all-false effects. Observations and compiled candidates erase co-location;
-  caller bindings and diagnostics retain it. Complete measured exhaustion
+  repeated lane bindings that formerly failed are accepted. It returns compiler
+  observations with copied window bounds, one diagnostic entry per binding,
+  canonical source hashes, and all-false effects. The window ID is erased;
+  caller bindings and diagnostics retain the actual co-location relation.
+  Complete measured exhaustion
   reaches the existing advisory exclusion; incomplete or unmeasured evidence
   stays neutral. It adds no MCP tool, raw Fleetbudget parser/CLI/poller,
   provider inference, pool accounting, allocation, reservation, concurrency
-  control, authority, provider execution, unused-quota reward, or weekly-burn
-  policy. Raw sanitization now exists on the in-flight feature branch as a
-  separate diagnostic-only package/CLI surface; typed quota windows and drain
-  scoring remain future work. See `docs/FLEETBUDGET-OBSERVATIONS.md`.
+  control, authority, provider execution, or default weekly-burn policy.
+  `recommend_route` can separately opt in to use current window evidence only
+  after existing final score as a near-reset tie-break. It does not refresh,
+  attest, reserve, select, or execute. See `docs/FLEETBUDGET-OBSERVATIONS.md`.
 - **12 A2A conformance witnesses** under `blackbox/` — pure offline blackbox suites with JS
   runners, Python evaluators, corpora, and review records. The 12th (discussion-derivation)
   has an 18-case corpus and a 1,273-line Grok-produced pure JS evaluator verified against

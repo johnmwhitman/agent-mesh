@@ -64,9 +64,12 @@ deterministically projects sanitized caller evidence for advisory routing and re
 provider/control-plane smuggling. It remains advisory-only: this is not provider
 availability, authentication, budget freshness, catalog access, execution, failover,
 or metering evidence. Candidate IDs remain unique, but several candidates may bind
-one lane ID as unsplit shared evidence. That acceptance widening preserves
-byte-identical results for prior exclusive inputs; it does not add pooling,
-allocation, reservation, concurrency control, or authority.
+one lane ID as unsplit shared evidence. Validated window bounds now copy through
+without their lane/window ID, and an explicit `prefer_near_reset` preference can
+use them only after existing final score as a tie-break. Inputs that do not opt in
+retain the prior recommendation bytes and ranking. This does not add pooling,
+allocation, reservation, concurrency control, freshness attestation, execution,
+or authority.
 
 The current raw Fleetbudget report now has a strict bytes-to-snapshot sanitizer
 and bounded stdin CLI. This is diagnostic ingress only: the raw `lane` survives
@@ -159,9 +162,12 @@ Direction, not commitment — items ship when real usage pulls them.
 - VS Code extension marketplace listing (the read-only inspector MVP already lives in `editors/vscode/`) — waiting on a publisher account, not on code.
 
 **Next**
-- Automatic provider choice, subscription-aware selection, token-pool draining,
-  and Ollama Cloud's direct API. RoutePlane catalog discovery and caller-policy
-  projection are shipped. `recommendRoutePlaneCatalog()` is a package-library
+- Automatic provider choice, executing subscription-aware selection, default
+  token-pool draining, and Ollama Cloud's direct API. The pure recommender now
+  has an explicit near-reset tie-break over caller-supplied measured window
+  evidence, but does not poll, choose a provider, or execute. RoutePlane catalog
+  discovery and caller-policy projection are shipped.
+  `recommendRoutePlaneCatalog()` is a package-library
   advisory composition over an already-fetched snapshot, while
   `fetchAndRecommendRoutePlaneCatalog()` explicitly fetches the fixed loopback
   catalog before making one advisory recommendation. Neither is provider
@@ -178,16 +184,17 @@ Direction, not commitment — items ship when real usage pulls them.
   versioned snapshot, unique candidate bindings, and caller-supplied `now_ms`;
   multiple candidates may share one lane as copied, unsplit evidence. It returns
   measured route observations, per-binding diagnostics, canonical provenance
-  hashes, and all-false effects. Observations and compiled candidates erase
-  co-location while bindings and diagnostics retain it. Prior exclusive inputs
-  are byte-identical; only repeated lane bindings are newly accepted. Complete
+  hashes, and all-false effects. Observations copy window bounds without the
+  lane/window ID; bindings and diagnostics retain the actual co-location
+  relation. Only repeated lane bindings are newly accepted. Complete
   measured exhaustion reaches the existing `BUDGET_EXHAUSTED` advisory
   exclusion, while incomplete or unmeasured evidence remains neutral. It has no
   polling, provider inference, execution, pool
-  accounting, reservation, concurrency control, unused-quota reward, or
-  weekly-burn optimization. Raw sanitization is now a separate
-  diagnostic-only package/CLI surface; typed collector windows and drain
-  scoring remain future.
+  accounting, reservation, concurrency control, freshness attestation, or
+  default weekly-burn optimization. The explicit `prefer_near_reset`
+  preference is a final-score-preserving advisory tie-break, not selection or
+  execution. Raw sanitization remains a separate diagnostic-only package/CLI
+  surface.
   See `docs/FLEETBUDGET-OBSERVATIONS.md`.
 - RoutePlane model-catalog discovery and caller-policy projection: the separate
   `meshfleet-routeplane-catalog` CLI fetches only RoutePlane's fixed loopback
