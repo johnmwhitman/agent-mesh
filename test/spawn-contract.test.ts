@@ -72,9 +72,13 @@ function callTool(dir: string, name: string, args: unknown, port: string): Promi
     const send = (o: unknown) => p.stdin.write(JSON.stringify(o) + "\n");
     send({ jsonrpc: "2.0", id: 1, method: "initialize",
            params: { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "t", version: "1" } } });
-    setTimeout(() => send({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name, arguments: args } }), 400);
+    let callSent = false;
     const timer = setTimeout(() => { p.kill(); reject(new Error(`timeout; stderr=${err.slice(0, 400)}`)); }, 20000);
     p.stdout.on("data", () => {
+      if (!callSent && out.split("\n").some((l) => l.includes('"id":1'))) {
+        callSent = true;
+        send({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name, arguments: args } });
+      }
       const line = out.split("\n").find((l) => l.includes('"id":2'));
       if (!line) return;
       clearTimeout(timer);
