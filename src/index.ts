@@ -56,6 +56,7 @@ import {
 } from "./ratify.js";
 import { verifyLedger, verifyLedgerFile } from "./verify.js";
 import { buildVerifyEnvelopeV2 } from "./verify-envelope-v2.js";
+import { buildVerifyEnvelopeV3 } from "./verify-envelope-v3.js";
 import { notifySubscribers } from "./realtime.js";
 import { isSseServerRunning, startSseServer, stopSseServer, subscribeInboxUrl } from "./sse-server.js";
 import { createHeartbeat } from "./heartbeat.js";
@@ -409,6 +410,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       name: "verify_ledger_v2",
       description:
         "Versioned verifier output read from a dedicated read-only file snapshot; the handler performs no ledger writes. Normal parent-server startup recovery or migration may initialize or change the configured ledger before tool dispatch. Returns the unchanged internal-consistency report inside meshfleet.verify/v2 with an unsigned-snapshot evidence scope; it does not establish authorship, snapshot integrity, content binding, completeness, external delivery or execution, or external time.",
+      inputSchema: { type: "object", properties: {} },
+    },
+    {
+      name: "verify_ledger_v3",
+      description:
+        "Opt-in verifier output read from a dedicated read-only file snapshot; the handler performs no ledger writes. Returns a detached meshfleet.verify/v3 report with one local consistency band per finding, derived only from its severity. Those labels are not provenance or confidence and do not establish authenticity, completeness, tamper evidence, authorship, snapshot integrity, content binding, external delivery or execution, or external time.",
       inputSchema: { type: "object", properties: {} },
     },
     {
@@ -1603,6 +1610,14 @@ toolHandlers["verify_ledger_v2"] = async () => {
       return jsonResult(buildVerifyEnvelopeV2(verifyLedgerFile(resolveDbFile())));
     } catch {
       return jsonError("verify_ledger_v2 unavailable: configured ledger is absent or unreadable");
+    }
+};
+
+toolHandlers["verify_ledger_v3"] = async () => {
+    try {
+      return jsonResult(buildVerifyEnvelopeV3(verifyLedgerFile(resolveDbFile())));
+    } catch {
+      return jsonError("verify_ledger_v3 unavailable: configured ledger is absent or unreadable");
     }
 };
 

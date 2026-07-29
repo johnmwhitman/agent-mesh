@@ -17,6 +17,8 @@ import { dirname, join } from "node:path";
 const here = dirname(fileURLToPath(import.meta.url));
 const source = readFileSync(join(here, "..", "src", "index.ts"), "utf8");
 const readme = readFileSync(join(here, "..", "README.md"), "utf8");
+const compatibility = readFileSync(join(here, "..", "COMPATIBILITY.md"), "utf8");
+const roadmap = readFileSync(join(here, "..", "ROADMAP.md"), "utf8");
 
 // Declared tool names live in the ListToolsRequestSchema handler, i.e. between
 // the ListTools registration and the toolHandlers registry declaration.
@@ -115,23 +117,25 @@ const PRE_D3_TOOL_NAMES = [
 
 const D3_DISCUSSION_TOOL_NAMES = ["ask_peer", "wake_agent", "reply_discussion", "get_discussion"];
 
-test("registry includes D3 plus additive routing and verifier-v2 tools (34 total)", () => {
+test("registry includes D3 plus additive routing and verifier-v2/v3 tools (35 total)", () => {
   const declared = declaredToolNames(source);
   const registered = registeredHandlerNames(source);
 
-  assert.equal(declared.size, 34, `expected 34 advertised tools, got ${declared.size}: ${[...declared].sort().join(", ")}`);
-  assert.equal(registered.size, 34, `expected 34 registered handlers, got ${registered.size}: ${[...registered].sort().join(", ")}`);
+  assert.equal(declared.size, 35, `expected 35 advertised tools, got ${declared.size}: ${[...declared].sort().join(", ")}`);
+  assert.equal(registered.size, 35, `expected 35 registered handlers, got ${registered.size}: ${[...registered].sort().join(", ")}`);
   assert.ok(declared.has("recommend_route"));
   assert.ok(registered.has("recommend_route"));
   assert.ok(declared.has("compile_route_candidates"));
   assert.ok(registered.has("compile_route_candidates"));
   assert.ok(declared.has("verify_ledger_v2"));
   assert.ok(registered.has("verify_ledger_v2"));
+  assert.ok(declared.has("verify_ledger_v3"));
+  assert.ok(registered.has("verify_ledger_v3"));
 });
 
-test("README advertises the 34-tool registry including verifier v2", () => {
-  assert.match(readme, /^## 34 MCP tools$/m, "README must advertise the 34-tool registry");
-  assert.match(readme, /^That's 34\. We counted twice this time\.$/m, "README summary must agree with the 34-tool registry");
+test("README advertises the 35-tool registry including verifier v3", () => {
+  assert.match(readme, /^## 35 MCP tools$/m, "README must advertise the 35-tool registry");
+  assert.match(readme, /^That's 35\. We counted twice this time\.$/m, "README summary must agree with the 35-tool registry");
   assert.match(
     readme,
     /^\| `compile_route_candidates` \| Pure offline projection of sanitized manifest\/observation snapshots; does not rank, persist, execute, authorize, wake, or contact providers \|$/m,
@@ -141,6 +145,47 @@ test("README advertises the 34-tool registry including verifier v2", () => {
     readme,
     /^\| `verify_ledger_v2` \| Versioned unsigned-snapshot consistency envelope around the unchanged verifier report from a dedicated read-only file snapshot; the handler performs no ledger writes \|$/m,
     "README must describe verify_ledger_v2 at its read-only handler boundary",
+  );
+  assert.match(
+    readme,
+    /^\| `verify_ledger_v3` \| Opt-in detached verifier envelope with severity-derived local consistency labels only; not provenance or confidence; the handler uses a dedicated read-only file snapshot and performs no ledger writes \|$/m,
+    "README must describe verifier v3 without a confidence or provenance claim",
+  );
+  assert.doesNotMatch(
+    readme,
+    /"evidence_scope": "the unchanged six-item unsigned snapshot scope"/,
+    "README v3 example must be a truthful JSON envelope rather than placeholder strings",
+  );
+  assert.match(
+    readme,
+    /"schema": "meshfleet\.verify\/v3"[\s\S]*?"profile": "unsigned_snapshot_consistency\/v1"[\s\S]*?"report": \{[\s\S]*?"finding_local_bands": \[\]/,
+    "README v3 example must show concrete scope, report, and zero-band shapes",
+  );
+});
+
+test("compatibility record includes the opt-in 35th verifier-v3 tool", () => {
+  assert.match(
+    compatibility,
+    /^\| unreleased \| \+ compile_route_candidates, recommend_route, verify_ledger_v2, verify_ledger_v3 /m,
+    "unreleased compatibility row must include the additive verifier-v3 tool",
+  );
+  assert.match(
+    compatibility,
+    /v3 MCP is opt-in and raises the implemented MCP tool\s+count to 35\./,
+    "verifier-v3 compatibility contract must reconcile the 35-tool registry",
+  );
+});
+
+test("roadmap keeps provenance-confidence bands deferred when documenting v3's narrower local labels", () => {
+  assert.match(
+    roadmap,
+    /^- Per-entry provenance confidence bands in verify output remain deferred;/m,
+    "v3 must not silently substitute for the separate provenance-confidence aspiration",
+  );
+  assert.match(
+    roadmap,
+    /does not fulfill that deferred provenance-confidence item/i,
+    "v3's shipped-roadmap entry must disclose its narrower scope",
   );
 });
 

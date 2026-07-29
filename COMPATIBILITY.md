@@ -90,7 +90,7 @@ Future versions will increment `CURRENT_SCHEMA_VERSION` and add a migration step
 | 0.8.1 – 0.13.x | (no new tools; skill taxonomy is a library module, not a tool yet) | — |
 | 0.14.0 – 0.15.x | (no new tools; stdio handshake and host-neutral launch configuration are covered by integration tests) | — |
 | 0.16.0 | + ask_peer, wake_agent, reply_discussion, get_discussion (Discussions) | see the input-validation note below |
-| unreleased | + compile_route_candidates, recommend_route, verify_ledger_v2 (all advisory or read-only; no write authority) | ⚠️ `send_message` and `send_messages` schemas tightened and `verify_ledger` findings strengthened — see the narrowing note below |
+| unreleased | + compile_route_candidates, recommend_route, verify_ledger_v2, verify_ledger_v3 (all advisory or read-only; no write authority) | ⚠️ `send_message` and `send_messages` schemas tightened and `verify_ledger` findings strengthened — see the narrowing note below |
 
 **Promise so far**: every minor release has been additive. No tool has been removed. Two
 signatures have been tightened — `send_messages` batch items and `send_message`, unreleased —
@@ -152,6 +152,28 @@ not alter `verify_ledger`, `inspect --verify`, `meshfleet.inspect/v1`, existing
 JSON/text output, `ok`, findings, checks, severities, counts, or exits. The
 legacy surfaces remain the compatibility baseline; v2 MCP is opt-in and raises
 the implemented MCP tool count to 34.
+
+### Implemented opt-in verifier v3 MCP and CLI contract
+
+The additive `verify_ledger_v3` MCP tool and matching
+`agent-mesh inspect --verify-v3 [file]` CLI mode are opt-in read-only surfaces.
+Their `meshfleet.verify/v3` envelope contains exactly `schema`,
+`evidence_scope`, `report`, and `finding_local_bands`. It retains the unchanged
+v2 evidence scope and legacy `VerifyReport`; the v3 report is a detached,
+deep-frozen snapshot for local alias safety only.
+
+Each local band is derived only from a verifier finding's existing severity:
+`error` maps to `local_consistency_error` and `warning` maps to
+`local_consistency_warning`. Unknown severities fail closed, and a report with
+no findings emits no synthetic band. These labels are not provenance,
+confidence, authenticity, tamper, integrity, completeness, delivery,
+execution, or external-time evidence.
+
+At tool dispatch, the v3 handler reads the configured ledger through the same
+dedicated read-only file snapshot boundary and performs no ledger writes. It
+does not change v1 or v2 output, `VerifyReport`/`VerifyFinding`, legacy CLI
+output, or their exits. v3 MCP is opt-in and raises the implemented MCP tool
+count to 35.
 
 **⚠️ Input handling changed in 0.16.0, and the old promise was the bug.** This table used to end
 "Tool inputs default to safe values when omitted." That was not a guarantee — it was a description

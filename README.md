@@ -232,7 +232,7 @@ evidence, authenticated provenance, or external time.
 
 ---
 
-## 34 MCP tools
+## 35 MCP tools
 
 **Fleets**
 
@@ -257,6 +257,7 @@ evidence, authenticated provenance, or external time.
 | `receipt` / `get_receipts` | Write and query the witnessed-delivery ledger: who saw what, when |
 | `verify_ledger` | Audit the whole ledger's internal consistency — errors mean it asserts something its own records don't support |
 | `verify_ledger_v2` | Versioned unsigned-snapshot consistency envelope around the unchanged verifier report from a dedicated read-only file snapshot; the handler performs no ledger writes |
+| `verify_ledger_v3` | Opt-in detached verifier envelope with severity-derived local consistency labels only; not provenance or confidence; the handler uses a dedicated read-only file snapshot and performs no ledger writes |
 
 **Councils (quorum ratification)**
 
@@ -289,7 +290,7 @@ evidence, authenticated provenance, or external time.
 
 See [docs/discussions.md](docs/discussions.md) for the full quickstart, tool reference, and terminal-state precedence.
 
-That's 34. We counted twice this time.
+That's 35. We counted twice this time.
 
 RoutePlane catalog discovery is a separate package library and CLI, not an MCP
 tool: it fetches RoutePlane's fixed loopback model catalog and projects
@@ -440,6 +441,59 @@ of deletion, external delivery or execution, or external time. The scope is
 generated verifier output, never caller or ledger input; it is a ceiling on
 what the report establishes, not a confidence score, integrity verdict, or
 promotion.
+
+### Implemented opt-in verifier v3 local consistency bands
+
+`verify_ledger_v3` and `agent-mesh inspect --verify-v3 [file]` are separate,
+opt-in verifier surfaces. They retain the same six-item
+`unsigned_snapshot_consistency/v1` `evidence_scope`, but return a new exact
+four-key envelope with a detached copy of the unchanged `VerifyReport`:
+
+```json
+{
+  "schema": "meshfleet.verify/v3",
+  "evidence_scope": {
+    "profile": "unsigned_snapshot_consistency/v1",
+    "ok_means": "no_detected_internal_consistency_contradiction",
+    "assurance_ceiling": "internal_consistency_of_the_unsigned_snapshot_read",
+    "not_established": [
+      "authorship_and_authenticated_provenance",
+      "pre_read_snapshot_integrity_and_tamper_evidence",
+      "content_binding",
+      "completeness_and_deletion",
+      "external_delivery_and_execution",
+      "external_time"
+    ]
+  },
+  "report": {
+    "ok": true,
+    "scope": {
+      "covers": "internal consistency — every receipt, flag, inbox entry, and ratification tally is supported by the ledger's own records",
+      "excludes": "authenticity — there is no hash chain or signature here, so an edit that rewrites the ledger consistently is indistinguishable from honest history"
+    },
+    "errors": 0,
+    "warnings": 0,
+    "counts": { "fleets": 0, "agents": 0, "messages": 0, "receipts": 0, "ratifications": 0 },
+    "findings": []
+  },
+  "finding_local_bands": []
+}
+```
+
+There is exactly one local band for each report finding, in the report's
+existing order: `error` becomes `local_consistency_error` and `warning` becomes
+`local_consistency_warning`. The mapping does not sort, deduplicate, inspect
+check names, or score findings. An unknown or missing severity fails closed.
+Zero findings produce zero bands; they do not produce an `undetectable`
+finding.
+
+The report copy and band array are frozen only for caller alias safety. They do
+not supply tamper evidence. The labels are severity-derived local consistency
+labels only, not provenance or confidence; no labels means neither authenticity
+nor completeness. As with v2, the handler reads through the dedicated read-only
+file snapshot and performs no ledger writes. `verify_ledger`, `verify_ledger_v2`,
+`VerifyReport`, existing inspect JSON, their text, their exits, ledger behavior,
+and sidecars remain unchanged.
 
 ---
 
