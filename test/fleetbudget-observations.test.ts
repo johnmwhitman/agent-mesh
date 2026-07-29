@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
@@ -329,4 +330,29 @@ test("projects deterministically without mutating array or object-key permutatio
   assert.deepEqual(permuted, baseline);
   assert.deepEqual(baseline.observations.map(({ candidate_id }) => candidate_id), ["candidate-a", "candidate-z"]);
   assert.deepEqual(baseline.diagnostics.map(({ candidate_id }) => candidate_id), ["candidate-a", "candidate-z"]);
+});
+
+test("hashes an absent quota window as literal null in the fixed-key snapshot preimage", () => {
+  const result = compileFleetBudgetObservations(input({
+    snapshot: snapshot({ lanes: [{ ...snapshot().lanes[0], window: undefined }] }),
+  }));
+  const preimage = JSON.stringify({
+    version: FLEETBUDGET_SNAPSHOT_VERSION,
+    observed_at_ms: 100,
+    expires_at_ms: 1_000,
+    lanes: [{
+      lane_id: "grok-build",
+      measured: true,
+      used: 1,
+      total: 2,
+      unit: "tokens",
+      window: null,
+    }],
+  });
+
+  assert.match(preimage, /"window":null/);
+  assert.equal(
+    result.source.snapshot_sha256,
+    createHash("sha256").update(preimage).digest("hex"),
+  );
 });
