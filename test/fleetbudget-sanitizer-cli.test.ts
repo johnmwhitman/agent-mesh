@@ -292,7 +292,7 @@ test("package exposes the sanitizer subpath and installed executable without for
   );
 });
 
-test("packed tarball installs offline and executes its installed stdin binary", {
+test("packed tarball installs in a clean consumer and executes its installed stdin binary", {
   timeout: 30_000,
 }, () => {
   const temp = mkdtempSync(join(tmpdir(), "meshfleet-fleetbudget-consumer-"));
@@ -329,7 +329,7 @@ test("packed tarball installs offline and executes its installed stdin binary", 
       NPM,
       [
         "install",
-        "--offline",
+        "--prefer-offline",
         "--ignore-scripts",
         "--no-audit",
         "--no-fund",
