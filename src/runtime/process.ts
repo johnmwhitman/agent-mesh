@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess, type SpawnOptions } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import type { CancelResult, ExecutionSpec, RuntimeHandle, RuntimeResult } from "./types.js";
+import type { CancelResult, ExecutionSpec, RuntimeEnvironmentPolicy, RuntimeHandle, RuntimeResult } from "./types.js";
 
 export interface RawProcessResult {
   exitCode: number | null;
@@ -11,7 +11,9 @@ export interface RawProcessResult {
 
 /** Fixed child stdio policy: no inherited stdin or parent MCP stdout writes. */
 export const RUNTIME_CHILD_STDIO: ["ignore", "pipe", "pipe"] = ["ignore", "pipe", "pipe"];
+export const RUNTIME_CHILD_STDIN_STDIO: ["pipe", "pipe", "pipe"] = ["pipe", "pipe", "pipe"];
 export const DEFAULT_TERMINATION_GRACE_MS = 100;
+export const DEFAULT_RUNTIME_OUTPUT_LIMIT_BYTES = 1024 * 1024;
 
 export type SpawnProcess = (
   command: string,
@@ -30,6 +32,7 @@ export interface ProcessLaunch {
   normalizeSpawnError(raw: RawProcessResult, error: Error): RuntimeResult;
   normalizeTimeout(raw: RawProcessResult): RuntimeResult;
   normalizeCancellation(raw: RawProcessResult, reason: string): RuntimeResult;
+  normalizeOutputOverflow(raw: RawProcessResult, stream: "stdout" | "stderr", limit: number): RuntimeResult;
 }
 
 interface ProcessRuntimeHandle extends RuntimeHandle {
@@ -50,14 +53,56 @@ function isRunning(child: ChildProcess | undefined): child is ChildProcess {
 }
 
 function terminate(child: ChildProcess | undefined, signal: NodeJS.Signals): boolean {
-  if (isRunning(child)) {
+  if (!child) return false;
+  if (process.platform !== "win32" && child.pid !== undefined) {
     try {
-      return child.kill(signal);
+      // Every POSIX child is a detached process-group leader. Signalling its
+      // negative pid contains grandchildren that inherited its stdout/stderr.
+      process.kill(-child.pid, signal);
+      return true;
     } catch {
-      // The process may have exited between the liveness check and kill().
+      // The leader may already be gone while close still waits on pipe-owning
+      // descendants. A direct kill is a best-effort fallback for that race.
     }
   }
+  if (isRunning(child)) {
+    try { return child.kill(signal); } catch { /* exited between checks */ }
+  }
   return false;
+}
+
+/** Build a deliberately small child environment without leaking ambient values by default. */
+export function resolveChildEnvironment(
+  host: NodeJS.ProcessEnv,
+  explicit: Record<string, string> | undefined,
+  policy: RuntimeEnvironmentPolicy | undefined,
+  baseline: NodeJS.ProcessEnv = {},
+  defaultMode: RuntimeEnvironmentPolicy["mode"] = "scrubbed",
+): NodeJS.ProcessEnv {
+  const mode = policy?.mode ?? defaultMode;
+  const inherited: NodeJS.ProcessEnv = {};
+  if (mode === "inherit") Object.assign(inherited, host);
+  else if (mode === "allowlist") {
+    for (const name of policy?.allowlist ?? []) {
+      const value = host[name];
+      if (value !== undefined) inherited[name] = value;
+    }
+  }
+  // Baseline is adapter-owned (for example AGENT_MESH_CHILD), so explicit
+  // caller data cannot accidentally remove it.
+  return { ...inherited, ...explicit, ...baseline };
+}
+
+function appendBounded(
+  chunks: Buffer[],
+  received: number,
+  data: Buffer | string,
+  limit: number,
+): { received: number; overflowed: boolean } {
+  const chunk = Buffer.isBuffer(data) ? data : Buffer.from(data);
+  const room = Math.max(0, limit - received);
+  if (room > 0) chunks.push(chunk.subarray(0, room));
+  return { received: received + Math.min(chunk.length, room), overflowed: chunk.length > room };
 }
 
 /**
@@ -70,20 +115,29 @@ export function startProcessExecution(
   spawnProcess: SpawnProcess = spawn,
 ): RuntimeHandle {
   let child: ChildProcess | undefined;
-  let stdout = "";
-  let stderr = "";
+  const stdoutChunks: Buffer[] = [];
+  const stderrChunks: Buffer[] = [];
+  let stdoutBytes = 0;
+  let stderrBytes = 0;
   let settled = false;
   let timeout: ReturnType<typeof setTimeout> | undefined;
   let terminationGrace: ReturnType<typeof setTimeout> | undefined;
-  let terminalRequest: { status: "timeout" | "cancelled"; reason?: string } | undefined;
+  let terminalRequest:
+    | { status: "timeout" }
+    | { status: "cancelled"; reason: string }
+    | { status: "output-overflow"; stream: "stdout" | "stderr"; limit: number }
+    | undefined;
   let processError: Error | undefined;
   let sigtermSent = false;
   let sigkillSent = false;
   let finish!: (result: RuntimeResult) => void;
+  const stdoutLimit = spec.output?.maxStdoutBytes ?? DEFAULT_RUNTIME_OUTPUT_LIMIT_BYTES;
+  const stderrLimit = spec.output?.maxStderrBytes ?? DEFAULT_RUNTIME_OUTPUT_LIMIT_BYTES;
   const cleanupChildListeners = () => {
     if (!child) return;
     child.stdout?.removeListener("data", onStdout);
     child.stderr?.removeListener("data", onStderr);
+    child.stdin?.removeListener("error", onStdinError);
     child.removeListener("error", onError);
     child.removeListener("close", onClose);
   };
@@ -100,15 +154,17 @@ export function startProcessExecution(
   const raw = (): RawProcessResult => ({
     exitCode: child?.exitCode ?? null,
     signal: child?.signalCode ?? null,
-    stdout,
-    stderr,
+    stdout: Buffer.concat(stdoutChunks).toString(),
+    stderr: Buffer.concat(stderrChunks).toString(),
   });
   const settleAfterClose = (exitCode: number | null, signal: NodeJS.Signals | null) => {
-    const closed = { exitCode, signal, stdout, stderr };
+    const closed = { exitCode, signal, stdout: Buffer.concat(stdoutChunks).toString(), stderr: Buffer.concat(stderrChunks).toString() };
     if (terminalRequest?.status === "timeout") {
       finish(launch.normalizeTimeout(closed));
     } else if (terminalRequest?.status === "cancelled") {
-      finish(launch.normalizeCancellation(closed, terminalRequest.reason ?? "Cancelled"));
+      finish(launch.normalizeCancellation(closed, terminalRequest.reason));
+    } else if (terminalRequest?.status === "output-overflow") {
+      finish(launch.normalizeOutputOverflow(closed, terminalRequest.stream, terminalRequest.limit));
     } else if (processError) {
       finish(launch.normalizeSpawnError(closed, processError));
     } else {
@@ -116,25 +172,42 @@ export function startProcessExecution(
     }
   };
   const requestProcessTermination = () => {
-    if (settled || !isRunning(child)) return;
+    if (settled || !child) return;
     if (!sigtermSent) {
       sigtermSent = true;
       terminate(child, "SIGTERM");
     }
-    if (settled || !isRunning(child) || terminationGrace !== undefined) return;
+    if (settled || terminationGrace !== undefined) return;
     terminationGrace = setTimeout(() => {
       terminationGrace = undefined;
-      if (settled || !isRunning(child) || sigkillSent) return;
+      if (settled || sigkillSent) return;
       sigkillSent = true;
       terminate(child, "SIGKILL");
     }, launch.terminationGraceMs ?? DEFAULT_TERMINATION_GRACE_MS);
-    terminationGrace.unref?.();
+    // This is the correctness-critical half of TERM→KILL containment. It
+    // must keep the worker alive while SIGTERM-resistant descendants still
+    // own inherited pipes; unref would allow node to exit before escalation.
   };
   function onStdout(data: Buffer | string): void {
-    stdout += data.toString();
+    const appended = appendBounded(stdoutChunks, stdoutBytes, data, stdoutLimit);
+    stdoutBytes = appended.received;
+    if (appended.overflowed && !terminalRequest) {
+      terminalRequest = { status: "output-overflow", stream: "stdout", limit: stdoutLimit };
+      requestProcessTermination();
+    }
   }
   function onStderr(data: Buffer | string): void {
-    stderr += data.toString();
+    const appended = appendBounded(stderrChunks, stderrBytes, data, stderrLimit);
+    stderrBytes = appended.received;
+    if (appended.overflowed && !terminalRequest) {
+      terminalRequest = { status: "output-overflow", stream: "stderr", limit: stderrLimit };
+      requestProcessTermination();
+    }
+  }
+  function onStdinError(): void {
+    // A child can close stdin before its optional input is written. Its close
+    // result is authoritative; swallowing this stream-local error prevents an
+    // unhandled event without changing process outcome.
   }
   function onError(error: Error): void {
     if (settled) return;
@@ -150,8 +223,9 @@ export function startProcessExecution(
       cwd: launch.cwd,
       env: launch.environment,
       shell: false,
-      stdio: RUNTIME_CHILD_STDIO,
+      stdio: spec.input ? RUNTIME_CHILD_STDIN_STDIO : RUNTIME_CHILD_STDIO,
       windowsHide: true,
+      detached: process.platform !== "win32",
     });
   } catch (error) {
     const failure = error instanceof Error ? error : new Error(String(error));
@@ -161,8 +235,10 @@ export function startProcessExecution(
   if (child) {
     child.stdout?.on("data", onStdout);
     child.stderr?.on("data", onStderr);
+    child.stdin?.on("error", onStdinError);
     child.on("error", onError);
     child.on("close", onClose);
+    if (spec.input) child.stdin?.end(spec.input.bytes);
     timeout = setTimeout(() => {
       if (settled || terminalRequest) return;
       terminalRequest = { status: "timeout" };
