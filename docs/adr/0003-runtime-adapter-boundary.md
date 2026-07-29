@@ -24,7 +24,9 @@ deterministic argv-only local executable and an explicit child environment.
   attestation. OpenCode banners are labeled `observed`; no current adapter
   produces `attested` runtime identity.
 - Child stdout/stderr are captured for ledger receipts and never forwarded to
-  MCP stdout. Prompts remain argv data and are never shell interpolated.
+  MCP stdout. OpenCode and the deterministic local proof keep prompts as
+  non-shell-interpolated argv data; native adapters may instead own bounded
+  stdin delivery, and no adapter may use both transports for one prompt.
 - No public runtime-selection MCP field exists. Real Claude, Codex, Gemini,
   Grok, and Antigravity adapters remain separate reviewed work.
 - Runtime adapter extraction does not integrate the durable lifecycle kernel,

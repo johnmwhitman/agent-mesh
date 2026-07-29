@@ -111,11 +111,20 @@ export interface RuntimeDescriptor {
   id: string;
   displayName: string;
   defaultTimeoutMs: number;
+  harness?: RuntimeHarnessDescriptor;
   /** Future adapters may describe opaque, non-machine-specific execution bindings. */
   bindings?: readonly RuntimeBindingDescriptor[];
   workspace?: RuntimeWorkspaceDescriptor;
   permissions?: RuntimePermissionDescriptor;
   session?: RuntimeSessionDescriptor;
+}
+
+/** Configured harness identity. This is compatibility metadata, not runtime attestation. */
+export interface RuntimeHarnessDescriptor {
+  name: string;
+  version: string;
+  versionEvidence: "configured";
+  transports: readonly string[];
 }
 
 /** Publicly safe binding identity: never a host path, account name, or credential reference. */

@@ -303,22 +303,53 @@ test("local process adapter keeps argv data, cwd, explicit env, and child output
   }
 });
 
-test("runtime stdin delivery keeps prompt bytes out of argv and environment", async () => {
+test("process execution stdin delivery keeps prompt bytes out of argv and environment", async () => {
   const input = "stdin-only $() secret-shaped bytes";
-  const adapter = new LocalProcessRuntimeAdapter({
-    command: process.execPath,
-    buildArgs: () => [FIXTURE, "success"],
-  });
-  const result = await execute(adapter, spec({
+  const request = spec({
     prompt: "compatibility prompt",
     input: { transport: "stdin", bytes: Buffer.from(input) },
-  }));
+  });
+  const normalize = (
+    raw: RawProcessResult,
+    status: RuntimeResult["status"],
+    error?: string,
+  ): RuntimeResult => ({
+    status,
+    stdout: raw.stdout,
+    stderr: raw.stderr,
+    exitCode: raw.exitCode,
+    signal: raw.signal,
+    error,
+    diagnostics: [],
+    identity: { adapterId: "process-test", evidence: "none" },
+  });
+  const handle = startProcessExecution(request, {
+    command: process.execPath,
+    args: [FIXTURE, "success"],
+    cwd: request.cwd,
+    environment: {},
+    timeoutMs: request.timeoutMs,
+    normalizeClose: (raw) => normalize(raw, raw.exitCode === 0 ? "success" : "failure"),
+    normalizeSpawnError: (raw) => normalize(raw, "failure", "spawn failed"),
+    normalizeTimeout: (raw) => normalize(raw, "timeout", "timeout"),
+    normalizeCancellation: (raw) => normalize(raw, "cancelled", "cancelled"),
+    normalizeOutputOverflow: (raw) => normalize(raw, "failure", "output overflow"),
+  });
+  const result = await waitForProcessExecution(handle);
   assert.equal(result.status, "success");
   const body = JSON.parse(result.stdout) as { argv: string[]; stdin: string };
   assert.equal(body.stdin, input);
   assert.equal(body.argv.includes(input), false);
   assert.equal(body.argv.includes("compatibility prompt"), false);
   assert.deepEqual(RUNTIME_CHILD_STDIO, ["ignore", "pipe", "pipe"], "default remains compatibility-safe");
+});
+
+test("local process adapter rejects stdin so prompt delivery cannot be duplicated", () => {
+  const validation = local("success").validate(spec({
+    input: { transport: "stdin", bytes: Buffer.from("duplicate") },
+  }));
+  assert.equal(validation.ok, false);
+  assert.match(validation.errors.join(" "), /argv-only.*does not support stdin/i);
 });
 
 test("runtime environment allowlist excludes ambient values while retaining explicit baseline", async () => {
