@@ -111,13 +111,19 @@ immutable `v0.19.0` tag, publish a package, or authorize provider execution.
   poll budget telemetry, or infer routing authority from provider labels.
 - **Fleetbudget observation projection is package-library-only:** pure
   `compileFleetBudgetObservations()` accepts only a caller-sanitized,
-  versioned snapshot, exact candidate-to-lane bindings, and caller-supplied
-  `now_ms`. It returns existing compiler observations, one diagnostic entry
-  per binding, canonical source hashes, and all-false effects. Complete
-  measured exhaustion reaches the existing advisory exclusion; incomplete or
-  unmeasured evidence stays neutral. It adds no MCP tool, raw Fleetbudget
-  parser/CLI/poller, provider inference, provider execution, unused-quota
-  reward, or weekly-burn policy. See `docs/FLEETBUDGET-OBSERVATIONS.md`.
+  versioned snapshot, unique candidate bindings, and caller-supplied `now_ms`.
+  Several candidates may bind one lane ID as copied, unsplit shared evidence;
+  prior exclusive inputs remain byte-identical, while repeated lane bindings
+  that formerly failed are now accepted. It returns existing compiler
+  observations, one diagnostic entry per binding, canonical source hashes, and
+  all-false effects. Observations and compiled candidates erase co-location;
+  caller bindings and diagnostics retain it. Complete measured exhaustion
+  reaches the existing advisory exclusion; incomplete or unmeasured evidence
+  stays neutral. It adds no MCP tool, raw Fleetbudget parser/CLI/poller,
+  provider inference, pool accounting, allocation, reservation, concurrency
+  control, authority, provider execution, unused-quota reward, or weekly-burn
+  policy. Raw sanitization and drain scoring remain future work. See
+  `docs/FLEETBUDGET-OBSERVATIONS.md`.
 - **12 A2A conformance witnesses** under `blackbox/` — pure offline blackbox suites with JS
   runners, Python evaluators, corpora, and review records. The 12th (discussion-derivation)
   has an 18-case corpus and a 1,273-line Grok-produced pure JS evaluator verified against

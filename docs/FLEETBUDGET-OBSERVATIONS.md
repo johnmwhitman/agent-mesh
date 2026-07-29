@@ -36,9 +36,10 @@ const projected = compileFleetBudgetObservations({
 
 ## Input contract
 
-The input is closed and versioned. The caller supplies the snapshot, exact
-one-to-one `candidate_id` to `lane_id` bindings, and `now_ms`; the library never
-reads a clock. A snapshot is fresh only when
+The input is closed and versioned. The caller supplies the snapshot, unique
+`candidate_id` bindings, and `now_ms`; the library never reads a clock. Each
+candidate binds exactly one lane, while several candidates may explicitly bind
+the same `lane_id` as shared evidence. A snapshot is fresh only when
 `observed_at_ms <= now_ms < expires_at_ms`; its TTL is at most ten minutes.
 
 A measured observation is emitted only when the bound lane has finite
@@ -50,7 +51,8 @@ duplicates and contradictory claims, and rejects unknown keys.
 
 Do not pass raw `fleetbudget --json` output. In particular, `routes`, `state`,
 `note`, `detail`, provider labels, and other descriptive fields are not part of
-this API. The caller owns the sanitized snapshot and every binding.
+this API. The caller owns the sanitized snapshot and every binding; a raw-input
+sanitizer remains future work.
 
 ## Output and composition
 
@@ -59,6 +61,14 @@ this API. The caller owns the sanitized snapshot and every binding.
 `green` below its ceiling or `exhausted` at or above it; overage is preserved.
 `projected.diagnostics` has one sorted entry per binding. It records missing,
 unmeasured, incomplete, or non-current evidence without inventing a budget.
+
+For a shared lane, the same sampled `used` and `total` values are copied
+unsplit to every bound candidate. Nothing is summed, divided, decremented, or
+allocated. Observations and compiled candidates intentionally erase which
+candidates were co-located; caller-owned bindings and per-binding diagnostics
+retain the lane relationship. Existing exclusive bindings keep byte-identical
+results; this is only an acceptance widening for repeated lane bindings that
+previously failed validation.
 
 The result also includes all-false `effects` and source provenance: the
 observation time bounds plus SHA-256 hashes of canonical snapshot and binding
@@ -81,4 +91,6 @@ health, authentication, credential, locality, or routing authority.
 The slice prevents a measured spent lane from being selected through the
 existing budget-exhaustion path. It does not reward unused quota, choose a
 provider, maximize weekly burn, refresh telemetry, or alter the compiler or
-recommender score law.
+recommender score law. It also provides no pool accounting, reservation,
+concurrency control, fair-share calculation, or execution authority; drain
+scoring remains future work.

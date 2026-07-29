@@ -63,7 +63,10 @@ compiler in addition to its portable v0.1 corpus and real MCP contract test. It
 deterministically projects sanitized caller evidence for advisory routing and rejects
 provider/control-plane smuggling. It remains advisory-only: this is not provider
 availability, authentication, budget freshness, catalog access, execution, failover,
-or metering evidence.
+or metering evidence. Candidate IDs remain unique, but several candidates may bind
+one lane ID as unsplit shared evidence. That acceptance widening preserves
+byte-identical results for prior exclusive inputs; it does not add pooling,
+allocation, reservation, concurrency control, or authority.
 
 ## Shipped
 
@@ -156,13 +159,18 @@ Direction, not commitment — items ship when real usage pulls them.
 **Recently shipped from this list** (moved here rather than deleted, so the list stays auditable)
 - Fleetbudget observation projection: the package-only
   `meshfleet/fleetbudget-observations` adapter accepts a caller-sanitized,
-  versioned snapshot, exact candidate-to-lane bindings, and caller-supplied
-  `now_ms`; it returns measured route observations, per-binding diagnostics,
-  canonical provenance hashes, and all-false effects. Complete measured
-  exhaustion reaches the existing `BUDGET_EXHAUSTED` advisory exclusion, while
-  incomplete or unmeasured evidence remains neutral. It has no raw Fleetbudget
-  parser, CLI, polling, provider inference, execution, unused-quota reward, or
-  weekly-burn optimization. See `docs/FLEETBUDGET-OBSERVATIONS.md`.
+  versioned snapshot, unique candidate bindings, and caller-supplied `now_ms`;
+  multiple candidates may share one lane as copied, unsplit evidence. It returns
+  measured route observations, per-binding diagnostics, canonical provenance
+  hashes, and all-false effects. Observations and compiled candidates erase
+  co-location while bindings and diagnostics retain it. Prior exclusive inputs
+  are byte-identical; only repeated lane bindings are newly accepted. Complete
+  measured exhaustion reaches the existing `BUDGET_EXHAUSTED` advisory
+  exclusion, while incomplete or unmeasured evidence remains neutral. It has no
+  raw Fleetbudget parser, CLI, polling, provider inference, execution, pool
+  accounting, reservation, concurrency control, unused-quota reward, or
+  weekly-burn optimization. Raw sanitization and drain scoring remain future.
+  See `docs/FLEETBUDGET-OBSERVATIONS.md`.
 - RoutePlane model-catalog discovery and caller-policy projection: the separate
   `meshfleet-routeplane-catalog` CLI fetches only RoutePlane's fixed loopback
   catalog and emits a bounded, expiring canonical snapshot; the library admits
