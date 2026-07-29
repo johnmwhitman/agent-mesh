@@ -4,7 +4,7 @@
 
 **Goal:** Give the existing PixelLab, Gemini/Imagen, Google audio, Codex image, and MiniMax media surfaces the fixed stdin/NDJSON machine protocol required by MeshFleet, without moving credentials or making a provider call during implementation.
 
-**Architecture:** A dependency-free Python protocol module validates one closed `meshfleet.media-adapter-request.v1` document and emits bounded `meshfleet.media-adapter-event.v1` lines. Existing wrappers gain an additive `--meshfleet-machine` entry that calls their current in-process provider functions with creative input held in memory and writes only fixed relative artifacts in the invocation-owned working directory. Codex uses a unique invocation-owned generation root and prompt stdin. MiniMax becomes a fixed MCP stdio client for the expected `minimax-media-mcp` executable; it remains unavailable when that executable or required tools are absent.
+**Architecture:** A dependency-free Python protocol module validates one closed `meshfleet.media-adapter-request.v1` document and emits bounded `meshfleet.media-adapter-event.v1` lines. Existing wrappers gain an additive `--meshfleet-machine` entry that calls their current in-process provider functions with creative input held in memory and writes only fixed relative artifacts in the invocation-owned working directory. Codex uses a unique invocation-owned generation root and prompt stdin. MiniMax extends the existing canonical `Tools/mmx-media` lane directly; the obsolete `Tools/minimax_media_pipeline.py` status shim and its unconnected hypothetical MCP server remain out of scope.
 
 **Tech Stack:** Python 3 stdlib, existing Pillow where already used, Bash for the Codex wrapper, `unittest`/shell fixtures, fake HTTP and fake subprocesses.
 
@@ -242,20 +242,20 @@ git add Tools/cdx-image Tools/lib/codex_image_machine.py Tools/tests/test_cdx_im
 git commit -m "feat(tools): isolate Codex image machine invocations"
 ```
 
-### Task 6: MiniMax fixed MCP stdio bridge
+### Task 6: MiniMax canonical `mmx-media` machine mode
 
 **Files:**
-- Modify: `Tools/minimax_media_pipeline.py`
-- Create: `Tools/lib/minimax_media_mcp.py`
+- Modify: `Tools/mmx-media`
+- Create: `Tools/lib/minimax_media_machine.py`
 - Create: `Tools/tests/test_minimax_media_machine.py`
 
 **Interfaces:**
 - Consumes: `image.generate`, `video.generate`, `video.image_to_video`, `audio.tts`, and `audio.music`.
-- Produces: fixed MCP tool calls, durable provider task IDs, polling progress, exact collected artifacts, and typed unavailable/readiness responses.
+- Produces: the existing fixed MiniMax HTTPS calls, durable video task IDs, polling progress, exact collected artifacts, and typed readiness/error responses.
 
-- [ ] **Step 1: Write failing fake-MCP tests**
+- [ ] **Step 1: Write failing fake-HTTP tests**
 
-Provide a fake executable named `minimax-media-mcp` on a test-only PATH. Prove fixed executable/tool names, MCP initialize and tools/list verification, prompt/reference content only in JSON-RPC stdin, async video task-ID persistence, exact query/resume, one terminal artifact, cancellation support truth, timeout/overflow, missing tool refusal, and missing executable `unavailable`.
+Import `Tools/mmx-media` under a fake credential resolver and fake `urllib` transport. Prove the additive machine entry leaves every existing human subcommand unchanged; creative inputs arrive only in the JSON request on stdin; image, video, image-to-video, TTS, and music map to the existing in-process functions; async video emits the provider task ID before terminal success; resume polls the exact supplied task ID without regenerating; generated filenames are fixed beneath the invocation-owned cwd; and timeout, overflow, missing credential, malformed media, and unsupported cancellation fail closed without a provider call where applicable.
 
 - [ ] **Step 2: Verify red**
 
@@ -263,26 +263,27 @@ Provide a fake executable named `minimax-media-mcp` on a test-only PATH. Prove f
 python3 -m unittest Tools.tests.test_minimax_media_machine
 ```
 
-- [ ] **Step 3: Implement the fixed client**
+- [ ] **Step 3: Implement the canonical lane adapter**
 
-Machine mode starts only the literal `minimax-media-mcp --stdio`, validates the server identity and exact required schemas before dispatch, maps operations to the fixed MiniMax tools, and emits the provider task ID immediately. It never accepts a server command or endpoint from the request. If the executable or required tool is absent, emit non-dispatchable readiness; do not retain the old script's unconditional `READY`.
+Add `--meshfleet-machine` to `Tools/mmx-media`. It validates the closed request with `Tools/lib/media_adapter_protocol.py`, maps only the five fixed operations to the existing command functions, and replaces all human stdout with bounded protocol events. It never accepts an endpoint, executable, model outside the wrapper's fixed allowlists, arbitrary output name, credential source, or provider URL. Preserve the current Keychain/env credential ownership and usage ledger behavior. For video, persist and emit the exact MiniMax `task_id` before polling; resume uses only that task ID and never creates a second generation.
 
-- [ ] **Step 4: Preserve status CLI honesty**
+- [ ] **Step 4: Preserve human CLI behavior and offline readiness**
 
-Update human `--mode status` to distinguish catalogued tool names from a verified live executable. Test status with missing and fake servers:
+Run the focused tests plus current usage/help commands. These are local-only and must not call MiniMax:
 
 ```bash
 python3 -m unittest Tools.tests.test_minimax_media_machine
-python3 Tools/minimax_media_pipeline.py --mode status
+python3 Tools/mmx-media --help
+python3 Tools/mmx-media usage
 ```
 
-The second command is local-only and must not start a provider call; it may report unavailable.
+The machine readiness response may prove only wrapper/schema availability. It must not claim credential or live-provider readiness without a separately authorized probe.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add Tools/minimax_media_pipeline.py Tools/lib/minimax_media_mcp.py Tools/tests/test_minimax_media_machine.py
-git commit -m "feat(tools): add MiniMax media MCP machine bridge"
+git add Tools/mmx-media Tools/lib/minimax_media_machine.py Tools/tests/test_minimax_media_machine.py
+git commit -m "feat(tools): add MiniMax media machine mode"
 ```
 
 ### Task 7: Protocol conformance and wrapper handoff
@@ -310,11 +311,11 @@ git diff --check
 
 - [ ] **Step 3: Obtain independent review**
 
-Run specification-compliance review, then code-quality/security review. Require explicit verdicts on credential ownership, prompt transport, fixed executable selection, output confinement, Codex concurrency, MiniMax task resume, and zero provider contact.
+Run specification-compliance review, then code-quality/security review. Require explicit verdicts on credential ownership, prompt transport, fixed operation selection, output confinement, Codex concurrency, MiniMax task resume, and zero provider contact.
 
 - [ ] **Step 4: Write the handoff**
 
-Record branch/base/head, protocol fixture commit, each wrapper's offline readiness, commands/results, provider calls `none`, and the exact separately authorized live probes still needed. Do not claim MiniMax ready when its fixed MCP executable is absent.
+Record branch/base/head, protocol fixture commit, each wrapper's offline readiness, commands/results, provider calls `none`, and the exact separately authorized live probes still needed. Do not claim MiniMax credential or live-provider readiness from offline fake-transport tests.
 
 - [ ] **Step 5: Commit**
 
