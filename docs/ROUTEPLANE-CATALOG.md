@@ -48,6 +48,45 @@ returns an advisory ranking; it does not select or start a model. The projection
 reports all effect flags as false: it does not persist, execute, authorize, wake
 agents, or contact providers.
 
+## Recommend from an existing snapshot
+
+`recommendRoutePlaneCatalog()` is the pure library composition for callers that
+already hold a snapshot. It validates the fresh snapshot, compiles exact
+advertised caller policies, and evaluates the compiled candidates with the
+existing advisory recommender:
+
+```ts
+import { recommendRoutePlaneCatalog } from "meshfleet/routeplane-catalog";
+
+const recommendation = recommendRoutePlaneCatalog({
+  snapshot,
+  policies,
+  task: {
+    required_capabilities: ["code"],
+    privacy: "network_ok",
+    locality: "any",
+  },
+  now_ms: Date.now(),
+  top_n: 1,
+});
+```
+
+Its `status` is `"evaluated"` when one or more policies compiled into
+candidates, or `"no_compiled_candidates"` when none did. Both statuses retain
+the snapshot `source` and `compilation.diagnostics`. Those diagnostics explain
+catalog/policy projection facts such as `MODEL_NOT_ADVERTISED`; they are kept
+separate from the flat `excluded` array, which contains only task-evaluator
+exclusions such as `BUDGET_EXHAUSTED`. A no-candidate result has empty `ranked`
+and `excluded` arrays. An evaluated result carries the recommender's actual
+arrays, including an empty `ranked` array when every candidate is ineligible for
+the task.
+
+The recommendation is advisory and all effect flags remain false. It does not
+fetch or refresh a snapshot, select a provider, execute a model, persist state,
+wake agents, contact providers, poll budget telemetry, or infer any authority
+from catalog provider labels. Caller policy remains the source of routing traits
+and any measured budget observation.
+
 ## Authority and freshness boundary
 
 RoutePlane remains authoritative for its catalog, credentials, authentication,
@@ -64,9 +103,13 @@ evidence is fresh, or query provider health.
 
 ## Non-goals
 
-This slice does not add automatic model selection, token-pool draining, budget
-freshness, provider health checks, authentication or credential handling,
+This slice does not add automatic provider selection, token-pool draining,
+budget freshness, provider health checks, authentication or credential handling,
 provider execution, retry, failover, authorization, persistence, or a remote
 control plane. It adds the `meshfleet/routeplane-catalog` package subpath and
 the `meshfleet-routeplane-catalog` CLI only; the MCP catalog remains at 34
 tools.
+
+The recommendation composition is a package-library API in this codebase. It
+does not deploy or publish a package, select providers, execute models, poll
+budget telemetry, or infer routing authority from provider labels.

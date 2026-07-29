@@ -174,10 +174,8 @@ function requireTokenArray(
   }
 }
 
-function validateRecommendRouteInput(value: unknown): asserts value is RecommendRouteInput {
-  const input = requireRecord(value, "input");
-  requireAllowedKeys(input, "", new Set(["task", "candidates", "top_n"]));
-  const task = requireRecord(input.task, "task");
+export function assertRecommendRouteTask(value: unknown): asserts value is RecommendRouteTask {
+  const task = requireRecord(value, "task");
   requireAllowedKeys(
     task,
     "task",
@@ -226,6 +224,12 @@ function validateRecommendRouteInput(value: unknown): asserts value is Recommend
   if (task.min_context_tokens !== undefined) {
     requireFiniteInteger(task.min_context_tokens, "task.min_context_tokens", 0);
   }
+}
+
+function validateRecommendRouteInput(value: unknown): asserts value is RecommendRouteInput {
+  const input = requireRecord(value, "input");
+  requireAllowedKeys(input, "", new Set(["task", "candidates", "top_n"]));
+  assertRecommendRouteTask(input.task);
 
   assertRouteCandidates(input.candidates, {
     errorPrefix: "recommend_route",

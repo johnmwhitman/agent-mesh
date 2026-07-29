@@ -4,6 +4,7 @@ import {
   compileRoutePlaneCandidates,
   fetchRoutePlaneCatalog,
   normalizeRoutePlaneCatalog,
+  recommendRoutePlaneCatalog,
   RoutePlaneCatalogError,
   ROUTEPLANE_CATALOG_SNAPSHOT_VERSION,
 } from "../src/routeplane-catalog.js";
@@ -351,6 +352,330 @@ test("compiles only exactly advertised RoutePlane models with caller-owned trait
     { candidate_id: "lane-missing", reason_codes: ["MODEL_NOT_ADVERTISED"] },
     { candidate_id: "lane-z", reason_codes: ["OBSERVATION_MISSING", "BUDGET_UNMEASURED"] },
   ]);
+});
+
+test("recommends exactly advertised RoutePlane policies", () => {
+  const snapshot = normalizeRoutePlaneCatalog(liveCatalog, 100, 60_000);
+
+  const result = recommendRoutePlaneCatalog({
+    snapshot,
+    now_ms: 100,
+    policies: [{
+      candidate_id: "lane-a",
+      model: "a-model",
+      capabilities: ["code"],
+      privacy: "network_ok",
+      locality: "any",
+    }],
+    task: {
+      required_capabilities: ["code"],
+      privacy: "network_ok",
+      locality: "any",
+    },
+  });
+
+  assert.equal(result.status, "evaluated");
+  assert.equal(result.advisory, true);
+  assert.deepEqual(result.effects, routePlaneEffects);
+  assert.deepEqual(result.source, snapshot.source);
+  assert.deepEqual(result.compilation, {
+    compiler_version: "meshfleet.route-candidates.v0.1",
+    projection: true,
+    diagnostics: [{ candidate_id: "lane-a", reason_codes: ["OBSERVATION_MISSING", "BUDGET_UNMEASURED"] }],
+  });
+  assert.deepEqual(result.ranked.map(({ candidate_id, identity }) => ({ candidate_id, identity })), [{
+    candidate_id: "lane-a",
+    identity: {
+      requested: { runtime: "routeplane", model: "a-model" },
+      evidence_only: true,
+      status: "unobserved",
+    },
+  }]);
+  assert.deepEqual(result.excluded, []);
+});
+
+test("rejects malformed recommendation tasks when no catalog candidates compile", () => {
+  const snapshot = normalizeRoutePlaneCatalog({ object: "list", data: [] }, 100, 60_000);
+
+  assert.throws(
+    () => recommendRoutePlaneCatalog({
+      snapshot,
+      now_ms: 100,
+      policies: [],
+      task: { prompt: "secret" } as never,
+    }),
+    /recommend_route: 'task\.prompt' is not allowed/,
+  );
+});
+
+test("keeps catalog diagnostics distinct when a policy model is missing", () => {
+  const snapshot = normalizeRoutePlaneCatalog(liveCatalog, 100, 60_000);
+  const result = recommendRoutePlaneCatalog({
+    snapshot,
+    now_ms: 100,
+    policies: [{
+      candidate_id: "lane-missing",
+      model: "not-advertised",
+      capabilities: ["code"],
+      privacy: "network_ok",
+      locality: "any",
+    }],
+    task: { required_capabilities: ["code"], privacy: "network_ok", locality: "any" },
+  });
+
+  assert.equal(result.status, "no_compiled_candidates");
+  assert.deepEqual(result.compilation.diagnostics, [
+    { candidate_id: "lane-missing", reason_codes: ["MODEL_NOT_ADVERTISED"] },
+  ]);
+  assert.deepEqual(result.ranked, []);
+  assert.deepEqual(result.excluded, []);
+});
+
+test("excludes only measured exhausted budget after compiling RoutePlane policy evidence", () => {
+  const snapshot = normalizeRoutePlaneCatalog(liveCatalog, 100, 60_000);
+  const result = recommendRoutePlaneCatalog({
+    snapshot,
+    now_ms: 100,
+    policies: [{
+      candidate_id: "lane-a",
+      model: "a-model",
+      capabilities: ["code"],
+      privacy: "network_ok",
+      locality: "any",
+    }],
+    observations: [{
+      candidate_id: "lane-a",
+      status: "exhausted",
+      confidence: "measured",
+      budget: { used: 10, total: 10 },
+    }],
+    task: { required_capabilities: ["code"], privacy: "network_ok", locality: "any" },
+  });
+
+  assert.equal(result.status, "evaluated");
+  assert.deepEqual(result.compilation.diagnostics, [
+    { candidate_id: "lane-a", reason_codes: ["BUDGET_EXHAUSTED_EVIDENCE"] },
+  ]);
+  assert.deepEqual(result.ranked, []);
+  assert.deepEqual(result.excluded, [
+    { candidate_id: "lane-a", reason_codes: ["BUDGET_EXHAUSTED"] },
+  ]);
+});
+
+test("keeps unmeasured budget neutral for an advertised RoutePlane policy", () => {
+  const snapshot = normalizeRoutePlaneCatalog(liveCatalog, 100, 60_000);
+  const result = recommendRoutePlaneCatalog({
+    snapshot,
+    now_ms: 100,
+    policies: [{
+      candidate_id: "lane-a",
+      model: "a-model",
+      capabilities: ["code"],
+      privacy: "network_ok",
+      locality: "any",
+    }],
+    task: { required_capabilities: ["code"], privacy: "network_ok", locality: "any" },
+  });
+
+  assert.deepEqual(result.compilation.diagnostics, [
+    { candidate_id: "lane-a", reason_codes: ["OBSERVATION_MISSING", "BUDGET_UNMEASURED"] },
+  ]);
+  assert.deepEqual(result.ranked.map(({ candidate_id, budget, reason_codes }) => ({
+    candidate_id,
+    budget,
+    reason_codes,
+  })), [{
+    candidate_id: "lane-a",
+    budget: { measured: false, status: "unmeasured" },
+    reason_codes: ["OUTCOMES_UNMEASURED", "BUDGET_UNMEASURED"],
+  }]);
+  assert.deepEqual(result.excluded, []);
+});
+
+test("does not infer recommendation authority from RoutePlane provider labels", () => {
+  const baselineSnapshot = normalizeRoutePlaneCatalog(liveCatalog, 100, 60_000);
+  const relabeledSnapshot = normalizeRoutePlaneCatalog({
+    ...liveCatalog,
+    data: [
+      liveCatalog.data[0]!,
+      { ...liveCatalog.data[1]!, providers: ["budget-available", "unrestricted"] },
+    ],
+  }, 100, 60_000);
+  const input = {
+    now_ms: 100,
+    policies: [{
+      candidate_id: "lane-a",
+      model: "a-model",
+      capabilities: ["code"],
+      privacy: "network_ok" as const,
+      locality: "any" as const,
+    }],
+    task: { required_capabilities: ["code"], privacy: "network_ok" as const, locality: "any" as const },
+  };
+  const baseline = recommendRoutePlaneCatalog({ snapshot: baselineSnapshot, ...input });
+  const relabeled = recommendRoutePlaneCatalog({ snapshot: relabeledSnapshot, ...input });
+  const { source: baselineSource, ...baselineAuthority } = baseline;
+  const { source: relabeledSource, ...relabeledAuthority } = relabeled;
+
+  assert.notEqual(relabeledSource.payload_sha256, baselineSource.payload_sha256);
+  assert.deepEqual(relabeledAuthority, baselineAuthority);
+});
+
+test("returns typed empty advisory with sorted diagnostics for catalog misses", () => {
+  const snapshot = normalizeRoutePlaneCatalog({ object: "list", data: [] }, 100, 60_000);
+  const policies = [
+    {
+      candidate_id: "lane-z",
+      model: "z-model",
+      capabilities: ["code"],
+      privacy: "network_ok" as const,
+      locality: "any" as const,
+    },
+    {
+      candidate_id: "lane-a",
+      model: "a-model",
+      capabilities: ["code"],
+      privacy: "network_ok" as const,
+      locality: "any" as const,
+    },
+  ];
+  const task = { required_capabilities: ["code"], privacy: "network_ok" as const, locality: "any" as const };
+
+  for (const top_n of [1, 256]) {
+    const result = recommendRoutePlaneCatalog({ snapshot, policies, task, now_ms: 100, top_n });
+    assert.equal(result.status, "no_compiled_candidates");
+    assert.equal(result.advisory, true);
+    assert.deepEqual(result.effects, routePlaneEffects);
+    assert.deepEqual(result.source, snapshot.source);
+    assert.deepEqual(result.compilation, {
+      compiler_version: "meshfleet.route-candidates.v0.1",
+      projection: true,
+      diagnostics: [
+        { candidate_id: "lane-a", reason_codes: ["MODEL_NOT_ADVERTISED"] },
+        { candidate_id: "lane-z", reason_codes: ["MODEL_NOT_ADVERTISED"] },
+      ],
+    });
+    assert.deepEqual(result.ranked, []);
+    assert.deepEqual(result.excluded, []);
+  }
+});
+
+test("rejects stale RoutePlane recommendation snapshots", () => {
+  const snapshot = normalizeRoutePlaneCatalog(liveCatalog, 100, 60_000);
+  const input = {
+    snapshot,
+    policies: [{
+      candidate_id: "lane-a",
+      model: "a-model",
+      capabilities: ["code"],
+      privacy: "network_ok" as const,
+      locality: "any" as const,
+    }],
+    task: { required_capabilities: ["code"], privacy: "network_ok" as const, locality: "any" as const },
+  };
+
+  assert.throws(
+    () => recommendRoutePlaneCatalog({ ...input, now_ms: 99 }),
+    /compile_routeplane_candidates: 'snapshot' is future-dated/,
+  );
+  assert.throws(
+    () => recommendRoutePlaneCatalog({ ...input, now_ms: 60_100 }),
+    /compile_routeplane_candidates: 'snapshot' is expired/,
+  );
+});
+
+test("rejects invalid RoutePlane recommendation top_n", () => {
+  const snapshot = normalizeRoutePlaneCatalog(liveCatalog, 100, 60_000);
+  const input = {
+    snapshot,
+    now_ms: 100,
+    policies: [{
+      candidate_id: "lane-a",
+      model: "a-model",
+      capabilities: ["code"],
+      privacy: "network_ok" as const,
+      locality: "any" as const,
+    }],
+    task: { required_capabilities: ["code"], privacy: "network_ok" as const, locality: "any" as const },
+  };
+
+  for (const top_n of [0, -1, 257, Number.NaN, Number.POSITIVE_INFINITY, 1.5]) {
+    assert.throws(
+      () => recommendRoutePlaneCatalog({ ...input, top_n }),
+      /compile_routeplane_candidates: 'top_n' must be a finite integer between 1 and 256/,
+      `top_n=${String(top_n)}`,
+    );
+  }
+  assert.throws(
+    () => recommendRoutePlaneCatalog({ ...input, top_n: 2 }),
+    /recommend_route: 'top_n' cannot exceed candidates\.length/,
+  );
+});
+
+test("RoutePlane catalog recommendation is deterministic and does not mutate input", () => {
+  const input = {
+    snapshot: normalizeRoutePlaneCatalog(liveCatalog, 100, 60_000),
+    policies: [
+      {
+        candidate_id: "lane-a",
+        model: "a-model",
+        capabilities: ["code"],
+        privacy: "network_ok" as const,
+        locality: "any" as const,
+      },
+      {
+        candidate_id: "lane-z",
+        model: "z-model",
+        capabilities: ["code"],
+        privacy: "network_ok" as const,
+        locality: "any" as const,
+      },
+      {
+        candidate_id: "lane-missing",
+        model: "not-advertised",
+        capabilities: ["code"],
+        privacy: "network_ok" as const,
+        locality: "any" as const,
+      },
+    ],
+    observations: [
+      {
+        candidate_id: "lane-a",
+        status: "green" as const,
+        confidence: "measured" as const,
+        budget: { used: 1, total: 2 },
+      },
+      {
+        candidate_id: "lane-z",
+        status: "green" as const,
+        confidence: "measured" as const,
+        budget: { used: 1, total: 2 },
+      },
+      {
+        candidate_id: "lane-missing",
+        status: "green" as const,
+        confidence: "assumed" as const,
+      },
+    ],
+    task: { required_capabilities: ["code"], privacy: "network_ok" as const, locality: "any" as const },
+    now_ms: 100,
+    top_n: 2,
+  };
+  const before = structuredClone(input);
+  const permuted = structuredClone(input);
+  permuted.policies.reverse();
+  permuted.observations.reverse();
+  const permutedBefore = structuredClone(permuted);
+
+  const first = recommendRoutePlaneCatalog(input);
+  const second = recommendRoutePlaneCatalog(input);
+  const permutedResult = recommendRoutePlaneCatalog(permuted);
+
+  assert.deepEqual(input, before);
+  assert.deepEqual(permuted, permutedBefore);
+  assert.deepEqual(second, first);
+  assert.deepEqual(permutedResult, first);
+  assert.deepEqual(first.ranked.map(({ candidate_id }) => candidate_id), ["lane-a", "lane-z"]);
 });
 
 test("rejects expired, future-dated, malformed, and unknown-version catalog snapshots", () => {
