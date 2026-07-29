@@ -91,7 +91,9 @@ response adds a result-level evidence-only preference record,
 those fields and reason codes are omitted and both output bytes and ranking law remain
 the prior default even when candidate windows are present.
 
-This is not a default drain policy. `now_ms`, usage, totals, and window bounds all come
+This is not a default account- or reset-window optimization policy; urgency
+applies only when `preference.objective: "prefer_near_reset"` is set.
+`now_ms`, usage, totals, and window bounds all come
 from the caller. MeshFleet does not refresh them, attest freshness, infer a provider or
 account, divide a shared pool, reserve quota, dispatch work, or claim that using the
 candidate will consume the reported pool.

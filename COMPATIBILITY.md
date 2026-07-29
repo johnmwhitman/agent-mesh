@@ -291,9 +291,9 @@ input, distinct from every other evidence field:
   evidence level.
 - Default execution remains OpenCode. There is no public runtime-adapter
   selector, no vendor SDK or catalog, no credential flow, no automatic
-  model choice, no token-budget drain policy, no remote relay, no publish,
-  and no deploy in this slice. Ollama Cloud's direct API and automatic
-  subscription-aware selection remain future work. Local smoke tests exercised
+  model choice, no default token-budget policy, no remote relay, no publish,
+  and no deploy in this slice. Account-specific provider operations are outside
+  this public adapter contract and public roadmap. Local smoke tests exercised
   the installed OpenCode IDs `opencode-go/minimax-m3` and
   `kilo/kilo-auto/free`; this is environment-local observed execution, not a
   general provider-availability claim.

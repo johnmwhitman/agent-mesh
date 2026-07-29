@@ -212,6 +212,6 @@ The slice prevents a measured spent lane from being selected through the
 existing budget-exhaustion path. Separately, the opt-in recommender preference
 can use current window evidence only after the existing `final_score` as a
 near-reset tie-break. It does not change `budget_adjustment`, choose a provider,
-maximize weekly burn by default, refresh telemetry, or alter hard gates. It
+optimize an account reset window by default, refresh telemetry, or alter hard gates. It
 also provides no pool accounting, reservation, concurrency control, fair-share
 calculation, execution authority, or proof of token consumption.

@@ -61,16 +61,15 @@ read-write token for `meshfleet` with automation/2FA bypass, then reruns failed
 jobs for run `30408103628`. Do not move or recreate `v0.19.0`, and do not claim
 publication until `npm view meshfleet version` reports `0.19.0`.
 
-Provider execution is through OpenCode, not forced through RoutePlane. This
-machine's `opencode auth list` reports stored Anthropic OAuth and Ollama Cloud
-API entries, and separate `opencode run --model ...` smokes completed against
-`anthropic/claude-haiku-4-5` and `ollama-cloud/gpt-oss:20b`. Those smokes
-exercise OpenCode's local provider path, not a MeshFleet-owned vendor API or
-credential flow. MeshFleet's verified boundary is persisting the requested
-provider/model, passing it to OpenCode, and checking the observed runtime model.
-RoutePlane can recommend/select routes but is not the execution proxy. These
-observations prove neither account ownership, remaining quota, billing, nor
-future provider availability.
+Provider execution is through OpenCode, not forced through RoutePlane.
+Environment-local `opencode run --model ...` smokes completed against two
+provider-labeled model IDs. Those smokes exercise OpenCode's local provider
+path, not a MeshFleet-owned vendor API, account inventory, or credential flow.
+MeshFleet's verified boundary is persisting the requested provider/model,
+passing it to OpenCode, and checking the observed runtime model. RoutePlane can
+recommend routes but is not the execution proxy. These observations prove
+neither account ownership, remaining quota, billing, nor future provider
+availability.
 
 Review scar: `b1649e5` was committed by a delegated Grok build wrapper despite
 the no-commit instruction and includes an incorrect Claude co-author trailer.
@@ -132,8 +131,9 @@ the reviewed implementation through committed code head `168996c`:
   `meshfleet-routeplane-catalog` CLI fetches the fixed loopback `/v1/models`
   catalog into an expiring canonical snapshot, and the library projects exact
   advertised model IDs plus caller-owned policy into advisory candidates. It
-  does not add a 35th MCP tool or claim automatic selection, token-pool draining,
-  budget freshness, health, authentication, credential handling, or execution.
+  does not add a 35th MCP tool or claim automatic selection, a default
+  token-pool policy, account control, budget freshness, health, authentication,
+  credential handling, or execution.
   RoutePlane retains those provider responsibilities; MeshFleet retains policy
   projection and advisory ranking. See `docs/ROUTEPLANE-CATALOG.md`.
 - **RoutePlane catalog recommendation is package-library-only:** pure
@@ -155,7 +155,7 @@ the reviewed implementation through committed code head `168996c`:
   reaches the existing advisory exclusion; incomplete or unmeasured evidence
   stays neutral. It adds no MCP tool, raw Fleetbudget parser/CLI/poller,
   provider inference, pool accounting, allocation, reservation, concurrency
-  control, authority, provider execution, or default weekly-burn policy.
+  control, authority, provider execution, or account-specific operating policy.
   `recommend_route` can separately opt in to use current window evidence only
   after existing final score as a near-reset tie-break. It does not refresh,
   attest, reserve, select, or execute. See `docs/FLEETBUDGET-OBSERVATIONS.md`.
