@@ -10,6 +10,7 @@
  *   npx agent-mesh inspect --export [file]   # dump the full ledger as JSON
  *   npx agent-mesh inspect --verify [file]   # audit ledger integrity (exit 1 on errors)
  *   npx agent-mesh inspect --verify-v2 [file] # opt-in versioned verifier envelope (exit 1 on errors)
+ *   npx agent-mesh inspect --verify-v3 [file] # opt-in local consistency bands (exit 1 on errors)
  *   npx agent-mesh inspect --explain         # explain each --verify finding (implies --verify)
  *   npx agent-mesh inspect --json            # JSON output for fleets / --councils / --verify
  *   npx agent-mesh inspect --help             # usage
@@ -38,7 +39,9 @@ import {
   buildFleetsJson,
   buildVerifyJson,
   buildVerifyV2Json,
+  buildVerifyV3Json,
   formatVerifyV2Report,
+  formatVerifyV3Report,
   INSPECT_JSON_SCHEMA,
   PROVISIONAL_NOTE,
   type AgentRow,
@@ -63,6 +66,7 @@ const USAGE = `agent-mesh inspect — CLI inspector for running fleets
   npx agent-mesh inspect --export [file]    Dump the full ledger as JSON (stdout if no file)
   npx agent-mesh inspect --verify [file]    Audit ledger integrity (exit 1 on errors); [file] audits that ledger file read-only
   npx agent-mesh inspect --verify-v2 [file] Opt-in versioned verifier envelope (exit 1 on errors); [file] audits that ledger file read-only
+  npx agent-mesh inspect --verify-v3 [file] Opt-in severity-derived local consistency bands (exit 1 on errors); [file] audits that ledger file read-only
   npx agent-mesh inspect --lifecycle [fleet] Show opt-in SQLite lifecycle diagnostics (--json supported)
   npx agent-mesh inspect --explain          Explain each --verify finding: meaning, benign cause, how to investigate (implies --verify)
   npx agent-mesh inspect --json             Machine-readable output for all inspect data modes
@@ -124,8 +128,10 @@ function main(): void {
 
   const verifyV1 = args.includes('--verify')
   const verifyV2 = args.includes('--verify-v2')
-  if (verifyV1 && verifyV2) {
-    process.stderr.write('--verify and --verify-v2 cannot be used together\n')
+  const verifyV3 = args.includes('--verify-v3')
+  const verifierFlags = [verifyV1 ? '--verify' : undefined, verifyV2 ? '--verify-v2' : undefined, verifyV3 ? '--verify-v3' : undefined].filter((flag): flag is string => flag !== undefined)
+  if (verifierFlags.length > 1) {
+    process.stderr.write(`${verifierFlags.join(' and ')} cannot be used together\n`)
     process.exit(2)
   }
 
@@ -189,6 +195,27 @@ function main(): void {
       jsonMode
         ? JSON.stringify(envelope, null, 2) + '\n'
         : formatVerifyV2Report(envelope, { explain }) + '\n'
+    )
+    process.exitCode = report.ok ? 0 : 1
+    return
+  }
+
+  if (verifyV3) {
+    const file = positional[0]
+    let report
+    try {
+      // Like v2, v3 always uses the dedicated read-only file snapshot and
+      // never calls the legacy fresh-install verification path.
+      report = verifyLedgerFile(file ?? resolveDbFile())
+    } catch (err) {
+      process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`)
+      process.exit(2)
+    }
+    const envelope = buildVerifyV3Json(report)
+    process.stdout.write(
+      jsonMode
+        ? JSON.stringify(envelope, null, 2) + '\n'
+        : formatVerifyV3Report(envelope, { explain }) + '\n'
     )
     process.exitCode = report.ok ? 0 : 1
     return
