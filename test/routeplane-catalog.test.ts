@@ -329,6 +329,47 @@ test("returns an empty, side-effect-free compilation when no policy model is adv
   ]);
 });
 
+test("ignores observations for unadvertised policies while retaining eligible observations", () => {
+  const snapshot = normalizeRoutePlaneCatalog(liveCatalog, 100, 60_000);
+  const compilation = compileRoutePlaneCandidates({
+    snapshot,
+    now_ms: 100,
+    policies: [
+      {
+        candidate_id: "lane-a",
+        model: "a-model",
+        capabilities: ["code"],
+        privacy: "network_ok",
+        locality: "any",
+      },
+      {
+        candidate_id: "lane-missing",
+        model: "not-advertised",
+        capabilities: ["code"],
+        privacy: "network_ok",
+        locality: "any",
+      },
+    ],
+    observations: [
+      { candidate_id: "lane-a", status: "green", confidence: "measured", budget: { used: 1, total: 2 } },
+      { candidate_id: "lane-missing", status: "green", confidence: "assumed" },
+    ],
+  });
+
+  assert.deepEqual(compilation.candidates, [{
+    candidate_id: "lane-a",
+    capabilities: ["code"],
+    privacy: "network_ok",
+    locality: "any",
+    budget: { measured: true, used: 1, total: 2 },
+    requested_identity: { runtime: "routeplane", model: "a-model" },
+  }]);
+  assert.deepEqual(compilation.diagnostics, [
+    { candidate_id: "lane-a", reason_codes: [] },
+    { candidate_id: "lane-missing", reason_codes: ["MODEL_NOT_ADVERTISED"] },
+  ]);
+});
+
 test("does not derive authority from RoutePlane provider labels", () => {
   const snapshot = normalizeRoutePlaneCatalog({
     object: "list",

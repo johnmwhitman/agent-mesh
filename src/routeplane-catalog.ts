@@ -251,6 +251,7 @@ export function compileRoutePlaneCandidates(input: {
   const excluded = policies
     .filter(({ model }) => !advertisedModels.has(model))
     .map(({ candidate_id }) => ({ candidate_id, reason_codes: ["MODEL_NOT_ADVERTISED"] }));
+  const excludedCandidateIds = new Set(excluded.map(({ candidate_id }) => candidate_id));
 
   if (eligible.length === 0) {
     return {
@@ -271,6 +272,13 @@ export function compileRoutePlaneCandidates(input: {
     };
   }
 
+  const inputObservations = record.observations as CompileRouteCandidatesInput["observations"];
+  const compilerObservations = inputObservations?.filter((observation) => {
+    if (typeof observation !== "object" || observation === null || Array.isArray(observation)) {
+      return true;
+    }
+    return !excludedCandidateIds.has((observation as RecordValue).candidate_id as string);
+  });
   const compiled = compileRouteCandidates({
     manifest: {
       version: ROUTE_CANDIDATE_COMPILER_VERSION,
@@ -279,7 +287,9 @@ export function compileRoutePlaneCandidates(input: {
         requested_identity: { runtime: "routeplane", model },
       })),
     },
-    ...(record.observations === undefined ? {} : { observations: record.observations as CompileRouteCandidatesInput["observations"] }),
+    ...(compilerObservations === undefined
+      ? {}
+      : { observations: compilerObservations as CompileRouteCandidatesInput["observations"] }),
   });
   return {
     ...compiled,
