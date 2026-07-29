@@ -170,9 +170,16 @@ Direction, not commitment — items ship when real usage pulls them.
   telemetry, infer typed quota windows, deploy or publish a package, or grant
   authority from provider labels. Structured collector versioning, timing, and
   quota windows remain prerequisites for actionable budget observations.
-- Per-entry provenance confidence bands in verify output
 
 **Recently shipped from this list** (moved here rather than deleted, so the list stays auditable)
+- Opt-in verifier v3 local consistency bands: `verify_ledger_v3` and
+  `agent-mesh inspect --verify-v3` add a detached `meshfleet.verify/v3`
+  envelope with one frozen local label per existing finding, derived only from
+  `error` or `warning` severity and preserving report order. The six-item
+  unsigned-snapshot evidence scope and `VerifyReport` meaning remain unchanged;
+  these are not per-entry provenance or confidence bands, do not establish
+  authenticity, completeness, or tamper evidence, and add no ledger effects or
+  sidecars. Legacy and v2 verifier surfaces remain unchanged.
 - Fleetbudget observation projection: the package-only
   `meshfleet/fleetbudget-observations` adapter accepts a caller-sanitized,
   versioned snapshot, unique candidate bindings, and caller-supplied `now_ms`;

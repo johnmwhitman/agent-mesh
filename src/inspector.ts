@@ -21,6 +21,7 @@ import {
 } from './core.js'
 import type { VerifyFinding, VerifyReport } from './verify.js'
 import { buildVerifyEnvelopeV2, type VerifyEnvelopeV2 } from './verify-envelope-v2.js'
+import { buildVerifyEnvelopeV3, type VerifyEnvelopeV3 } from './verify-envelope-v3.js'
 import { computeTally, parseVoteAction } from './ratify.js'
 
 // ---------------------------------------------------------------------------
@@ -624,6 +625,14 @@ export function formatVerifyV2Report(envelope: VerifyEnvelopeV2, opts: { explain
   return `Evidence scope: ${envelope.evidence_scope.profile}\n${formatVerifyReport(envelope.report, opts)}`
 }
 
+/** Render the opt-in v3 local labels without changing the legacy or v2 text. */
+export function formatVerifyV3Report(envelope: VerifyEnvelopeV3, opts: { explain?: boolean } = {}): string {
+  const localBands = envelope.finding_local_bands.length === 0
+    ? 'No finding local bands: absence is not authenticity or completeness.'
+    : `Finding local bands: ${envelope.finding_local_bands.join(', ')}`
+  return `Finding local bands: severity-derived labels only; not provenance or confidence.\n${formatVerifyReport(envelope.report, opts)}\n${localBands}`
+}
+
 // ---------------------------------------------------------------------------
 // Verify triage — one explanation per check id in src/verify.ts.
 //
@@ -962,6 +971,11 @@ export function buildVerifyJson(
 /** The v2 verifier has its own closed envelope, not the generic inspect-v1 wrapper. */
 export function buildVerifyV2Json(report: VerifyReport): VerifyEnvelopeV2 {
   return buildVerifyEnvelopeV2(report)
+}
+
+/** The v3 verifier is a separate closed envelope with local-only finding labels. */
+export function buildVerifyV3Json(report: VerifyReport): VerifyEnvelopeV3 {
+  return buildVerifyEnvelopeV3(report)
 }
 
 export function buildFleetsJson(fleets: FleetSummary[]): InspectJsonEnvelope<"fleets", FleetSummary[]> {
