@@ -68,3 +68,54 @@ test("rejects duplicate model IDs, unknown fields, and catalog bounds", () => {
     /0\.\.1024/i,
   );
 });
+
+test("rejects closed model fields and every required model and provider bound", () => {
+  const validCatalog = {
+    object: "list",
+    data: [{ id: "model-a", object: "model", providers: ["provider-a"] }],
+  };
+  const invalidCases: Array<{ name: string; payload: unknown; expected: RegExp }> = [
+    {
+      name: "unknown model field",
+      payload: { ...validCatalog, data: [{ ...validCatalog.data[0], endpoint: "forbidden" }] },
+      expected: /payload\.data\[0\]\.endpoint.*not allowed/i,
+    },
+    {
+      name: "duplicate provider label",
+      payload: { ...validCatalog, data: [{ ...validCatalog.data[0], providers: ["provider-a", "provider-a"] }] },
+      expected: /duplicate provider label/i,
+    },
+    {
+      name: "empty model id",
+      payload: { ...validCatalog, data: [{ ...validCatalog.data[0], id: "" }] },
+      expected: /id.*non-empty string.*256/i,
+    },
+    {
+      name: "overlength model id",
+      payload: { ...validCatalog, data: [{ ...validCatalog.data[0], id: "m".repeat(257) }] },
+      expected: /id.*non-empty string.*256/i,
+    },
+    {
+      name: "empty provider label",
+      payload: { ...validCatalog, data: [{ ...validCatalog.data[0], providers: [""] }] },
+      expected: /providers\[0\].*non-empty string.*128/i,
+    },
+    {
+      name: "overlength provider label",
+      payload: { ...validCatalog, data: [{ ...validCatalog.data[0], providers: ["p".repeat(129)] }] },
+      expected: /providers\[0\].*non-empty string.*128/i,
+    },
+    {
+      name: "too many providers",
+      payload: {
+        ...validCatalog,
+        data: [{ ...validCatalog.data[0], providers: Array.from({ length: 65 }, (_, index) => `provider-${index}`) }],
+      },
+      expected: /providers.*1\.\.64/i,
+    },
+  ];
+
+  for (const { name, payload, expected } of invalidCases) {
+    assert.throws(() => normalizeRoutePlaneCatalog(payload, 1, 1), expected, name);
+  }
+});
