@@ -7,10 +7,10 @@ import {
   MediaError,
   MEDIA_REQUEST_VERSION,
   type MediaPlanIntent,
+  type ResolvedMediaRequest,
   type MediaSubmission,
 } from "../src/media-execution/contract/requests.js";
 import {
-  type MediaOperation,
   type MediaOutputPolicy,
   type MediaClientContext,
   type MediaRoutePolicy,
@@ -42,7 +42,7 @@ function validImageEditIntent() {
     route: { allow_provider_change: false, maximum_attempts: 1 },
     output: { accepted_mime_types: ["image/png"], maximum_artifacts: 1, review: "none" as const },
     operation: "image.edit" as const,
-    input: { prompt: "edit", source: { artifact_id: "a1", execution_id: "e1", attempt_id: "t1", byte_length: 100, sha256: "deadbeef" } },
+    input: { prompt: "edit", source: { artifact_id: "a1", execution_id: "e1", attempt_id: "t1", byte_length: 100, sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", media_class: "image" as const, mime_type: "image/png" } },
   };
 }
 
@@ -66,7 +66,7 @@ function validImageToVideoIntent() {
     route: { allow_provider_change: false, maximum_attempts: 1 },
     output: { accepted_mime_types: ["video/mp4"], maximum_artifacts: 1, review: "none" as const },
     operation: "video.image_to_video" as const,
-    input: { first_frame: { artifact_id: "a1", execution_id: "e1", attempt_id: "t1", byte_length: 100, sha256: "deadbeef" } },
+    input: { first_frame: { artifact_id: "a1", execution_id: "e1", attempt_id: "t1", byte_length: 100, sha256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", media_class: "image" as const, mime_type: "image/png" } },
   };
 }
 
@@ -126,7 +126,7 @@ function validPixelRotate8Intent() {
     route: { allow_provider_change: false, maximum_attempts: 1 },
     output: { accepted_mime_types: ["application/vnd.meshfleet.pixel-bundle.v1"], maximum_artifacts: 1, review: "none" as const },
     operation: "pixel.rotate8" as const,
-    input: { source: { artifact_id: "a1", execution_id: "e1", attempt_id: "t1", byte_length: 100, sha256: "deadbeef" }, directions: 8 as const, license_declaration: "CC0" },
+    input: { source: { artifact_id: "a1", execution_id: "e1", attempt_id: "t1", byte_length: 100, sha256: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", media_class: "image" as const, mime_type: "image/png" }, directions: 8 as const, license_declaration: "CC0" },
   };
 }
 
@@ -150,7 +150,7 @@ function validPixelStateIntent() {
     route: { allow_provider_change: false, maximum_attempts: 1 },
     output: { accepted_mime_types: ["application/vnd.meshfleet.pixel-bundle.v1"], maximum_artifacts: 1, review: "none" as const },
     operation: "pixel.state" as const,
-    input: { source: { artifact_id: "a1", execution_id: "e1", attempt_id: "t1", byte_length: 100, sha256: "deadbeef" }, state_description: "running", license_declaration: "CC0" },
+    input: { source: { artifact_id: "a1", execution_id: "e1", attempt_id: "t1", byte_length: 100, sha256: "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", media_class: "image" as const, mime_type: "image/png" }, state_description: "running", license_declaration: "CC0" },
   };
 }
 
@@ -162,7 +162,7 @@ function validPixelAnimationIntent() {
     route: { allow_provider_change: false, maximum_attempts: 1 },
     output: { accepted_mime_types: ["application/vnd.meshfleet.pixel-bundle.v1"], maximum_artifacts: 1, review: "none" as const },
     operation: "pixel.animation" as const,
-    input: { source: { artifact_id: "a1", execution_id: "e1", attempt_id: "t1", byte_length: 100, sha256: "deadbeef" }, animation_template: "walk", requested_directions: 4 as const, license_declaration: "CC0" },
+    input: { source: { artifact_id: "a1", execution_id: "e1", attempt_id: "t1", byte_length: 100, sha256: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", media_class: "image" as const, mime_type: "image/png" }, animation_template: "walk", requested_directions: 4 as const, license_declaration: "CC0" },
   };
 }
 
@@ -287,3 +287,183 @@ function validImageIntentWithClientContext() {
     input: { prompt: "ctx", count: 1 },
   };
 }
+
+/*
+ * REPAIR TESTS (Task 1 HOLD findings) - written to FAIL on aaf4c2a
+ * These encode the 6 actionable review findings.
+ */
+
+describe("media contract repair HOLD - 1. ResolvedMediaRequest exact shape", () => {
+  test("exports ResolvedMediaRequest = MediaPlanIntent & { plan_id: string; authority_grant_id: string }", () => {
+    const resolved: ResolvedMediaRequest = {
+      ...parseMediaPlanIntent(validImageGenerateIntent()),
+      plan_id: "plan-1",
+      authority_grant_id: "grant-1",
+    };
+    assert.equal(resolved.plan_id, "plan-1");
+    assert.equal(resolved.authority_grant_id, "grant-1");
+  });
+});
+
+describe("media contract repair HOLD - 2. closed MediaArtifactHandle parser (replace as-cast)", () => {
+  test("rejects incomplete SingleMediaArtifactHandle missing required fields", () => {
+    const intent = validImageEditIntent();
+    const { media_class: _mediaClass, ...incomplete } = intent.input.source;
+    assert.throws(
+      () => parseMediaPlanIntent({ ...intent, input: { ...intent.input, source: incomplete } }),
+      MediaError,
+    );
+  });
+
+  test("accepts valid full SingleMediaArtifactHandle with all optional fields via parseMediaPlanIntent", () => {
+    const intent = { ...validImageEditIntent() };
+    intent.input = { ...intent.input, source: { artifact_id: "a1", execution_id: "e1", attempt_id: "t1", byte_length: 1024, sha256: "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", media_class: "image" as const, mime_type: "image/png", width: 512, height: 512 } };
+    const parsed = parseMediaPlanIntent(intent);
+    assert.equal(parsed.operation, "image.edit");
+  });
+
+  test("accepts valid closed MediaBundleHandle with closed MediaBundleEntry[] via parseMediaPlanIntent", () => {
+    const intent = { ...validPixelImageIntent() };
+    intent.input = { ...intent.input, references: [{ artifact_id: "b1", execution_id: "e1", attempt_id: "t1", byte_length: 2048, sha256: "cafecafe11223344556677889900aabbccddeeff001122334455667788990011", media_class: "pixel_bundle" as const, mime_type: "application/vnd.meshfleet.pixel-bundle.v1" as const, entries: [{ relative_name: "t.png", mime_type: "image/png", byte_length: 512, sha256: "11223344556677889900aabbccddeeff00112233445566778899001122334455" }] }] };
+    const parsed = parseMediaPlanIntent(intent);
+    assert.equal(parsed.operation, "pixel.image");
+  });
+
+  test("rejects unknown handle and bundle-entry members through parseMediaPlanIntent", () => {
+    const imageIntent = validImageEditIntent();
+    assert.throws(
+      () => parseMediaPlanIntent({
+        ...imageIntent,
+        input: {
+          ...imageIntent.input,
+          source: { ...imageIntent.input.source, unexpected: true },
+        },
+      }),
+      MediaError,
+    );
+
+    const bundleIntent = validPixelImageIntent();
+    const bundle = {
+      artifact_id: "b1",
+      execution_id: "e1",
+      attempt_id: "t1",
+      byte_length: 2048,
+      sha256: "cafecafe11223344556677889900aabbccddeeff001122334455667788990011",
+      media_class: "pixel_bundle" as const,
+      mime_type: "application/vnd.meshfleet.pixel-bundle.v1" as const,
+      entries: [{
+        relative_name: "t.png",
+        mime_type: "image/png",
+        byte_length: 512,
+        sha256: "11223344556677889900aabbccddeeff00112233445566778899001122334455",
+        unexpected: true,
+      }],
+    };
+    assert.throws(
+      () => parseMediaPlanIntent({
+        ...bundleIntent,
+        input: { ...bundleIntent.input, references: [bundle] },
+      }),
+      MediaError,
+    );
+  });
+
+  test("rejects a wrong pixel-bundle MIME and empty entries", () => {
+    const intent = validPixelImageIntent();
+    const bundle = {
+      artifact_id: "b1",
+      execution_id: "e1",
+      attempt_id: "t1",
+      byte_length: 2048,
+      sha256: "cafecafe11223344556677889900aabbccddeeff001122334455667788990011",
+      media_class: "pixel_bundle" as const,
+      mime_type: "application/vnd.meshfleet.pixel-bundle.v1",
+      entries: [{
+        relative_name: "t.png",
+        mime_type: "image/png",
+        byte_length: 512,
+        sha256: "11223344556677889900aabbccddeeff00112233445566778899001122334455",
+      }],
+    };
+    assert.throws(
+      () => parseMediaPlanIntent({
+        ...intent,
+        input: {
+          ...intent.input,
+          references: [{ ...bundle, mime_type: "application/zip" }],
+        },
+      }),
+      MediaError,
+    );
+    assert.throws(
+      () => parseMediaPlanIntent({
+        ...intent,
+        input: { ...intent.input, references: [{ ...bundle, entries: [] }] },
+      }),
+      MediaError,
+    );
+  });
+});
+
+describe("media contract repair HOLD - 3. canonicalMediaIntentSha256 direct typed (no any)", () => {
+  test("recursively canonicalizes exact MediaPlanIntent without as any, includes every field, returns lowercase 64-hex", () => {
+    const h = canonicalMediaIntentSha256(validImageGenerateIntent());
+    assert.equal(h.length, 64);
+    assert.match(h, /^[0-9a-f]{64}$/);
+  });
+});
+
+describe("media contract repair HOLD - 4. table-driven unknown-member tests inside EVERY operation input + full handles", () => {
+  const factories = [
+    validImageGenerateIntent, validImageEditIntent, validVideoGenerateIntent,
+    validImageToVideoIntent, validTtsIntent, validMusicIntent,
+    validPixelImageIntent, validPixelCharacterIntent, validPixelRotate8Intent,
+    validPixelTilesetIntent, validPixelStateIntent, validPixelAnimationIntent,
+  ];
+  for (const f of factories) {
+    test(`rejects unknown member inside ${f().operation} input (full handle shapes required in fixtures)`, () => {
+      const base = f();
+      const bad = { ...base, input: { ...base.input, __unknown__: 1 } };
+      assert.throws(() => parseMediaPlanIntent(bad), MediaError);
+    });
+  }
+});
+
+describe("media contract repair HOLD - 5. integrity-shaped primitives + negative tests", () => {
+  test("sha256 must be lowercase 64-hex (rejects uppercase)", () => {
+    const h = { artifact_id: "a1", execution_id: "e1", attempt_id: "t1", byte_length: 100, sha256: "DEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEF" };
+    const bad = { ...validImageEditIntent(), input: { ...validImageEditIntent().input, source: h } };
+    assert.throws(() => parseMediaPlanIntent(bad), MediaError);
+  });
+  test("rejects negative/zero for counts, attempts, dimensions, byte_length, durations, frames", () => {
+    assert.throws(() => parseMediaPlanIntent({ ...validImageGenerateIntent(), input: { ...validImageGenerateIntent().input, count: -1 } }), MediaError);
+    assert.throws(() => parseMediaPlanIntent({ ...validImageGenerateIntent(), input: { ...validImageGenerateIntent().input, count: 1.5 } }), MediaError);
+    assert.throws(() => parseMediaPlanIntent({ ...validImageGenerateIntent(), input: { ...validImageGenerateIntent().input, width: 0 } }), MediaError);
+    assert.throws(() => parseMediaPlanIntent({ ...validImageGenerateIntent(), route: { ...validImageGenerateIntent().route, maximum_attempts: 0 } }), MediaError);
+    assert.throws(() => parseMediaPlanIntent({ ...validPixelImageIntent(), input: { ...validPixelImageIntent().input, width_px: -5 } }), MediaError);
+    assert.throws(() => parseMediaPlanIntent({ ...validPixelImageIntent(), input: { ...validPixelImageIntent().input, height_px: 0 } }), MediaError);
+    const imageIntent = validImageEditIntent();
+    assert.throws(() => parseMediaPlanIntent({
+      ...imageIntent,
+      input: {
+        ...imageIntent.input,
+        source: { ...imageIntent.input.source, byte_length: -1 },
+      },
+    }), MediaError);
+    assert.throws(() => parseMediaPlanIntent({
+      ...imageIntent,
+      input: {
+        ...imageIntent.input,
+        source: {
+          ...imageIntent.input.source,
+          duration_ms: -1,
+          frame_count: 1.5,
+        },
+      },
+    }), MediaError);
+  });
+  test("rejects empty strings where content required (prompt, license, text)", () => {
+    assert.throws(() => parseMediaPlanIntent({ ...validPixelImageIntent(), input: { ...validPixelImageIntent().input, license_declaration: "" } }), MediaError);
+    assert.throws(() => parseMediaPlanIntent({ ...validTtsIntent(), input: { ...validTtsIntent().input, text: "" } }), MediaError);
+  });
+});

@@ -1,6 +1,3 @@
-import { type MediaOperation } from "./operations.js";
-export type { MediaOperation } from "./operations.js";
-
 export interface MediaArtifactHandleBase {
   artifact_id: string;
   execution_id: string;

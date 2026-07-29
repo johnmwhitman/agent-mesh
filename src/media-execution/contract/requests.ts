@@ -13,8 +13,14 @@ import {
 
 export { MEDIA_REQUEST_VERSION } from "./operations.js";
 export { MediaError } from "./errors.js";
+
 import type { MediaArtifactHandle } from "./results.js";
 import { MediaError } from "./errors.js";
+
+export type ResolvedMediaRequest = MediaPlanIntent & {
+  plan_id: string;
+  authority_grant_id: string;
+};
 
 export interface ImageGenerateInput {
   prompt: string;
@@ -127,6 +133,28 @@ function requireString(value: unknown, path: string): string {
   return value;
 }
 
+function requireSha256(value: unknown, path: string): string {
+  const s = requireString(value, path);
+  if (!/^[0-9a-f]{64}$/.test(s)) {
+    throw new MediaError("invalid_request", path);
+  }
+  return s;
+}
+
+function requireNonnegativeInteger(value: unknown, path: string): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+    throw new MediaError("invalid_request", path);
+  }
+  return value;
+}
+
+function requirePositiveInteger(value: unknown, path: string): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
+    throw new MediaError("invalid_request", path);
+  }
+  return value;
+}
+
 function requireNumber(value: unknown, path: string): number {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     throw new MediaError("invalid_request", path);
@@ -151,14 +179,52 @@ function requireArray<T>(value: unknown, path: string, itemValidator: (v: unknow
 function parseMediaArtifactHandle(v: unknown, path: string): MediaArtifactHandle {
   if (typeof v !== "object" || v === null) throw new MediaError("invalid_request", path);
   const obj = v as Record<string, unknown>;
-  requireExactKeys(obj, ["artifact_id", "execution_id", "attempt_id", "byte_length", "sha256"], path);
+  const mediaClass = obj.media_class;
+  if (mediaClass === "pixel_bundle") {
+    requireExactKeys(obj, ["artifact_id", "execution_id", "attempt_id", "byte_length", "sha256", "media_class", "mime_type", "entries"], path);
+    if (obj.mime_type !== "application/vnd.meshfleet.pixel-bundle.v1") {
+      throw new MediaError("invalid_request", `${path}.mime_type`);
+    }
+    const entries = requireArray(obj.entries, `${path}.entries`, (e, ep) => {
+      if (typeof e !== "object" || e === null) throw new MediaError("invalid_request", ep);
+      const eo = e as Record<string, unknown>;
+      requireExactKeys(eo, ["relative_name", "mime_type", "byte_length", "sha256"], ep);
+      return {
+        relative_name: requireString(eo.relative_name, `${ep}.relative_name`),
+        mime_type: requireString(eo.mime_type, `${ep}.mime_type`),
+        byte_length: requireNonnegativeInteger(eo.byte_length, `${ep}.byte_length`),
+        sha256: requireSha256(eo.sha256, `${ep}.sha256`),
+      };
+    });
+    if (entries.length === 0) throw new MediaError("invalid_request", `${path}.entries`);
+    return {
+      artifact_id: requireString(obj.artifact_id, `${path}.artifact_id`),
+      execution_id: requireString(obj.execution_id, `${path}.execution_id`),
+      attempt_id: requireString(obj.attempt_id, `${path}.attempt_id`),
+      byte_length: requireNonnegativeInteger(obj.byte_length, `${path}.byte_length`),
+      sha256: requireSha256(obj.sha256, `${path}.sha256`),
+      media_class: "pixel_bundle",
+      mime_type: "application/vnd.meshfleet.pixel-bundle.v1",
+      entries,
+    };
+  }
+  requireExactKeys(obj, ["artifact_id", "execution_id", "attempt_id", "byte_length", "sha256", "media_class", "mime_type", "width", "height", "duration_ms", "frame_count"], path);
+  const mc = obj.media_class;
+  if (mc !== "image" && mc !== "video" && mc !== "audio") throw new MediaError("invalid_request", `${path}.media_class`);
+  const mt = requireString(obj.mime_type, `${path}.mime_type`);
   return {
     artifact_id: requireString(obj.artifact_id, `${path}.artifact_id`),
     execution_id: requireString(obj.execution_id, `${path}.execution_id`),
     attempt_id: requireString(obj.attempt_id, `${path}.attempt_id`),
-    byte_length: requireNumber(obj.byte_length, `${path}.byte_length`),
-    sha256: requireString(obj.sha256, `${path}.sha256`),
-  } as MediaArtifactHandle;
+    byte_length: requireNonnegativeInteger(obj.byte_length, `${path}.byte_length`),
+    sha256: requireSha256(obj.sha256, `${path}.sha256`),
+    media_class: mc,
+    mime_type: mt,
+    width: obj.width !== undefined ? requirePositiveInteger(obj.width, `${path}.width`) : undefined,
+    height: obj.height !== undefined ? requirePositiveInteger(obj.height, `${path}.height`) : undefined,
+    duration_ms: obj.duration_ms !== undefined ? requireNonnegativeInteger(obj.duration_ms, `${path}.duration_ms`) : undefined,
+    frame_count: obj.frame_count !== undefined ? requireNonnegativeInteger(obj.frame_count, `${path}.frame_count`) : undefined,
+  };
 }
 
 function parseMediaRoutePolicy(v: unknown): MediaRoutePolicy {
@@ -171,7 +237,7 @@ function parseMediaRoutePolicy(v: unknown): MediaRoutePolicy {
     forbidden_providers: obj.forbidden_providers !== undefined ? requireArray(obj.forbidden_providers, "route.forbidden_providers", (x, p) => requireString(x, p)) : undefined,
     requested_model: obj.requested_model !== undefined ? requireString(obj.requested_model, "route.requested_model") : undefined,
     allow_provider_change: requireBoolean(obj.allow_provider_change, "route.allow_provider_change"),
-    maximum_attempts: requireNumber(obj.maximum_attempts, "route.maximum_attempts"),
+    maximum_attempts: requirePositiveInteger(obj.maximum_attempts, "route.maximum_attempts"),
   };
 }
 
@@ -185,7 +251,7 @@ function parseMediaOutputPolicy(v: unknown): MediaOutputPolicy {
   }
   return {
     accepted_mime_types: requireArray(obj.accepted_mime_types, "output.accepted_mime_types", (x, p) => requireString(x, p)),
-    maximum_artifacts: requireNumber(obj.maximum_artifacts, "output.maximum_artifacts"),
+    maximum_artifacts: requirePositiveInteger(obj.maximum_artifacts, "output.maximum_artifacts"),
     review,
   };
 }
@@ -218,8 +284,8 @@ function parsePixelInputBase(v: unknown, path: string, extraAllowed: readonly st
   }
   return {
     prompt: requireString(obj.prompt, `${path}.prompt`),
-    width_px: requireNumber(obj.width_px, `${path}.width_px`),
-    height_px: requireNumber(obj.height_px, `${path}.height_px`),
+      width_px: requirePositiveInteger(obj.width_px, `${path}.width_px`),
+      height_px: requirePositiveInteger(obj.height_px, `${path}.height_px`),
     view,
     transparent: requireBoolean(obj.transparent, `${path}.transparent`),
     license_declaration: lic,
@@ -246,7 +312,7 @@ export function parseMediaPlanIntent(raw: unknown): MediaPlanIntent {
       if (typeof input !== "object" || input === null) throw new MediaError("invalid_request", "input");
       const i = input as Record<string, unknown>;
       requireExactKeys(i, ["prompt", "negative_prompt", "aspect_ratio", "width", "height", "count", "references"], "input");
-      return { ...base, operation: op, input: { prompt: requireString(i.prompt, "input.prompt"), negative_prompt: i.negative_prompt !== undefined ? requireString(i.negative_prompt, "input.negative_prompt") : undefined, aspect_ratio: i.aspect_ratio !== undefined ? requireString(i.aspect_ratio, "input.aspect_ratio") : undefined, width: i.width !== undefined ? requireNumber(i.width, "input.width") : undefined, height: i.height !== undefined ? requireNumber(i.height, "input.height") : undefined, count: requireNumber(i.count, "input.count"), references: i.references !== undefined ? requireArray(i.references, "input.references", (x, p) => parseMediaArtifactHandle(x, p)) : undefined } };
+      return { ...base, operation: op, input: { prompt: requireString(i.prompt, "input.prompt"), negative_prompt: i.negative_prompt !== undefined ? requireString(i.negative_prompt, "input.negative_prompt") : undefined, aspect_ratio: i.aspect_ratio !== undefined ? requireString(i.aspect_ratio, "input.aspect_ratio") : undefined, width: i.width !== undefined ? requirePositiveInteger(i.width, "input.width") : undefined, height: i.height !== undefined ? requirePositiveInteger(i.height, "input.height") : undefined, count: requirePositiveInteger(i.count, "input.count"), references: i.references !== undefined ? requireArray(i.references, "input.references", (x, p) => parseMediaArtifactHandle(x, p)) : undefined } };
     }
     case "image.edit": {
       if (typeof input !== "object" || input === null) throw new MediaError("invalid_request", "input");
@@ -352,8 +418,7 @@ function canonicalize(value: unknown): unknown {
 }
 
 export function canonicalMediaIntentSha256(intent: MediaPlanIntent): string {
-  const { plan_id: _p, authority_grant_id: _a, ...rest } = intent as any;
-  const canon = canonicalize(rest);
+  const canon = canonicalize(intent);
   const json = JSON.stringify(canon);
   return createHash("sha256").update(json, "utf8").digest("hex");
 }
