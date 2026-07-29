@@ -394,6 +394,20 @@ test("recommends exactly advertised RoutePlane policies", () => {
   assert.deepEqual(result.excluded, []);
 });
 
+test("rejects malformed recommendation tasks when no catalog candidates compile", () => {
+  const snapshot = normalizeRoutePlaneCatalog({ object: "list", data: [] }, 100, 60_000);
+
+  assert.throws(
+    () => recommendRoutePlaneCatalog({
+      snapshot,
+      now_ms: 100,
+      policies: [],
+      task: { prompt: "secret" } as never,
+    }),
+    /recommend_route: 'task\.prompt' is not allowed/,
+  );
+});
+
 test("rejects expired, future-dated, malformed, and unknown-version catalog snapshots", () => {
   const snapshot = normalizeRoutePlaneCatalog(liveCatalog, 100, 60_000);
   const policies = [{

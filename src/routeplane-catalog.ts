@@ -3,7 +3,7 @@ import {
   compileRouteCandidates,
   ROUTE_CANDIDATE_COMPILER_VERSION,
 } from "./compile-route-candidates.js";
-import { recommendRoute } from "./recommend-route.js";
+import { assertRecommendRouteTask, recommendRoute } from "./recommend-route.js";
 import type {
   CompileRouteCandidatesInput,
   CompileRouteCandidatesResult,
@@ -370,6 +370,7 @@ export function recommendRoutePlaneCatalog(
   input: RoutePlaneCatalogRecommendationInput,
 ): RoutePlaneCatalogRecommendation {
   const validated = validateRecommendationInput(input);
+  assertRecommendRouteTask(validated.task);
   const compilation = compileRoutePlaneCandidates({
     snapshot: validated.snapshot,
     policies: validated.policies,
