@@ -624,6 +624,13 @@ test("RoutePlane catalog recommendation is deterministic and does not mutate inp
         locality: "any" as const,
       },
       {
+        candidate_id: "lane-z",
+        model: "z-model",
+        capabilities: ["code"],
+        privacy: "network_ok" as const,
+        locality: "any" as const,
+      },
+      {
         candidate_id: "lane-missing",
         model: "not-advertised",
         capabilities: ["code"],
@@ -639,6 +646,12 @@ test("RoutePlane catalog recommendation is deterministic and does not mutate inp
         budget: { used: 1, total: 2 },
       },
       {
+        candidate_id: "lane-z",
+        status: "green" as const,
+        confidence: "measured" as const,
+        budget: { used: 1, total: 2 },
+      },
+      {
         candidate_id: "lane-missing",
         status: "green" as const,
         confidence: "assumed" as const,
@@ -646,15 +659,23 @@ test("RoutePlane catalog recommendation is deterministic and does not mutate inp
     ],
     task: { required_capabilities: ["code"], privacy: "network_ok" as const, locality: "any" as const },
     now_ms: 100,
-    top_n: 1,
+    top_n: 2,
   };
   const before = structuredClone(input);
+  const permuted = structuredClone(input);
+  permuted.policies.reverse();
+  permuted.observations.reverse();
+  const permutedBefore = structuredClone(permuted);
 
   const first = recommendRoutePlaneCatalog(input);
   const second = recommendRoutePlaneCatalog(input);
+  const permutedResult = recommendRoutePlaneCatalog(permuted);
 
   assert.deepEqual(input, before);
+  assert.deepEqual(permuted, permutedBefore);
   assert.deepEqual(second, first);
+  assert.deepEqual(permutedResult, first);
+  assert.deepEqual(first.ranked.map(({ candidate_id }) => candidate_id), ["lane-a", "lane-z"]);
 });
 
 test("rejects expired, future-dated, malformed, and unknown-version catalog snapshots", () => {
