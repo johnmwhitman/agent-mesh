@@ -507,6 +507,20 @@ export function createDiscussionStore(deps: DiscussionStoreDeps): DiscussionStor
   const handleRegistry = new Map<string, SpawnHandle>();
   const knownDiscussionIds = new Set<string>();
 
+  /**
+   * Notification is an observational, best-effort side effect. The durable
+   * ledger remains authoritative, so a subscriber failure must never make a
+   * committed operation appear rejected, strand a reserved launch, escape a
+   * child-process callback, or stop reconciliation of later discussions.
+   */
+  function notifyBestEffort(event: DiscussionNotifyEvent): void {
+    try {
+      deps.notify(event);
+    } catch {
+      // Deliberately swallowed: callers reconcile from the durable ledger.
+    }
+  }
+
   function deriveView(discussionId: string, now: number): DerivedDiscussion {
     return deps.ledger((tx) => {
       const messages = tx.messagesByCorrelation(discussionId);
@@ -571,7 +585,7 @@ export function createDiscussionStore(deps: DiscussionStoreDeps): DiscussionStor
     const settled = settleTerminal(discussionId, attemptId, "failed");
     handleRegistry.delete(attemptId);
     if (settled) {
-      deps.notify({ kind: "terminal", discussion_id: discussionId, attempt_id: attemptId, state: "failed" });
+      notifyBestEffort({ kind: "terminal", discussion_id: discussionId, attempt_id: attemptId, state: "failed" });
     }
   }
 
@@ -636,7 +650,7 @@ export function createDiscussionStore(deps: DiscussionStoreDeps): DiscussionStor
     if (prepared.kind === "expired") {
       const settled = settleTerminal(discussionId, attemptId, "deadman");
       if (settled) {
-        deps.notify({ kind: "terminal", discussion_id: discussionId, attempt_id: attemptId, state: "deadman" });
+        notifyBestEffort({ kind: "terminal", discussion_id: discussionId, attempt_id: attemptId, state: "deadman" });
       }
       return;
     }
@@ -650,7 +664,7 @@ export function createDiscussionStore(deps: DiscussionStoreDeps): DiscussionStor
       // Fail closed: no `started` CAS, no spawn, turn is still consumed.
       const settled = settleTerminal(discussionId, attemptId, "failed");
       if (settled) {
-        deps.notify({ kind: "terminal", discussion_id: discussionId, attempt_id: attemptId, state: "failed" });
+        notifyBestEffort({ kind: "terminal", discussion_id: discussionId, attempt_id: attemptId, state: "failed" });
       }
       return;
     }
@@ -674,7 +688,7 @@ export function createDiscussionStore(deps: DiscussionStoreDeps): DiscussionStor
     } catch {
       const settled = settleTerminal(discussionId, attemptId, "failed");
       if (settled) {
-        deps.notify({ kind: "terminal", discussion_id: discussionId, attempt_id: attemptId, state: "failed" });
+        notifyBestEffort({ kind: "terminal", discussion_id: discussionId, attempt_id: attemptId, state: "failed" });
       }
       return;
     }
@@ -792,10 +806,10 @@ export function createDiscussionStore(deps: DiscussionStoreDeps): DiscussionStor
       return { reservation };
     });
 
-    deps.notify({ kind: "root_sent", discussion_id: discussionId, root_message_id: rootMessageId });
+    notifyBestEffort({ kind: "root_sent", discussion_id: discussionId, root_message_id: rootMessageId });
 
     if (committed.reservation) {
-      deps.notify({
+      notifyBestEffort({
         kind: "wake_reserved",
         discussion_id: discussionId,
         attempt_id: committed.reservation.attempt_id,
@@ -878,7 +892,7 @@ export function createDiscussionStore(deps: DiscussionStoreDeps): DiscussionStor
               deps.kill(handle);
               handleRegistry.delete(active.attempt_id);
             }
-            deps.notify({ kind: "terminal", discussion_id: discussionId, attempt_id: active.attempt_id, state: "deadman" });
+            notifyBestEffort({ kind: "terminal", discussion_id: discussionId, attempt_id: active.attempt_id, state: "deadman" });
           }
         }
         const finalView = deriveView(discussionId, deps.clock());
@@ -985,7 +999,7 @@ export function createDiscussionStore(deps: DiscussionStoreDeps): DiscussionStor
     });
 
     if (reservation.newlyReserved) {
-      deps.notify({
+      notifyBestEffort({
         kind: "wake_reserved",
         discussion_id: params.discussion_id,
         attempt_id: reservation.attemptId,
@@ -1132,9 +1146,9 @@ export function createDiscussionStore(deps: DiscussionStoreDeps): DiscussionStor
       return { messageId: replyMessageId, turn: attempt.turn, status, remainingTurns: view2.turns_remaining };
     });
 
-    deps.notify({ kind: "reply_appended", discussion_id: params.discussion_id, message_id: settled.messageId });
+    notifyBestEffort({ kind: "reply_appended", discussion_id: params.discussion_id, message_id: settled.messageId });
     if (settled.status === "closed") {
-      deps.notify({ kind: "terminal", discussion_id: params.discussion_id, attempt_id: params.attempt_id, state: "completed" });
+      notifyBestEffort({ kind: "terminal", discussion_id: params.discussion_id, attempt_id: params.attempt_id, state: "completed" });
     }
 
     return {
@@ -1203,7 +1217,7 @@ export function createDiscussionStore(deps: DiscussionStoreDeps): DiscussionStor
           deps.kill(handle);
           handleRegistry.delete(s.attemptId);
         }
-        deps.notify({ kind: "terminal", discussion_id: discussionId, attempt_id: s.attemptId, state: "deadman" });
+        notifyBestEffort({ kind: "terminal", discussion_id: discussionId, attempt_id: s.attemptId, state: "deadman" });
       }
     }
 
