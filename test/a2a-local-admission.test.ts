@@ -50,6 +50,36 @@ test("local admission evidence-alpha corpus is closed, self-consistent, and raw-
   }
 });
 
+test("authorization boundary evidence covers the next feasible Section 9 cardinality slice", () => {
+  assert.deepEqual(
+    corpus.mandatory_case_ids.filter((id) => id.startsWith("authorization.boundary.")),
+    [
+      "authorization.boundary.message-types-5",
+      "authorization.boundary.message-types-6",
+      "authorization.boundary.recipients-128",
+      "authorization.boundary.recipients-129",
+      "authorization.boundary.duplicate-message-type",
+      "authorization.boundary.duplicate-recipient",
+      "authorization.boundary.all-recipient-denied",
+    ],
+  );
+});
+
+test("the 2048-rule profile row exceeds the raw request ceiling by authorization-rule lower bound", () => {
+  const shortestRule = JSON.stringify({
+    adapter_id: "a",
+    principal_ref: "a",
+    audience: "a",
+    session_ref: "a",
+    sender: { namespace: "a", agent_id: "a" },
+    action: "a2a.message.admit",
+    message_types: ["alert"],
+    recipients: [{ namespace: "a", agent_id: "a" }],
+  });
+  assert.equal(Buffer.byteLength(shortestRule, "utf8"), 216);
+  assert.ok(216 * 2048 > 262144, "2048 minimum authorization rules exceed the request cap before array punctuation or request fields");
+});
+
 test("local admission evaluates every required corpus record with exact output bytes and replay evidence", () => {
   for (const item of corpus.cases) {
     const actual = evaluate(item);
