@@ -10,7 +10,7 @@ RoutePlane snapshot compiler. It validates the closed composition input, calls
 `compileRoutePlaneCandidates()` exactly once, and calls `recommendRoute()` only
 when compilation produced candidates. It returns catalog provenance and compiler
 diagnostics separately from evaluator exclusions, with a typed empty advisory
-result for zero candidates.
+result for zero candidates and an explicit result-state discriminant.
 
 **Tech Stack:** TypeScript; Node.js test runner; existing RoutePlane catalog,
 route-candidate compiler, and recommendation modules.
@@ -23,8 +23,11 @@ route-candidate compiler, and recommendation modules.
 - Caller policy remains the sole source of traits and any budget observation.
 - Provider labels never infer authority, traits, availability, execution or budget.
 - The result is advisory and all effects remain false.
-- `top_n` is a finite positive integer; existing evaluator maximum semantics
-  apply only when compilation produces candidates.
+- `top_n` is a finite positive integer no greater than 256; when compilation
+  produces candidates the existing stricter candidate-count maximum applies.
+- Results always include flat `ranked` and `excluded` arrays plus `status`:
+  `"no_compiled_candidates"` has exactly empty arrays, while `"evaluated"`
+  carries the actual recommender arrays.
 - No MCP, CLI, package export/bin, scheduler, cache, budget poller, wrapper or
   provider API change is in scope.
 - Production changes follow witnessed red-green TDD.
@@ -49,8 +52,8 @@ Add a test with a normalized fresh catalog containing `a-model`, one caller
 policy for `a-model`, and a task requiring that policy's `code` capability.
 Assert the return value has the snapshot source, a compiler projection with
 empty diagnostics, one rank with candidate ID `lane-a`, requested identity
-`{runtime:"routeplane",model:"a-model"}`, `advisory:true`, and the five false
-effect flags.
+`{runtime:"routeplane",model:"a-model"}`, `status:"evaluated"`,
+`advisory:true`, and the five false effect flags.
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -63,7 +66,7 @@ Expected: FAIL because `recommendRoutePlaneCatalog` is not exported.
 Import `recommendRoute`, `RecommendRouteTask`, and `RecommendRouteResult` from
 `./recommend-route.js`. Add closed input/result types. Validate only
 `snapshot`, `policies`, `task`, `observations`, `now_ms`, and `top_n`; require a
-finite positive integer for supplied `top_n`. Call the existing compiler once,
+finite positive integer no greater than 256 for supplied `top_n`. Call the existing compiler once,
 then call `recommendRoute` with its candidates and supplied `top_n` when
 non-empty. Copy source and only `compiler_version`, `projection`, and
 `diagnostics` into the `compilation` result field.
@@ -146,11 +149,12 @@ git commit -m "test: preserve RoutePlane recommendation evidence"
 Add three tests:
 
 ```ts
-// Empty catalog/all missing policies: ranked/excluded are [], source and sorted
-// compilation diagnostics remain present, all effects false, top_n: 3 is accepted.
+// Empty catalog/all missing policies: status is "no_compiled_candidates";
+// ranked/excluded are exactly [], source and sorted compilation diagnostics remain
+// present, all effects false, and top_n values 1 and 256 are accepted.
 // Expired and future snapshots: throw the existing compile_routeplane_candidates freshness error.
-// Invalid top_n values 0, -1, NaN, Infinity and 1.5 reject before a result;
-// a non-empty compiled candidate set preserves recommendRoute's top_n maximum error.
+// Invalid top_n values 0, -1, 257, NaN, Infinity and 1.5 reject before a result;
+// a non-empty compiled candidate set preserves recommendRoute's stricter top_n maximum error.
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -162,9 +166,12 @@ Expected: FAIL until the empty branch and outer `top_n` validation exist.
 - [ ] **Step 3: Write minimal implementation**
 
 After compilation, return exact false effect flags, `ranked: []`, and
-`excluded: []` when `compilation.candidates.length === 0`. Always validate
-outer `top_n` before compilation; pass it through only when candidates exist so
-the established evaluator maximum rule remains authoritative.
+`excluded: []` plus `status: "no_compiled_candidates"` when
+`compilation.candidates.length === 0`. Always validate outer `top_n` before
+compilation as 1..256; pass it through only when candidates exist so the
+established evaluator maximum rule remains authoritative. For a non-empty
+compilation set `status: "evaluated"` and copy the recommender's flat arrays
+without converting empty arrays to null or merging compilation diagnostics.
 
 - [ ] **Step 4: Run tests to verify they pass**
 

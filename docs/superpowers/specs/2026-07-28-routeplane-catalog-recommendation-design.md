@@ -39,6 +39,7 @@ export interface RoutePlaneCatalogRecommendationInput {
 }
 
 export interface RoutePlaneCatalogRecommendation {
+  status: "no_compiled_candidates" | "evaluated";
   advisory: true;
   effects: {
     persisted: false;
@@ -75,12 +76,22 @@ The result does not expose the compiled candidate list. The existing
 candidate projection itself. This composition result exposes provenance and
 both decision layers without adding a second candidate schema.
 
+`status` resolves the empty-result state without making either decision path
+nullable. `ranked` and `excluded` are always flat arrays:
+
+- `status: "no_compiled_candidates"` means compilation produced zero
+  candidates, so both arrays are exactly empty; and
+- `status: "evaluated"` means compilation produced one or more candidates, so
+  both arrays are the unmodified output of `recommendRoute()`. An evaluated
+  result may therefore have an empty `ranked` array when every compiled
+  candidate fails a task constraint or has measured exhausted budget.
+
 ## Algorithm and validation
 
 1. Validate the outer input as a closed object with only `snapshot`,
    `policies`, `task`, `observations`, `now_ms`, and `top_n`.
-2. Validate `top_n` when present as a finite positive integer. It is not passed
-   to a network or execution surface.
+2. Validate `top_n` when present as a finite positive integer no greater than
+   256. It is not passed to a network or execution surface.
 3. Call `compileRoutePlaneCandidates({snapshot, policies, observations, now_ms})`.
    This is the sole freshness, canonical-snapshot, policy-membership and
    observation-validation path; the new API must not duplicate or weaken it.
@@ -89,13 +100,15 @@ both decision layers without adding a second candidate schema.
    existing `recommendRoute()` semantics apply: omitted `top_n` means one, and
    supplied `top_n` cannot exceed the compiled candidate count.
 5. If compilation has no candidates, return a typed empty advisory result with
-   all five effects false, `ranked: []`, and `excluded: []`. Retain source and
-   compilation diagnostics. A positive `top_n` is permitted in this empty
-   branch because no candidate collection exists for it to exceed.
+   `status: "no_compiled_candidates"`, all five effects false, `ranked: []`,
+   and `excluded: []`. Retain source and compilation diagnostics. In this
+   empty branch any valid `top_n` from 1 through 256 is accepted because no
+   candidate collection exists for it to exceed.
 6. For a non-empty compilation, copy the evaluator's `advisory`, `effects`,
-   `ranked`, and `excluded` fields; copy snapshot source and the compiler's
-   version/projection/diagnostics. Do not mutate caller input, the snapshot,
-   policies, observations or nested evaluator output.
+   `ranked`, and `excluded` fields, set `status: "evaluated"`, and copy
+   snapshot source and the compiler's version/projection/diagnostics. Do not
+   mutate caller input, the snapshot, policies, observations or nested
+   evaluator output.
 
 The function is deterministic for equivalent inputs and a fixed `now_ms`.
 Ordering remains owned by the existing compiler (candidate ID ordering) and
@@ -122,8 +135,8 @@ availability, authentication, execution authority or an observed identity.
 `test/routeplane-catalog.test.ts` receives these seven behavior tests:
 
 1. A fresh snapshot with one exact advertised, task-compatible policy returns
-   one advisory rank, copies source and compilation diagnostics, and retains
-   RoutePlane requested identity as evidence.
+   `status: "evaluated"`, one advisory rank, copies source and compilation
+   diagnostics, and retains RoutePlane requested identity as evidence.
 2. A policy for a missing model remains only in
    `compilation.diagnostics` as `MODEL_NOT_ADVERTISED`; it is neither ranked
    nor represented as an evaluator exclusion.
@@ -138,9 +151,11 @@ availability, authentication, execution authority or an observed identity.
    status.
 6. Expired and future-dated snapshots reject before an advisory result; the
    error remains the compiler's freshness error and no fetch seam is involved.
-7. An empty catalog or all-unadvertised policy set yields the exact typed empty
-   advisory result, keeps sorted compilation diagnostics, honors a positive
-   `top_n`, and has all five effects false.
+7. An empty catalog or all-unadvertised policy set yields
+   `status: "no_compiled_candidates"`, exactly empty flat `ranked` and
+   `excluded` arrays, sorted compilation diagnostics, all five effects false,
+   and accepts `top_n` values from 1 through 256. Invalid `top_n` values and a
+   non-empty compilation with `top_n` above its candidate count still reject.
 
 Existing `recommend-route` and compiler tests remain the regression proof for
 closed schemas, hard task constraints, deterministic scoring and the
