@@ -117,12 +117,12 @@ const PRE_D3_TOOL_NAMES = [
 
 const D3_DISCUSSION_TOOL_NAMES = ["ask_peer", "wake_agent", "reply_discussion", "get_discussion"];
 
-test("registry includes D3 plus additive routing and verifier-v2/v3 tools (35 total)", () => {
+test("registry includes D3 plus additive routing, verifier-v2/v3, and speculative backlog tools (36 total)", () => {
   const declared = declaredToolNames(source);
   const registered = registeredHandlerNames(source);
 
-  assert.equal(declared.size, 35, `expected 35 advertised tools, got ${declared.size}: ${[...declared].sort().join(", ")}`);
-  assert.equal(registered.size, 35, `expected 35 registered handlers, got ${registered.size}: ${[...registered].sort().join(", ")}`);
+  assert.equal(declared.size, 36, `expected 36 advertised tools, got ${declared.size}: ${[...declared].sort().join(", ")}`);
+  assert.equal(registered.size, 36, `expected 36 registered handlers, got ${registered.size}: ${[...registered].sort().join(", ")}`);
   assert.ok(declared.has("recommend_route"));
   assert.ok(registered.has("recommend_route"));
   assert.ok(declared.has("compile_route_candidates"));
@@ -131,11 +131,13 @@ test("registry includes D3 plus additive routing and verifier-v2/v3 tools (35 to
   assert.ok(registered.has("verify_ledger_v2"));
   assert.ok(declared.has("verify_ledger_v3"));
   assert.ok(registered.has("verify_ledger_v3"));
+  assert.ok(declared.has("plan_speculative_backlog"));
+  assert.ok(registered.has("plan_speculative_backlog"));
 });
 
-test("README advertises the 35-tool registry including verifier v3", () => {
-  assert.match(readme, /^## 35 MCP tools$/m, "README must advertise the 35-tool registry");
-  assert.match(readme, /^That's 35\. We counted twice this time\.$/m, "README summary must agree with the 35-tool registry");
+test("README advertises the 36-tool registry including verifier v3 and speculative backlog", () => {
+  assert.match(readme, /^## 36 MCP tools$/m, "README must advertise the 36-tool registry");
+  assert.match(readme, /^That's 36\. We counted twice this time\.$/m, "README summary must agree with the 36-tool registry");
   assert.match(
     readme,
     /^\| `compile_route_candidates` \| Pure offline projection of sanitized manifest\/observation snapshots; does not rank, persist, execute, authorize, wake, or contact providers \|$/m,
@@ -163,16 +165,16 @@ test("README advertises the 35-tool registry including verifier v3", () => {
   );
 });
 
-test("compatibility record includes the opt-in 35th verifier-v3 tool", () => {
+test("compatibility record includes the opt-in verifier-v3 and speculative backlog tools", () => {
   assert.match(
     compatibility,
-    /^\| unreleased \| \+ compile_route_candidates, recommend_route, verify_ledger_v2, verify_ledger_v3 /m,
-    "unreleased compatibility row must include the additive verifier-v3 tool",
+    /^\| unreleased \| \+ compile_route_candidates, recommend_route, verify_ledger_v2, verify_ledger_v3, plan_speculative_backlog /m,
+    "unreleased compatibility row must include verifier-v3 and plan_speculative_backlog",
   );
   assert.match(
     compatibility,
-    /v3 MCP is opt-in and raises the implemented MCP tool\s+count to 35\./,
-    "verifier-v3 compatibility contract must reconcile the 35-tool registry",
+    /v3 MCP is opt-in and, together with\s+`plan_speculative_backlog`, raises the implemented MCP tool\s+count to 36\./,
+    "compatibility contract must reconcile the 36-tool registry",
   );
 });
 
@@ -186,6 +188,14 @@ test("roadmap keeps provenance-confidence bands deferred when documenting v3's n
     roadmap,
     /does not fulfill that deferred provenance-confidence item/i,
     "v3's shipped-roadmap entry must disclose its narrower scope",
+  );
+});
+
+test("README documents plan_speculative_backlog at its projection boundary", () => {
+  assert.match(
+    readme,
+    /^\| `plan_speculative_backlog` \| Pure projection of caller-approved speculative work, preserving route gates and explicitly leaving capacity unmodeled \|$/m,
+    "README must describe plan_speculative_backlog at its projection boundary",
   );
 });
 

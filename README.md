@@ -232,7 +232,7 @@ evidence, authenticated provenance, or external time.
 
 ---
 
-## 35 MCP tools
+## 36 MCP tools
 
 **Fleets**
 
@@ -274,6 +274,7 @@ evidence, authenticated provenance, or external time.
 | `register_capability` | Self-describe role + skills for routing |
 | `route_work` | Match a task to the best agent by keyword + role overlap |
 | `recommend_route` | Advisory ranking for caller-supplied agent/runtime/model candidates, with hard privacy/capability filters and an opt-in near-reset tie-break |
+| `plan_speculative_backlog` | Pure projection of caller-approved speculative work, preserving route gates and explicitly leaving capacity unmodeled |
 | `compile_route_candidates` | Pure offline projection of sanitized manifest/observation snapshots; does not rank, persist, execute, authorize, wake, or contact providers |
 | `record_routing_outcome` | Feed results back to improve routing |
 | `list_agents` | Discover 100+ premade agent personalities |
@@ -290,7 +291,7 @@ evidence, authenticated provenance, or external time.
 
 See [docs/discussions.md](docs/discussions.md) for the full quickstart, tool reference, and terminal-state precedence.
 
-That's 35. We counted twice this time.
+That's 36. We counted twice this time.
 
 RoutePlane catalog discovery is a separate package library and CLI, not an MCP
 tool: it fetches RoutePlane's fixed loopback model catalog and projects
@@ -328,6 +329,23 @@ the existing final score as a tie-break; there is no default drain policy.
 Structured collector versioning,
 producer-owned observation timing, and typed quota windows are required before
 raw measured budget can become actionable. [Safe host collection and exact boundary → docs/FLEETBUDGET-OBSERVATIONS.md](docs/FLEETBUDGET-OBSERVATIONS.md)
+
+`plan_speculative_backlog` is a separate, pure queue projection over closed,
+caller-supplied inputs. A task is proposed only when the caller includes opaque
+`state: "approved"` evidence; this is not MeshFleet authorization. It composes the
+existing `recommend_route` hard gates and may opt into its already-landed
+near-reset tie-break per task, but never treats reset urgency as a global queue
+priority. Candidate quality tags are declared eligibility only, not a quality
+measurement. Asset and video candidates require text-only or caller-attested
+rights material, private review, and a human release requirement. The result
+contains a canonical supplied-input hash only as replay evidence, has all
+effects false, and reports shared-candidate capacity as explicitly unmodeled:
+it does not execute, schedule, poll, read credentials, infer providers, bind
+pools, reserve capacity, spend budgets, send, publish, or establish freshness,
+provenance, approval, provider state, a receipt, or an execution commitment.
+The `proposed` and `blocked` arrays are priority-descending/task-ID-ascending,
+and each entry carries its zero-based `queue_index` in that global order.
+[Advisory routing → docs/ADVISORY-ROUTING.md](docs/ADVISORY-ROUTING.md)
 
 Sanitized fleet wrapper usage is available through the separate pure
 `meshfleet/wrapper-usage-observations` package surface. It accepts only the

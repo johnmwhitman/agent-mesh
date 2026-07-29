@@ -11,6 +11,7 @@
     "./fleetbudget-observations": "./dist/fleetbudget-observations.js",
     "./fleetbudget-sanitizer": "./dist/fleetbudget-sanitizer.js",
     "./wrapper-usage-observations": "./dist/wrapper-usage-observations.js",
+    "./speculative-backlog-planner": "./dist/speculative-backlog-planner.js",
     "./bin/inspect": "./dist/bin/inspect.js",
     "./bin/dashboard": "./dist/bin/dashboard.js"
   },

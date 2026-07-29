@@ -3,6 +3,12 @@
 **Release candidate verified:** 2026-07-28 · **Baseline main:** `0e203ea` · **Tag:** `v0.19.0`
 **Release-candidate suite:** 1127/1127 · **Corpus:** 76 vectors · **Discussion:** 39 cases (23 finding codes) · **Conformance:** 133/133 · **npm:** 0.18.0 live; 0.19.0 auth-blocked
 
+> **2026-07-29 factual integration correction:** merge `5dc767a`'s message
+> reports 1127 tests, but the authoritative pre-merge receipt was 1247/1247
+> plus `npm pack`, with PR #59 checks 9/9. An external workspace actor created
+> and pushed the branch commit. This corrects evidence attribution only; it
+> makes no claim that any commit trailer was cleanly removed.
+
 ## Landed and tagged: caller-selected model execution
 
 PR [#40](https://github.com/johnmwhitman/agent-mesh/pull/40) was squash-merged
