@@ -19,6 +19,13 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 
 ### Added
 
+- **Bounded incident timelines** — `agent-mesh inspect timeline [fleet]` now
+  accepts optional `--from` and `--to` epoch-millisecond or ISO-8601 bounds.
+  Bounded reads select the half-open interval `[from,to)` over stored local
+  timeline timestamps and emit an additive `timeline_window` JSON kind with a
+  fixed evidence ceiling. Unbounded text and JSON stay unchanged. The view is
+  read-only local-record selection, not authenticity, completeness, tamper
+  evidence, authenticated provenance, or external-time proof.
 - **Bounded RoutePlane model-catalog snapshots** — the
   `meshfleet/routeplane-catalog` library and `meshfleet-routeplane-catalog`
   host CLI fetch only RoutePlane's fixed loopback `/v1/models` endpoint,

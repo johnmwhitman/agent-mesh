@@ -182,6 +182,83 @@ export function buildTimelineJson(rows: TimelineRow[]): InspectJsonEnvelope<'tim
   return { schema: INSPECT_JSON_SCHEMA, kind: 'timeline', data: rows }
 }
 
+export interface TimelineWindow {
+  fromMs?: number
+  toMs?: number
+}
+
+export interface TimelineWindowData {
+  window: {
+    from_ms: number | null
+    to_ms: number | null
+    interval: 'half_open'
+  }
+  fleet_id: string | null
+  rows: TimelineRow[]
+  evidence: {
+    label: 'local_ledger_timestamps'
+    nonclaims: [
+      'authenticity',
+      'completeness',
+      'tamper_evidence',
+      'authenticated_provenance',
+      'external_time',
+    ]
+  }
+}
+
+export function filterTimelineWindow(
+  rows: ReadonlyArray<TimelineRow>,
+  window: TimelineWindow,
+): TimelineRow[] {
+  return rows.filter(
+    (row) =>
+      (window.fromMs === undefined || row.ts >= window.fromMs) &&
+      (window.toMs === undefined || row.ts < window.toMs),
+  )
+}
+
+export function buildTimelineWindowJson(
+  rows: TimelineRow[],
+  opts: TimelineWindow & { fleetId?: string },
+): InspectJsonEnvelope<'timeline_window', TimelineWindowData> {
+  return {
+    schema: INSPECT_JSON_SCHEMA,
+    kind: 'timeline_window',
+    data: {
+      window: {
+        from_ms: opts.fromMs ?? null,
+        to_ms: opts.toMs ?? null,
+        interval: 'half_open',
+      },
+      fleet_id: opts.fleetId ?? null,
+      rows,
+      evidence: {
+        label: 'local_ledger_timestamps',
+        nonclaims: [
+          'authenticity',
+          'completeness',
+          'tamper_evidence',
+          'authenticated_provenance',
+          'external_time',
+        ],
+      },
+    },
+  }
+}
+
+export function formatTimelineWindow(
+  rows: ReadonlyArray<TimelineRow>,
+  window: TimelineWindow,
+): string {
+  const from = window.fromMs === undefined ? '-∞' : String(window.fromMs)
+  const to = window.toMs === undefined ? '+∞' : String(window.toMs)
+  return (
+    `Local ledger timestamps in [${from},${to}) · not authenticity, completeness, tamper evidence, authenticated provenance, or external time\n` +
+    formatTimeline(rows)
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Status formatting
 // ---------------------------------------------------------------------------
