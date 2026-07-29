@@ -11,7 +11,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 
@@ -158,13 +158,49 @@ function scanRepository(root: string): { files: string[]; findings: string[] } {
   return { files, findings };
 }
 
-function artifactFacts(path: string): { bytes: number; sha256: string } {
-  const bytes = readFileSync(path);
+function indexedArtifactFacts(path: string): { bytes: number; sha256: string } {
+  const artifactDirectory = dirname(path);
+  const root = execFileSync("git", ["rev-parse", "--show-toplevel"], {
+    cwd: artifactDirectory,
+    encoding: "utf8",
+  }).trim();
+  const indexPrefix = execFileSync("git", ["rev-parse", "--show-prefix"], {
+    cwd: artifactDirectory,
+    encoding: "utf8",
+  }).replace(/\r?\n$/, "");
+  const indexedPath = `${indexPrefix}${basename(path)}`.split("\\").join("/");
+  const entries = trackedIndexEntries(root).filter((entry) => entry.path === indexedPath);
+  assert.equal(entries.length, 1, `${indexedPath} must name exactly one regular indexed file`);
+  assertIndexBlobBounds(root, entries);
+  const bytes = execFileSync("git", ["cat-file", "blob", entries[0].oid], {
+    cwd: root,
+    encoding: "buffer",
+    maxBuffer: maxTrackedFileBytes + 1,
+  });
   return {
     bytes: bytes.length,
     sha256: createHash("sha256").update(bytes).digest("hex"),
   };
 }
+
+test("digest custody reads canonical index bytes when checkout line endings drift", () => {
+  const root = mkdtempSync(join(tmpdir(), "meshfleet-public-surface-digest-"));
+  const artifactPath = join(root, "artifact.txt");
+
+  try {
+    execFileSync("git", ["init", "--quiet"], { cwd: root });
+    writeFileSync(artifactPath, "alpha\nbeta\n");
+    execFileSync("git", ["add", "artifact.txt"], { cwd: root });
+    writeFileSync(artifactPath, "alpha\r\nbeta\r\n");
+
+    assert.deepEqual(indexedArtifactFacts(artifactPath), {
+      bytes: 11,
+      sha256: "e49c81e2d2f84e259d40e2fb8192f3bcd198b355184845d76d8f58807d0d78ee",
+    });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("tracked public files contain no session artifacts or local operational disclosures", () => {
   const { files, findings } = scanRepository(repoRoot);
@@ -230,7 +266,7 @@ test("sanitized digest-bound A2A artifacts publish current facts without claimin
       bytes: handoffEvidence.source_manifest.bytes,
       sha256: handoffEvidence.source_manifest.sha256,
     },
-    artifactFacts(handoffManifestPath),
+    indexedArtifactFacts(handoffManifestPath),
   );
   assert.equal(handoffEvidence.source_manifest.external_digest_required, true);
   assert.equal(handoffEvidence.source_manifest.external_digest_status, "UNESTABLISHED");
@@ -253,7 +289,7 @@ test("sanitized digest-bound A2A artifacts publish current facts without claimin
       bytes: policyEvidenceArtifact?.bytes,
       sha256: policyEvidenceArtifact?.sha256,
     },
-    artifactFacts(policyEvidencePath),
+    indexedArtifactFacts(policyEvidencePath),
   );
   assert.equal(policyManifest.external_digest_required, true);
   assert.equal(policyManifest.publication_sanitization.external_digest_status, "UNESTABLISHED");
