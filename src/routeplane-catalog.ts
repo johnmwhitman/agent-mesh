@@ -3,11 +3,14 @@ import {
   compileRouteCandidates,
   ROUTE_CANDIDATE_COMPILER_VERSION,
 } from "./compile-route-candidates.js";
+import { recommendRoute } from "./recommend-route.js";
 import type {
   CompileRouteCandidatesInput,
   CompileRouteCandidatesResult,
 } from "./compile-route-candidates.js";
 import type {
+  RecommendRouteResult,
+  RecommendRouteTask,
   RouteCoordination,
   RouteLocality,
   RoutePrivacy,
@@ -25,6 +28,7 @@ const MAX_TTL_MS = 10 * 60 * 1_000;
 const DEFAULT_TTL_MS = 60 * 1_000;
 const DEFAULT_TIMEOUT_MS = 5 * 1_000;
 const MAX_RESPONSE_BYTES = 1_024 * 1_024;
+const MAX_RECOMMENDATION_TOP_N = 256;
 
 export interface RoutePlaneCatalogSnapshot {
   version: typeof ROUTEPLANE_CATALOG_SNAPSHOT_VERSION;
@@ -63,6 +67,29 @@ export interface RoutePlaneCandidateCompilation
     candidate_id: string;
     reason_codes: string[];
   }>;
+}
+
+export interface RoutePlaneCatalogRecommendationInput {
+  snapshot: RoutePlaneCatalogSnapshot;
+  policies: RoutePlaneCandidatePolicy[];
+  task: RecommendRouteTask;
+  observations?: CompileRouteCandidatesInput["observations"];
+  now_ms?: number;
+  top_n?: number;
+}
+
+export interface RoutePlaneCatalogRecommendation {
+  status: "no_compiled_candidates" | "evaluated";
+  advisory: true;
+  effects: RecommendRouteResult["effects"];
+  source: RoutePlaneCatalogSnapshot["source"];
+  compilation: {
+    compiler_version: RoutePlaneCandidateCompilation["compiler_version"];
+    projection: true;
+    diagnostics: RoutePlaneCandidateCompilation["diagnostics"];
+  };
+  ranked: RecommendRouteResult["ranked"];
+  excluded: RecommendRouteResult["excluded"];
 }
 
 export type RoutePlaneCatalogErrorCode =
@@ -235,6 +262,37 @@ function validatePolicies(value: unknown): RoutePlaneCandidatePolicy[] {
   });
 }
 
+function validateRecommendationInput(value: unknown): RoutePlaneCatalogRecommendationInput {
+  const input = requireCompilationRecord(value, "input");
+  requireCompilationKeys(input, "input", [
+    "snapshot",
+    "policies",
+    "task",
+    "observations",
+    "now_ms",
+    "top_n",
+  ]);
+  for (const required of ["snapshot", "policies", "task"] as const) {
+    if (!(required in input)) {
+      compilationFail(`input.${required}`, "is required");
+    }
+  }
+  if (
+    input.top_n !== undefined &&
+    (typeof input.top_n !== "number" ||
+      !Number.isFinite(input.top_n) ||
+      !Number.isInteger(input.top_n) ||
+      input.top_n <= 0 ||
+      input.top_n > MAX_RECOMMENDATION_TOP_N)
+  ) {
+    compilationFail(
+      "top_n",
+      `must be a finite integer between 1 and ${MAX_RECOMMENDATION_TOP_N}`,
+    );
+  }
+  return input as unknown as RoutePlaneCatalogRecommendationInput;
+}
+
 export function compileRoutePlaneCandidates(input: {
   snapshot: RoutePlaneCatalogSnapshot;
   policies: RoutePlaneCandidatePolicy[];
@@ -305,6 +363,50 @@ export function compileRoutePlaneCandidates(input: {
     diagnostics: [...compiled.diagnostics, ...excluded].sort((left, right) =>
       compareStrings(left.candidate_id, right.candidate_id),
     ),
+  };
+}
+
+export function recommendRoutePlaneCatalog(
+  input: RoutePlaneCatalogRecommendationInput,
+): RoutePlaneCatalogRecommendation {
+  const validated = validateRecommendationInput(input);
+  const compilation = compileRoutePlaneCandidates({
+    snapshot: validated.snapshot,
+    policies: validated.policies,
+    observations: validated.observations,
+    now_ms: validated.now_ms,
+  });
+  const compilationResult = {
+    compiler_version: compilation.compiler_version,
+    projection: compilation.projection,
+    diagnostics: compilation.diagnostics,
+  };
+
+  if (compilation.candidates.length === 0) {
+    return {
+      status: "no_compiled_candidates",
+      advisory: true,
+      effects: { ...compilation.effects },
+      source: { ...compilation.source },
+      compilation: compilationResult,
+      ranked: [],
+      excluded: [],
+    };
+  }
+
+  const recommendation = recommendRoute({
+    task: validated.task,
+    candidates: compilation.candidates,
+    ...(validated.top_n === undefined ? {} : { top_n: validated.top_n }),
+  });
+  return {
+    status: "evaluated",
+    advisory: recommendation.advisory,
+    effects: { ...recommendation.effects },
+    source: { ...compilation.source },
+    compilation: compilationResult,
+    ranked: recommendation.ranked,
+    excluded: recommendation.excluded,
   };
 }
 

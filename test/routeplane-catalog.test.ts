@@ -4,6 +4,7 @@ import {
   compileRoutePlaneCandidates,
   fetchRoutePlaneCatalog,
   normalizeRoutePlaneCatalog,
+  recommendRoutePlaneCatalog,
   RoutePlaneCatalogError,
   ROUTEPLANE_CATALOG_SNAPSHOT_VERSION,
 } from "../src/routeplane-catalog.js";
@@ -351,6 +352,46 @@ test("compiles only exactly advertised RoutePlane models with caller-owned trait
     { candidate_id: "lane-missing", reason_codes: ["MODEL_NOT_ADVERTISED"] },
     { candidate_id: "lane-z", reason_codes: ["OBSERVATION_MISSING", "BUDGET_UNMEASURED"] },
   ]);
+});
+
+test("recommends exactly advertised RoutePlane policies", () => {
+  const snapshot = normalizeRoutePlaneCatalog(liveCatalog, 100, 60_000);
+
+  const result = recommendRoutePlaneCatalog({
+    snapshot,
+    now_ms: 100,
+    policies: [{
+      candidate_id: "lane-a",
+      model: "a-model",
+      capabilities: ["code"],
+      privacy: "network_ok",
+      locality: "any",
+    }],
+    task: {
+      required_capabilities: ["code"],
+      privacy: "network_ok",
+      locality: "any",
+    },
+  });
+
+  assert.equal(result.status, "evaluated");
+  assert.equal(result.advisory, true);
+  assert.deepEqual(result.effects, routePlaneEffects);
+  assert.deepEqual(result.source, snapshot.source);
+  assert.deepEqual(result.compilation, {
+    compiler_version: "meshfleet.route-candidates.v0.1",
+    projection: true,
+    diagnostics: [{ candidate_id: "lane-a", reason_codes: ["OBSERVATION_MISSING", "BUDGET_UNMEASURED"] }],
+  });
+  assert.deepEqual(result.ranked.map(({ candidate_id, identity }) => ({ candidate_id, identity })), [{
+    candidate_id: "lane-a",
+    identity: {
+      requested: { runtime: "routeplane", model: "a-model" },
+      evidence_only: true,
+      status: "unobserved",
+    },
+  }]);
+  assert.deepEqual(result.excluded, []);
 });
 
 test("rejects expired, future-dated, malformed, and unknown-version catalog snapshots", () => {
