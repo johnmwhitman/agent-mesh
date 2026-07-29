@@ -86,7 +86,7 @@ export function listProductionDependencyRoots(repoRoot: string): string[] {
 
 export function listPackedDistEntries(entries: ReadonlyArray<{ path: string }>): string[] {
   return entries
-    .map(({ path }) => path)
+    .map(({ path }) => normalizeRelativePath(path))
     .filter((path) => path.startsWith('dist/'))
     .sort()
 }
@@ -160,6 +160,7 @@ function isImportMetaUrl(expression: ts.Expression | undefined): boolean {
 function isDeclarationName(identifier: ts.Identifier): boolean {
   const parent = identifier.parent
   return (ts.isVariableDeclaration(parent) && parent.name === identifier) ||
+    (ts.isBindingElement(parent) && parent.name === identifier) ||
     (ts.isParameter(parent) && parent.name === identifier) ||
     (ts.isFunctionDeclaration(parent) && parent.name === identifier) ||
     (ts.isFunctionExpression(parent) && parent.name === identifier) ||
@@ -199,12 +200,108 @@ function collectSpecifiers(sourceFile: ts.SourceFile): CollectedSpecifier[] {
     if (statement.importClause.name) moduleObjectNames.add(statement.importClause.name.text)
   }
 
-  const isCreateRequireExpression = (expression: ts.Expression): boolean =>
-    (ts.isIdentifier(expression) && createRequireNames.has(expression.text)) ||
-    (ts.isPropertyAccessExpression(expression) &&
-      expression.name.text === 'createRequire' &&
-      ts.isIdentifier(expression.expression) &&
-      moduleObjectNames.has(expression.expression.text))
+  const aliases = new Map<string, ts.VariableDeclaration>()
+
+  let requireIsShadowed = false
+  const findRequireShadow = (node: ts.Node): void => {
+    if (ts.isIdentifier(node) &&
+        node.text === 'require' &&
+        isDeclarationName(node) &&
+        aliases.get('require')?.name !== node) {
+      requireIsShadowed = true
+    }
+    ts.forEachChild(node, findRequireShadow)
+  }
+  findRequireShadow(sourceFile)
+
+  const isModuleSpecifier = (expression: ts.Expression | undefined): boolean => {
+    const specifier = staticSpecifier(expression)
+    return specifier === 'module' || specifier === 'node:module'
+  }
+
+  const propertyName = (expression: ts.Expression): string | undefined => {
+    const unwrapped = unwrapParentheses(expression)
+    if (ts.isPropertyAccessExpression(unwrapped)) return unwrapped.name.text
+    if (ts.isElementAccessExpression(unwrapped)) return staticSpecifier(unwrapped.argumentExpression)
+    return undefined
+  }
+
+  const propertyReceiver = (expression: ts.Expression): ts.Expression | undefined => {
+    const unwrapped = unwrapParentheses(expression)
+    if (ts.isPropertyAccessExpression(unwrapped) || ts.isElementAccessExpression(unwrapped)) {
+      return unwrapParentheses(unwrapped.expression)
+    }
+    return undefined
+  }
+
+  const isDynamicModuleImport = (expression: ts.Expression): boolean => {
+    const unwrapped = unwrapParentheses(expression)
+    if (!ts.isAwaitExpression(unwrapped)) return false
+    const awaited = unwrapParentheses(unwrapped.expression)
+    return ts.isCallExpression(awaited) &&
+      awaited.expression.kind === ts.SyntaxKind.ImportKeyword &&
+      isModuleSpecifier(awaited.arguments[0])
+  }
+
+  const isCommonJsModuleRequire = (expression: ts.Expression): boolean => {
+    if (requireIsShadowed) return false
+    const unwrapped = unwrapParentheses(expression)
+    if (!ts.isCallExpression(unwrapped)) return false
+    const called = unwrapParentheses(unwrapped.expression)
+    return ts.isIdentifier(called) &&
+      called.text === 'require' &&
+      isModuleSpecifier(unwrapped.arguments[0])
+  }
+
+  const isModuleObjectExpression = (expression: ts.Expression): boolean => {
+    const unwrapped = unwrapParentheses(expression)
+    return (ts.isIdentifier(unwrapped) && moduleObjectNames.has(unwrapped.text)) ||
+      isCommonJsModuleRequire(unwrapped) ||
+      isDynamicModuleImport(unwrapped)
+  }
+
+  const isCreateRequireExpression = (expression: ts.Expression): boolean => {
+    const unwrapped = unwrapParentheses(expression)
+    if (ts.isIdentifier(unwrapped) && createRequireNames.has(unwrapped.text)) return true
+    if (propertyName(unwrapped) !== 'createRequire') return false
+    const receiver = propertyReceiver(unwrapped)
+    return !!receiver && isModuleObjectExpression(receiver)
+  }
+
+  // Resolve module-object and createRequire factory aliases to a fixed point so
+  // declaration order and multi-hop const aliases cannot open a scan bypass.
+  let bindingsChanged = true
+  while (bindingsChanged) {
+    bindingsChanged = false
+    const collectBindings = (node: ts.Node): void => {
+      if (ts.isVariableDeclaration(node) && node.initializer) {
+        if (ts.isIdentifier(node.name)) {
+          if (isModuleObjectExpression(node.initializer) && !moduleObjectNames.has(node.name.text)) {
+            moduleObjectNames.add(node.name.text)
+            bindingsChanged = true
+          } else if (isCreateRequireExpression(node.initializer) && !createRequireNames.has(node.name.text)) {
+            createRequireNames.add(node.name.text)
+            bindingsChanged = true
+          }
+        } else if (ts.isObjectBindingPattern(node.name) && isModuleObjectExpression(node.initializer)) {
+          for (const element of node.name.elements) {
+            if (element.dotDotDotToken || !ts.isIdentifier(element.name)) continue
+            const importedName = element.propertyName
+              ? (ts.isIdentifier(element.propertyName) || ts.isStringLiteral(element.propertyName)
+                  ? element.propertyName.text
+                  : undefined)
+              : element.name.text
+            if (importedName === 'createRequire' && !createRequireNames.has(element.name.text)) {
+              createRequireNames.add(element.name.text)
+              bindingsChanged = true
+            }
+          }
+        }
+      }
+      ts.forEachChild(node, collectBindings)
+    }
+    collectBindings(sourceFile)
+  }
 
   const isCreateRequireCall = (node: ts.Node | undefined): node is ts.CallExpression =>
     !!node && ts.isCallExpression(node) && isCreateRequireExpression(node.expression)
@@ -214,8 +311,6 @@ function collectSpecifiers(sourceFile: ts.SourceFile): CollectedSpecifier[] {
     const receiver = unwrapParentheses(expression.expression)
     return ts.isIdentifier(receiver) && receiver.text === 'require'
   }
-
-  const aliases = new Map<string, ts.VariableDeclaration>()
 
   const collectCreateRequire = (node: ts.Node): void => {
     if (isCreateRequireCall(node)) {
@@ -253,18 +348,6 @@ function collectSpecifiers(sourceFile: ts.SourceFile): CollectedSpecifier[] {
     ts.forEachChild(node, collectCreateRequire)
   }
   collectCreateRequire(sourceFile)
-
-  let requireIsShadowed = false
-  const findRequireShadow = (node: ts.Node): void => {
-    if (ts.isIdentifier(node) &&
-        node.text === 'require' &&
-        isDeclarationName(node) &&
-        aliases.get('require')?.name !== node) {
-      requireIsShadowed = true
-    }
-    ts.forEachChild(node, findRequireShadow)
-  }
-  findRequireShadow(sourceFile)
 
   const add = (
     kind: PackageBoundaryViolation['kind'],
@@ -329,9 +412,15 @@ function collectSpecifiers(sourceFile: ts.SourceFile): CollectedSpecifier[] {
         })
       }
     } else if (ts.isIdentifier(node) && createRequireNames.has(node.text)) {
-      const isImportBinding = ts.isImportSpecifier(node.parent)
-      const isFactoryCall = ts.isCallExpression(node.parent) && node.parent.expression === node
-      if (!isImportBinding && !isFactoryCall) {
+      let reference: ts.Node = node
+      while (ts.isParenthesizedExpression(reference.parent) && reference.parent.expression === reference) {
+        reference = reference.parent
+      }
+      const isFactoryCall = ts.isCallExpression(reference.parent) && reference.parent.expression === reference
+      const isPropertyName =
+        (ts.isPropertyAccessExpression(node.parent) && node.parent.name === node) ||
+        (ts.isBindingElement(node.parent) && node.parent.propertyName === node)
+      if (!isDeclarationName(node) && !ts.isImportSpecifier(node.parent) && !isPropertyName && !isFactoryCall) {
         specifiers.push({
           kind: 'require',
           specifier: '<ambiguous>',

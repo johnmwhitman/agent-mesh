@@ -280,6 +280,74 @@ test('package boundary guard inspects direct and aliased createRequire loads', (
   )
 })
 
+test('package boundary guard follows namespace and default createRequire member forms', () => {
+  withFixture(
+    {
+      'src/entry.ts': [
+        'import * as moduleNamespace from "node:module"',
+        'import moduleDefault from "module"',
+        'moduleNamespace.createRequire(import.meta.url)("missing-namespace-member");',
+        'moduleNamespace["createRequire"](import.meta.url)("missing-namespace-computed");',
+        '(moduleDefault.createRequire)(import.meta.url)("missing-default-parenthesized");',
+        'const moduleAlias = moduleNamespace',
+        'moduleAlias.createRequire(import.meta.url)("missing-namespace-alias");',
+        'const { createRequire } = moduleAlias',
+        'createRequire(import.meta.url)("missing-destructured");',
+        'const { createRequire: aliasedCreateRequire } = moduleDefault',
+        'aliasedCreateRequire(import.meta.url)("missing-destructured-alias");',
+        'const assignedCreateRequire = moduleNamespace.createRequire',
+        'assignedCreateRequire(import.meta.url)("missing-assigned-alias");',
+      ].join('\n'),
+    },
+    { name: 'fixture' },
+    (root) => {
+      assert.deepEqual(
+        findPackageBoundaryViolations(root).map(({ kind, specifier }) => ({ kind, specifier })),
+        [
+          { kind: 'require', specifier: 'missing-namespace-member' },
+          { kind: 'require', specifier: 'missing-namespace-computed' },
+          { kind: 'require', specifier: 'missing-default-parenthesized' },
+          { kind: 'require', specifier: 'missing-namespace-alias' },
+          { kind: 'require', specifier: 'missing-destructured' },
+          { kind: 'require', specifier: 'missing-destructured-alias' },
+          { kind: 'require', specifier: 'missing-assigned-alias' },
+        ],
+      )
+    },
+  )
+})
+
+test('package boundary guard follows createRequire acquired through CommonJS and dynamic import', () => {
+  withFixture(
+    {
+      'src/entry.ts': [
+        'const commonJsModule = require("module")',
+        'commonJsModule.createRequire(import.meta.url)("missing-commonjs-member")',
+        'const { createRequire: commonJsCreateRequire } = require("node:module")',
+        'commonJsCreateRequire(import.meta.url)("missing-commonjs-destructured")',
+        'const dynamicModule = await import("node:module")',
+        'dynamicModule["createRequire"](import.meta.url)("missing-dynamic-member")',
+        'const dynamicAlias = dynamicModule',
+        'const { createRequire: dynamicCreateRequire } = dynamicAlias',
+        'dynamicCreateRequire(import.meta.url)("missing-dynamic-destructured")',
+      ].join('\n'),
+    },
+    { name: 'fixture' },
+    (root) => {
+      assert.deepEqual(
+        findPackageBoundaryViolations(root)
+          .map(({ kind, specifier }) => ({ kind, specifier })),
+        [
+          { kind: 'require', specifier: 'missing-commonjs-member' },
+          { kind: 'require', specifier: 'missing-commonjs-destructured' },
+          { kind: 'require', specifier: 'missing-dynamic-member' },
+          { kind: 'require', specifier: 'missing-dynamic-destructured' },
+        ],
+      )
+    },
+  )
+})
+
 test('package boundary guard fails closed when a createRequire loader escapes static analysis', () => {
   withFixture(
     {
@@ -406,6 +474,17 @@ test('package boundary guard inspects require.resolve and parenthesized require,
 
 test('violation paths normalize Windows separators', () => {
   assert.equal(normalizeRelativePath('src\\nested\\entry.ts'), 'src/nested/entry.ts')
+})
+
+test('packed dist filtering normalizes Windows separators before matching and sorting', () => {
+  assert.deepEqual(
+    listPackedDistEntries([
+      { path: 'README.md' },
+      { path: 'dist\\nested\\module.js' },
+      { path: 'dist/index.js' },
+    ]),
+    ['dist/index.js', 'dist/nested/module.js'],
+  )
 })
 
 test('package boundary guard resolves emitted relative JavaScript specifiers inside src', () => {
