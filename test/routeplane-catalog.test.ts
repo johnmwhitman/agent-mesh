@@ -612,6 +612,51 @@ test("rejects invalid RoutePlane recommendation top_n", () => {
   );
 });
 
+test("RoutePlane catalog recommendation is deterministic and does not mutate input", () => {
+  const input = {
+    snapshot: normalizeRoutePlaneCatalog(liveCatalog, 100, 60_000),
+    policies: [
+      {
+        candidate_id: "lane-a",
+        model: "a-model",
+        capabilities: ["code"],
+        privacy: "network_ok" as const,
+        locality: "any" as const,
+      },
+      {
+        candidate_id: "lane-missing",
+        model: "not-advertised",
+        capabilities: ["code"],
+        privacy: "network_ok" as const,
+        locality: "any" as const,
+      },
+    ],
+    observations: [
+      {
+        candidate_id: "lane-a",
+        status: "green" as const,
+        confidence: "measured" as const,
+        budget: { used: 1, total: 2 },
+      },
+      {
+        candidate_id: "lane-missing",
+        status: "green" as const,
+        confidence: "assumed" as const,
+      },
+    ],
+    task: { required_capabilities: ["code"], privacy: "network_ok" as const, locality: "any" as const },
+    now_ms: 100,
+    top_n: 1,
+  };
+  const before = structuredClone(input);
+
+  const first = recommendRoutePlaneCatalog(input);
+  const second = recommendRoutePlaneCatalog(input);
+
+  assert.deepEqual(input, before);
+  assert.deepEqual(second, first);
+});
+
 test("rejects expired, future-dated, malformed, and unknown-version catalog snapshots", () => {
   const snapshot = normalizeRoutePlaneCatalog(liveCatalog, 100, 60_000);
   const policies = [{
