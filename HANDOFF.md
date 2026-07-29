@@ -1,7 +1,7 @@
 # MeshFleet Handoff
 
 **Last verified:** 2026-07-28 · **Main:** `0e203ea` · **Tag:** `v0.19.0`
-**Suite:** 1094/1094 · **Corpus:** 76 vectors · **Discussion:** 39 cases (23 finding codes) · **Conformance:** 133/133 · **npm:** 0.18.0 live; 0.19.0 auth-blocked
+**Suite:** 1127/1127 · **Corpus:** 76 vectors · **Discussion:** 39 cases (23 finding codes) · **Conformance:** 133/133 · **npm:** 0.18.0 live; 0.19.0 auth-blocked
 
 ## Landed and tagged: caller-selected model execution
 
@@ -102,13 +102,13 @@ immutable `v0.19.0` tag, publish a package, or authorize provider execution.
   budget freshness, health, authentication, credential handling, or execution.
   RoutePlane retains those provider responsibilities; MeshFleet retains policy
   projection and advisory ranking. See `docs/ROUTEPLANE-CATALOG.md`.
-- **RoutePlane catalog recommendation is tested but UNLANDED:** the current
-  `codex/routeplane-catalog-recommendation-20260728` branch adds pure
-  `recommendRoutePlaneCatalog()` composition over an already-fetched snapshot.
-  Its `evaluated` and `no_compiled_candidates` statuses retain compilation
+- **RoutePlane catalog recommendation is package-library-only:** pure
+  `recommendRoutePlaneCatalog()` composes an already-fetched snapshot. Its
+  `evaluated` and `no_compiled_candidates` statuses retain compilation
   diagnostics separately from evaluator exclusions and all effects remain false.
-  It is pending final review and pull request; it is not merged, deployed,
-  published, provider selection, or execution authority.
+  The slice was verified on branch with `npm run release:verify` at 1127/1127;
+  it does not deploy or publish a package, select providers, execute models,
+  poll budget telemetry, or infer routing authority from provider labels.
 - **12 A2A conformance witnesses** under `blackbox/` — pure offline blackbox suites with JS
   runners, Python evaluators, corpora, and review records. The 12th (discussion-derivation)
   has an 18-case corpus and a 1,273-line Grok-produced pure JS evaluator verified against

@@ -110,6 +110,6 @@ control plane. It adds the `meshfleet/routeplane-catalog` package subpath and
 the `meshfleet-routeplane-catalog` CLI only; the MCP catalog remains at 34
 tools.
 
-The recommendation composition is tested on the current recommendation branch
-but is **UNLANDED** pending final review and pull request. It is not a deployed,
-published, or main-branch claim.
+The recommendation composition is a package-library API in this codebase. It
+does not deploy or publish a package, select providers, execute models, poll
+budget telemetry, or infer routing authority from provider labels.
