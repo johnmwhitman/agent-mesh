@@ -285,7 +285,10 @@ test("package exposes the sanitizer subpath and installed executable without for
   );
 
   const source = readFileSync(CLI, "utf8");
-  assert.match(source, /^#!\/usr\/bin\/env node\n/);
+  const portableShebang = /^#!\/usr\/bin\/env node\r?\n/;
+  assert.match(source, portableShebang);
+  assert.match("#!/usr/bin/env node\n", portableShebang);
+  assert.match("#!/usr/bin/env node\r\n", portableShebang);
   assert.doesNotMatch(
     source,
     /node:child_process|node:fs|process\.env|fetch\s*\(|fleetbudget\s+--json/i,
