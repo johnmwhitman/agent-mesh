@@ -53,7 +53,8 @@ green its tests.
 ## The verifier — the only definition of green
 
 ```
-npm run typecheck && npm run build && node scripts/run-tests.mjs
+MESHFLEET_EVENT_LOG_FILE="$(mktemp -t meshfleet-verify-events)" \
+  npm run typecheck && npm run build && node scripts/run-tests.mjs
 ```
 
 **Build BEFORE test.** `mcp-stdio.test.ts` packs this package and asserts the tarball contains
@@ -61,9 +62,26 @@ npm run typecheck && npm run build && node scripts/run-tests.mjs
 and **the publish path could never have shipped** — undetected because no release had ever been
 cut through it (fixed 2026-07-23).
 
+🔴 **Set `MESHFLEET_EVENT_LOG_FILE` — and only that one — when running the verifier.** The suite
+manages its own temp ledgers, but it does **not** redirect the event log, so a bare run appends real
+test events to whatever `agent-mesh.events.log` the environment resolves: in a developer checkout,
+the operator's live one. Measured 2026-07-29 — with the variable set the suite is **1292/1292, exit
+0**, the operator's log is byte-for-byte untouched, and the events land in the temp file instead.
+A sandboxed run surfaces the same fact as an `EPERM` on that path, which is a redirection failure,
+not a product failure.
+
+**Do NOT add the other two isolation variables here.** Setting `MESHFLEET_DB_FILE` and
+`MESHFLEET_DATA_FILE` around the verifier forces every test onto one shared ledger and produces
+**479 failures on a green tree**: tests leak rows into each other, so verifier cases see foreign
+receipts and `loadData: returns empty data when file does not exist` fails because the file now
+exists. The three-variable law in the next section governs runs that **spawn the server or open a
+ledger directly** — the verifier is not one of those. Confusing the two cost a full red run that
+was briefly misread as a regression on `main`.
+
 ## 🔴 Isolation law — violating this destroys the operator's data
 
-Any run that spawns the server or opens a ledger sets **BOTH**:
+Any run that spawns the server or opens a ledger sets **ALL THREE** (the wording said "BOTH" from
+when there were two; the third arrived with 0.16.0 and is the one that gets forgotten):
 
 ```
 MESHFLEET_DB_FILE=<temp>   MESHFLEET_DATA_FILE=<temp>   MESHFLEET_EVENT_LOG_FILE=<temp>
