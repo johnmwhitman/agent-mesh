@@ -1401,11 +1401,9 @@ ingestion-only duplicate vectors remain explicitly deferred under Section 15.1
 until an actual ingestion API exists; no generation call may claim them.
 
 Full verification after local-loopback permission was `npm test` 530/530 with
-0 failures; `npm run typecheck` passed. The review package commit is `3d092d1`.
-Its artifact is
-`.superpowers/sdd/review-234cd55..ea69cb9-a2a-capability-attestation.diff`
-with SHA-256
-`d1f5c11f7b6013b3f46c48daf9dcd2b6961fea4627b2b9db70f921e36f1aa82a`.
+0 failures; `npm run typecheck` passed. The review package commit is `3d092d1`;
+the executable corpus and verification commands above are the public evidence
+pointers for this profile.
 Final independent security/code review and final independent corpus/contract
 review each reported no Critical or Important findings and APPROVED.
 

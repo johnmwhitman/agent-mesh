@@ -38,7 +38,7 @@
     }
   },
   "repository_acceptance": {
-    "copy": "/private/tmp/agent-mesh-codex-a2a-capability-compat-v01-acceptance3-20260727",
+    "copy": "[private-worktree]",
     "build": {"status": "pass", "log_sha256": "138cfb17434721bec3538b9ecc76a52561061b95772c5e79c3cca47eefcc77c6"},
     "typecheck": {"status": "pass", "log_sha256": "5a862f20195baa92a43d9cf02b903eace2643a8ac54936b60b3cb9826c19f514"},
     "full_tests": {"status": "pass", "tests": 891, "passed": 891, "failed": 0, "log_sha256": "8ccfcaaadfacff2bb10ff43bb728da7d63b45fc2b8a7ce85fba7f4de00a218c3"},

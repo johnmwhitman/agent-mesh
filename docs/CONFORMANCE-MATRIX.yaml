@@ -258,8 +258,7 @@
     "implementation_head": "ea69cb9",
     "slice_range": "234cd55..ea69cb9",
     "review_package_head": "3d092d1",
-    "review_artifact": ".superpowers/sdd/review-234cd55..ea69cb9-a2a-capability-attestation.diff",
-    "review_artifact_sha256": "d1f5c11f7b6013b3f46c48daf9dcd2b6961fea4627b2b9db70f921e36f1aa82a",
+    "public_review_evidence": "Executable corpus and verification receipts listed below",
     "evidence": [
       "363 exact executable cases across exactly five normative operations",
       "direct TypeScript/Python byte differential: 363/363",

@@ -4,7 +4,7 @@
   "maturity": "offline-reference-conformance-only",
   "date": "2026-07-27",
   "source": {
-    "worktree": "/private/tmp/agent-mesh-codex-a2a-two-host-coordinator-v01-20260727",
+    "worktree": "[private-worktree]",
     "branch": "codex/a2a-two-host-coordinator-v01-20260727",
     "base_commit": "041500fd9aec6e482875f6339236ffdcc46fc7ed",
     "owned_scope": "blackbox/a2a-two-host-coordinator-v0.1/**",
@@ -42,14 +42,14 @@
   "external_anchor": {
     "holder": "Storage lane",
     "recorded_at": "2026-07-27T07:58:58Z",
-    "record": "/Users/johnwhitman/AI/scratch/a2a-slice4e-external-anchor-20260727.md",
+    "record": "[private-external-record]",
     "manifest_size_bytes": 7339,
     "manifest_sha256": "b1866f876d3711b45bf512258706c98460af2ec6ccae2606e3ba1f812e7345c8",
     "superseded_manifest_sha256": "2b4ff18f0dd3552724afa010adc4f70fd575a3b4953e603fa6b7964b1f92f70f",
     "boundary": "Digest custody only; semantic acceptance remains commit- and review-bound."
   },
   "exact_state_acceptance": {
-    "validation_clone": "/private/tmp/agent-mesh-codex-a2a-two-host-coordinator-v01-acceptance-20260727",
+    "validation_clone": "[private-worktree]",
     "build": "PASS",
     "full_suite": {
       "command": "npm test",
@@ -115,7 +115,7 @@
     "A MeshFleet sibling independently converged on the same authority/reachability semantics and stopped before overlap."
   ],
   "collision_control": {
-    "other_lane": "/private/tmp/agent-mesh-codex-routing-a2a-20260727",
+    "other_lane": "[private-worktree]",
     "other_lane_head": "74d884f96b89a375e9207b9a0d5a8cd181306fc1",
     "owned_scope_overlap": false,
     "other_lane_working_changes_ignored": [

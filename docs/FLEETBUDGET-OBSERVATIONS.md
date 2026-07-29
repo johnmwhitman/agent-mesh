@@ -119,7 +119,7 @@ cleanup() {
 trap cleanup EXIT HUP INT TERM
 
 COLLECTION_START_MS="$(node -e 'process.stdout.write(String(Date.now()))')"
-if ! ~/AI/Tools/fleetbudget --json > "$REPORT_FILE"; then
+if ! fleetbudget --json > "$REPORT_FILE"; then
   exit 1
 fi
 # The foreground producer has exited and the redirected report file is closed.

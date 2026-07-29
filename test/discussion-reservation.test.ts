@@ -1370,8 +1370,7 @@ test("D2-red G3 — unresolved exhaustion writes exactly one escalation receipt"
 });
 
 // ============================================================
-// cdx pass-1 review fixes (~/AI/SUCCESSION/a2a-discussions/drafts/
-// cdx-d2-review-pass1.md) — a TOCTOU gap between reservation and launch
+// Review fixes for a TOCTOU gap between reservation and launch
 // (finding #1), and missing `timeout_ms` range validation (finding #7).
 // ============================================================
 

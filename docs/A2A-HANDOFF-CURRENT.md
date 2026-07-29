@@ -72,10 +72,8 @@ program. Canonical behavior remains in the linked specifications and ADRs.
 - Slice base/range: `234cd55..ea69cb9`
 - Accepted implementation head: `ea69cb9`
 - Review package commit: `3d092d1`
-- Review artifact:
-  `.superpowers/sdd/review-234cd55..ea69cb9-a2a-capability-attestation.diff`
-- Review artifact SHA-256:
-  `d1f5c11f7b6013b3f46c48daf9dcd2b6961fea4627b2b9db70f921e36f1aa82a`
+- Public review evidence: the executable corpus and verification receipts listed
+  below.
 - Final independent security/code review: no Critical or Important findings;
   APPROVED.
 - Final independent corpus/contract review: no Critical or Important findings;
