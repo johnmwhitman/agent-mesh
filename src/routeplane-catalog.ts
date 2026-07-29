@@ -1,4 +1,17 @@
 import { createHash } from "node:crypto";
+import {
+  compileRouteCandidates,
+  ROUTE_CANDIDATE_COMPILER_VERSION,
+} from "./compile-route-candidates.js";
+import type {
+  CompileRouteCandidatesInput,
+  CompileRouteCandidatesResult,
+} from "./compile-route-candidates.js";
+import type {
+  RouteCoordination,
+  RouteLocality,
+  RoutePrivacy,
+} from "./recommend-route.js";
 
 export const ROUTEPLANE_CATALOG_SNAPSHOT_VERSION =
   "meshfleet.routeplane-model-snapshot.v1" as const;
@@ -30,6 +43,26 @@ export interface RoutePlaneFetchOptions {
   timeout_ms?: number;
   /** Test-only seam; production always uses the global loopback fetch. */
   fetch_impl?: typeof fetch;
+}
+
+export interface RoutePlaneCandidatePolicy {
+  candidate_id: string;
+  model: string;
+  capabilities: string[];
+  privacy: RoutePrivacy;
+  locality: RouteLocality;
+  coordination_modes?: RouteCoordination[];
+  policy_tags?: string[];
+  context_window?: number;
+}
+
+export interface RoutePlaneCandidateCompilation
+  extends Omit<CompileRouteCandidatesResult, "diagnostics"> {
+  source: RoutePlaneCatalogSnapshot["source"];
+  diagnostics: Array<{
+    candidate_id: string;
+    reason_codes: string[];
+  }>;
 }
 
 export type RoutePlaneCatalogErrorCode =
@@ -86,10 +119,175 @@ function requireBoundedString(value: unknown, path: string, maxLength: number): 
   return value;
 }
 
-function requireFiniteInteger(value: number, path: string): void {
+function requireFiniteInteger(value: unknown, path: string): asserts value is number {
   if (!Number.isFinite(value) || !Number.isInteger(value)) {
     fail(path, "must be a finite integer");
   }
+}
+
+function compilationFail(path: string, message: string): never {
+  throw new Error(`compile_routeplane_candidates: '${path}' ${message}`);
+}
+
+function requireCompilationRecord(value: unknown, path: string): RecordValue {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    compilationFail(path, "must be an object");
+  }
+  return value as RecordValue;
+}
+
+function requireCompilationKeys(
+  value: RecordValue,
+  path: string,
+  allowed: readonly string[],
+): void {
+  const unknown = Object.keys(value).find((key) => !allowed.includes(key));
+  if (unknown !== undefined) compilationFail(`${path}.${unknown}`, "is not allowed");
+}
+
+function requireCompilationString(value: unknown, path: string): asserts value is string {
+  if (typeof value !== "string" || value.trim().length === 0 || value.length > 256) {
+    compilationFail(path, "must be a non-empty string no longer than 256 characters");
+  }
+}
+
+function validateSnapshot(value: unknown): RoutePlaneCatalogSnapshot {
+  const snapshot = requireCompilationRecord(value, "snapshot");
+  requireCompilationKeys(snapshot, "snapshot", ["version", "source", "models"]);
+  if (snapshot.version !== ROUTEPLANE_CATALOG_SNAPSHOT_VERSION) {
+    compilationFail(
+      "snapshot.version",
+      `must equal ${ROUTEPLANE_CATALOG_SNAPSHOT_VERSION}`,
+    );
+  }
+  const source = requireCompilationRecord(snapshot.source, "snapshot.source");
+  requireCompilationKeys(snapshot.source as RecordValue, "snapshot.source", [
+    "kind",
+    "endpoint",
+    "fetched_at_ms",
+    "expires_at_ms",
+    "payload_sha256",
+  ]);
+  if (source.kind !== "routeplane-v1-models") {
+    compilationFail("snapshot.source.kind", 'must equal "routeplane-v1-models"');
+  }
+  if (source.endpoint !== ROUTEPLANE_MODELS_ENDPOINT) {
+    compilationFail("snapshot.source.endpoint", `must equal ${ROUTEPLANE_MODELS_ENDPOINT}`);
+  }
+  requireFiniteInteger(source.fetched_at_ms, "snapshot.source.fetched_at_ms");
+  requireFiniteInteger(source.expires_at_ms, "snapshot.source.expires_at_ms");
+  requireCompilationString(source.payload_sha256, "snapshot.source.payload_sha256");
+  if (!Array.isArray(snapshot.models)) {
+    compilationFail("snapshot.models", "must be an array");
+  }
+
+  const payload = {
+    object: "list",
+    data: snapshot.models.map((modelValue, index) => {
+      const path = `snapshot.models[${index}]`;
+      const model = requireCompilationRecord(modelValue, path);
+      requireCompilationKeys(model, path, ["id", "providers"]);
+      requireCompilationString(model.id, `${path}.id`);
+      if (!Array.isArray(model.providers)) {
+        compilationFail(`${path}.providers`, "must be an array");
+      }
+      for (let providerIndex = 0; providerIndex < model.providers.length; providerIndex++) {
+        requireCompilationString(
+          model.providers[providerIndex],
+          `${path}.providers[${providerIndex}]`,
+        );
+      }
+      return { id: model.id, object: "model", providers: model.providers };
+    }),
+  };
+  const canonical = normalizeRoutePlaneCatalog(
+    payload,
+    source.fetched_at_ms as number,
+    (source.expires_at_ms as number) - (source.fetched_at_ms as number),
+  );
+  if (
+    canonical.source.payload_sha256 !== source.payload_sha256 ||
+    canonical.source.expires_at_ms !== source.expires_at_ms ||
+    JSON.stringify(canonical.models) !== JSON.stringify(snapshot.models)
+  ) {
+    compilationFail("snapshot", "is invalid or not canonical");
+  }
+  return canonical;
+}
+
+function validatePolicies(value: unknown): RoutePlaneCandidatePolicy[] {
+  if (!Array.isArray(value) || value.length > 256) {
+    compilationFail("policies", "must be an array with 0..256 items");
+  }
+  return value.map((policyValue, index) => {
+    const policy = requireCompilationRecord(policyValue, `policies[${index}]`);
+    requireCompilationString(policy.candidate_id, `policies[${index}].candidate_id`);
+    requireCompilationString(policy.model, `policies[${index}].model`);
+    return policy as unknown as RoutePlaneCandidatePolicy;
+  });
+}
+
+export function compileRoutePlaneCandidates(input: {
+  snapshot: RoutePlaneCatalogSnapshot;
+  policies: RoutePlaneCandidatePolicy[];
+  observations?: CompileRouteCandidatesInput["observations"];
+  now_ms?: number;
+}): RoutePlaneCandidateCompilation {
+  const record = requireCompilationRecord(input, "input");
+  requireCompilationKeys(record, "input", ["snapshot", "policies", "observations", "now_ms"]);
+  const snapshot = validateSnapshot(record.snapshot);
+  const nowMs = record.now_ms ?? Date.now();
+  requireFiniteInteger(nowMs, "now_ms");
+  if (nowMs < snapshot.source.fetched_at_ms) {
+    compilationFail("snapshot", "is future-dated");
+  }
+  if (nowMs >= snapshot.source.expires_at_ms) {
+    compilationFail("snapshot", "is expired");
+  }
+
+  const policies = validatePolicies(record.policies);
+  const advertisedModels = new Set(snapshot.models.map(({ id }) => id));
+  const eligible = policies.filter(({ model }) => advertisedModels.has(model));
+  const excluded = policies
+    .filter(({ model }) => !advertisedModels.has(model))
+    .map(({ candidate_id }) => ({ candidate_id, reason_codes: ["MODEL_NOT_ADVERTISED"] }));
+
+  if (eligible.length === 0) {
+    return {
+      compiler_version: ROUTE_CANDIDATE_COMPILER_VERSION,
+      projection: true,
+      effects: {
+        persisted: false,
+        executed: false,
+        authorized: false,
+        woke_agents: false,
+        contacted_providers: false,
+      },
+      source: { ...snapshot.source },
+      candidates: [],
+      diagnostics: excluded.sort((left, right) =>
+        compareStrings(left.candidate_id, right.candidate_id),
+      ),
+    };
+  }
+
+  const compiled = compileRouteCandidates({
+    manifest: {
+      version: ROUTE_CANDIDATE_COMPILER_VERSION,
+      candidates: eligible.map(({ model, ...policy }) => ({
+        ...policy,
+        requested_identity: { runtime: "routeplane", model },
+      })),
+    },
+    ...(record.observations === undefined ? {} : { observations: record.observations as CompileRouteCandidatesInput["observations"] }),
+  });
+  return {
+    ...compiled,
+    source: { ...snapshot.source },
+    diagnostics: [...compiled.diagnostics, ...excluded].sort((left, right) =>
+      compareStrings(left.candidate_id, right.candidate_id),
+    ),
+  };
 }
 
 function compareStrings(left: string, right: string): number {

@@ -1,11 +1,20 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  compileRoutePlaneCandidates,
   fetchRoutePlaneCatalog,
   normalizeRoutePlaneCatalog,
   RoutePlaneCatalogError,
   ROUTEPLANE_CATALOG_SNAPSHOT_VERSION,
 } from "../src/routeplane-catalog.js";
+
+const routePlaneEffects = {
+  persisted: false,
+  executed: false,
+  authorized: false,
+  woke_agents: false,
+  contacted_providers: false,
+} as const;
 
 const liveCatalog = {
   object: "list",
@@ -219,4 +228,130 @@ test("cancels the response reader and rejects bodies larger than one MiB", async
     hasCatalogError("body_too_large"),
   );
   assert.equal(cancelled, true);
+});
+
+test("compiles only exactly advertised RoutePlane models with caller-owned traits", () => {
+  const snapshot = normalizeRoutePlaneCatalog(liveCatalog, 1_700_000_000_000, 60_000);
+  const compilation = compileRoutePlaneCandidates({
+    snapshot,
+    now_ms: 1_700_000_000_030,
+    policies: [
+      {
+        candidate_id: "lane-z",
+        model: "z-model",
+        capabilities: ["code"],
+        privacy: "local_only",
+        locality: "same_host",
+        coordination_modes: ["solo"],
+        policy_tags: ["private"],
+        context_window: 4_096,
+      },
+      {
+        candidate_id: "lane-missing",
+        model: "missing-model",
+        capabilities: ["chat"],
+        privacy: "unrestricted",
+        locality: "any",
+      },
+    ],
+  });
+
+  assert.equal(compilation.projection, true);
+  assert.deepEqual(compilation.effects, routePlaneEffects);
+  assert.deepEqual(compilation.source, snapshot.source);
+  assert.deepEqual(compilation.candidates, [
+    {
+      candidate_id: "lane-z",
+      capabilities: ["code"],
+      privacy: "local_only",
+      locality: "same_host",
+      coordination_modes: ["solo"],
+      policy_tags: ["private"],
+      context_window: 4_096,
+      budget: { measured: false },
+      requested_identity: { runtime: "routeplane", model: "z-model" },
+    },
+  ]);
+  assert.equal("observed_identity" in compilation.candidates[0]!, false);
+  assert.deepEqual(compilation.diagnostics, [
+    { candidate_id: "lane-missing", reason_codes: ["MODEL_NOT_ADVERTISED"] },
+    { candidate_id: "lane-z", reason_codes: ["OBSERVATION_MISSING", "BUDGET_UNMEASURED"] },
+  ]);
+});
+
+test("rejects expired, future-dated, malformed, and unknown-version catalog snapshots", () => {
+  const snapshot = normalizeRoutePlaneCatalog(liveCatalog, 100, 60_000);
+  const policies = [{
+    candidate_id: "lane-a",
+    model: "a-model",
+    capabilities: ["code"],
+    privacy: "network_ok" as const,
+    locality: "any" as const,
+  }];
+
+  assert.throws(
+    () => compileRoutePlaneCandidates({ snapshot, policies, now_ms: 60_100 }),
+    /snapshot.*expired/i,
+  );
+  assert.throws(
+    () => compileRoutePlaneCandidates({ snapshot, policies, now_ms: 99 }),
+    /snapshot.*future/i,
+  );
+  assert.throws(
+    () => compileRoutePlaneCandidates({ snapshot: { ...snapshot, version: "wrong" }, policies, now_ms: 100 }),
+    /snapshot\.version.*meshfleet\.routeplane-model-snapshot\.v1/i,
+  );
+  assert.throws(
+    () => compileRoutePlaneCandidates({ snapshot: { ...snapshot, models: [{ id: "a-model", providers: ["beta", "beta"] }] }, policies, now_ms: 100 }),
+    /duplicate provider label/i,
+  );
+});
+
+test("returns an empty, side-effect-free compilation when no policy model is advertised", () => {
+  const snapshot = normalizeRoutePlaneCatalog({ object: "list", data: [] }, 100, 60_000);
+  const compilation = compileRoutePlaneCandidates({
+    snapshot,
+    now_ms: 100,
+    policies: [{
+      candidate_id: "lane-missing",
+      model: "not-advertised",
+      capabilities: ["code"],
+      privacy: "network_ok",
+      locality: "any",
+    }],
+  });
+
+  assert.equal(compilation.projection, true);
+  assert.deepEqual(compilation.effects, routePlaneEffects);
+  assert.deepEqual(compilation.candidates, []);
+  assert.deepEqual(compilation.diagnostics, [
+    { candidate_id: "lane-missing", reason_codes: ["MODEL_NOT_ADVERTISED"] },
+  ]);
+});
+
+test("does not derive authority from RoutePlane provider labels", () => {
+  const snapshot = normalizeRoutePlaneCatalog({
+    object: "list",
+    data: [{ id: "model-a", object: "model", providers: ["unrestricted", "budget-available"] }],
+  }, 100, 60_000);
+  const compilation = compileRoutePlaneCandidates({
+    snapshot,
+    now_ms: 100,
+    policies: [{
+      candidate_id: "lane-a",
+      model: "model-a",
+      capabilities: ["code"],
+      privacy: "local_only",
+      locality: "same_host",
+    }],
+  });
+
+  assert.deepEqual(compilation.candidates[0], {
+    candidate_id: "lane-a",
+    capabilities: ["code"],
+    privacy: "local_only",
+    locality: "same_host",
+    budget: { measured: false },
+    requested_identity: { runtime: "routeplane", model: "model-a" },
+  });
 });
