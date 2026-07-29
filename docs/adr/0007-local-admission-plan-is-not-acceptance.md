@@ -55,6 +55,14 @@ does not call the oracle. The existing ingress dispositions remain distinct;
 unavailability alone maps to `REPLAY_PROTECTION_UNAVAILABLE`. Envelope expiry is
 checked last and only for an unseen identity.
 
+The evaluator delegates that final oracle interaction to a small internal
+`replay-decision` seam. It fixes one copied query shape and the closed result
+mapping (`unseen`, four non-admission dispositions, or unavailable). The seam
+does not validate a principal, authenticate an adapter, persist a key, contact a
+transport, or provide an object-input admission overload. It exists so a later
+transport adapter can share the exact post-authorization replay contract without
+changing this offline boundary.
+
 ## Consequences
 
 - The contract can be implemented as a raw-text TypeScript/Python witness with an
