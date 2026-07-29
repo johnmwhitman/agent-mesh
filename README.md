@@ -306,6 +306,17 @@ or implements a drain policy. Structured collector versioning,
 producer-owned observation timing, and typed quota windows are required before
 raw measured budget can become actionable. [Safe host collection and exact boundary → docs/FLEETBUDGET-OBSERVATIONS.md](docs/FLEETBUDGET-OBSERVATIONS.md)
 
+Sanitized fleet wrapper usage is available through the separate pure
+`meshfleet/wrapper-usage-observations` package surface. It accepts only the
+closed, already-decoded `fleet.wrapper-usage-summary/v1` object and returns a
+distinct `accepted`/`groups` status envelope with all effects and authorities
+false. It preserves `routeplane-unattributed` exactly and copies source
+rejections and aggregate counts without prompts, raw event IDs, provider or
+quota inference, derived rates, persistence, execution, scheduling, routing,
+logging activation, or MeshFleet health changes. It is not an MCP tool and is
+not structurally interchangeable with route-candidate observations.
+[Wrapper usage status boundary → docs/WRAPPER-USAGE-OBSERVATIONS.md](docs/WRAPPER-USAGE-OBSERVATIONS.md)
+
 [Advisory routing → docs/ADVISORY-ROUTING.md](docs/ADVISORY-ROUTING.md) · [Fleetbudget observations → docs/FLEETBUDGET-OBSERVATIONS.md](docs/FLEETBUDGET-OBSERVATIONS.md) · [Architecture orientation → AGENT-MESH-SPEC.md](AGENT-MESH-SPEC.md) · [P2P/receipts → SPEC-P2P.md](SPEC-P2P.md) · [Councils → SPEC-COUNCILS.md](SPEC-COUNCILS.md)
 
 ---
