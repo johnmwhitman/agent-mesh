@@ -95,7 +95,8 @@ immutable `v0.19.0` tag or claiming npm publication.
 
 - **34 MCP tools** across 11 families: lifecycle, messaging, inbox, receipts, ratification,
   capability-routing, health, discussions, templates, advisory-routing, verification
-- **RoutePlane catalog discovery is host-side, not MCP:** the separate
+- **Pending PR #42 merge — RoutePlane catalog discovery is host-side, not MCP:**
+  the separate
   `meshfleet-routeplane-catalog` CLI fetches the fixed loopback `/v1/models`
   catalog into an expiring canonical snapshot, and the library projects exact
   advertised model IDs plus caller-owned policy into advisory candidates. It
