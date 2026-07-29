@@ -198,6 +198,48 @@ test("quality annotation coverage is exact for policy candidates", () => {
   })), /not declared by a policy/);
 });
 
+test("joins an otherwise valid opaque candidate ID without imposing quality-token grammar", () => {
+  const candidateId = "Candidate A";
+  const source = weeklyInput({
+    routeplane: {
+      ...weeklyInput().routeplane,
+      policies: [{
+        ...weeklyInput().routeplane.policies[0],
+        candidate_id: candidateId,
+      }],
+    },
+    fleetbudget: {
+      ...weeklyInput().fleetbudget,
+      bindings: [{ candidate_id: candidateId, lane_id: "shared-lane" }],
+    },
+    quality_annotations: [{ candidate_id: candidateId, quality_tags: ["reviewed"] }],
+  });
+
+  const result = compileWeeklyDrainReview(source);
+
+  assert.deepEqual(result.proposal?.proposed[0]?.candidate_ids, [candidateId]);
+});
+
+test("rejects inherited and accessor-shaped weekly inputs before reading their values", () => {
+  const inherited = weeklyInput();
+  const inheritedWrapperUsage = inherited.wrapper_usage;
+  delete (inherited as { wrapper_usage?: unknown }).wrapper_usage;
+  Object.setPrototypeOf(inherited, { wrapper_usage: inheritedWrapperUsage });
+  assert.throws(() => compileWeeklyDrainReview(inherited), /input.*plain or null-prototype JSON object/);
+
+  const accessor = weeklyInput();
+  let reads = 0;
+  Object.defineProperty(accessor, "now_ms", {
+    enumerable: true,
+    get() {
+      reads += 1;
+      return NOW_MS;
+    },
+  });
+  assert.throws(() => compileWeeklyDrainReview(accessor), /input\.<non-json-member>/);
+  assert.equal(reads, 0);
+});
+
 test("validates backlog bounds before a catalog-empty review can suppress planning", () => {
   assert.throws(() => compileWeeklyDrainReview(weeklyInput({
     backlog: { tasks: [], candidate_limit: 9 },

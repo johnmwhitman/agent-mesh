@@ -120,6 +120,33 @@ function record(value: unknown, path: string): RecordValue {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     invalid(path, "must be an object");
   }
+  let prototype: object | null;
+  let ownKeys: Array<string | symbol>;
+  try {
+    prototype = Object.getPrototypeOf(value);
+    ownKeys = Reflect.ownKeys(value);
+  } catch {
+    invalid(path, "must be a plain or null-prototype JSON object");
+  }
+  if (prototype !== Object.prototype && prototype !== null) {
+    invalid(path, "must be a plain or null-prototype JSON object");
+  }
+  for (const key of ownKeys) {
+    let descriptor: PropertyDescriptor | undefined;
+    try {
+      descriptor = Object.getOwnPropertyDescriptor(value, key);
+    } catch {
+      invalid(`${path}.<non-json-member>`, "is not allowed");
+    }
+    if (
+      typeof key !== "string" ||
+      descriptor === undefined ||
+      descriptor.enumerable !== true ||
+      !("value" in descriptor)
+    ) {
+      invalid(`${path}.<non-json-member>`, "is not allowed");
+    }
+  }
   return value as RecordValue;
 }
 
@@ -127,7 +154,7 @@ function exactKeys(value: RecordValue, path: string, keys: readonly string[]): v
   const allowed = new Set(keys);
   const unknown = Object.keys(value).find((key) => !allowed.has(key));
   if (unknown !== undefined) invalid(`${path}.${unknown}`, "is not allowed");
-  const missing = keys.find((key) => !(key in value));
+  const missing = keys.find((key) => !Object.prototype.hasOwnProperty.call(value, key));
   if (missing !== undefined) invalid(`${path}.${missing}`, "is required");
 }
 
@@ -154,11 +181,10 @@ function validateQualityAnnotations(value: unknown): WeeklyDrainReviewQualityAnn
     exactKeys(annotation, path, ["candidate_id", "quality_tags"]);
     if (
       typeof annotation.candidate_id !== "string" ||
-      annotation.candidate_id.length === 0 ||
-      annotation.candidate_id.length > 128 ||
-      !QUALITY_TAG.test(annotation.candidate_id)
+      annotation.candidate_id.trim().length === 0 ||
+      annotation.candidate_id.length > 128
     ) {
-      invalid(`${path}.candidate_id`, "must be a lowercase opaque identifier token");
+      invalid(`${path}.candidate_id`, "must be a non-empty opaque identifier no longer than 128 characters");
     }
     if (seen.has(annotation.candidate_id)) {
       invalid(`${path}.candidate_id`, `is a duplicate candidate_id '${annotation.candidate_id}'`);
@@ -195,7 +221,9 @@ function validate(input: unknown): CompileWeeklyDrainReviewInput {
   exactKeys(fleetbudget, "input.fleetbudget", ["snapshot", "bindings"]);
   const backlog = record(source.backlog, "input.backlog");
   allowedKeys(backlog, "input.backlog", ["tasks", "candidate_limit", "preference"]);
-  if (!("tasks" in backlog)) invalid("input.backlog.tasks", "is required");
+  if (!Object.prototype.hasOwnProperty.call(backlog, "tasks")) {
+    invalid("input.backlog.tasks", "is required");
+  }
   if (!Array.isArray(backlog.tasks) || backlog.tasks.length < 1 || backlog.tasks.length > 64) {
     invalid("input.backlog.tasks", "must be an array with 1..64 items");
   }
