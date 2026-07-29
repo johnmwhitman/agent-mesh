@@ -607,6 +607,8 @@ function collectSpecifiers(sourceFile: ts.SourceFile): CollectedSpecifier[] {
     const unwrappedRight = unwrapParentheses(right)
     if (isModuleObjectExpression(unwrappedRight)) {
       return ts.isIdentifier(unwrappedLeft) ||
+        ts.isPropertyAccessExpression(unwrappedLeft) ||
+        ts.isElementAccessExpression(unwrappedLeft) ||
         (ts.isObjectLiteralExpression(unwrappedLeft) && objectAssignmentLoadsModule(unwrappedLeft))
     }
     if (ts.isArrayLiteralExpression(unwrappedLeft) && ts.isArrayLiteralExpression(unwrappedRight)) {
@@ -625,8 +627,107 @@ function collectSpecifiers(sourceFile: ts.SourceFile): CollectedSpecifier[] {
     specifiers.push({
       kind: 'require',
       specifier: '<ambiguous>',
-      reason: 'module object destructuring assignment cannot be resolved statically',
+      reason: 'module object assignment cannot be resolved statically',
     })
+  }
+
+  const isModuleAssignmentOperator = (kind: ts.SyntaxKind): boolean =>
+    kind === ts.SyntaxKind.EqualsToken ||
+    kind === ts.SyntaxKind.QuestionQuestionEqualsToken ||
+    kind === ts.SyntaxKind.BarBarEqualsToken ||
+    kind === ts.SyntaxKind.AmpersandAmpersandEqualsToken
+
+  const isTransparentModuleBinaryOperator = (kind: ts.SyntaxKind): boolean =>
+    kind === ts.SyntaxKind.CommaToken ||
+    kind === ts.SyntaxKind.AmpersandAmpersandToken ||
+    kind === ts.SyntaxKind.BarBarToken ||
+    kind === ts.SyntaxKind.QuestionQuestionToken
+
+  const outermostTransparentModuleExpression = (node: ts.Expression): ts.Node => {
+    let reference: ts.Node = node
+    while (true) {
+      const parent = reference.parent
+      if ((ts.isParenthesizedExpression(parent) ||
+          ts.isAsExpression(parent) ||
+          ts.isTypeAssertionExpression(parent) ||
+          ts.isNonNullExpression(parent) ||
+          ts.isSatisfiesExpression(parent)) &&
+          parent.expression === reference) {
+        reference = parent
+        continue
+      }
+      if (ts.isBinaryExpression(parent) &&
+          isTransparentModuleBinaryOperator(parent.operatorToken.kind) &&
+          (parent.right === reference ||
+            (parent.left === reference &&
+              parent.operatorToken.kind !== ts.SyntaxKind.CommaToken))) {
+        reference = parent
+        continue
+      }
+      if (ts.isConditionalExpression(parent) &&
+          (parent.whenTrue === reference || parent.whenFalse === reference)) {
+        reference = parent
+        continue
+      }
+      return reference
+    }
+  }
+
+  const isModeledModuleArrayValue = (array: ts.ArrayLiteralExpression): boolean => {
+    const parent = array.parent
+    if (ts.isVariableDeclaration(parent) &&
+        parent.initializer === array &&
+        ts.isArrayBindingPattern(parent.name)) {
+      return true
+    }
+    if (ts.isBinaryExpression(parent) &&
+        parent.right === array &&
+        parent.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+        ts.isArrayLiteralExpression(unwrapParentheses(parent.left))) {
+      return true
+    }
+    return ts.isForOfStatement(parent) && parent.expression === array
+  }
+
+  const isNonValueIdentifierName = (node: ts.Identifier): boolean => {
+    const parent = node.parent
+    return (ts.isPropertyAccessExpression(parent) && parent.name === node) ||
+      (ts.isPropertyAssignment(parent) && parent.name === node) ||
+      (ts.isBindingElement(parent) && parent.propertyName === node) ||
+      (ts.isLabeledStatement(parent) && parent.label === node) ||
+      (ts.isBreakStatement(parent) && parent.label === node) ||
+      (ts.isContinueStatement(parent) && parent.label === node) ||
+      (ts.isEnumMember(parent) && parent.name === node)
+  }
+
+  const isModeledModuleObjectValue = (node: ts.Expression): boolean => {
+    if (ts.isIdentifier(node) &&
+        (isDeclarationName(node) ||
+          isNonValueIdentifierName(node) ||
+          !!nearestAncestor(node, ts.isTypeNode))) {
+      return true
+    }
+    const reference = outermostTransparentModuleExpression(node)
+    const parent = reference.parent
+    if ((ts.isPropertyAccessExpression(parent) || ts.isElementAccessExpression(parent)) &&
+        parent.expression === reference) {
+      return true
+    }
+    if ((ts.isVariableDeclaration(parent) ||
+        ts.isParameter(parent) ||
+        ts.isBindingElement(parent)) &&
+        parent.initializer === reference) {
+      return true
+    }
+    if (ts.isBinaryExpression(parent) &&
+        parent.right === reference &&
+        isModuleAssignmentOperator(parent.operatorToken.kind)) {
+      return true
+    }
+    if (ts.isArrayLiteralExpression(parent)) {
+      return isModeledModuleArrayValue(parent)
+    }
+    return ts.isVoidExpression(parent) || ts.isTypeOfExpression(parent)
   }
 
   const visit = (node: ts.Node): void => {
@@ -672,8 +773,17 @@ function collectSpecifiers(sourceFile: ts.SourceFile): CollectedSpecifier[] {
           add('require', node.arguments[0])
         }
       }
+      if (isModuleObjectExpression(node) &&
+          outermostTransparentModuleExpression(node) === node &&
+          !isModeledModuleObjectValue(node)) {
+        specifiers.push({
+          kind: 'require',
+          specifier: '<ambiguous>',
+          reason: 'module object value escapes static analysis',
+        })
+      }
     } else if (ts.isBinaryExpression(node) &&
-        node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+        isModuleAssignmentOperator(node.operatorToken.kind) &&
         assignmentLoadsModule(node.left, node.right)) {
       addAmbiguousModuleAssignment()
     } else if (ts.isForOfStatement(node) &&
@@ -696,6 +806,15 @@ function collectSpecifiers(sourceFile: ts.SourceFile): CollectedSpecifier[] {
         kind: 'require',
         specifier: '<ambiguous>',
         reason: 'module object computed property cannot be resolved statically',
+      })
+    } else if (ts.isExpression(node) &&
+        isModuleObjectExpression(node) &&
+        outermostTransparentModuleExpression(node) === node &&
+        !isModeledModuleObjectValue(node)) {
+      specifiers.push({
+        kind: 'require',
+        specifier: '<ambiguous>',
+        reason: 'module object value escapes static analysis',
       })
     } else if ((ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) &&
         isCreateRequireExpression(node)) {

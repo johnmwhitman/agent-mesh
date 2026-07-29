@@ -526,19 +526,19 @@ test('package boundary guard fails closed when assignments acquire module object
           file: 'src/entry.ts',
           kind: 'require',
           specifier: '<ambiguous>',
-          reason: 'module object destructuring assignment cannot be resolved statically',
+          reason: 'module object assignment cannot be resolved statically',
         },
         {
           file: 'src/entry.ts',
           kind: 'require',
           specifier: '<ambiguous>',
-          reason: 'module object destructuring assignment cannot be resolved statically',
+          reason: 'module object assignment cannot be resolved statically',
         },
         {
           file: 'src/entry.ts',
           kind: 'require',
           specifier: '<ambiguous>',
-          reason: 'module object destructuring assignment cannot be resolved statically',
+          reason: 'module object assignment cannot be resolved statically',
         },
       ])
     },
@@ -555,7 +555,7 @@ test('package boundary guard resolves loader, catch, and method-name bindings le
         'function harmless(req: (value: string) => string) {',
         '  return req("ordinary-shadowed-loader")',
         '}',
-        'try { throw moduleNamespace } catch (moduleNamespace) {',
+        'try { throw {} } catch (moduleNamespace) {',
         '  void moduleNamespace.createRequire()("ordinary-catch-binding")',
         '}',
         'class Local {',
@@ -606,7 +606,7 @@ test('package boundary guard fails closed on module object destructuring assignm
           file: 'src/entry.ts',
           kind: 'require',
           specifier: '<ambiguous>',
-          reason: 'module object destructuring assignment cannot be resolved statically',
+          reason: 'module object assignment cannot be resolved statically',
         },
       ])
     },
@@ -633,13 +633,165 @@ test('package boundary guard recursively analyzes module object assignment patte
           file: 'src/entry.ts',
           kind: 'require',
           specifier: '<ambiguous>',
-          reason: 'module object destructuring assignment cannot be resolved statically',
+          reason: 'module object assignment cannot be resolved statically',
         },
         {
           file: 'src/entry.ts',
           kind: 'require',
           specifier: '<ambiguous>',
-          reason: 'module object destructuring assignment cannot be resolved statically',
+          reason: 'module object assignment cannot be resolved statically',
+        },
+      ])
+    },
+  )
+})
+
+test('package boundary guard fails closed when module objects escape through opaque containers and reflection', () => {
+  withFixture(
+    {
+      'src/entry.ts': [
+        'import * as moduleNamespace from "node:module"',
+        'const objectContainer = { factory: moduleNamespace }',
+        'objectContainer.factory.createRequire(import.meta.url)("smuggled-object")',
+        'const propertyContainer: { factory?: unknown } = {}',
+        'propertyContainer.factory = moduleNamespace',
+        'propertyContainer.factory.createRequire(import.meta.url)("smuggled-property")',
+        'const arrayContainer = [moduleNamespace]',
+        'arrayContainer[0].createRequire(import.meta.url)("smuggled-array")',
+        'Reflect.get(moduleNamespace, "createRequire")(import.meta.url)("smuggled-reflect")',
+      ].join('\n'),
+    },
+    { name: 'fixture' },
+    (root) => {
+      assert.deepEqual(findPackageBoundaryViolations(root), [
+        {
+          file: 'src/entry.ts',
+          kind: 'require',
+          specifier: '<ambiguous>',
+          reason: 'module object value escapes static analysis',
+        },
+        {
+          file: 'src/entry.ts',
+          kind: 'require',
+          specifier: '<ambiguous>',
+          reason: 'module object assignment cannot be resolved statically',
+        },
+        {
+          file: 'src/entry.ts',
+          kind: 'require',
+          specifier: '<ambiguous>',
+          reason: 'module object value escapes static analysis',
+        },
+        {
+          file: 'src/entry.ts',
+          kind: 'require',
+          specifier: '<ambiguous>',
+          reason: 'module object value escapes static analysis',
+        },
+      ])
+    },
+  )
+})
+
+test('package boundary guard fails closed when logical assignments acquire module objects', () => {
+  withFixture(
+    {
+      'src/entry.ts': [
+        'import * as moduleNamespace from "node:module"',
+        'const nullishContainer: { factory?: unknown } = {}',
+        'nullishContainer.factory ??= moduleNamespace',
+        'const orContainer: { factory?: unknown } = {}',
+        'orContainer.factory ||= require("node:module")',
+        'const andContainer: { factory?: unknown } = {}',
+        'andContainer.factory &&= moduleNamespace.Module',
+      ].join('\n'),
+    },
+    { name: 'fixture' },
+    (root) => {
+      assert.deepEqual(
+        findPackageBoundaryViolations(root).map(({ reason }) => reason),
+        Array(3).fill('module object assignment cannot be resolved statically'),
+      )
+    },
+  )
+})
+
+test('package boundary guard fails closed when inline module objects escape through opaque containers and reflection', () => {
+  withFixture(
+    {
+      'src/inline-require-object.ts': [
+        'const requiredObject = { factory: require("node:module") }',
+        'requiredObject.factory.createRequire(import.meta.url)("smuggled-inline-object")',
+      ].join('\n'),
+      'src/inline-import-array.ts': [
+        'const importedArray = [await import("node:module")]',
+        'importedArray[0].createRequire(import.meta.url)("smuggled-inline-array")',
+      ].join('\n'),
+      'src/inline-require-reflect.ts': [
+        'Reflect.get(require("node:module"), "createRequire")(import.meta.url)("smuggled-inline-reflect")',
+      ].join('\n'),
+      'src/inline-require-wrapped-object.ts': [
+        'const wrappedObject = { factory: (0, require("node:module")) }',
+        'wrappedObject.factory.createRequire(import.meta.url)("smuggled-inline-wrapped-object")',
+      ].join('\n'),
+      'src/module-member-array.ts': [
+        'import * as moduleNamespace from "node:module"',
+        'const moduleArray = [moduleNamespace.Module]',
+        'moduleArray[0].createRequire(import.meta.url)("smuggled-module-member-array")',
+      ].join('\n'),
+      'src/module-member-object.ts': [
+        'import * as moduleNamespace from "node:module"',
+        'const moduleObject = { factory: moduleNamespace.Module }',
+        'moduleObject.factory.createRequire(import.meta.url)("smuggled-module-member-object")',
+      ].join('\n'),
+      'src/module-member-reflect.ts': [
+        'import * as moduleNamespace from "node:module"',
+        'Reflect.get(moduleNamespace.Module, "createRequire")(import.meta.url)("smuggled-module-member-reflect")',
+      ].join('\n'),
+    },
+    { name: 'fixture' },
+    (root) => {
+      assert.deepEqual(findPackageBoundaryViolations(root), [
+        'inline-import-array.ts',
+        'inline-require-object.ts',
+        'inline-require-reflect.ts',
+        'inline-require-wrapped-object.ts',
+        'module-member-array.ts',
+        'module-member-object.ts',
+        'module-member-reflect.ts',
+      ].map((file) => ({
+        file: `src/${file}`,
+        kind: 'require',
+        specifier: '<ambiguous>',
+        reason: 'module object value escapes static analysis',
+      })))
+    },
+  )
+})
+
+test('package boundary guard distinguishes module binding names from module object values', () => {
+  withFixture(
+    {
+      'src/entry.ts': [
+        'import * as moduleNamespace from "node:module"',
+        'const objectWithSameName = { moduleNamespace: 1 }',
+        'void objectWithSameName.moduleNamespace',
+        'const { moduleNamespace: numericValue } = objectWithSameName',
+        'void numericValue',
+        'moduleNamespace: { break moduleNamespace }',
+        'enum LocalNames { moduleNamespace = 1 }',
+        'const shorthandEscape = { moduleNamespace }',
+        'void shorthandEscape',
+      ].join('\n'),
+    },
+    { name: 'fixture' },
+    (root) => {
+      assert.deepEqual(findPackageBoundaryViolations(root), [
+        {
+          file: 'src/entry.ts',
+          kind: 'require',
+          specifier: '<ambiguous>',
+          reason: 'module object value escapes static analysis',
         },
       ])
     },
