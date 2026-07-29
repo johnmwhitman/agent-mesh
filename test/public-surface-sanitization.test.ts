@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   lstatSync,
@@ -35,25 +35,75 @@ const sessionArtifactRoots = [
   joinParts("docs", slash, "superpowers"),
 ];
 
-function trackedFiles(root: string): string[] {
-  const output = execFileSync("git", ["ls-files", "-z"], {
+type TrackedIndexEntry = {
+  mode: string;
+  oid: string;
+  path: string;
+};
+
+function parseTrackedIndexRecord(record: string): TrackedIndexEntry {
+  const separator = record.indexOf("\t");
+  assert.ok(separator > 0, "git ls-files returned an invalid index record");
+  const [mode, oid, stage] = record.slice(0, separator).split(" ");
+  assert.equal(stage, "0", "public scan refuses an unmerged Git index");
+  assert.match(mode, /^100(?:644|755)$/, `${record.slice(separator + 1)} is not a regular indexed file`);
+  assert.match(oid, /^[0-9a-f]{40,64}$/, "git ls-files returned an invalid object id");
+  return {
+    mode,
+    oid,
+    path: record.slice(separator + 1),
+  };
+}
+
+function trackedIndexEntries(root: string): TrackedIndexEntry[] {
+  const output = execFileSync("git", ["ls-files", "-s", "-z"], {
     cwd: root,
     encoding: "utf8",
   });
-  return output.split("\0").filter(Boolean);
+  return output.split("\0").filter(Boolean).map(parseTrackedIndexRecord);
 }
 
-function assertTrackedWorktreeMatchesIndex(root: string): void {
-  try {
-    execFileSync("git", ["diff-files", "--quiet", "--no-ext-diff"], {
+function assertIndexBlobBounds(root: string, entries: TrackedIndexEntry[]): void {
+  if (entries.length === 0) return;
+  const output = execFileSync(
+    "git",
+    ["cat-file", "--batch-check=%(objectname) %(objecttype) %(objectsize)"],
+    {
       cwd: root,
-      stdio: "ignore",
-    });
-  } catch {
-    throw new Error(
-      "tracked working tree differs from the Git index; refusing to scan divergent bytes",
+      encoding: "utf8",
+      input: `${entries.map((entry) => entry.oid).join("\n")}\n`,
+    },
+  );
+  const facts = output.trimEnd().split("\n");
+  assert.equal(facts.length, entries.length, "git cat-file omitted an indexed object");
+  for (const [index, fact] of facts.entries()) {
+    const [oid, type, sizeText] = fact.split(" ");
+    assert.equal(oid, entries[index].oid, "git cat-file returned an unexpected object");
+    assert.equal(type, "blob", `${entries[index].path} is not an indexed blob`);
+    const size = Number(sizeText);
+    assert.ok(
+      Number.isSafeInteger(size) && size >= 0 && size <= maxTrackedFileBytes,
+      `${entries[index].path} exceeds the ${maxTrackedFileBytes}-byte scan limit`,
     );
   }
+}
+
+function indexedPathsContaining(root: string, value: string): Set<string> {
+  const result = spawnSync(
+    "git",
+    ["grep", "--cached", "-F", "-l", "-z", "-e", value, "--"],
+    {
+      cwd: root,
+      encoding: "utf8",
+    },
+  );
+  if (result.status === 1) return new Set();
+  assert.equal(
+    result.status,
+    0,
+    `git grep failed while scanning the index: ${result.stderr.trim()}`,
+  );
+  return new Set(result.stdout.split("\0").filter(Boolean));
 }
 
 function scanTrackedContent(root: string, files: string[]): string[] {
@@ -79,10 +129,32 @@ function scanTrackedContent(root: string, files: string[]): string[] {
 }
 
 function scanRepository(root: string): { files: string[]; findings: string[] } {
-  assertTrackedWorktreeMatchesIndex(root);
-  const files = trackedFiles(root);
-  const findings = scanTrackedContent(root, files);
-  assertTrackedWorktreeMatchesIndex(root);
+  const entries = trackedIndexEntries(root);
+  assert.ok(entries.length > 0, "git returned no tracked files; the scan would pass vacuously");
+  assert.ok(
+    entries.length <= maxTrackedFiles,
+    `tracked-file scan exceeds ${maxTrackedFiles} files`,
+  );
+  assertIndexBlobBounds(root, entries);
+  const files = entries.map((entry) => entry.path);
+  const forbiddenMatches = forbiddenContent.map(
+    (forbidden) => [forbidden, indexedPathsContaining(root, forbidden)] as const,
+  );
+  const sessionMatches = sessionArtifactRoots.map((sessionRoot) => {
+    const reference = `${sessionRoot}/`;
+    return [reference, indexedPathsContaining(root, reference)] as const;
+  });
+  const findings: string[] = [];
+  for (const file of files) {
+    for (const [forbidden, matches] of forbiddenMatches) {
+      if (matches.has(file)) findings.push(`${file}: ${forbidden}`);
+    }
+    if (file !== ".gitignore") {
+      for (const [sessionReference, matches] of sessionMatches) {
+        if (matches.has(file)) findings.push(`${file}: ${sessionReference}`);
+      }
+    }
+  }
   return { files, findings };
 }
 
@@ -96,8 +168,6 @@ function artifactFacts(path: string): { bytes: number; sha256: string } {
 
 test("tracked public files contain no session artifacts or local operational disclosures", () => {
   const { files, findings } = scanRepository(repoRoot);
-  assert.ok(files.length > 0, "git returned no tracked files; the scan would pass vacuously");
-  assert.ok(files.length <= maxTrackedFiles, `tracked-file scan exceeds ${maxTrackedFiles} files`);
 
   const artifacts = files.filter((file) =>
     sessionArtifactRoots.some((root) => file === root || file.startsWith(`${root}/`)),
@@ -215,9 +285,9 @@ for (const custodyState of ["staged", "committed"] as const) {
       }
       writeFileSync(join(root, "tracked.txt"), "sanitized working-tree bytes\n");
 
-      assert.throws(
-        () => scanRepository(root),
-        /working tree differs from the Git index/,
+      assert.deepEqual(
+        scanRepository(root).findings,
+        [`tracked.txt: ${forbiddenContent[0]}`],
       );
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -241,4 +311,11 @@ test("tracked symlinks are rejected before their targets are read", () => {
   } finally {
     rmSync(temp, { recursive: true, force: true });
   }
+});
+
+test("indexed symlinks are rejected without filesystem privilege", () => {
+  assert.throws(
+    () => parseTrackedIndexRecord(`120000 ${"0".repeat(40)} 0\ttracked-link`),
+    /not a regular indexed file/,
+  );
 });
