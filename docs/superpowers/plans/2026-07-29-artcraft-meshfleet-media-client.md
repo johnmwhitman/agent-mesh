@@ -14,8 +14,7 @@
 - Create a fresh ArtCraft worktree from a reconciled remote base; the primary checkout is diverged and contains unrelated login-modal, realtime, frontend, and lockfile changes.
 - Do not add MeshFleet to `GenerationProvider` in Rust or TypeScript.
 - Do not edit `crates/desktop/tauri-realtime/**`, `frontend/apps/genhub/**`, or deprecated command/job trees.
-- The production bridge executable, command names, argv, cwd, environment allowlist, and output root are fixed by Rust code. Only tests may inject a fake executable path.
-- Non-interactive confirmation uses MeshFleet's internal ArtCraft trusted-host mode and a pre-opened anonymous confirmation descriptor created by the Tauri backend. The renderer cannot create, select, or populate that descriptor.
+- The production bridge executable path is a build-time constant (absolute path outside any renderer input); only tests may inject a fake executable. The production spawn resolves via trusted host configuration, validates the canonical path exists with expected owner and mode (0600/0700), rejects any submission-provided executable, argv, cwd, or env, and uses `env_clear()` + explicit allowlist. Non-interactive confirmation uses MeshFleet's internal ArtCraft trusted-host mode and a pre-opened anonymous confirmation descriptor created by the Tauri backend. The renderer cannot create, select, or populate that descriptor.
 - Prompts and inputs cross the child boundary in bounded stdin JSON, never argv or environment.
 - The renderer receives quotes, readiness facts, execution IDs, state, route truth, and ArtCraft-owned artifact locations; it never receives grants, credential fields, registered consumer roots, or arbitrary artifact paths.
 - The first v1 image-to-video workflow accepts only a retained MeshFleet `MediaArtifactHandle` from a prior admitted local job. Existing ArtCraft/Storyteller URLs and arbitrary local files are not silently imported; the panel stays unavailable for those inputs until a separately designed input-admission contract exists.
@@ -97,9 +96,11 @@ enum BridgeCommand {
   Submit,
   Status,
   MaterializeArtifacts,
+  Review,
   Cancel,
 }
 ```
+Add `Review` to match the approved design's generic review projection. Sprite-only PixelLab review UX remains in the PixelLab wrapper; ArtCraft uses the generic CLI review surface. If review_gated=true is required inside ArtCraft scope, explicitly fail planning and record the decision.
 
 Map missing binary, incompatible version, malformed response, timeout, and non-dispatchable capability to distinct readiness reasons. The production `ArtcraftHostConfirm` spawn creates and passes the anonymous descriptor expected by MeshFleet; all other commands omit it. Do not translate `configured_unverified` into ready.
 
@@ -345,7 +346,7 @@ git commit -m "feat(artcraft): commit local MeshFleet artifacts atomically"
 
 - [ ] **Step 1: Write failing hook tests**
 
-Mock both existing task queue and MeshFleet job listing. Prove jobs appear after restart, deduplicate by local job ID, do not disappear when no completion event arrives, and complete only when the event points to an ArtCraft-owned path.
+Mock both existing task queue and MeshFleet job listing. Prove jobs appear after restart, deduplicate by local job ID, do not disappear when no completion event arrives, and complete only when the event points to an ArtCraft-owned path. Additionally assert: exactly one bounded `worker --run-until-idle` lease is active (no duplicate dispatch), and queued work cannot strand (restart always drains the lease-bounded queue). These tests reference the Core worker-singleton lease contract.
 
 - [ ] **Step 2: Verify red**
 

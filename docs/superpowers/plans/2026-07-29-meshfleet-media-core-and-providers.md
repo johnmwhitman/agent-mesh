@@ -10,8 +10,8 @@
 
 ## Global Constraints
 
-- Start from a fresh isolated worktree reconciled with current `origin/main`; the planning branch is one commit ahead and currently observes upstream commits `10220ef` (public-core documentation) and `8def7b7` (the additive `recommend-route` package export and compatibility test).
-- Preserve the existing 36 MCP tools until the additive media registration task.
+- Start from a fresh isolated worktree created from the current `origin/main` at execution time, then cherry-pick the approved design + plan commits onto that base. Dynamically determine the pre-media MCP tool count from the reconciled base commit (do not hardcode 36 or any literal). Record the exact observed `origin/main` SHA and MCP count in the worktree log before Task 1. The planning branch may be one commit ahead; always reconcile against live `origin/main`.
+- Preserve the existing MCP tools (count observed from base) until the additive media registration task.
 - Use `test/`, not `tests/`; use `node:test` and `node:assert/strict`.
 - Do not add Zod or another validation dependency; follow the repository's closed manual validation pattern.
 - Keep media storage separate from `src/db.ts` and from fleet, agent, message, receipt, lifecycle, and A2A tables.
@@ -41,7 +41,7 @@
 
 **Interfaces:**
 - Consumes: no new source interfaces.
-- Produces: `MediaPlanIntent`, `MediaSubmission`, `ResolvedMediaRequest`, `MediaArtifactHandle`, `MediaError`, `parseMediaPlanIntent()`, `parseMediaSubmission()`, `canonicalMediaIntentSha256()`.
+- Produces: `MediaPlanIntentBase` (with `MediaClientContext`, `MediaOutputPolicy`, `MediaRoutePolicy`), `MediaSubmission`, `ResolvedMediaRequest`, `MediaArtifactHandle`, `MediaError`, `parseMediaPlanIntent()`, `parseMediaSubmission()`, `canonicalMediaIntentSha256()`. All pixel inputs require `license_declaration`. Unknown keys, missing/invalid fields, and invalid license declarations are rejected by closed validation + tests.
 
 - [ ] **Step 1: Write the failing contract tests**
 
@@ -561,19 +561,22 @@ git add src/media-execution/adapters/types.ts src/media-execution/adapters/proce
 git commit -m "feat(media): add fixed adapter process protocol"
 ```
 
-### Task 8: Service and complete fake-plane CLI
+### Task 8: Service and complete fake-plane CLI (includes receipts)
 
-**Files:**
+**Files (additive to prior tasks):**
+- Create: `src/media-execution/receipts/events.ts`
+- Create: `src/media-execution/receipts/projection.ts`
 - Create: `src/media-execution/service.ts`
 - Create: `src/media-execution/trusted-host.ts`
 - Create: `src/bin/media.ts`
 - Create: `test/media-service.test.ts`
 - Create: `test/media-trusted-host.test.ts`
 - Create: `test/media-cli.test.ts`
+- Create: `test/media-receipts.test.ts`
 
 **Interfaces:**
 - Consumes: Tasks 1-7.
-- Produces: `MediaExecutionService`, `runMediaCli()`, executable `meshfleet-media`.
+- Produces: `MediaExecutionService`, `runMediaCli()`, executable `meshfleet-media`, plus first-class receipt events (`none` | `reported` | `observed` | `attested`) and projection. Self-report is never `observed`; artifact hash is never provider authorship; requested/selected/observed remain distinct.
 
 - [ ] **Step 1: Write failing service tests**
 
@@ -617,7 +620,9 @@ export class MediaExecutionService {
 
 The interactive CLI confirm path must require a TTY and must never accept `approved_by` from JSON. Add an internal `artcraft-host-confirm` mode that succeeds only when `verifyTrustedArtcraftHost()` consumes the fixed pre-opened anonymous descriptor supplied by the ArtCraft Tauri process. The mode reads only `plan_id`, fixes principal/channel/evidence in source, and refuses when invoked from an ordinary shell, fake renderer, MCP, or without the descriptor. Add `artifacts materialize` with fixed registered consumer IDs; it accepts execution/artifact IDs on stdin, returns only generated relative names and hashes to the trusted host, and never accepts or returns a consumer root through the request/MCP surface.
 
-- [ ] **Step 5: Run focused tests**
+- [ ] **Step 5: Run focused tests (black-box grammar lock)**
+
+Black-box test the full approved grammar: `capabilities`, `readiness`, `plan`, `confirm`, `submit`, `status`, `cancel`, `artifacts`, `review`, `worker --run-until-idle` plus exit classes (success, usage, invalid, auth, conflict, timeout). Lock the grammar surface before Task 9.
 
 ```bash
 node --import tsx --test test/media-service.test.ts test/media-trusted-host.test.ts test/media-cli.test.ts

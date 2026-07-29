@@ -89,7 +89,9 @@ git add Tools/lib/media_adapter_protocol.py Tools/tests/test_media_adapter_proto
 git commit -m "feat(tools): add closed media adapter protocol"
 ```
 
-### Task 2: PixelLab machine mode
+### Task 2: PixelLab machine mode (GUARDED)
+
+**Decision Gate (MANDATORY before Step 1):** Identify dirty-byte owner/base via `OPERATOR-LOCK.md`, worktree list, and `git log --oneline -5 Tools/pxl`. Record the finding. Proceed with Task 2 ONLY if the bytes are landed/reconciled in a committed branch or explicit handoff; otherwise DEFER the PixelLab wrapper task (record decision + rationale in handoff/lock) without blocking any non-overlapping wrapper tasks (Gemini, audio, Codex, MiniMax). Never copy dirty bytes.
 
 **Files:**
 - Modify: `Tools/pxl`
@@ -99,7 +101,8 @@ git commit -m "feat(tools): add closed media adapter protocol"
 - Consumes: `pixel.image`, `pixel.character`, `pixel.rotate8`, `pixel.tileset`, `pixel.state`, and `pixel.animation`.
 - Produces: accepted, provider-task-ID, progress, usage, artifact/bundle, review-candidate, and terminal events with fixed endpoint/model evidence.
 
-- [ ] **Step 1: Write failing offline tests**
+- [ ] **Step 0: Execute dirty-byte gate and record decision**
+- [ ] **Step 1: Write failing offline tests** (only if gate passed)
 
 Patch `urllib.request.urlopen`, binary downloads, polling time, and credential resolution. Prove stdin-only prompt, fixed endpoint allowlist, operation-specific size validation, reference confinement and license declaration, raw RGBA/PNG handling, task-ID detach/resume, multi-job animation settlement, usage generations, artifact/bundle hashes, candidate selection without regeneration, no secret output, and no network when validation fails.
 
