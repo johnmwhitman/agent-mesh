@@ -4,6 +4,12 @@
   "source_base": "041500fd9aec6e482875f6339236ffdcc46fc7ed",
   "generated_at": "2026-07-27T09:05:52.281Z",
   "maturity": "candidate-review-hold",
+  "publication_sanitization": {
+    "status": "REDACTED",
+    "transform": "Private filesystem paths were replaced with symbolic placeholders.",
+    "external_digest_status": "UNESTABLISHED",
+    "note": "This public derivative requires fresh external digest custody; any pre-redaction digest does not attest it."
+  },
   "artifacts": [
     {
       "path": ".gitignore",
@@ -42,8 +48,8 @@
     },
     {
       "path": "evidence/acceptance-20260727.json",
-      "bytes": 2560,
-      "sha256": "87dd02a374ddd5e6a1afc46c165b0d59edd2feff38c084215724ba16e2b1c16b"
+      "bytes": 2840,
+      "sha256": "9b0e7f77cb57dd7b8934017f76e31fa0909cf9f0133c0c895248323ad1c467d3"
     },
     {
       "path": "fuzz-differential.mjs",

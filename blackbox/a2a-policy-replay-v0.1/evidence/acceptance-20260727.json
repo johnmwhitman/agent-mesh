@@ -5,6 +5,12 @@
   "source_base": "041500fd9aec6e482875f6339236ffdcc46fc7ed",
   "worktree": "[private-worktree]",
   "owned_path": "blackbox/a2a-policy-replay-v0.1/**",
+  "publication_sanitization": {
+    "status": "REDACTED",
+    "transform": "Private filesystem paths were replaced with symbolic placeholders.",
+    "manifest_external_digest_status": "UNESTABLISHED",
+    "note": "This evidence file is part of the changed public manifest and requires fresh external digest custody."
+  },
   "focused": {
     "javascript_self_test": {"parser_controls":13,"validation_controls":8,"mutation_controls":3,"status":"PASS"},
     "python_self_test": {"parser_controls":13,"validation_controls":8,"mutation_controls":3,"status":"PASS"},

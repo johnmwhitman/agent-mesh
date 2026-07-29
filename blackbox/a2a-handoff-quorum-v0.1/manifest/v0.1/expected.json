@@ -4,6 +4,12 @@
   "source_base": "041500fd9aec6e482875f6339236ffdcc46fc7ed",
   "generated_at": "2026-07-27T14:19:00Z",
   "maturity": "candidate-review-hold",
+  "publication_sanitization": {
+    "status": "REDACTED",
+    "transform": "Private filesystem paths were replaced with symbolic placeholders.",
+    "external_digest_status": "UNESTABLISHED",
+    "note": "This public derivative requires fresh external digest custody; any pre-redaction digest does not attest it."
+  },
   "artifacts": [
     {
       "path": ".gitignore",

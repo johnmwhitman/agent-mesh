@@ -9,12 +9,20 @@
   "routing_lane_observed_head": "d90f04914217c435899c5bdb0c031eb9011e7ed9",
   "owned_path": "blackbox/a2a-handoff-quorum-v0.1/**",
   "path_collision": false,
+  "publication_sanitization": {
+    "status": "REDACTED",
+    "transform": "Private filesystem paths were replaced with symbolic placeholders.",
+    "note": "The changed public manifest is a new derivative and is not attested by the pre-redaction anchor."
+  },
   "source_manifest": {
     "path": "manifest/v0.1/expected.json",
-    "bytes": 5100,
-    "sha256": "ae0ba6aa348c38ef06dad88463ac495ecb616b98001484cd309e9d3315942747",
+    "bytes": 5351,
+    "sha256": "6c53807e02a44cb5cabf027b128c2bcd9bc18c4bb13c8b0975f816ae43e8ef68",
+    "external_digest_required": true,
+    "external_digest_status": "UNESTABLISHED",
     "external_anchor": {
-      "status": "MATCH",
+      "status": "SUPERSEDED",
+      "applies_to": "pre-redaction private manifest only",
       "observed_at": "2026-07-27T08:37:55Z",
       "bytes": 5100,
       "inode": 67762217,
