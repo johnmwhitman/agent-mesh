@@ -320,6 +320,14 @@ describe("media contract repair HOLD - 2. closed MediaArtifactHandle parser (rep
     intent.input = { ...intent.input, source: { artifact_id: "a1", execution_id: "e1", attempt_id: "t1", byte_length: 1024, sha256: "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", media_class: "image" as const, mime_type: "image/png", width: 512, height: 512 } };
     const parsed = parseMediaPlanIntent(intent);
     assert.equal(parsed.operation, "image.edit");
+    if (parsed.operation !== "image.edit") {
+      assert.fail("expected image.edit");
+    }
+    if (parsed.input.source.media_class === "pixel_bundle") {
+      assert.fail("expected a single image artifact");
+    }
+    assert.equal(parsed.input.source.width, 512);
+    assert.equal(parsed.input.source.height, 512);
   });
 
   test("accepts valid closed MediaBundleHandle with closed MediaBundleEntry[] via parseMediaPlanIntent", () => {
@@ -327,6 +335,14 @@ describe("media contract repair HOLD - 2. closed MediaArtifactHandle parser (rep
     intent.input = { ...intent.input, references: [{ artifact_id: "b1", execution_id: "e1", attempt_id: "t1", byte_length: 2048, sha256: "cafecafe11223344556677889900aabbccddeeff001122334455667788990011", media_class: "pixel_bundle" as const, mime_type: "application/vnd.meshfleet.pixel-bundle.v1" as const, entries: [{ relative_name: "t.png", mime_type: "image/png", byte_length: 512, sha256: "11223344556677889900aabbccddeeff00112233445566778899001122334455" }] }] };
     const parsed = parseMediaPlanIntent(intent);
     assert.equal(parsed.operation, "pixel.image");
+    if (parsed.operation !== "pixel.image") {
+      assert.fail("expected pixel.image");
+    }
+    assert.equal(parsed.input.references?.[0]?.media_class, "pixel_bundle");
+    if (parsed.input.references?.[0]?.media_class !== "pixel_bundle") {
+      assert.fail("expected a pixel bundle reference");
+    }
+    assert.equal(parsed.input.references[0].entries[0]?.relative_name, "t.png");
   });
 
   test("rejects unknown handle and bundle-entry members through parseMediaPlanIntent", () => {
@@ -406,10 +422,24 @@ describe("media contract repair HOLD - 2. closed MediaArtifactHandle parser (rep
 });
 
 describe("media contract repair HOLD - 3. canonicalMediaIntentSha256 direct typed (no any)", () => {
-  test("recursively canonicalizes exact MediaPlanIntent without as any, includes every field, returns lowercase 64-hex", () => {
-    const h = canonicalMediaIntentSha256(validImageGenerateIntent());
+  test("recursively canonicalizes semantic intent and excludes resolved gate IDs", () => {
+    const intent = parseMediaPlanIntent(validImageIntentWithClientContext());
+    const h = canonicalMediaIntentSha256(intent);
     assert.equal(h.length, 64);
     assert.match(h, /^[0-9a-f]{64}$/);
+
+    const first: ResolvedMediaRequest = {
+      ...intent,
+      plan_id: "plan-1",
+      authority_grant_id: "grant-1",
+    };
+    const second: ResolvedMediaRequest = {
+      ...intent,
+      plan_id: "plan-2",
+      authority_grant_id: "grant-2",
+    };
+    assert.equal(canonicalMediaIntentSha256(first), h);
+    assert.equal(canonicalMediaIntentSha256(second), h);
   });
 });
 
@@ -460,6 +490,22 @@ describe("media contract repair HOLD - 5. integrity-shaped primitives + negative
           frame_count: 1.5,
         },
       },
+    }), MediaError);
+    assert.throws(() => parseMediaPlanIntent({
+      ...validVideoGenerateIntent(),
+      input: { ...validVideoGenerateIntent().input, duration_seconds: 0 },
+    }), MediaError);
+    assert.throws(() => parseMediaPlanIntent({
+      ...validMusicIntent(),
+      input: {
+        ...validMusicIntent().input,
+        seed: 1.5,
+        duration_seconds: -1,
+      },
+    }), MediaError);
+    assert.throws(() => parseMediaPlanIntent({
+      ...validTtsIntent(),
+      input: { ...validTtsIntent().input, speed: 0 },
     }), MediaError);
   });
   test("rejects empty strings where content required (prompt, license, text)", () => {

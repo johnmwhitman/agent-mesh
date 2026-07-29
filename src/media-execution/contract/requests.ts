@@ -155,6 +155,20 @@ function requirePositiveInteger(value: unknown, path: string): number {
   return value;
 }
 
+function requireSafeInteger(value: unknown, path: string): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value)) {
+    throw new MediaError("invalid_request", path);
+  }
+  return value;
+}
+
+function requirePositiveNumber(value: unknown, path: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    throw new MediaError("invalid_request", path);
+  }
+  return value;
+}
+
 function requireNumber(value: unknown, path: string): number {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     throw new MediaError("invalid_request", path);
@@ -324,13 +338,13 @@ export function parseMediaPlanIntent(raw: unknown): MediaPlanIntent {
       if (typeof input !== "object" || input === null) throw new MediaError("invalid_request", "input");
       const i = input as Record<string, unknown>;
       requireExactKeys(i, ["prompt", "duration_seconds", "resolution", "prompt_optimization"], "input");
-      return { ...base, operation: op, input: { prompt: requireString(i.prompt, "input.prompt"), duration_seconds: i.duration_seconds !== undefined ? requireNumber(i.duration_seconds, "input.duration_seconds") : undefined, resolution: i.resolution !== undefined ? requireString(i.resolution, "input.resolution") : undefined, prompt_optimization: i.prompt_optimization !== undefined ? requireBoolean(i.prompt_optimization, "input.prompt_optimization") : undefined } };
+      return { ...base, operation: op, input: { prompt: requireString(i.prompt, "input.prompt"), duration_seconds: i.duration_seconds !== undefined ? requirePositiveNumber(i.duration_seconds, "input.duration_seconds") : undefined, resolution: i.resolution !== undefined ? requireString(i.resolution, "input.resolution") : undefined, prompt_optimization: i.prompt_optimization !== undefined ? requireBoolean(i.prompt_optimization, "input.prompt_optimization") : undefined } };
     }
     case "video.image_to_video": {
       if (typeof input !== "object" || input === null) throw new MediaError("invalid_request", "input");
       const i = input as Record<string, unknown>;
       requireExactKeys(i, ["prompt", "first_frame", "duration_seconds", "resolution", "prompt_optimization"], "input");
-      return { ...base, operation: op, input: { prompt: i.prompt !== undefined ? requireString(i.prompt, "input.prompt") : undefined, first_frame: parseMediaArtifactHandle(i.first_frame, "input.first_frame"), duration_seconds: i.duration_seconds !== undefined ? requireNumber(i.duration_seconds, "input.duration_seconds") : undefined, resolution: i.resolution !== undefined ? requireString(i.resolution, "input.resolution") : undefined, prompt_optimization: i.prompt_optimization !== undefined ? requireBoolean(i.prompt_optimization, "input.prompt_optimization") : undefined } };
+      return { ...base, operation: op, input: { prompt: i.prompt !== undefined ? requireString(i.prompt, "input.prompt") : undefined, first_frame: parseMediaArtifactHandle(i.first_frame, "input.first_frame"), duration_seconds: i.duration_seconds !== undefined ? requirePositiveNumber(i.duration_seconds, "input.duration_seconds") : undefined, resolution: i.resolution !== undefined ? requireString(i.resolution, "input.resolution") : undefined, prompt_optimization: i.prompt_optimization !== undefined ? requireBoolean(i.prompt_optimization, "input.prompt_optimization") : undefined } };
     }
     case "audio.tts": {
       if (typeof input !== "object" || input === null) throw new MediaError("invalid_request", "input");
@@ -338,7 +352,7 @@ export function parseMediaPlanIntent(raw: unknown): MediaPlanIntent {
       requireExactKeys(i, ["text", "voice", "style", "language", "speed", "volume", "pitch", "format"], "input");
       const fmt = requireString(i.format, "input.format");
       if (fmt !== "wav" && fmt !== "mp3" && fmt !== "ogg") throw new MediaError("invalid_request", "input.format");
-      return { ...base, operation: op, input: { text: requireString(i.text, "input.text"), voice: requireString(i.voice, "input.voice"), style: i.style !== undefined ? requireString(i.style, "input.style") : undefined, language: i.language !== undefined ? requireString(i.language, "input.language") : undefined, speed: i.speed !== undefined ? requireNumber(i.speed, "input.speed") : undefined, volume: i.volume !== undefined ? requireNumber(i.volume, "input.volume") : undefined, pitch: i.pitch !== undefined ? requireNumber(i.pitch, "input.pitch") : undefined, format: fmt } };
+      return { ...base, operation: op, input: { text: requireString(i.text, "input.text"), voice: requireString(i.voice, "input.voice"), style: i.style !== undefined ? requireString(i.style, "input.style") : undefined, language: i.language !== undefined ? requireString(i.language, "input.language") : undefined, speed: i.speed !== undefined ? requirePositiveNumber(i.speed, "input.speed") : undefined, volume: i.volume !== undefined ? requireNumber(i.volume, "input.volume") : undefined, pitch: i.pitch !== undefined ? requireNumber(i.pitch, "input.pitch") : undefined, format: fmt } };
     }
     case "audio.music": {
       if (typeof input !== "object" || input === null) throw new MediaError("invalid_request", "input");
@@ -346,7 +360,7 @@ export function parseMediaPlanIntent(raw: unknown): MediaPlanIntent {
       requireExactKeys(i, ["prompt", "lyrics", "instrumental", "auto_lyrics", "negative_prompt", "seed", "duration_seconds", "format"], "input");
       const fmt = requireString(i.format, "input.format");
       if (fmt !== "wav" && fmt !== "mp3" && fmt !== "ogg") throw new MediaError("invalid_request", "input.format");
-      return { ...base, operation: op, input: { prompt: requireString(i.prompt, "input.prompt"), lyrics: i.lyrics !== undefined ? requireString(i.lyrics, "input.lyrics") : undefined, instrumental: requireBoolean(i.instrumental, "input.instrumental"), auto_lyrics: requireBoolean(i.auto_lyrics, "input.auto_lyrics"), negative_prompt: i.negative_prompt !== undefined ? requireString(i.negative_prompt, "input.negative_prompt") : undefined, seed: i.seed !== undefined ? requireNumber(i.seed, "input.seed") : undefined, duration_seconds: i.duration_seconds !== undefined ? requireNumber(i.duration_seconds, "input.duration_seconds") : undefined, format: fmt } };
+      return { ...base, operation: op, input: { prompt: requireString(i.prompt, "input.prompt"), lyrics: i.lyrics !== undefined ? requireString(i.lyrics, "input.lyrics") : undefined, instrumental: requireBoolean(i.instrumental, "input.instrumental"), auto_lyrics: requireBoolean(i.auto_lyrics, "input.auto_lyrics"), negative_prompt: i.negative_prompt !== undefined ? requireString(i.negative_prompt, "input.negative_prompt") : undefined, seed: i.seed !== undefined ? requireSafeInteger(i.seed, "input.seed") : undefined, duration_seconds: i.duration_seconds !== undefined ? requirePositiveNumber(i.duration_seconds, "input.duration_seconds") : undefined, format: fmt } };
     }
     case "pixel.image": {
       const baseInput = parsePixelInputBase(input, "input", ["references"]);
@@ -417,8 +431,17 @@ function canonicalize(value: unknown): unknown {
   return out;
 }
 
-export function canonicalMediaIntentSha256(intent: MediaPlanIntent): string {
-  const canon = canonicalize(intent);
+export function canonicalMediaIntentSha256(intent: MediaPlanIntent): string;
+export function canonicalMediaIntentSha256(intent: ResolvedMediaRequest): string;
+export function canonicalMediaIntentSha256(
+  intent: MediaPlanIntent & { plan_id?: string; authority_grant_id?: string },
+): string {
+  const {
+    plan_id: _planId,
+    authority_grant_id: _authorityGrantId,
+    ...semanticIntent
+  } = intent;
+  const canon = canonicalize(semanticIntent);
   const json = JSON.stringify(canon);
   return createHash("sha256").update(json, "utf8").digest("hex");
 }
