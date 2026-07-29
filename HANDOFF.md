@@ -1,7 +1,7 @@
 # MeshFleet Handoff
 
-**Last verified:** 2026-07-28 · **Main:** `0e203ea` · **Tag:** `v0.19.0`
-**Suite:** 1127/1127 · **Corpus:** 76 vectors · **Discussion:** 39 cases (23 finding codes) · **Conformance:** 133/133 · **npm:** 0.18.0 live; 0.19.0 auth-blocked
+**Release candidate verified:** 2026-07-28 · **Baseline main:** `0e203ea` · **Tag:** `v0.19.0`
+**Release-candidate suite:** 1127/1127 · **Corpus:** 76 vectors · **Discussion:** 39 cases (23 finding codes) · **Conformance:** 133/133 · **npm:** 0.18.0 live; 0.19.0 auth-blocked
 
 ## Landed and tagged: caller-selected model execution
 
