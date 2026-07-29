@@ -30,6 +30,10 @@ export interface RecommendRouteCandidate {
     measured: boolean;
     used?: number;
     total?: number;
+    window?: {
+      starts_at_ms: number;
+      ends_at_ms: number;
+    };
   };
   requested_identity?: {
     runtime?: string;
@@ -46,6 +50,10 @@ export interface RecommendRouteInput {
   task: RecommendRouteTask;
   candidates: RecommendRouteCandidate[];
   top_n?: number;
+  preference?: {
+    objective: "prefer_near_reset";
+    now_ms: number;
+  };
 }
 
 export interface RecommendRouteResult {
@@ -57,6 +65,12 @@ export interface RecommendRouteResult {
     woke_agents: false;
     contacted_providers: false;
   };
+  preference?: {
+    objective: "prefer_near_reset";
+    now_ms: number;
+    horizon_ms: number;
+    evidence_only: true;
+  };
   ranked: Array<{
     candidate_id: string;
     rank: number;
@@ -65,6 +79,7 @@ export interface RecommendRouteResult {
       observed_outcomes: number;
       budget_adjustment: number;
       final_score: number;
+      reset_urgency?: number;
     };
     budget: {
       measured: boolean;
@@ -96,6 +111,8 @@ const LOCALITY_ORDER: Record<RouteLocality, number> = {
   same_fleet: 1,
   any: 2,
 };
+
+const RESET_URGENCY_HORIZON_MS = 604_800_000;
 
 function invalid(path: string, detail: string): never {
   throw new Error(`recommend_route: '${path}' ${detail}`);
@@ -228,7 +245,7 @@ export function assertRecommendRouteTask(value: unknown): asserts value is Recom
 
 function validateRecommendRouteInput(value: unknown): asserts value is RecommendRouteInput {
   const input = requireRecord(value, "input");
-  requireAllowedKeys(input, "", new Set(["task", "candidates", "top_n"]));
+  requireAllowedKeys(input, "", new Set(["task", "candidates", "top_n", "preference"]));
   assertRecommendRouteTask(input.task);
 
   assertRouteCandidates(input.candidates, {
@@ -241,6 +258,22 @@ function validateRecommendRouteInput(value: unknown): asserts value is Recommend
       invalid("top_n", "cannot exceed candidates.length");
     }
   }
+  if (input.preference !== undefined) {
+    const preference = requireRecord(input.preference, "preference");
+    requireAllowedKeys(
+      preference,
+      "preference",
+      new Set(["objective", "now_ms"]),
+    );
+    if (preference.objective !== "prefer_near_reset") {
+      invalid("preference.objective", "must equal prefer_near_reset");
+    }
+    requireFiniteInteger(
+      preference.now_ms,
+      "preference.now_ms",
+      Number.MIN_SAFE_INTEGER,
+    );
+  }
 }
 
 interface ScoredCandidate {
@@ -249,6 +282,7 @@ interface ScoredCandidate {
   budget: RecommendRouteResult["ranked"][number]["budget"];
   identity: RecommendRouteResult["ranked"][number]["identity"];
   reasonCodes: string[];
+  resetUrgency?: number;
 }
 
 function scoreDeclaredFit(
@@ -347,6 +381,37 @@ function describeIdentity(
   };
 }
 
+function scoreResetUrgency(
+  budget: RecommendRouteCandidate["budget"],
+  nowMs: number,
+): { urgency: number; reasonCode: string } {
+  if (!budget?.measured) {
+    return { urgency: 0, reasonCode: "RESET_BUDGET_UNMEASURED" };
+  }
+  if (budget.window === undefined) {
+    return { urgency: 0, reasonCode: "RESET_WINDOW_MISSING" };
+  }
+  if (
+    nowMs < budget.window.starts_at_ms ||
+    nowMs > budget.window.ends_at_ms
+  ) {
+    return { urgency: 0, reasonCode: "RESET_WINDOW_NOT_CURRENT" };
+  }
+  const remainingFraction = Math.max(
+    0,
+    Math.min(1, (budget.total! - budget.used!) / budget.total!),
+  );
+  const msLeft = budget.window.ends_at_ms - nowMs;
+  const proximity = Math.max(
+    0,
+    Math.min(1, 1 - msLeft / RESET_URGENCY_HORIZON_MS),
+  );
+  return {
+    urgency: remainingFraction * proximity,
+    reasonCode: "RESET_WINDOW_CURRENT",
+  };
+}
+
 export function recommendRoute(input: RecommendRouteInput): RecommendRouteResult {
   validateRecommendRouteInput(input);
   const eligible: ScoredCandidate[] = [];
@@ -404,6 +469,9 @@ export function recommendRoute(input: RecommendRouteInput): RecommendRouteResult
       });
       continue;
     }
+    const resetUrgency = input.preference === undefined
+      ? undefined
+      : scoreResetUrgency(candidate.budget, input.preference.now_ms);
     eligible.push({
       candidate,
       components: {
@@ -411,19 +479,32 @@ export function recommendRoute(input: RecommendRouteInput): RecommendRouteResult
         observed_outcomes: observedOutcomes,
         budget_adjustment: budget.adjustment,
         final_score: declaredFit * observedOutcomes * budget.adjustment,
+        ...(resetUrgency === undefined
+          ? {}
+          : { reset_urgency: resetUrgency.urgency }),
       },
       budget: budget.view,
       identity: describeIdentity(candidate),
       reasonCodes: [
         ...(candidate.observed_outcomes ? [] : ["OUTCOMES_UNMEASURED"]),
         ...budget.reasonCodes,
+        ...(resetUrgency === undefined ? [] : [resetUrgency.reasonCode]),
       ],
+      ...(resetUrgency === undefined
+        ? {}
+        : { resetUrgency: resetUrgency.urgency }),
     });
   }
 
   eligible.sort((a, b) => {
     if (a.components.final_score !== b.components.final_score) {
       return b.components.final_score - a.components.final_score;
+    }
+    if (
+      input.preference !== undefined &&
+      a.resetUrgency !== b.resetUrgency
+    ) {
+      return (b.resetUrgency ?? 0) - (a.resetUrgency ?? 0);
     }
     if (a.components.declared_fit !== b.components.declared_fit) {
       return b.components.declared_fit - a.components.declared_fit;
@@ -445,6 +526,16 @@ export function recommendRoute(input: RecommendRouteInput): RecommendRouteResult
       woke_agents: false,
       contacted_providers: false,
     },
+    ...(input.preference === undefined
+      ? {}
+      : {
+          preference: {
+            objective: input.preference.objective,
+            now_ms: input.preference.now_ms,
+            horizon_ms: RESET_URGENCY_HORIZON_MS,
+            evidence_only: true as const,
+          },
+        }),
     ranked: eligible.slice(0, topN).map((scored, index) => ({
       candidate_id: scored.candidate.candidate_id,
       rank: index + 1,

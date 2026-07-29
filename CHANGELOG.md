@@ -19,6 +19,16 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 
 ### Added
 
+- **Opt-in near-reset advisory preference** — `recommend_route` accepts
+  caller-supplied measured budget windows plus
+  `preference: { objective: "prefer_near_reset", now_ms }`. Existing
+  `final_score` remains primary; reset urgency is only the next tie-break and
+  never changes `budget_adjustment`, hard gates, measured exhaustion, or the
+  default response/ranking when the preference is absent. Validated Fleetbudget
+  bounds copy through `compile_route_candidates` without their window/lane ID.
+  This adds no polling, freshness attestation, provider inference, shared-pool
+  allocation, reservation, execution, wake, persistence, or default drain
+  policy.
 - **Bounded incident timelines** — `agent-mesh inspect timeline [fleet]` now
   accepts optional `--from` and `--to` epoch-millisecond or ISO-8601 bounds.
   Bounded reads select the half-open interval `[from,to)` over stored local

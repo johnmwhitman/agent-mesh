@@ -632,7 +632,12 @@ test("recommends two distinct RoutePlane policies backed by one shared green poo
       coordination_modes: ["solo"],
       policy_tags: ["no_train", "alpha"],
       context_window: 16_000,
-      budget: { measured: true, used: 1, total: 4 },
+      budget: {
+        measured: true,
+        used: 1,
+        total: 4,
+        window: { starts_at_ms: 0, ends_at_ms: 2_000 },
+      },
       requested_identity: { runtime: "routeplane", model: "a-model" },
     },
     {
@@ -643,7 +648,12 @@ test("recommends two distinct RoutePlane policies backed by one shared green poo
       coordination_modes: ["solo", "pair_discussion"],
       policy_tags: ["no_train", "zeta"],
       context_window: 32_000,
-      budget: { measured: true, used: 1, total: 4 },
+      budget: {
+        measured: true,
+        used: 1,
+        total: 4,
+        window: { starts_at_ms: 0, ends_at_ms: 2_000 },
+      },
       requested_identity: { runtime: "routeplane", model: "z-model" },
     },
   ]);

@@ -615,6 +615,23 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
                   properties: {
                     used: { type: "number", minimum: 0 },
                     total: { type: "number", exclusiveMinimum: 0 },
+                    window: {
+                      type: "object",
+                      additionalProperties: false,
+                      properties: {
+                        starts_at_ms: {
+                          type: "integer",
+                          minimum: Number.MIN_SAFE_INTEGER,
+                          maximum: Number.MAX_SAFE_INTEGER,
+                        },
+                        ends_at_ms: {
+                          type: "integer",
+                          minimum: Number.MIN_SAFE_INTEGER,
+                          maximum: Number.MAX_SAFE_INTEGER,
+                        },
+                      },
+                      required: ["starts_at_ms", "ends_at_ms"],
+                    },
                   },
                   required: ["used", "total"],
                 },
@@ -790,6 +807,23 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
                     measured: { type: "boolean" },
                     used: { type: "number", minimum: 0 },
                     total: { type: "number", exclusiveMinimum: 0 },
+                    window: {
+                      type: "object",
+                      additionalProperties: false,
+                      properties: {
+                        starts_at_ms: {
+                          type: "integer",
+                          minimum: Number.MIN_SAFE_INTEGER,
+                          maximum: Number.MAX_SAFE_INTEGER,
+                        },
+                        ends_at_ms: {
+                          type: "integer",
+                          minimum: Number.MIN_SAFE_INTEGER,
+                          maximum: Number.MAX_SAFE_INTEGER,
+                        },
+                      },
+                      required: ["starts_at_ms", "ends_at_ms"],
+                    },
                   },
                   required: ["measured"],
                   allOf: [
@@ -810,6 +844,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
                           anyOf: [
                             { required: ["used"] },
                             { required: ["total"] },
+                            { required: ["window"] },
                           ],
                         },
                       },
@@ -839,6 +874,24 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
               },
               required: ["candidate_id", "capabilities", "privacy", "locality"],
             },
+          },
+          preference: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              objective: {
+                type: "string",
+                const: "prefer_near_reset",
+              },
+              now_ms: {
+                type: "integer",
+                minimum: Number.MIN_SAFE_INTEGER,
+                maximum: Number.MAX_SAFE_INTEGER,
+              },
+            },
+            required: ["objective", "now_ms"],
+            description:
+              "Opt-in advisory tie-break preference. Never changes hard gates, budget adjustment, or final_score.",
           },
           top_n: {
             type: "integer",
@@ -1436,7 +1489,7 @@ toolHandlers["recommend_route"] = async (args) => {
   };
   const topLevelUnexpected = firstUnexpected(
     input,
-    new Set(["task", "candidates", "top_n"]),
+    new Set(["task", "candidates", "top_n", "preference"]),
     "",
   );
   if (topLevelUnexpected) {

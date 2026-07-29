@@ -171,16 +171,18 @@ binding.
 `projected.observations` is sorted by `candidate_id` and has the existing
 `CompileRouteCandidateObservation` shape. Complete measured evidence emits
 `green` below its ceiling or `exhausted` at or above it; overage is preserved.
+The validated quota window's `starts_at_ms` and `ends_at_ms` are copied beside
+`used` and `total`; its caller-facing `id` is deliberately not projected and
+cannot affect scoring.
 `projected.diagnostics` has one sorted entry per binding. It records missing,
 unmeasured, incomplete, or non-current evidence without inventing a budget.
 
-For a shared lane, the same sampled `used` and `total` values are copied
-unsplit to every bound candidate. Nothing is summed, divided, decremented, or
-allocated. Observations and compiled candidates intentionally erase which
-candidates were co-located; caller-owned bindings and per-binding diagnostics
-retain the lane relationship. Existing exclusive bindings keep byte-identical
-results; this is only an acceptance widening for repeated lane bindings that
-previously failed validation.
+For a shared lane, the same sampled `used`, `total`, and window bounds are copied
+unsplit into distinct objects for every bound candidate. Nothing is summed,
+divided, decremented, reserved, or allocated. Observations and compiled
+candidates erase the lane identity; equal copied values do not prove that
+candidates share a pool. Caller-owned bindings and per-binding diagnostics
+retain the actual lane relationship.
 
 The result also includes all-false `effects` and source provenance: the
 observation time bounds plus SHA-256 hashes of canonical snapshot and binding
@@ -191,7 +193,10 @@ Pass `projected.observations` unchanged to `compileRouteCandidates()` (or the
 `compile_route_candidates` MCP tool), then pass its candidates to
 `recommendRoute()` (or `recommend_route`). A complete measured exhausted lane
 flows through the existing `BUDGET_EXHAUSTED` exclusion. Incomplete or
-unmeasured evidence remains neutral and unmeasured.
+unmeasured evidence remains neutral and unmeasured. A caller may separately opt
+in to `prefer_near_reset`; the recommender then interprets the copied bounds
+against the caller's `now_ms`. The copied window proves neither that a later
+recommendation is fresh nor that any execution will consume that pool.
 
 ## Boundaries
 
@@ -204,8 +209,9 @@ a provider, model, capability, identity, health, authentication, credential,
 locality, or routing authority.
 
 The slice prevents a measured spent lane from being selected through the
-existing budget-exhaustion path. It does not reward unused quota, choose a
-provider, maximize weekly burn, refresh telemetry, or alter the compiler or
-recommender score law. It also provides no pool accounting, reservation,
-concurrency control, fair-share calculation, or execution authority; drain
-scoring remains future work.
+existing budget-exhaustion path. Separately, the opt-in recommender preference
+can use current window evidence only after the existing `final_score` as a
+near-reset tie-break. It does not change `budget_adjustment`, choose a provider,
+maximize weekly burn by default, refresh telemetry, or alter hard gates. It
+also provides no pool accounting, reservation, concurrency control, fair-share
+calculation, execution authority, or proof of token consumption.

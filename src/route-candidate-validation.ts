@@ -211,7 +211,7 @@ export function assertRouteCandidates(
       requireAllowedKeys(
         budget,
         `${path}.budget`,
-        new Set(["measured", "used", "total"]),
+        new Set(["measured", "used", "total", "window"]),
         failValidation,
       );
       if (typeof budget.measured !== "boolean") {
@@ -224,8 +224,46 @@ export function assertRouteCandidates(
         if (!Number.isFinite(budget.total) || (budget.total as number) <= 0) {
           failValidation(`${path}.budget.total`, "must be a finite number > 0");
         }
-      } else if (budget.used !== undefined || budget.total !== undefined) {
-        failValidation(`${path}.budget`, "must omit used and total when measured is false");
+        if (budget.window !== undefined) {
+          const window = requireRecord(
+            budget.window,
+            `${path}.budget.window`,
+            failValidation,
+          );
+          requireAllowedKeys(
+            window,
+            `${path}.budget.window`,
+            new Set(["starts_at_ms", "ends_at_ms"]),
+            failValidation,
+          );
+          requireFiniteInteger(
+            window.starts_at_ms,
+            `${path}.budget.window.starts_at_ms`,
+            Number.MIN_SAFE_INTEGER,
+            failValidation,
+          );
+          requireFiniteInteger(
+            window.ends_at_ms,
+            `${path}.budget.window.ends_at_ms`,
+            Number.MIN_SAFE_INTEGER,
+            failValidation,
+          );
+          if ((window.ends_at_ms as number) <= (window.starts_at_ms as number)) {
+            failValidation(
+              `${path}.budget.window.ends_at_ms`,
+              "must be greater than starts_at_ms",
+            );
+          }
+        }
+      } else if (
+        budget.used !== undefined ||
+        budget.total !== undefined ||
+        budget.window !== undefined
+      ) {
+        failValidation(
+          `${path}.budget`,
+          "must omit used and total, and window when measured is false",
+        );
       }
     }
     if (candidate.requested_identity !== undefined) {

@@ -16,6 +16,10 @@ export interface CompileRouteCandidateObservation {
   budget?: {
     used: number;
     total: number;
+    window?: {
+      starts_at_ms: number;
+      ends_at_ms: number;
+    };
   };
   observed_outcomes?: {
     successes: number;
@@ -217,7 +221,15 @@ function validateObservations(
     }
     if (observation.budget !== undefined) {
       const budget = requireRecord(observation.budget, `${path}.budget`);
-      requireAllowedKeys(budget, `${path}.budget`, new Set(["used", "total"]));
+      requireAllowedKeys(budget, `${path}.budget`, new Set(["used", "total", "window"]));
+      if (budget.window !== undefined) {
+        const window = requireRecord(budget.window, `${path}.budget.window`);
+        requireAllowedKeys(
+          window,
+          `${path}.budget.window`,
+          new Set(["starts_at_ms", "ends_at_ms"]),
+        );
+      }
     }
     if (observation.observed_outcomes !== undefined) {
       const outcomes = requireRecord(observation.observed_outcomes, `${path}.observed_outcomes`);
@@ -261,6 +273,27 @@ function validateObservations(
       if (!Number.isFinite(observation.budget.total) || observation.budget.total <= 0) {
         invalid(`${path}.budget.total`, "must be a finite number > 0");
       }
+      if (observation.budget.window !== undefined) {
+        requireFiniteInteger(
+          observation.budget.window.starts_at_ms,
+          `${path}.budget.window.starts_at_ms`,
+          Number.MIN_SAFE_INTEGER,
+        );
+        requireFiniteInteger(
+          observation.budget.window.ends_at_ms,
+          `${path}.budget.window.ends_at_ms`,
+          Number.MIN_SAFE_INTEGER,
+        );
+        if (
+          observation.budget.window.ends_at_ms <=
+          observation.budget.window.starts_at_ms
+        ) {
+          invalid(
+            `${path}.budget.window.ends_at_ms`,
+            "must be greater than starts_at_ms",
+          );
+        }
+      }
     }
     const exhaustedEvidence =
       observation.budget !== undefined && observation.budget.used >= observation.budget.total;
@@ -292,6 +325,14 @@ function copyCandidate(
             measured: true,
             used: observation.budget.used,
             total: observation.budget.total,
+            ...(observation.budget.window === undefined
+              ? {}
+              : {
+                  window: {
+                    starts_at_ms: observation.budget.window.starts_at_ms,
+                    ends_at_ms: observation.budget.window.ends_at_ms,
+                  },
+                }),
           }
         : { measured: false },
   };

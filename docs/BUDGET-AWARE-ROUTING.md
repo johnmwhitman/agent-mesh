@@ -8,8 +8,11 @@ There are now two routing surfaces:
   agent/runtime/model candidate snapshots, including any budget evidence it has. See
   [ADVISORY-ROUTING.md](ADVISORY-ROUTING.md).
 
-Both preserve the same asymmetry: budget can demote or exclude, but never promote.
-Unknown budget is neutral and visibly unmeasured.
+Both preserve the same default asymmetry: the budget multiplier can demote or exclude,
+but never promote. Unknown budget is neutral and visibly unmeasured. `recommend_route`
+also has a separate opt-in near-reset tie-break that can reorder only candidates with
+the same existing final score; it does not change the multiplier or final score. See
+[ADVISORY-ROUTING.md](ADVISORY-ROUTING.md#opt-in-near-reset-preference).
 
 ## Why
 

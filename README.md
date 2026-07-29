@@ -40,7 +40,7 @@ const { fleet_id } = await callTool("spawn_fleet", {
 
 Three specialists. Three independent processes. They hand off, ask questions, alert on problems. You read the result.
 
-Each agent accepts an optional `model` (`provider/model`) selector. When set, Meshfleet persists it as the immutable request (`Agent.requested_model`) and launches `opencode run --model <value>` for that agent; the observed runtime banner lands in `Agent.runtime_model`, and a `complete` agent whose banner is missing or contradicts the request fails closed. Omitting `model` keeps the old argv exactly. The selector is data, not shell text, and the banner is observed evidence — not authentication, billing, provider availability, or attestation. Default execution is still OpenCode; there is no public runtime-adapter selector, no automatic model choice, no token-budget drain policy, and no credential flow in this slice. Local smoke tests exercised the installed OpenCode IDs `opencode-go/minimax-m3` and `kilo/kilo-auto/free`; that evidence is environment-local. Ollama Cloud's direct API and automatic subscription-aware selection remain future work.
+Each agent accepts an optional `model` (`provider/model`) selector. When set, Meshfleet persists it as the immutable request (`Agent.requested_model`) and launches `opencode run --model <value>` for that agent; the observed runtime banner lands in `Agent.runtime_model`, and a `complete` agent whose banner is missing or contradicts the request fails closed. Omitting `model` keeps the old argv exactly. The selector is data, not shell text, and the banner is observed evidence — not authentication, billing, provider availability, or attestation. Default execution is still OpenCode; there is no public runtime-adapter selector, no automatic model choice, no default token-budget drain policy, and no credential flow in this slice. Local smoke tests exercised the installed OpenCode IDs `opencode-go/minimax-m3` and `kilo/kilo-auto/free`; that evidence is environment-local. Ollama Cloud's direct API and automatic executing subscription-aware selection remain future work; the separate pure `recommend_route` advisory may opt in to a caller-evidenced near-reset tie-break.
 
 And when an agent's action matters, Meshfleet can prove what happened. Every message writes **per-recipient receipts** (delivered, seen, acked). Decisions can go through **councils** — quorum-based ratification with required sign-offs, recorded on the same ledger. The design is a port of a bus that ran a 10+ agent fleet in production for 40 days and 18,404 messages, including quorum-ratified decisions.
 
@@ -272,7 +272,7 @@ evidence, authenticated provenance, or external time.
 |---|---|
 | `register_capability` | Self-describe role + skills for routing |
 | `route_work` | Match a task to the best agent by keyword + role overlap |
-| `recommend_route` | Advisory ranking for caller-supplied agent/runtime/model candidates, with hard privacy and capability filters |
+| `recommend_route` | Advisory ranking for caller-supplied agent/runtime/model candidates, with hard privacy/capability filters and an opt-in near-reset tie-break |
 | `compile_route_candidates` | Pure offline projection of sanitized manifest/observation snapshots; does not rank, persist, execute, authorize, wake, or contact providers |
 | `record_routing_outcome` | Feed results back to improve routing |
 | `list_agents` | Discover 100+ premade agent personalities |
@@ -320,8 +320,11 @@ caller-supplied versioned snapshots with explicit candidate bindings when a
 real typed quota window exists. Several candidates may share a lane ID as
 copied, unsplit evidence; the compiler returns observations or diagnostics,
 canonical provenance hashes, and all-false effects. Neither surface sums,
-allocates, reserves, synchronizes, executes, authorizes, rewards unused quota,
-or implements a drain policy. Structured collector versioning,
+allocates, reserves, synchronizes, executes, or authorizes. Validated window
+bounds flow through the route-candidate compiler without their lane/window ID.
+An explicit `prefer_near_reset` recommendation can use those bounds only after
+the existing final score as a tie-break; there is no default drain policy.
+Structured collector versioning,
 producer-owned observation timing, and typed quota windows are required before
 raw measured budget can become actionable. [Safe host collection and exact boundary → docs/FLEETBUDGET-OBSERVATIONS.md](docs/FLEETBUDGET-OBSERVATIONS.md)
 

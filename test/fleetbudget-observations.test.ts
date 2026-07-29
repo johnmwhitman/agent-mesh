@@ -247,6 +247,24 @@ test("rejects duplicate snapshot lanes, duplicate candidates, and contradictory 
     () => compileFleetBudgetObservations(input({ snapshot: snapshot({ lanes: [{ ...snapshot().lanes[0], window: { id: "july", starts_at_ms: 101, ends_at_ms: 2_000 } }] }) }) as never),
     expects("input.snapshot.lanes[0].window", "must contain snapshot.observed_at_ms"),
   );
+  assert.throws(
+    () => compileFleetBudgetObservations(input({
+      snapshot: snapshot({
+        lanes: [{
+          ...snapshot().lanes[0],
+          window: {
+            id: "july",
+            starts_at_ms: Number.MIN_SAFE_INTEGER - 1,
+            ends_at_ms: 2_000,
+          },
+        }],
+      }),
+    }) as never),
+    expects(
+      "input.snapshot.lanes[0].window.starts_at_ms",
+      "must be a finite safe integer",
+    ),
+  );
 });
 
 test("projects one shared green lane to two candidates without splitting or mutating evidence", () => {
@@ -293,13 +311,21 @@ test("projects one shared green lane to two candidates without splitting or muta
       candidate_id: "candidate-a",
       status: "green",
       confidence: "measured",
-      budget: { used: 1, total: 2 },
+      budget: {
+        used: 1,
+        total: 2,
+        window: { starts_at_ms: 0, ends_at_ms: 2_000 },
+      },
     },
     {
       candidate_id: "candidate-z",
       status: "green",
       confidence: "measured",
-      budget: { used: 1, total: 2 },
+      budget: {
+        used: 1,
+        total: 2,
+        window: { starts_at_ms: 0, ends_at_ms: 2_000 },
+      },
     },
   ]);
   assert.deepEqual(projected.diagnostics, [
@@ -331,13 +357,21 @@ test("fans shared exhausted and unusable evidence out with exact sorted diagnost
           candidate_id: "candidate-a",
           status: "exhausted",
           confidence: "measured",
-          budget: { used: 2, total: 2 },
+          budget: {
+            used: 2,
+            total: 2,
+            window: { starts_at_ms: 0, ends_at_ms: 2_000 },
+          },
         },
         {
           candidate_id: "candidate-z",
           status: "exhausted",
           confidence: "measured",
-          budget: { used: 2, total: 2 },
+          budget: {
+            used: 2,
+            total: 2,
+            window: { starts_at_ms: 0, ends_at_ms: 2_000 },
+          },
         },
       ],
     },
@@ -417,7 +451,11 @@ test("projects measured green evidence with its empty resolution ledger", () => 
     candidate_id: "lane-a",
     status: "green",
     confidence: "measured",
-    budget: { used: 1, total: 2 },
+    budget: {
+      used: 1,
+      total: 2,
+      window: { starts_at_ms: 0, ends_at_ms: 2_000 },
+    },
   }]);
   assert.deepEqual(result.diagnostics, [{
     candidate_id: "lane-a",
@@ -442,7 +480,11 @@ test("projects exact exhaustion without clamping overage", () => {
     candidate_id: "lane-a",
     status: "exhausted",
     confidence: "measured",
-    budget: { used: 12, total: 10 },
+    budget: {
+      used: 12,
+      total: 10,
+      window: { starts_at_ms: 0, ends_at_ms: 2_000 },
+    },
   }]);
   assert.deepEqual(result.diagnostics, [{ candidate_id: "lane-a", lane_id: "grok-build", reason_codes: [] }]);
 });
@@ -864,19 +906,31 @@ test("mixed shared-green and private-exhausted lanes preserve independent eviden
       candidate_id: "candidate-a",
       status: "green",
       confidence: "measured",
-      budget: { used: 1, total: 2 },
+      budget: {
+        used: 1,
+        total: 2,
+        window: { starts_at_ms: 0, ends_at_ms: 2_000 },
+      },
     },
     {
       candidate_id: "candidate-b",
       status: "green",
       confidence: "measured",
-      budget: { used: 1, total: 2 },
+      budget: {
+        used: 1,
+        total: 2,
+        window: { starts_at_ms: 0, ends_at_ms: 2_000 },
+      },
     },
     {
       candidate_id: "candidate-z",
       status: "exhausted",
       confidence: "measured",
-      budget: { used: 3, total: 3 },
+      budget: {
+        used: 3,
+        total: 3,
+        window: { starts_at_ms: 0, ends_at_ms: 2_000 },
+      },
     },
   ]);
   assert.deepEqual(projected.diagnostics, [
@@ -931,7 +985,12 @@ test("provider-shaped fleetbudget lane IDs cannot alter route authority", () => 
     capabilities: ["code"],
     privacy: "local_only",
     locality: "same_host",
-    budget: { measured: true, used: 1, total: 2 },
+    budget: {
+      measured: true,
+      used: 1,
+      total: 2,
+      window: { starts_at_ms: 0, ends_at_ms: 2_000 },
+    },
     requested_identity: { runtime: "declared-runtime", model: "declared-model" },
   });
   assert.equal("observed_identity" in candidate, false);
