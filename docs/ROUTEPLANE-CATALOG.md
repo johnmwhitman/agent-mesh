@@ -87,6 +87,29 @@ wake agents, contact providers, poll budget telemetry, or infer any authority
 from catalog provider labels. Caller policy remains the source of routing traits
 and any measured budget observation.
 
+## Refresh and recommend in one explicit call
+
+`fetchAndRecommendRoutePlaneCatalog()` is the opt-in live composition for a
+caller that wants its recommendation to consume the catalog advertised at the
+time of that call. It makes one bounded `GET` to the same fixed loopback
+endpoint, constructs a fresh expiring snapshot, and passes that exact snapshot
+to `recommendRoutePlaneCatalog()`:
+
+```ts
+import { fetchAndRecommendRoutePlaneCatalog } from "meshfleet/routeplane-catalog";
+
+const recommendation = await fetchAndRecommendRoutePlaneCatalog({
+  policies,
+  task,
+  top_n: 1,
+});
+```
+
+It does not cache or schedule refreshes; a failed fetch returns no fallback
+recommendation. It remains advisory and all effect flags stay false. The call
+does not select or execute a model, authenticate to a provider, query provider
+health or budget, or infer authority from a provider label.
+
 ## Authority and freshness boundary
 
 RoutePlane remains authoritative for its catalog, credentials, authentication,

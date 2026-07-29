@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   compileRoutePlaneCandidates,
+  fetchAndRecommendRoutePlaneCatalog,
   fetchRoutePlaneCatalog,
   normalizeRoutePlaneCatalog,
   recommendRoutePlaneCatalog,
@@ -193,6 +194,51 @@ test("fetches only the fixed loopback endpoint without headers and refuses redir
     { id: "a-model", providers: ["beta"] },
     { id: "z-model", providers: ["alpha", "zeta"] },
   ]);
+});
+
+test("fetches the current RoutePlane catalog before making an advisory recommendation", async () => {
+  let calls = 0;
+  const result = await fetchAndRecommendRoutePlaneCatalog({
+    policies: [
+      {
+        candidate_id: "current-routeplane-model",
+        model: "current-model",
+        capabilities: ["code"],
+        privacy: "network_ok",
+        locality: "any",
+      },
+      {
+        candidate_id: "removed-routeplane-model",
+        model: "removed-model",
+        capabilities: ["code"],
+        privacy: "network_ok",
+        locality: "any",
+      },
+    ],
+    task: { required_capabilities: ["code"], privacy: "network_ok", locality: "any" },
+    fetch_options: {
+      fetch_impl: async () => {
+        calls += 1;
+        return Response.json({
+          object: "list",
+          data: [{ id: "current-model", object: "model", providers: ["catalog-only"] }],
+        });
+      },
+    },
+  });
+
+  assert.equal(calls, 1);
+  assert.equal(result.status, "evaluated");
+  assert.deepEqual(result.ranked.map(({ candidate_id }) => candidate_id), ["current-routeplane-model"]);
+  assert.deepEqual(result.compilation.diagnostics, [
+    {
+      candidate_id: "current-routeplane-model",
+      reason_codes: ["OBSERVATION_MISSING", "BUDGET_UNMEASURED"],
+    },
+    { candidate_id: "removed-routeplane-model", reason_codes: ["MODEL_NOT_ADVERTISED"] },
+  ]);
+  assert.deepEqual(result.effects, routePlaneEffects);
+  assert.deepEqual(result.source.endpoint, "http://127.0.0.1:4356/v1/models");
 });
 
 test("turns a refused redirect into a typed catalog error", async () => {
