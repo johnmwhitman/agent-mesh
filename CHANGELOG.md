@@ -4,6 +4,8 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-07-29
+
 ### Changed
 
 - **Runtime child output is now bounded by default.** The OpenCode compatibility
