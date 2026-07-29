@@ -676,7 +676,7 @@ function validateLanes(value: unknown): FleetBudgetLane[] {
 }
 
 function validateRoutes(value: unknown): void {
-  if (!isRecord(value) || Object.keys(value).length > MAX_ITEMS) {
+  if (!isRecord(value)) {
     reject("invalid_report", "report.routes");
   }
   const keys = Object.keys(value);

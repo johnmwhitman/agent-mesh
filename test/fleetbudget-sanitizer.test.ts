@@ -413,6 +413,15 @@ test("pins the exact current ten route keys and dynamic value paths", () => {
   );
   captureError(
     () => sanitizeFleetBudgetReport(input(bytes(report({
+      routes: Object.fromEntries(
+        Array.from({ length: 257 }, (_, index) => [`extra-${index}`, null]),
+      ),
+    })))),
+    "report_schema_drift",
+    "report.routes[*].key",
+  );
+  captureError(
+    () => sanitizeFleetBudgetReport(input(bytes(report({
       routes: { ...routes(), bulk: 3 },
     })))),
     "invalid_report",
