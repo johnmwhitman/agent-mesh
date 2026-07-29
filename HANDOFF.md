@@ -83,6 +83,14 @@ Charges preserved in `charges/`; all seat outputs in `board/seat-*.md`.
 
 - **34 MCP tools** across 11 families: lifecycle, messaging, inbox, receipts, ratification,
   capability-routing, health, discussions, templates, advisory-routing, verification
+- **RoutePlane catalog discovery is host-side, not MCP:** the separate
+  `meshfleet-routeplane-catalog` CLI fetches the fixed loopback `/v1/models`
+  catalog into an expiring canonical snapshot, and the library projects exact
+  advertised model IDs plus caller-owned policy into advisory candidates. It
+  does not add a 35th MCP tool or claim automatic selection, token-pool draining,
+  budget freshness, health, authentication, credential handling, or execution.
+  RoutePlane retains those provider responsibilities; MeshFleet retains policy
+  projection and advisory ranking. See `docs/ROUTEPLANE-CATALOG.md`.
 - **12 A2A conformance witnesses** under `blackbox/` — pure offline blackbox suites with JS
   runners, Python evaluators, corpora, and review records. The 12th (discussion-derivation)
   has an 18-case corpus and a 1,273-line Grok-produced pure JS evaluator verified against

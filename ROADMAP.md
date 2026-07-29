@@ -145,10 +145,16 @@ Direction, not commitment — items ship when real usage pulls them.
 - VS Code extension marketplace listing (the read-only inspector MVP already lives in `editors/vscode/`) — waiting on a publisher account, not on code.
 
 **Next**
-- Automatic model choice, subscription-aware selection, token-pool draining, and Ollama Cloud's direct API. The bounded caller-selected OpenCode model path is shipped; automatic policy remains future work.
+- Automatic model choice, subscription-aware selection, token-pool draining, and Ollama Cloud's direct API. RoutePlane catalog discovery and caller-policy projection are shipped, but automatic policy remains future work.
 - Per-entry provenance confidence bands in verify output
 
 **Recently shipped from this list** (moved here rather than deleted, so the list stays auditable)
+- RoutePlane model-catalog discovery and caller-policy projection: the separate
+  `meshfleet-routeplane-catalog` CLI fetches only RoutePlane's fixed loopback
+  catalog and emits a bounded, expiring canonical snapshot; the library admits
+  only exact advertised model IDs into the existing advisory candidate compiler.
+  It adds no MCP tool, automatic selection, token-pool draining, budget
+  freshness, health, authentication, or execution authority.
 - P1 spawn receipts and bounded public model selection: `spawn_fleet` / `attach_agent` accept an optional `model`, the request is persisted separately from the observed banner, legacy and durable retries plus Discussion wakeups preserve it, and missing or contradictory observation fails closed. Banner agreement remains observed evidence only. Capability `model` remains routing self-description.
 - A published corpus of tampered-ledger fixtures the verifier must catch — [`test/fixtures/corpus/`](test/fixtures/corpus/README.md). 76 vectors over a shared clean baseline, each one baseline-plus-declared-change so the baseline is a genuine near-neighbour control. Reported in three separate buckets, never blended: 54 `caught` (overclaims that must raise an error and fail the ledger), 12 `anomaly` (warning-only; deliberately not counted as caught), and 10 `undetectable` — vectors the unsigned local core structurally cannot see, published because a boundary you conceal is more dangerous than one you demonstrate. Coverage over all 48 non-`discussion` checks is re-derived from source each run, so a new check without a vector fails the suite.
 - `verify --explain` — failure triage for the ledger auditor

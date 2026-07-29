@@ -274,6 +274,11 @@ See [docs/discussions.md](docs/discussions.md) for the full quickstart, tool ref
 
 That's 34. We counted twice this time.
 
+RoutePlane catalog discovery is a separate package library and CLI, not an MCP
+tool: it fetches RoutePlane's fixed loopback model catalog and projects
+caller-owned policy into advisory candidates. It neither selects nor executes a
+model. [RoutePlane catalog boundary → docs/ROUTEPLANE-CATALOG.md](docs/ROUTEPLANE-CATALOG.md)
+
 [Advisory routing → docs/ADVISORY-ROUTING.md](docs/ADVISORY-ROUTING.md) · [Architecture orientation → AGENT-MESH-SPEC.md](AGENT-MESH-SPEC.md) · [P2P/receipts → SPEC-P2P.md](SPEC-P2P.md) · [Councils → SPEC-COUNCILS.md](SPEC-COUNCILS.md)
 
 ---
