@@ -37,6 +37,12 @@ export interface LifecycleExecutionCoordinatorOptions {
   beforeRuntimeStart?: () => void;
 }
 
+interface TrackedRuntimeHandle {
+  handle: RuntimeHandle;
+  attemptId: string;
+  ownerEpoch: number;
+}
+
 const DEFAULT_LEASE_MS = 30_000;
 const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_RETRY_BASE_MS = 1_000;
@@ -138,7 +144,7 @@ export class LifecycleExecutionCoordinator {
   private readonly retryBaseMs: number;
   private readonly terminatePid: (pid: number) => void;
   private readonly beforeRuntimeStart?: () => void;
-  private readonly handles = new Map<string, RuntimeHandle>();
+  private readonly handles = new Map<string, TrackedRuntimeHandle>();
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
   private recoveryTimer: ReturnType<typeof setTimeout> | undefined;
   private stopped = false;
@@ -248,6 +254,7 @@ export class LifecycleExecutionCoordinator {
       return states;
     });
     void recovered;
+    this.pruneStaleLocalHandles(at);
     this.launchDue();
     this.scheduleRecoveryWake();
     repairLifecycleOutbox(this.ownerId, this.now());
@@ -260,7 +267,7 @@ export class LifecycleExecutionCoordinator {
     this.recoveryTimer = undefined;
     for (const timer of this.timers.values()) clearTimeout(timer);
     this.timers.clear();
-    for (const handle of this.handles.values()) void this.runtime.cancel(handle, "coordinator stopped");
+    for (const tracked of this.handles.values()) void this.runtime.cancel(tracked.handle, "coordinator stopped");
     this.handles.clear();
   }
 
@@ -334,7 +341,7 @@ export class LifecycleExecutionCoordinator {
         return true;
       });
       if (!launched) { void this.runtime.cancel(handle, "lease lost before launch observation"); return; }
-      this.handles.set(agentId, handle);
+      this.handles.set(agentId, { handle, attemptId: current.attempt_id, ownerEpoch: current.owner_epoch });
       this.startRenewal(agentId, current.attempt_id, current.owner_epoch, handle);
       void this.runtime.wait(handle)
         .then((result) => this.settle(agentId, current.attempt_id, current.owner_epoch, result))
@@ -350,7 +357,7 @@ export class LifecycleExecutionCoordinator {
     const timer = setInterval(() => {
       if (this.stopped) { clearInterval(timer); return; }
       const renewed = withLedgerAndStorage((_data, db) => lifecycle(db, this.now).renewLease({ workId: agentId, attemptId, ownerId: this.ownerId, ownerEpoch: epoch, leaseMs: this.leaseMs }).accepted);
-      if (!renewed) { clearInterval(timer); void this.runtime.cancel(handle, "lease lost"); }
+      if (!renewed) this.releaseLocalHandle(agentId, attemptId, epoch, "lease lost");
       else this.scheduleRecoveryWake();
     }, Math.max(1, Math.floor(this.leaseMs / 2)));
     timer.unref?.();
@@ -359,10 +366,13 @@ export class LifecycleExecutionCoordinator {
 
   private settle(agentId: string, attemptId: string, epoch: number, result: RuntimeResult): void {
     if (this.stopped) return;
-    const timer = this.timers.get(agentId);
-    if (timer) clearInterval(timer);
-    this.timers.delete(agentId);
-    this.handles.delete(agentId);
+    const tracked = this.handles.get(agentId);
+    if (tracked?.attemptId === attemptId && tracked.ownerEpoch === epoch) {
+      const timer = this.timers.get(agentId);
+      if (timer) clearInterval(timer);
+      this.timers.delete(agentId);
+      this.handles.delete(agentId);
+    }
     const settled = withLedgerAndStorage((data, db) => {
       const store = lifecycle(db, this.now);
       const success = result.status === "success";
@@ -410,6 +420,52 @@ export class LifecycleExecutionCoordinator {
     const timer = setTimeout(() => { this.timers.delete(`due:${agentId}`); this.claimAndLaunch(agentId); }, Math.max(0, eligibleAt - this.now()));
     timer.unref?.();
     this.timers.set(`due:${agentId}`, timer);
+  }
+
+  private releaseLocalHandle(agentId: string, attemptId: string, ownerEpoch: number, reason: string): void {
+    const tracked = this.handles.get(agentId);
+    if (!tracked || tracked.attemptId !== attemptId || tracked.ownerEpoch !== ownerEpoch) return;
+    const timer = this.timers.get(agentId);
+    if (timer) clearInterval(timer);
+    this.timers.delete(agentId);
+    this.handles.delete(agentId);
+    void this.runtime.cancel(tracked.handle, reason);
+  }
+
+  private pruneStaleLocalHandles(now: number): void {
+    const trackedHandles = [...this.handles];
+    const stale = withLedgerAndStorage((_data, db) => {
+      const currentAttempt = db.prepare(`
+        SELECT w.status AS work_status, w.owner_epoch AS work_owner_epoch,
+               a.status AS attempt_status,
+               a.owner_id, a.owner_epoch, a.lease_until
+          FROM work_items w
+          JOIN attempts a ON a.attempt_id = w.current_attempt_id
+         WHERE w.work_id = ? AND a.attempt_id = ?
+      `);
+      return trackedHandles.filter(([agentId, tracked]) => {
+        const current = currentAttempt.get(agentId, tracked.attemptId) as {
+          work_status: string;
+          work_owner_epoch: number;
+          attempt_status: string;
+          owner_id: string | null;
+          owner_epoch: number;
+          lease_until: number | null;
+        } | undefined;
+        const stillOwned =
+          current?.work_status === "running"
+          && current.attempt_status === "running"
+          && current.owner_id === this.ownerId
+          && current.owner_epoch === tracked.ownerEpoch
+          && current.work_owner_epoch === tracked.ownerEpoch
+          && current.lease_until !== null
+          && current.lease_until > now;
+        return !stillOwned;
+      });
+    });
+    for (const [agentId, tracked] of stale) {
+      this.releaseLocalHandle(agentId, tracked.attemptId, tracked.ownerEpoch, "durable lease expired");
+    }
   }
 
   private scheduleRecoveryWake(): void {

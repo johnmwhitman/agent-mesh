@@ -179,7 +179,10 @@ and projection updates are fenced by work, attempt, owner, and epoch. Timers
 only wake persisted due work; startup recovers expired leases and discovers due
 attempts. NDJSON remains a repairable projection of sequence-ordered SQLite
 outbox rows. Best-effort PID containment applies only when a PID was recorded;
-no pre-PID orphan termination claim is made.
+no pre-PID orphan termination claim is made. Same-process recovery drops local
+handle and renewal tracking only when the SQLite current attempt/owner/epoch no
+longer authorizes it, so an expired handle cannot suppress a replacement launch
+and its late completion cannot erase the replacement's local tracking.
 
 ## Completion bar for this slice
 
