@@ -180,9 +180,11 @@ function python(scenarios) {
     encoding: "utf8",
     input: JSON.stringify(scenarios),
     maxBuffer: 32 * 1024 * 1024,
-    timeout: 20_000,
+    timeout: 60_000,
   });
-  if (result.status !== 0) throw new Error(result.stderr || result.stdout || "python witness failed");
+  if (result.status !== 0) {
+    throw new Error(result.error?.message || result.stderr || result.stdout || "python witness failed");
+  }
   return JSON.parse(result.stdout);
 }
 

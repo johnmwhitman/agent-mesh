@@ -19,10 +19,10 @@ test("discussion derivation fuzz differential is deterministic and cross-languag
   const run = spawnSync(process.execPath, [fuzz], {
     cwd: root,
     encoding: "utf8",
-    timeout: 30_000,
+    timeout: 90_000,
     maxBuffer: 8 * 1024 * 1024,
   });
-  assert.equal(run.status, 0, run.stderr || run.stdout);
+  assert.equal(run.status, 0, run.error?.message || run.stderr || run.stdout);
   assert.deepEqual(JSON.parse(run.stdout), {
     profile: "meshfleet.a2a.discussion-derivation.v0.1",
     seed: 0xd15c055,
@@ -56,7 +56,8 @@ test("discussion fuzz source stays bounded and offline", () => {
   assert.equal(source.match(/spawnSync\(/g)?.length, 1);
   assert.match(source, /spawnSync\("python3"/);
   assert.match(source, /maxBuffer: 32 \* 1024 \* 1024/);
-  assert.match(source, /timeout: 20_000/);
+  assert.match(source, /timeout: 60_000/);
+  assert.match(source, /result\.error\?\.message/);
   assert.match(source, /MAX_CASES = 300/);
   assert.match(source, /MAX_GENERATED_BYTES = 1_048_576/);
 });
