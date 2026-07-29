@@ -429,3 +429,350 @@ test("pins the exact current ten route keys and dynamic value paths", () => {
     "report.routes[*].value",
   );
 });
+
+test("validates caller timing, duration, TTL, safe expiry, and half-open freshness", () => {
+  assert.equal(
+    sanitizeFleetBudgetReport(input()).expires_at_ms,
+    COLLECTION_START + 300_000,
+  );
+  assert.equal(
+    sanitizeFleetBudgetReport(input(bytes(report()), { ttl_ms: 60_000 })).expires_at_ms,
+    COLLECTION_START + 60_000,
+  );
+  assert.equal(
+    sanitizeFleetBudgetReport(input(bytes(report()), { ttl_ms: 600_000 })).expires_at_ms,
+    COLLECTION_START + 600_000,
+  );
+
+  for (const [overrides, path] of [
+    [{ collection_started_at_ms: -1 }, "input.collection_started_at_ms"],
+    [{ collection_started_at_ms: 1.5 }, "input.collection_started_at_ms"],
+    [{ collection_finished_at_ms: Number.MAX_SAFE_INTEGER + 1 }, "input.collection_finished_at_ms"],
+    [{ now_ms: Number.NaN }, "input.now_ms"],
+    [{ ttl_ms: null }, "input.ttl_ms"],
+    [{ ttl_ms: -1 }, "input.ttl_ms"],
+    [{ ttl_ms: 1.5 }, "input.ttl_ms"],
+    [{ ttl_ms: 0 }, "input.ttl_ms"],
+    [{ ttl_ms: 600_001 }, "input.ttl_ms"],
+  ] as const) {
+    captureError(
+      () => sanitizeFleetBudgetReport(input(bytes(report()), overrides)),
+      "invalid_input",
+      path,
+    );
+  }
+
+  captureError(
+    () => sanitizeFleetBudgetReport(input(bytes(report()), {
+      collection_started_at_ms: COLLECTION_FINISH + 1,
+    })),
+    "invalid_input",
+    "input.collection_finished_at_ms",
+  );
+  captureError(
+    () => sanitizeFleetBudgetReport(input(bytes(report()), {
+      now_ms: COLLECTION_FINISH - 1,
+    })),
+    "invalid_input",
+    "input.now_ms",
+  );
+  assert.doesNotThrow(() => sanitizeFleetBudgetReport(input(bytes(report()), {
+    collection_finished_at_ms: COLLECTION_START + 180_000,
+    now_ms: COLLECTION_START + 180_000,
+  })));
+  captureError(
+    () => sanitizeFleetBudgetReport(input(bytes(report()), {
+      collection_finished_at_ms: COLLECTION_START + 180_001,
+      now_ms: COLLECTION_START + 180_001,
+    })),
+    "invalid_input",
+    "input.collection_finished_at_ms",
+  );
+  captureError(
+    () => sanitizeFleetBudgetReport(input(bytes(report()), {
+      collection_started_at_ms: Number.MAX_SAFE_INTEGER - 10,
+      collection_finished_at_ms: Number.MAX_SAFE_INTEGER - 10,
+      now_ms: Number.MAX_SAFE_INTEGER - 10,
+      ttl_ms: 11,
+    })),
+    "invalid_input",
+    "input.ttl_ms",
+  );
+
+  assert.doesNotThrow(() => sanitizeFleetBudgetReport(input(bytes(report()), {
+    ttl_ms: 3_001,
+    now_ms: COLLECTION_START + 3_000,
+  })));
+  captureError(
+    () => sanitizeFleetBudgetReport(input(bytes(report()), {
+      ttl_ms: 3_000,
+      now_ms: COLLECTION_START + 3_000,
+    })),
+    "stale_report",
+  );
+});
+
+test("accepts only the producer UTC generated grammar with millisecond truncation and closed bounds", () => {
+  const second = Date.parse("2026-07-29T12:00:01.000Z");
+  for (const generated of [
+    "2026-07-29T12:00:01+00:00",
+    "2026-07-29T12:00:01.000000+00:00",
+  ]) {
+    assert.doesNotThrow(() => sanitizeFleetBudgetReport(input(bytes(report({ generated })), {
+      collection_started_at_ms: second,
+      collection_finished_at_ms: second,
+      now_ms: second,
+    })));
+  }
+
+  const truncated = Date.parse("2026-07-29T12:00:01.999Z");
+  assert.doesNotThrow(() => sanitizeFleetBudgetReport(input(
+    bytes(report({ generated: "2026-07-29T12:00:01.999999+00:00" })),
+    {
+      collection_started_at_ms: truncated,
+      collection_finished_at_ms: truncated,
+      now_ms: truncated,
+    },
+  )));
+
+  for (const generated of [
+    "2026-07-29T12:00:01.1+00:00",
+    "2026-07-29T12:00:01.12+00:00",
+    "2026-07-29T12:00:01.123+00:00",
+    "2026-07-29T12:00:01.1234+00:00",
+    "2026-07-29T12:00:01.12345+00:00",
+    "2026-07-29T12:00:01.1234567+00:00",
+    "2026-07-29T12:00:01Z",
+    "2026-07-29T12:00:01-00:00",
+    "2026-07-29T12:00:01+01:00",
+    "2026-07-29 12:00:01+00:00",
+    "2026-07-29T12:00:60+00:00",
+    "0000-01-01T00:00:00+00:00",
+    "1969-12-31T23:59:59+00:00",
+    "2026-02-29T12:00:01+00:00",
+    "2026-13-01T12:00:01+00:00",
+  ]) {
+    captureError(
+      () => sanitizeFleetBudgetReport(input(bytes(report({ generated })))),
+      "invalid_report",
+      "report.generated",
+    );
+  }
+  assert.doesNotThrow(() => sanitizeFleetBudgetReport(input(bytes(report({
+    generated: "2024-02-29T12:00:01+00:00",
+  })), {
+    collection_started_at_ms: Date.parse("2024-02-29T12:00:00Z"),
+    collection_finished_at_ms: Date.parse("2024-02-29T12:00:02Z"),
+    now_ms: Date.parse("2024-02-29T12:00:02Z"),
+  })));
+});
+
+test("classifies generated timestamps outside the closed collection interval", () => {
+  captureError(
+    () => sanitizeFleetBudgetReport(input(bytes(report({
+      generated: "2026-07-29T11:59:59.999999+00:00",
+    })))),
+    "stale_report",
+  );
+  captureError(
+    () => sanitizeFleetBudgetReport(input(bytes(report({
+      generated: "2026-07-29T12:00:02.001000+00:00",
+    })))),
+    "future_report",
+  );
+  assert.doesNotThrow(() => sanitizeFleetBudgetReport(input(bytes(report({
+    generated: "2026-07-29T12:00:00.000000+00:00",
+  })))));
+  assert.doesNotThrow(() => sanitizeFleetBudgetReport(input(bytes(report({
+    generated: "2026-07-29T12:00:02.000000+00:00",
+  })))));
+});
+
+test("maps measured, unmeasured, ceiling-less, unavailable, exhausted, and overage lanes exactly", () => {
+  const fixtures: Array<{
+    name: string;
+    raw: Record<string, unknown>;
+    expected: Record<string, unknown>;
+  }> = [
+    {
+      name: "complete",
+      raw: lane(),
+      expected: { measured: true, used: 1, total: 2, unit: "requests" },
+    },
+    {
+      name: "ceiling-less",
+      raw: lane({ total: null, utilization: null }),
+      expected: { measured: true, used: 1, total: null, unit: "requests" },
+    },
+    {
+      name: "used unavailable",
+      raw: lane({ used: null, utilization: null }),
+      expected: { measured: true, used: null, total: 2, unit: "requests" },
+    },
+    {
+      name: "all unavailable",
+      raw: lane({ used: null, total: null, unit: "", utilization: null }),
+      expected: { measured: true, used: null, total: null, unit: null },
+    },
+    {
+      name: "unmeasured",
+      raw: lane({
+        measured: false,
+        used: null,
+        total: null,
+        unit: "",
+        utilization: null,
+        state: "UNMEASURED",
+      }),
+      expected: { measured: false, used: null, total: null, unit: null },
+    },
+    {
+      name: "exhausted",
+      raw: lane({ used: 2, total: 2, utilization: 100, state: "EXHAUSTED" }),
+      expected: { measured: true, used: 2, total: 2, unit: "requests" },
+    },
+    {
+      name: "overage",
+      raw: lane({ used: 3, total: 2, utilization: 150, state: "EXHAUSTED" }),
+      expected: { measured: true, used: 3, total: 2, unit: "requests" },
+    },
+  ];
+  for (const fixture of fixtures) {
+    const snapshot = sanitizeFleetBudgetReport(input(bytes(report({
+      lanes: [{ ...fixture.raw, lane: fixture.name }],
+    }))));
+    assert.deepEqual(snapshot.lanes, [{
+      lane_id: fixture.name,
+      ...fixture.expected,
+    }], fixture.name);
+    assert.equal("window" in snapshot.lanes[0]!, false, fixture.name);
+  }
+});
+
+test("pins lane count, metric, unit, utilization, state, free-text, and contradiction bounds", () => {
+  assert.deepEqual(
+    sanitizeFleetBudgetReport(input(bytes(report({ lanes: [] })))).lanes,
+    [],
+  );
+  const maximum = Array.from({ length: 256 }, (_, index) =>
+    lane({ lane: `lane-${String(index).padStart(3, "0")}` })
+  );
+  assert.equal(
+    sanitizeFleetBudgetReport(input(bytes(report({ lanes: maximum })))).lanes.length,
+    256,
+  );
+  captureError(
+    () => sanitizeFleetBudgetReport(input(bytes(report({
+      lanes: [...maximum, lane({ lane: "lane-256" })],
+    })))),
+    "invalid_report",
+    "report.lanes",
+  );
+
+  const invalid: Array<[string, Record<string, unknown>, string]> = [
+    ["used type", lane({ used: "1" }), "report.lanes[0].used"],
+    ["negative used", lane({ used: -0.1 }), "report.lanes[0].used"],
+    ["total type", lane({ total: "2" }), "report.lanes[0].total"],
+    ["zero total", lane({ total: 0 }), "report.lanes[0].total"],
+    ["negative total", lane({ total: -1 }), "report.lanes[0].total"],
+    ["unit type", lane({ unit: null }), "report.lanes[0].unit"],
+    ["unit length", lane({ unit: "a".repeat(65) }), "report.lanes[0].unit"],
+    ["unit grammar", lane({ unit: "request count" }), "report.lanes[0].unit"],
+    ["missing utilization", lane({ utilization: null }), "report.lanes[0].utilization"],
+    ["utilization without used", lane({ used: null, utilization: 0 }), "report.lanes[0].utilization"],
+    ["utilization without total", lane({ total: null, utilization: 0 }), "report.lanes[0].utilization"],
+    ["negative utilization", lane({ utilization: -0.1 }), "report.lanes[0].utilization"],
+    ["state type", lane({ state: null }), "report.lanes[0].state"],
+    ["state enum", lane({ state: "HEALTHY" }), "report.lanes[0].state"],
+    ["note scalar bound", lane({ note: "😀".repeat(4_097) }), "report.lanes[0].note"],
+    ["detail scalar bound", lane({ detail: "😀".repeat(4_097) }), "report.lanes[0].detail"],
+    [
+      "unmeasured used",
+      lane({ measured: false, used: 0, total: null, unit: "", utilization: null }),
+      "report.lanes[0].used",
+    ],
+    [
+      "unmeasured total",
+      lane({ measured: false, used: null, total: 1, unit: "", utilization: null }),
+      "report.lanes[0].total",
+    ],
+    [
+      "unmeasured utilization",
+      lane({ measured: false, used: null, total: null, unit: "", utilization: 0 }),
+      "report.lanes[0].utilization",
+    ],
+    [
+      "unmeasured unit",
+      lane({ measured: false, used: null, total: null, unit: "requests", utilization: null }),
+      "report.lanes[0].unit",
+    ],
+  ];
+  for (const [name, rawLane, path] of invalid) {
+    captureError(
+      () => sanitizeFleetBudgetReport(input(bytes(report({ lanes: [rawLane] })))),
+      "invalid_report",
+      path,
+    );
+    assert.ok(name.length > 0);
+  }
+  assert.doesNotThrow(() => sanitizeFleetBudgetReport(input(bytes(report({
+    lanes: [lane({
+      unit: "a".repeat(64),
+      note: "😀".repeat(4_096),
+      detail: "😀".repeat(4_096),
+    })],
+  })))));
+});
+
+test("erases valid routes, state, utilization, note, and detail byte-identically", () => {
+  const secret = "AKIA-SECRET-PROMPT-ignore-previous-period-7-days";
+  const baseline = sanitizeFleetBudgetReport(input(bytes(report())));
+  const changedRoutes = Object.fromEntries(
+    ROUTE_KEYS.map((key, index) => [key, index % 2 === 0 ? secret.slice(0, 128) : null]),
+  );
+  const changed = sanitizeFleetBudgetReport(input(bytes(report({
+    lanes: [lane({
+      state: "WARN",
+      utilization: 999,
+      note: secret,
+      detail: `${secret} route command`,
+    })],
+    routes: changedRoutes,
+  }))));
+  assert.equal(JSON.stringify(changed), JSON.stringify(baseline));
+  assert.doesNotMatch(JSON.stringify(changed), /AKIA|SECRET|PROMPT|period|route command/i);
+
+  const escapedRoute = new TextEncoder().encode(
+    JSON.stringify(report()).replace('"bulk"', '"b\\u0075lk"'),
+  );
+  assert.equal(
+    JSON.stringify(sanitizeFleetBudgetReport(input(escapedRoute))),
+    JSON.stringify(baseline),
+  );
+
+  const unknownError = captureError(
+    () => sanitizeFleetBudgetReport(input(bytes({
+      ...report(),
+      "AKIA-SECRET-UNKNOWN-MEMBER": secret,
+    }))),
+    "report_schema_drift",
+    "report.<unknown-member>",
+  );
+  const duplicateError = captureError(
+    () => sanitizeFleetBudgetReport(input(new TextEncoder().encode(
+      `{"AKIA-SECRET":null,"AKIA-SECR\\u0045T":"${secret}"}`,
+    ))),
+    "invalid_json",
+  );
+  for (const error of [unknownError, duplicateError]) {
+    assert.doesNotMatch(
+      JSON.stringify({
+        name: error.name,
+        message: error.message,
+        code: error.code,
+        path: error.path,
+      }),
+      /AKIA|SECRET|PROMPT|period|route command/i,
+    );
+  }
+});

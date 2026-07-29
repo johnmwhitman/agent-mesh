@@ -12,7 +12,10 @@ const MAX_UNIT_LENGTH = 64;
 const MAX_FREE_TEXT_LENGTH = 4_096;
 const DEFAULT_TTL_MS = 300_000;
 const MAX_TTL_MS = 600_000;
+const MAX_COLLECTION_DURATION_MS = 180_000;
 const UNIT_TOKEN = /^[a-z0-9][a-z0-9._:-]*$/;
+const GENERATED_TIMESTAMP =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{6}))?\+00:00$/;
 
 const INPUT_KEYS = [
   "report_bytes",
@@ -485,27 +488,80 @@ function requireSafeNonNegativeInteger(value: unknown, path: string): number {
 
 function validateCallerTiming(input: JsonRecord): {
   collectionStartedAtMs: number;
+  collectionFinishedAtMs: number;
   expiresAtMs: number;
 } {
   const collectionStartedAtMs = requireSafeNonNegativeInteger(
     input.collection_started_at_ms,
     "input.collection_started_at_ms",
   );
-  requireSafeNonNegativeInteger(
+  const collectionFinishedAtMs = requireSafeNonNegativeInteger(
     input.collection_finished_at_ms,
     "input.collection_finished_at_ms",
   );
-  requireSafeNonNegativeInteger(input.now_ms, "input.now_ms");
+  const nowMs = requireSafeNonNegativeInteger(input.now_ms, "input.now_ms");
   const ttlMs = Object.prototype.hasOwnProperty.call(input, "ttl_ms")
     ? requireSafeNonNegativeInteger(input.ttl_ms, "input.ttl_ms")
     : DEFAULT_TTL_MS;
   if (ttlMs < 1 || ttlMs > MAX_TTL_MS) reject("invalid_input", "input.ttl_ms");
   const expiresAtMs = collectionStartedAtMs + ttlMs;
   if (!Number.isSafeInteger(expiresAtMs)) reject("invalid_input", "input.ttl_ms");
+  if (collectionStartedAtMs > collectionFinishedAtMs) {
+    reject("invalid_input", "input.collection_finished_at_ms");
+  }
+  if (collectionFinishedAtMs > nowMs) {
+    reject("invalid_input", "input.now_ms");
+  }
+  if (collectionFinishedAtMs - collectionStartedAtMs > MAX_COLLECTION_DURATION_MS) {
+    reject("invalid_input", "input.collection_finished_at_ms");
+  }
+  if (nowMs >= expiresAtMs) reject("stale_report");
   return {
     collectionStartedAtMs,
+    collectionFinishedAtMs,
     expiresAtMs,
   };
+}
+
+function parseGeneratedTimestamp(value: unknown): number {
+  if (typeof value !== "string") reject("invalid_report", "report.generated");
+  const match = GENERATED_TIMESTAMP.exec(value);
+  if (match === null) reject("invalid_report", "report.generated");
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hour = Number(match[4]);
+  const minute = Number(match[5]);
+  const second = Number(match[6]);
+  const milliseconds = match[7] === undefined ? 0 : Number(match[7].slice(0, 3));
+  if (
+    year < 1970
+    || year > 9999
+    || month < 1
+    || month > 12
+    || day < 1
+    || day > 31
+    || hour > 23
+    || minute > 59
+    || second > 59
+  ) {
+    reject("invalid_report", "report.generated");
+  }
+  const timestamp = Date.UTC(year, month - 1, day, hour, minute, second, milliseconds);
+  const date = new Date(timestamp);
+  if (
+    !Number.isSafeInteger(timestamp)
+    || date.getUTCFullYear() !== year
+    || date.getUTCMonth() !== month - 1
+    || date.getUTCDate() !== day
+    || date.getUTCHours() !== hour
+    || date.getUTCMinutes() !== minute
+    || date.getUTCSeconds() !== second
+    || date.getUTCMilliseconds() !== milliseconds
+  ) {
+    reject("invalid_report", "report.generated");
+  }
+  return timestamp;
 }
 
 function requireIdentifier(value: unknown, path: string): string {
@@ -669,9 +725,9 @@ export function sanitizeFleetBudgetReport(
   );
 
   const timing = validateCallerTiming(input);
-  if (typeof parsed.generated !== "string") {
-    reject("invalid_report", "report.generated");
-  }
+  const generatedAtMs = parseGeneratedTimestamp(parsed.generated);
+  if (generatedAtMs > timing.collectionFinishedAtMs) reject("future_report");
+  if (generatedAtMs < timing.collectionStartedAtMs) reject("stale_report");
 
   const lanes = validateLanes(parsed.lanes);
   validateRoutes(parsed.routes);
