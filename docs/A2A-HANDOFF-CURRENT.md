@@ -168,11 +168,10 @@ attestation, or exactly-once behavior.
    above. Claims, provider strings, model banners, proof carriers, and durable
    receipts never grant authorization, identity, delivery, execution, or
    runtime choice.
-2. **Slice 4C-1:** proposed principal-bound authenticated-local semantic path.
-   It remains offline and separately gated; this closeout does not mark it
-   active or approved beyond proposal. Its proposed proof is an adapter-derived
-   local principal and semantic invocation without public ingress, remote
-   transport, credentials, or delivery.
+2. **Slice 4C-1:** bounded principal-bound authenticated-local evidence-alpha.
+   It remains offline, incomplete, and separately gated. The executable proof
+   models an adapter-derived local principal and semantic invocation without
+   public ingress, remote transport, credentials, or delivery.
 3. **Slice 4D:** 4D-alpha now has a pure reference-conformance delivery-trace
    normalizer. An independent stdlib-only Python witness agrees with the
    TypeScript evaluator over the language-neutral corpus, including event-level
@@ -184,11 +183,11 @@ attestation, or exactly-once behavior.
    monotonic fencing, cancellation, partition, retry, and recovery semantics
    before any operational multi-host work.
 
-## Slice 4C-1 contract synthesis
+## Slice 4C-1 bounded evidence-alpha
 
-Slice 4C-1 is designed, not implemented, in
+Slice 4C-1 is specified in
 [A2A-LOCAL-ADMISSION-PROFILE-v0.1.md](./A2A-LOCAL-ADMISSION-PROFILE-v0.1.md)
-and ADR 0007. It has exactly one offline
+and ADR 0007. A bounded test-only implementation has exactly one offline
 `evaluate-local-admission(request_json, envelope_json, replay_oracle)` operation
 over independent raw UTF-8 texts, no wrapper/object input, and one ephemeral
 `admission_plan` success. The unchanged envelope input preserves Slice 4A
@@ -200,22 +199,23 @@ snapshots are caller-supplied fixtures with IDs, versions, provenance markers,
 and bounded intervals; a result proves no operational freshness, revocation, or
 provenance authority. Static harness mapping is a closed sidecar outside
 `RendererResult` and the admission corpus and emits null identity fields for all
-targets, but its validator and executable positive/negative fixtures are future
-implementation gates with no current conformance evidence. There is no public
+targets; its validator and seven-positive/fourteen-negative fixtures are now
+executable. The shared local-admission corpus has 32 mandatory cases, direct
+TypeScript/Python agreement, recipient-order normalization, and strict witness
+mutation checks. It does not yet close every exhaustive family, cardinality,
+and exact-path row in the profile, so full Slice 4C-1 conformance remains open.
+There is no public
 ingress, auth provider, trust root, credential
 verification, replay store, 4B integration, DB, MCP, transport, network,
 delivery, outbox, runtime, provider call, secret access, release, deploy, or
-activation. Released `meshfleet@0.14.0` contains none of the unmerged Slice 4B,
-4C-0, or 4C-1 branch work.
-
-The next implementation boundary, if separately approved, is the pure
-TypeScript/Python one-operation witness and shared corpus. It is not active or
-approved by this design closeout.
+activation. Nothing is exported from the package or registered as an MCP tool
+or CLI.
 
 ## Remaining implementation boundaries
 
-Slice 4C-1 remains a designed-only principal-bound authenticated-local semantic
-path and is separately gated. Slice 4D-alpha does not consume or satisfy it:
+Slice 4C-1 remains an incomplete, offline principal-bound authenticated-local
+evidence path and is separately gated. Slice 4D-alpha does not consume or
+satisfy it:
 the trace evaluator accepts only canonical envelope bindings and modeled
 observations, never principals or admission decisions. Broader 4D evidence and
 4E deterministic two-host simulation remain open. Planning any of them does

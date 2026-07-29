@@ -38,10 +38,10 @@ verified boundaries:
   acceptance journal, and its migration/privacy/atomicity evidence exist only
   on this unmerged branch.
 
-## Slice 4C-1 designed contract
+## Slice 4C-1 bounded evidence-alpha
 
-Slice 4C-1 is specified, but not implemented, by the local admission profile and
-ADR 0007. It defines exactly one normative offline operation,
+Slice 4C-1 is specified by the local admission profile and ADR 0007. A bounded
+test-only evidence implementation now defines exactly one offline operation,
 `evaluate-local-admission(request_json, envelope_json, replay_oracle)`, over two
 independent raw UTF-8 texts. Its sole success is an ephemeral `admission_plan`;
 replay/conflict/expiry are lowercase
@@ -55,8 +55,11 @@ preauthorization, treats policy snapshots as caller-supplied fixtures rather
 than current-state proof, and keeps 4C-0 evidence non-authoritative. It adds no
 public ingress, auth provider, trust root, credential verification, replay
 store, persistence integration, MCP, network, transport, delivery, runtime,
-provider call, release, or activation. The StaticHarnessMapping validator and
-fixtures are future implementation work, not current conformance.
+provider call, release, or activation. The shared corpus currently has 32
+mandatory cases, an independent Python witness, strict mutation canaries, and
+seven positive plus fourteen negative StaticHarnessMapping fixtures. It does
+not yet satisfy every exhaustive coverage row in the profile and is therefore
+registered as `unverified`, not full Slice 4C-1 conformance.
 
 ## Ranked program
 
@@ -228,8 +231,9 @@ They are additive, reversible, and do not widen the current MCP surface.
 3. **Slice 4C-0: capability profile and evidence taxonomy.** Implemented and
    independently verified as an offline/dormant semantic foundation at
    `ea69cb9`; capability claims and model banners do not grant authorization.
-4. **Slice 4C-1: principal-bound authenticated-local semantic path.** Designed
-   but not implemented. It would prove a local adapter path without public
+4. **Slice 4C-1: principal-bound authenticated-local semantic path.** Bounded
+   evidence-alpha is executable but the exhaustive profile gate remains open.
+   It models a local adapter path without public
    ingress, remote transport, credentials, or delivery and remains separately
    gated.
 5. **Slice 4D then 4E:** 4D-alpha now has a pure reference-conformance offline
@@ -284,6 +288,6 @@ This closeout authorizes no public ingress, `send_a2a`, principal provider,
 provider call, runtime selection, transport, persistence, durable registry,
 delivery, execution, cryptographic verification, credentials, network, deploy,
 publish, merge, push, or activation. Slice 4C-1 remains offline, inactive,
-designed-only, and separately gated. The later 4D-alpha fixture normalizer does
+incomplete, and separately gated. The later 4D-alpha fixture normalizer does
 not satisfy, bypass, consume, or activate 4C-1; it only proves that modeled
 transport labels normalize to the same closed delivery-observation vocabulary.

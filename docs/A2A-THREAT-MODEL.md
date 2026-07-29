@@ -97,7 +97,7 @@ MCP reachability        != cross-host trust
 
 ## Slice 4C-1 local admission threats
 
-Slice 4C-1 is a designed, dormant profile with independent raw UTF-8
+Slice 4C-1 has a bounded, dormant evidence-alpha evaluator with independent raw UTF-8
 `request_json` and `envelope_json` inputs and no wrapper/object-input API. The
 request parser cannot classify envelope failures; all envelope raw/semantic
 failures project through 4A as `MALFORMED_ENVELOPE`. Its
