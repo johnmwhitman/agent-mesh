@@ -25,6 +25,8 @@ export const WEEKLY_DRAIN_REVIEW_VERSION =
   "meshfleet.weekly-drain-review.v0.1" as const;
 
 const MAX_QUALITY_ANNOTATIONS = 256;
+const MAX_JSON_DEPTH = 64;
+const MAX_JSON_NODES = 100_000;
 const QUALITY_TAG = /^[a-z0-9][a-z0-9._:-]*$/;
 
 type RecordValue = Record<string, unknown>;
@@ -114,6 +116,113 @@ const EFFECTS: WeeklyDrainReviewResult["effects"] = {
 
 function invalid(path: string, detail: string): never {
   throw new Error(`compile_weekly_drain_review: '${path}' ${detail}`);
+}
+
+function preflightJsonShape(
+  value: unknown,
+  path: string,
+  depth = 0,
+  state: { nodes: number; ancestors: WeakSet<object> } = {
+    nodes: 0,
+    ancestors: new WeakSet<object>(),
+  },
+): unknown {
+  if (depth > MAX_JSON_DEPTH) {
+    invalid(path, `must not exceed JSON depth ${MAX_JSON_DEPTH}`);
+  }
+  state.nodes += 1;
+  if (state.nodes > MAX_JSON_NODES) {
+    invalid(path, `must not exceed ${MAX_JSON_NODES} JSON nodes`);
+  }
+  if (value === null || typeof value === "string" || typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) invalid(path, "must be a finite JSON number");
+    return value;
+  }
+  if (typeof value !== "object") {
+    invalid(path, "must contain only JSON values");
+  }
+
+  const object = value as object;
+  let prototype: object | null;
+  let ownKeys: Array<string | symbol>;
+  try {
+    prototype = Object.getPrototypeOf(object);
+    ownKeys = Reflect.ownKeys(object);
+  } catch {
+    invalid(path, "must be an inspectable JSON object or array");
+  }
+  if (state.ancestors.has(object)) invalid(path, "must not contain a cycle");
+  state.ancestors.add(object);
+  try {
+    if (Array.isArray(object)) {
+      if (prototype !== Array.prototype) invalid(path, "must be an ordinary array");
+      let lengthDescriptor: PropertyDescriptor | undefined;
+      try {
+        lengthDescriptor = Object.getOwnPropertyDescriptor(object, "length");
+      } catch {
+        invalid(`${path}.<non-json-member>`, "is not allowed");
+      }
+      if (lengthDescriptor === undefined || !("value" in lengthDescriptor)) {
+        invalid(`${path}.<non-json-member>`, "is not allowed");
+      }
+      const length = lengthDescriptor.value as unknown;
+      if (!Number.isSafeInteger(length) || (length as number) < 0) {
+        invalid(path, "must have a finite safe array length");
+      }
+      if ((length as number) > MAX_JSON_NODES - state.nodes) {
+        invalid(path, `must not exceed ${MAX_JSON_NODES} JSON nodes`);
+      }
+      if (ownKeys.length !== (length as number) + 1) {
+        invalid(path, "must not be sparse or contain a decorated array member");
+      }
+      const output: unknown[] = [];
+      for (let index = 0; index < (length as number); index += 1) {
+        const key = String(index);
+        let descriptor: PropertyDescriptor | undefined;
+        try {
+          descriptor = Object.getOwnPropertyDescriptor(object, key);
+        } catch {
+          invalid(`${path}[${index}].<non-json-member>`, "is not allowed");
+        }
+        if (descriptor === undefined) invalid(`${path}[${index}]`, "must not be sparse");
+        if (descriptor.enumerable !== true || !("value" in descriptor)) {
+          invalid(`${path}[${index}].<non-json-member>`, "is not allowed");
+        }
+        output.push(preflightJsonShape(descriptor.value, `${path}[${index}]`, depth + 1, state));
+      }
+      for (const key of ownKeys) {
+        if (key === "length") continue;
+        if (typeof key !== "string" || !/^(0|[1-9][0-9]*)$/.test(key) || Number(key) >= (length as number)) {
+          invalid(path, "contains a decorated array member");
+        }
+      }
+      return output;
+    }
+
+    if (prototype !== Object.prototype && prototype !== null) {
+      invalid(path, "must be a plain or null-prototype JSON object");
+    }
+    const output: RecordValue = Object.create(null) as RecordValue;
+    for (const key of ownKeys) {
+      if (typeof key !== "string") invalid(`${path}.<non-json-member>`, "is not allowed");
+      let descriptor: PropertyDescriptor | undefined;
+      try {
+        descriptor = Object.getOwnPropertyDescriptor(object, key);
+      } catch {
+        invalid(`${path}.<non-json-member>`, "is not allowed");
+      }
+      if (descriptor === undefined || descriptor.enumerable !== true || !("value" in descriptor)) {
+        invalid(`${path}.<non-json-member>`, "is not allowed");
+      }
+      output[key] = preflightJsonShape(descriptor.value, `${path}.${key}`, depth + 1, state);
+    }
+    return output;
+  } finally {
+    state.ancestors.delete(object);
+  }
 }
 
 function record(value: unknown, path: string): RecordValue {
@@ -295,7 +404,7 @@ function candidatesWithQuality(
  * persists, schedules, allocates, and executes nothing.
  */
 export function compileWeeklyDrainReview(input: unknown): WeeklyDrainReviewResult {
-  const validated = validate(input);
+  const validated = validate(preflightJsonShape(input, "input"));
   const budget = compileFleetBudgetObservations({
     snapshot: validated.fleetbudget.snapshot,
     bindings: validated.fleetbudget.bindings,
@@ -309,17 +418,24 @@ export function compileWeeklyDrainReview(input: unknown): WeeklyDrainReviewResul
   });
   const candidates = candidatesWithQuality(catalog, validated.quality_annotations, validated.routeplane.policies);
   const wrapperUsage = compileWrapperUsageStatus(validated.wrapper_usage);
-  const proposal = candidates.length === 0
-    ? null
-    : planSpeculativeBacklog({
-      version: "meshfleet.speculative-backlog.v0.1",
-      candidates,
-      tasks: validated.backlog.tasks,
-      ...(validated.backlog.candidate_limit === undefined ? {} : { candidate_limit: validated.backlog.candidate_limit }),
-      ...(validated.backlog.preference === undefined
-        ? {}
-        : { preference: { objective: "prefer_near_reset" as const, now_ms: validated.now_ms } }),
-    });
+  const plannedProposal = planSpeculativeBacklog({
+    version: "meshfleet.speculative-backlog.v0.1",
+    candidates: candidates.length === 0
+      ? [{
+        candidate_id: "weekly-validation-only",
+        capabilities: ["validation-only"],
+        privacy: "unrestricted",
+        locality: "any",
+        quality_tags: [],
+      }]
+      : candidates,
+    tasks: validated.backlog.tasks,
+    ...(validated.backlog.candidate_limit === undefined ? {} : { candidate_limit: validated.backlog.candidate_limit }),
+    ...(validated.backlog.preference === undefined
+      ? {}
+      : { preference: { objective: "prefer_near_reset" as const, now_ms: validated.now_ms } }),
+  });
+  const proposal = candidates.length === 0 ? null : plannedProposal;
 
   return {
     review_version: WEEKLY_DRAIN_REVIEW_VERSION,

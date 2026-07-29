@@ -128,6 +128,42 @@ test("preserves annotations for catalog-excluded policies and returns no compile
   }]);
 });
 
+test("catalog-empty reviews still validate every backlog task through the planner's closed artifact gates", () => {
+  const base = weeklyInput();
+  const emptyRouteplane = {
+    ...base.routeplane,
+    snapshot: normalizeRoutePlaneCatalog({
+      object: "list",
+      data: [{ id: "model-b", object: "model", providers: ["provider-b"] }],
+    }, NOW_MS - 1_000, 2_000),
+  };
+  const validTask = base.backlog.tasks[0]!;
+
+  assert.throws(() => compileWeeklyDrainReview(weeklyInput({
+    routeplane: emptyRouteplane,
+    backlog: {
+      tasks: [validTask, { ...validTask, task_id: "video-missing-policy", kind: "video_candidate" }],
+    },
+  })), /tasks\[1\]\.artifact.*required/);
+
+  assert.throws(() => compileWeeklyDrainReview(weeklyInput({
+    routeplane: emptyRouteplane,
+    backlog: {
+      tasks: [validTask, {
+        ...validTask,
+        task_id: "video-forbidden-material",
+        kind: "video_candidate",
+        artifact: {
+          source_material: "text_only",
+          review_scope: "private_review_only",
+          human_release_required: true,
+          prompt: "forbidden prompt material",
+        },
+      }],
+    },
+  })), /tasks\[1\]\.artifact\.prompt/);
+});
+
 test("composes supplied catalog, sanitized budget, quality evidence, and approved backlog without effects", () => {
   const source = weeklyInput();
   const before = structuredClone(source);
@@ -238,6 +274,77 @@ test("rejects inherited and accessor-shaped weekly inputs before reading their v
   });
   assert.throws(() => compileWeeklyDrainReview(accessor), /input\.<non-json-member>/);
   assert.equal(reads, 0);
+});
+
+test("preflights nested accessors across every composed source without invoking getters", () => {
+  const cases: Array<{
+    name: string;
+    target: (source: ReturnType<typeof weeklyInput>) => object;
+    key: PropertyKey;
+  }> = [
+    { name: "routeplane snapshot", target: (source) => source.routeplane.snapshot, key: "version" },
+    { name: "routeplane policy", target: (source) => source.routeplane.policies[0]!, key: "candidate_id" },
+    { name: "fleetbudget snapshot", target: (source) => source.fleetbudget.snapshot, key: "version" },
+    { name: "fleetbudget binding", target: (source) => source.fleetbudget.bindings[0]!, key: "candidate_id" },
+    { name: "backlog task", target: (source) => source.backlog.tasks[0]!, key: "task_id" },
+    { name: "quality annotation", target: (source) => source.quality_annotations[0]!, key: "candidate_id" },
+    { name: "quality tag array", target: (source) => source.quality_annotations[0]!.quality_tags, key: "0" },
+    { name: "wrapper usage", target: (source) => (source.wrapper_usage as ReturnType<typeof wrapperUsage>).source, key: "bytes" },
+  ];
+
+  for (const item of cases) {
+    const source = weeklyInput();
+    let reads = 0;
+    Object.defineProperty(item.target(source), item.key, {
+      configurable: true,
+      enumerable: true,
+      get() {
+        reads += 1;
+        return "poison";
+      },
+    });
+    assert.throws(
+      () => compileWeeklyDrainReview(source),
+      /<non-json-member>/,
+      item.name,
+    );
+    assert.equal(reads, 0, `${item.name} getter must not run`);
+  }
+});
+
+test("rejects nested prototype-backed objects and sparse, decorated, or exotic arrays", () => {
+  const inherited = weeklyInput();
+  let inheritedReads = 0;
+  const annotationPrototype = Object.create(null) as Record<string, unknown>;
+  Object.defineProperty(annotationPrototype, "candidate_id", {
+    enumerable: true,
+    get() {
+      inheritedReads += 1;
+      return "candidate-a";
+    },
+  });
+  const inheritedAnnotation = Object.create(annotationPrototype) as Record<string, unknown>;
+  inheritedAnnotation.quality_tags = ["reviewed"];
+  inherited.quality_annotations = [inheritedAnnotation as never];
+  assert.throws(() => compileWeeklyDrainReview(inherited), /plain or null-prototype JSON object/);
+  assert.equal(inheritedReads, 0);
+
+  const sparse = weeklyInput();
+  const sparseTasks: unknown[] = [];
+  sparseTasks.length = 1;
+  sparse.backlog.tasks = sparseTasks as never;
+  assert.throws(() => compileWeeklyDrainReview(sparse), /sparse/);
+
+  const decorated = weeklyInput();
+  Object.defineProperty(decorated.routeplane.policies, "metadata", {
+    enumerable: true,
+    value: "not-json-array-shape",
+  });
+  assert.throws(() => compileWeeklyDrainReview(decorated), /array member/);
+
+  const exotic = weeklyInput();
+  Object.setPrototypeOf(exotic.fleetbudget.bindings, null);
+  assert.throws(() => compileWeeklyDrainReview(exotic), /ordinary array/);
 });
 
 test("validates backlog bounds before a catalog-empty review can suppress planning", () => {
