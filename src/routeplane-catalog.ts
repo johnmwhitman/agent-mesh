@@ -5,6 +5,7 @@ import {
 } from "./compile-route-candidates.js";
 import { assertRecommendRouteTask, recommendRoute } from "./recommend-route.js";
 import type {
+  CompileRouteCandidateObservation,
   CompileRouteCandidatesInput,
   CompileRouteCandidatesResult,
 } from "./compile-route-candidates.js";
@@ -73,7 +74,7 @@ export interface RoutePlaneCatalogRecommendationInput {
   snapshot: RoutePlaneCatalogSnapshot;
   policies: RoutePlaneCandidatePolicy[];
   task: RecommendRouteTask;
-  observations?: CompileRouteCandidatesInput["observations"];
+  observations?: CompileRouteCandidateObservation[];
   now_ms?: number;
   top_n?: number;
 }
@@ -296,7 +297,7 @@ function validateRecommendationInput(value: unknown): RoutePlaneCatalogRecommend
 export function compileRoutePlaneCandidates(input: {
   snapshot: RoutePlaneCatalogSnapshot;
   policies: RoutePlaneCandidatePolicy[];
-  observations?: CompileRouteCandidatesInput["observations"];
+  observations?: CompileRouteCandidateObservation[];
   now_ms?: number;
 }): RoutePlaneCandidateCompilation {
   const record = requireCompilationRecord(input, "input");
@@ -343,7 +344,7 @@ export function compileRoutePlaneCandidates(input: {
     if (typeof observation !== "object" || observation === null || Array.isArray(observation)) {
       return true;
     }
-    return !excludedCandidateIds.has((observation as RecordValue).candidate_id as string);
+    return !excludedCandidateIds.has((observation as unknown as RecordValue).candidate_id as string);
   });
   const compiled = compileRouteCandidates({
     manifest: {
