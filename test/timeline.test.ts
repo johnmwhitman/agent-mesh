@@ -216,6 +216,17 @@ test('filterTimelineWindow includes the lower bound and excludes the upper bound
   assert.deepEqual(rows, before)
 })
 
+test('filterTimelineWindow treats epoch zero as an ordinary half-open boundary', () => {
+  const rows: TimelineRow[] = [
+    { ts: 0, kind: 'message', fleet_id: 'f1', summary: 'zero', refs: { message_id: 'm0' } },
+    { ts: 1, kind: 'message', fleet_id: 'f1', summary: 'one', refs: { message_id: 'm1' } },
+  ]
+
+  assert.deepEqual(filterTimelineWindow(rows, { fromMs: 0 }).map((row) => row.ts), [0, 1])
+  assert.deepEqual(filterTimelineWindow(rows, { toMs: 0 }).map((row) => row.ts), [])
+  assert.deepEqual(filterTimelineWindow(rows, { fromMs: 0, toMs: 0 }).map((row) => row.ts), [])
+})
+
 test('filterTimelineWindow supports one open bound and composes after a fleet filter', () => {
   const data = mesh({
     messages: {

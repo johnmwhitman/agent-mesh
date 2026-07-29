@@ -180,6 +180,30 @@ test('ISO lower bound intersects with the optional fleet filter', () => {
   })
 })
 
+test('date-only and timezone-offset ISO bounds normalize deterministically', () => {
+  withLedger((dbFile) => {
+    const dateOnly = runInspect(dbFile, ['timeline', '--from', '1970-01-02', '--json'])
+    assert.equal(dateOnly.status, 0, dateOnly.stderr)
+    const dateOnlyJson = JSON.parse(dateOnly.stdout)
+    assert.equal(dateOnlyJson.data.window.from_ms, 86_400_000)
+    assert.deepEqual(dateOnlyJson.data.rows, [])
+
+    const offset = runInspect(dbFile, [
+      'timeline',
+      '--from',
+      '1970-01-01T00:00:01.500+05:30',
+      '--json',
+    ])
+    assert.equal(offset.status, 0, offset.stderr)
+    const offsetJson = JSON.parse(offset.stdout)
+    assert.equal(offsetJson.data.window.from_ms, -19_798_500)
+    assert.deepEqual(
+      offsetJson.data.rows.map((row: { refs: { message_id?: string } }) => row.refs.message_id),
+      ['lower', 'other', 'inside', 'upper'],
+    )
+  })
+})
+
 test('bounded text prints selected bounds, the evidence ceiling, and succeeds when empty', () => {
   withLedger((dbFile) => {
     const selected = runInspect(dbFile, ['timeline', 'f1', '--to', '2000'])
