@@ -1,10 +1,89 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { findPackageBoundaryViolations } from './helpers/package-boundary-guard.js'
+import {
+  findPackageBoundaryViolations,
+  listCoreSourceModulePaths,
+  listPackedDistSourceModulePaths,
+  listProductionDependencyGroups,
+  listProductionDependencyRoots,
+} from './helpers/package-boundary-guard.js'
+
+const APPROVED_CORE_SOURCE_MODULES = [
+  'a2a/codec.ts',
+  'a2a/delivery-trace.ts',
+  'a2a/legacy-map.ts',
+  'a2a/local-admission.ts',
+  'a2a/replay-decision.ts',
+  'a2a/static-harness-mapping.ts',
+  'a2a/types.ts',
+  'attempt-lifecycle.ts',
+  'bin/dashboard.ts',
+  'bin/fleetbudget-sanitize.ts',
+  'bin/inspect.ts',
+  'bin/routeplane-catalog.ts',
+  'budget-awareness.ts',
+  'compile-route-candidates.ts',
+  'core.ts',
+  'db.ts',
+  'demo.ts',
+  'discussion-mcp.ts',
+  'discussion-store.ts',
+  'discussion.ts',
+  'doctor.ts',
+  'env.ts',
+  'fleetbudget-observations.ts',
+  'fleetbudget-sanitizer.ts',
+  'health.ts',
+  'heartbeat.ts',
+  'index.ts',
+  'inspector.ts',
+  'lifecycle-execution.ts',
+  'lifecycle-visibility.ts',
+  'migrate.ts',
+  'ratify.ts',
+  'realtime.ts',
+  'recommend-route.ts',
+  'retry.ts',
+  'route-candidate-validation.ts',
+  'routeplane-catalog.ts',
+  'routing-feedback.ts',
+  'runtime/local-process.ts',
+  'runtime/opencode.ts',
+  'runtime/process.ts',
+  'runtime/registry.ts',
+  'runtime/types.ts',
+  'skill-taxonomy.ts',
+  'spawn-attempt.ts',
+  'spawn-config.ts',
+  'spawn-result.ts',
+  'speculative-backlog-planner.ts',
+  'sse-server.ts',
+  'synonyms.ts',
+  'templates.ts',
+  'tool-args.ts',
+  'verify-envelope-v2.ts',
+  'verify-envelope-v3.ts',
+  'verify.ts',
+  'wrapper-usage-observations.ts',
+] as const
+
+const APPROVED_PRODUCTION_DEPENDENCY_ROOTS = [
+  '@modelcontextprotocol/sdk',
+  'better-sqlite3',
+] as const
+
+const APPROVED_PRODUCTION_DEPENDENCY_GROUPS = {
+  dependencies: APPROVED_PRODUCTION_DEPENDENCY_ROOTS,
+  optionalDependencies: [],
+  peerDependencies: [],
+} as const
+
+const NPM = process.platform === 'win32' ? 'npm.cmd' : 'npm'
 
 function withFixture(
   files: Record<string, string>,
@@ -151,4 +230,49 @@ test('package boundary guard ignores import-shaped comments and strings', () => 
 test('package boundary guard accepts the repository source tree', () => {
   const repoRoot = join(fileURLToPath(new URL('..', import.meta.url)))
   assert.deepEqual(findPackageBoundaryViolations(repoRoot), [])
+})
+
+test('public Core source module baseline is exact', () => {
+  const repoRoot = join(fileURLToPath(new URL('..', import.meta.url)))
+  assert.deepEqual(listCoreSourceModulePaths(repoRoot), APPROVED_CORE_SOURCE_MODULES)
+})
+
+test('public Core production dependency baseline is exact', () => {
+  const repoRoot = join(fileURLToPath(new URL('..', import.meta.url)))
+  assert.deepEqual(listProductionDependencyRoots(repoRoot), APPROVED_PRODUCTION_DEPENDENCY_ROOTS)
+  assert.deepEqual(listProductionDependencyGroups(repoRoot), APPROVED_PRODUCTION_DEPENDENCY_GROUPS)
+})
+
+test('packed tarball contains exactly the approved Core modules', { timeout: 30_000 }, () => {
+  const repoRoot = join(fileURLToPath(new URL('..', import.meta.url)))
+  const temp = mkdtempSync(join(tmpdir(), 'meshfleet-package-boundary-pack-'))
+  try {
+    const build = spawnSync(NPM, ['run', 'build'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      env: { ...process.env, npm_config_update_notifier: 'false' },
+      shell: process.platform === 'win32',
+    })
+    assert.equal(build.status, 0, build.stderr || build.stdout)
+
+    const pack = spawnSync(NPM, ['pack', '--json', '--pack-destination', temp], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      env: { ...process.env, npm_config_update_notifier: 'false' },
+      shell: process.platform === 'win32',
+    })
+    assert.equal(pack.status, 0, pack.stderr || pack.stdout)
+    const packed = JSON.parse(pack.stdout) as Array<{
+      filename: string
+      files: Array<{ path: string }>
+    }>
+    assert.equal(packed.length, 1)
+    assert.equal(existsSync(join(temp, packed[0]!.filename)), true)
+    assert.deepEqual(
+      listPackedDistSourceModulePaths(packed[0]!.files),
+      APPROVED_CORE_SOURCE_MODULES,
+    )
+  } finally {
+    rmSync(temp, { recursive: true, force: true })
+  }
 })

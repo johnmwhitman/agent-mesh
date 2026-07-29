@@ -10,6 +10,12 @@ export type PackageBoundaryViolation = {
   reason: string
 }
 
+export type ProductionDependencyGroups = {
+  dependencies: string[]
+  optionalDependencies: string[]
+  peerDependencies: string[]
+}
+
 type PackageJson = {
   dependencies?: Record<string, string>
   optionalDependencies?: Record<string, string>
@@ -19,6 +25,10 @@ type PackageJson = {
 const sourceExtensions = ['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs']
 const nodeBuiltins = new Set(builtinModules.map((name) => name.replace(/^node:/, '')))
 
+function readPackageJson(repoRoot: string): PackageJson {
+  return JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')) as PackageJson
+}
+
 function walkSourceFiles(directory: string): string[] {
   return readdirSync(directory)
     .sort()
@@ -27,6 +37,39 @@ function walkSourceFiles(directory: string): string[] {
       if (statSync(path).isDirectory()) return walkSourceFiles(path)
       return sourceExtensions.some((extension) => entry.endsWith(extension)) ? [path] : []
     })
+}
+
+export function listCoreSourceModulePaths(repoRoot: string): string[] {
+  const sourceDir = join(repoRoot, 'src')
+  return walkSourceFiles(sourceDir)
+    .filter((path) => path.endsWith('.ts'))
+    .map((path) => relative(sourceDir, path).split(sep).join('/'))
+}
+
+export function listProductionDependencyGroups(repoRoot: string): ProductionDependencyGroups {
+  const packageJson = readPackageJson(repoRoot)
+  return {
+    dependencies: Object.keys(packageJson.dependencies ?? {}).sort(),
+    optionalDependencies: Object.keys(packageJson.optionalDependencies ?? {}).sort(),
+    peerDependencies: Object.keys(packageJson.peerDependencies ?? {}).sort(),
+  }
+}
+
+export function listProductionDependencyRoots(repoRoot: string): string[] {
+  const groups = listProductionDependencyGroups(repoRoot)
+  return [...new Set([
+    ...groups.dependencies,
+    ...groups.optionalDependencies,
+    ...groups.peerDependencies,
+  ])].sort()
+}
+
+export function listPackedDistSourceModulePaths(entries: ReadonlyArray<{ path: string }>): string[] {
+  return entries
+    .map(({ path }) => path)
+    .filter((path) => path.startsWith('dist/') && path.endsWith('.js'))
+    .map((path) => `${path.slice('dist/'.length, -'.js'.length)}.ts`)
+    .sort()
 }
 
 function packageRoot(specifier: string): string {
@@ -96,12 +139,7 @@ function collectSpecifiers(sourceFile: ts.SourceFile): Array<{ kind: PackageBoun
 }
 
 export function findPackageBoundaryViolations(repoRoot: string): PackageBoundaryViolation[] {
-  const packageJson = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')) as PackageJson
-  const declared = new Set([
-    ...Object.keys(packageJson.dependencies ?? {}),
-    ...Object.keys(packageJson.optionalDependencies ?? {}),
-    ...Object.keys(packageJson.peerDependencies ?? {}),
-  ])
+  const declared = new Set(listProductionDependencyRoots(repoRoot))
   const sourceDir = join(repoRoot, 'src')
 
   return walkSourceFiles(sourceDir).flatMap((file) => {
