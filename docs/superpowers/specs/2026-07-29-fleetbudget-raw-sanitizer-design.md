@@ -110,7 +110,7 @@ Only these raw facts may reach the snapshot:
 
 | Raw fact | Snapshot fact | Rule |
 |---|---|---|
-| `lane` | `lane_id` | Exact bounded string; opaque evidence key only |
+| `lane` | `lane_id` | Exact string, nonempty after trim, max 128; opaque evidence key only |
 | `measured` | `measured` | Exact Boolean |
 | `used` | `used` | `null` or finite non-negative JSON number |
 | `total` | `total` | `null` or finite JSON number greater than zero |
@@ -152,6 +152,12 @@ spellings, genuine finite fractions accepted, and rounding-to-integer
 ambiguity rejected. A strict scan succeeds before one ordinary `JSON.parse`;
 the parsed scalar tree is then checked against the same number and Unicode
 law. There is no permissive fallback or second acceptance path.
+
+The sanitizer does not call A2A `strictParseJson()` or `decodeEnvelope()`:
+those paths impose an unrelated 128 KiB envelope limit and A2A-specific
+errors. It copies or extracts only the proven lexical, duplicate-key, depth,
+scalar, and numeric laws into a sanitizer-local or shared pure scanner with
+the sanitizer's 1 MiB bound and typed errors.
 
 ```ts
 export type FleetBudgetSanitizerErrorCode =
@@ -255,8 +261,10 @@ Arguments use only separate `--flag value` tokens. `--flag=value`,
 positionals, `--`, unknown flags, help/version aliases, omitted values, and
 duplicates are rejected. Timestamps use `^(0|[1-9]\d*)$`; TTL uses
 `^[1-9]\d*$`; signs, whitespace, leading zeroes, decimals, exponents, and
-non-decimal spellings are rejected. Closed-argv failures exit 2; report,
-sanitizer, or stdin failures exit 1; success exits 0.
+non-decimal spellings are rejected. After lexical parsing, every value must
+also satisfy `Number.isSafeInteger`; TTL must additionally remain within
+1..600,000. Closed-argv failures exit 2; report, sanitizer, or stdin failures
+exit 1; success exits 0.
 
 The CLI never invokes `fleetbudget`, reads credentials or configuration,
 contacts a provider, persists a report, or executes a route command. An
@@ -282,6 +290,10 @@ file.
   unused-quota reward, pool allocation, reservation, synchronization,
   dispatch, provider execution, or weekly drain policy.
 - All later composition retains existing all-false effects.
+- Snapshot object construction order is `version`, `observed_at_ms`,
+  `expires_at_ms`, `lanes`; each sorted lane is `lane_id`, `measured`, `used`,
+  `total`, `unit`, with no `window` key. This pins compact success JSON and
+  byte-identity witnesses.
 
 ## Required witnesses
 

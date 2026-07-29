@@ -25,12 +25,16 @@ invention, persistence, scheduling, execution, or drain scoring.
    sorted windowless output, non-mutation, and deterministic permutations.
 2. Write RED strict-input tests for the 1 MiB bound, invalid UTF-8, BOM,
    decoded-equivalent duplicate keys, excessive depth, malformed JSON,
-   surrogate failures, the existing A2A numeric lexeme corpus, and closed
-   root/lane schemas.
+   surrogate failures, the exact existing A2A numeric lexeme vector list, and
+   closed root/lane schemas. Copy that full inline vector list into the new
+   test or first extract a shared fixture; do not paraphrase it into a smaller
+   sample.
 3. Implement typed redacted errors, fatal UTF-8 decoding, a bounded strict JSON
    scanner using the already-proven A2A lexical law, a scalar-tree check, and
    exact validation sufficient to turn the RED witnesses GREEN. Keep one
    strict scan-plus-parse acceptance path; do not add a permissive fallback.
+   Do not call the A2A envelope parser: its 128 KiB limit and error type are
+   wrong for this boundary.
 4. Keep parser errors value-free and avoid importing transports, runtimes,
    providers, clocks, filesystem, or child processes.
 5. Run the focused test, typecheck, build, and `git diff --check`.
@@ -99,6 +103,8 @@ invention, persistence, scheduling, execution, or drain scoring.
 - Modify `README.md`
 - Modify `ROADMAP.md`
 - Modify `HANDOFF.md`
+- Modify `CHANGELOG.md`
+- Modify `COMPATIBILITY.md` if its public compatibility boundary requires a note
 - Modify `docs/FLEETBUDGET-OBSERVATIONS.md`
 
 1. Document exact usage, explicit collection interval, current unversioned raw
