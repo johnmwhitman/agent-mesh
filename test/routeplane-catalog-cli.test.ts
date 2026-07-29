@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -46,7 +46,13 @@ if (payload !== undefined) {
 function runCli(args: string[], preload?: string, fetchMode = "success") {
   return spawnSync(
     process.execPath,
-    ["--import", "tsx", ...(preload === undefined ? [] : ["--import", preload]), CLI, ...args],
+    [
+      "--import",
+      "tsx",
+      ...(preload === undefined ? [] : ["--import", pathToFileURL(preload).href]),
+      CLI,
+      ...args,
+    ],
     {
       cwd: ROOT,
       encoding: "utf8",
