@@ -20,6 +20,11 @@ const corpusPath = join(root, "test", "fixtures", "a2a", "local-admission", "v0.
 const sidecarPath = join(root, "test", "fixtures", "a2a", "local-admission", "v0.1", "static-harness-mappings.json");
 const pythonWitness = join(root, "reference", "python", "a2a_local_admission_reference.py");
 const corpus = JSON.parse(readFileSync(corpusPath, "utf8")) as { mandatory_case_ids: string[]; cases: CorpusCase[] };
+const localAdmissionCorpusCountDocs = [
+  join(root, "COMPATIBILITY.md"),
+  join(root, "docs", "A2A-PROGRAM.md"),
+  join(root, "docs", "A2A-HANDOFF-CURRENT.md"),
+];
 
 function evaluate(item: CorpusCase) {
   const calls: unknown[] = [];
@@ -47,6 +52,18 @@ test("local admission evidence-alpha corpus is closed, self-consistent, and raw-
     assert.equal(typeof item.invocation_args.request_json, "string");
     assert.equal(typeof item.invocation_args.envelope_json, "string");
     assert.equal(item.invocation_args.request_json.includes("\"envelope\""), false);
+  }
+});
+
+test("stable local-admission case-count prose reconciles against the canonical corpus", () => {
+  assert.equal(corpus.mandatory_case_ids.length, corpus.cases.length);
+  for (const path of localAdmissionCorpusCountDocs) {
+    const text = readFileSync(path, "utf8");
+    assert.match(
+      text,
+      new RegExp(`\\b${corpus.cases.length}\\s+mandatory cases\\b`),
+      `${path} must state the canonical local-admission corpus count`,
+    );
   }
 });
 
