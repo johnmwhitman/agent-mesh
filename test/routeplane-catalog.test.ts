@@ -370,6 +370,22 @@ test("ignores observations for unadvertised policies while retaining eligible ob
   ]);
 });
 
+test("rejects duplicate policy IDs before advertised-model partitioning", () => {
+  const snapshot = normalizeRoutePlaneCatalog(liveCatalog, 100, 60_000);
+  assert.throws(
+    () => compileRoutePlaneCandidates({
+      snapshot,
+      now_ms: 100,
+      policies: [
+        { candidate_id: "lane-a", model: "a-model", capabilities: ["code"], privacy: "network_ok", locality: "any" },
+        { candidate_id: "lane-a", model: "not-advertised", capabilities: ["code"], privacy: "network_ok", locality: "any" },
+      ],
+      observations: [{ candidate_id: "lane-a", status: "green", confidence: "assumed" }],
+    }),
+    /policies\[1\]\.candidate_id.*duplicate candidate_id 'lane-a'/i,
+  );
+});
+
 test("does not derive authority from RoutePlane provider labels", () => {
   const snapshot = normalizeRoutePlaneCatalog({
     object: "list",

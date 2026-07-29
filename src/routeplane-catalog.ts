@@ -219,9 +219,17 @@ function validatePolicies(value: unknown): RoutePlaneCandidatePolicy[] {
   if (!Array.isArray(value) || value.length > 256) {
     compilationFail("policies", "must be an array with 0..256 items");
   }
+  const candidateIds = new Set<string>();
   return value.map((policyValue, index) => {
     const policy = requireCompilationRecord(policyValue, `policies[${index}]`);
     requireCompilationString(policy.candidate_id, `policies[${index}].candidate_id`);
+    if (candidateIds.has(policy.candidate_id)) {
+      compilationFail(
+        `policies[${index}].candidate_id`,
+        `is a duplicate candidate_id '${policy.candidate_id}'`,
+      );
+    }
+    candidateIds.add(policy.candidate_id);
     requireCompilationString(policy.model, `policies[${index}].model`);
     return policy as unknown as RoutePlaneCandidatePolicy;
   });
