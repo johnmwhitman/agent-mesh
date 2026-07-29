@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -8,7 +8,7 @@ import assert from 'node:assert/strict'
 import {
   findPackageBoundaryViolations,
   listCoreSourceModulePaths,
-  listPackedDistSourceModulePaths,
+  listPackedDistEntries,
   listProductionDependencyGroups,
   listProductionDependencyRoots,
 } from './helpers/package-boundary-guard.js'
@@ -82,6 +82,65 @@ const APPROVED_PRODUCTION_DEPENDENCY_GROUPS = {
   optionalDependencies: [],
   peerDependencies: [],
 } as const
+
+const APPROVED_PACKED_DIST_ENTRIES = [
+  'dist/a2a/codec.js',
+  'dist/a2a/delivery-trace.js',
+  'dist/a2a/legacy-map.js',
+  'dist/a2a/local-admission.js',
+  'dist/a2a/replay-decision.js',
+  'dist/a2a/static-harness-mapping.js',
+  'dist/a2a/types.js',
+  'dist/attempt-lifecycle.js',
+  'dist/bin/dashboard.js',
+  'dist/bin/fleetbudget-sanitize.js',
+  'dist/bin/inspect.js',
+  'dist/bin/routeplane-catalog.js',
+  'dist/budget-awareness.js',
+  'dist/compile-route-candidates.js',
+  'dist/core.js',
+  'dist/db.js',
+  'dist/demo.js',
+  'dist/discussion-mcp.js',
+  'dist/discussion-store.js',
+  'dist/discussion.js',
+  'dist/doctor.js',
+  'dist/env.js',
+  'dist/fleetbudget-observations.js',
+  'dist/fleetbudget-sanitizer.js',
+  'dist/health.js',
+  'dist/heartbeat.js',
+  'dist/index.js',
+  'dist/inspector.js',
+  'dist/lifecycle-execution.js',
+  'dist/lifecycle-visibility.js',
+  'dist/migrate.js',
+  'dist/ratify.js',
+  'dist/realtime.js',
+  'dist/recommend-route.js',
+  'dist/retry.js',
+  'dist/route-candidate-validation.js',
+  'dist/routeplane-catalog.js',
+  'dist/routing-feedback.js',
+  'dist/runtime/local-process.js',
+  'dist/runtime/opencode.js',
+  'dist/runtime/process.js',
+  'dist/runtime/registry.js',
+  'dist/runtime/types.js',
+  'dist/skill-taxonomy.js',
+  'dist/spawn-attempt.js',
+  'dist/spawn-config.js',
+  'dist/spawn-result.js',
+  'dist/speculative-backlog-planner.js',
+  'dist/sse-server.js',
+  'dist/synonyms.js',
+  'dist/templates.js',
+  'dist/tool-args.js',
+  'dist/verify-envelope-v2.js',
+  'dist/verify-envelope-v3.js',
+  'dist/verify.js',
+  'dist/wrapper-usage-observations.js',
+] as const
 
 const NPM = process.platform === 'win32' ? 'npm.cmd' : 'npm'
 
@@ -237,6 +296,86 @@ test('public Core source module baseline is exact', () => {
   assert.deepEqual(listCoreSourceModulePaths(repoRoot), APPROVED_CORE_SOURCE_MODULES)
 })
 
+test('source baseline lists every supported source extension', () => {
+  withFixture(
+    {
+      'src/component.tsx': 'export {}\n',
+      'src/entry.ts': 'export {}\n',
+      'src/module.cjs': 'module.exports = {}\n',
+      'src/module.cts': 'export {}\n',
+      'src/module.js': 'export {}\n',
+      'src/module.mjs': 'export {}\n',
+      'src/module.mts': 'export {}\n',
+      'src/module.jsx': 'export default null\n',
+    },
+    { name: 'fixture' },
+    (root) => {
+      assert.deepEqual(listCoreSourceModulePaths(root), [
+        'component.tsx',
+        'entry.ts',
+        'module.cjs',
+        'module.cts',
+        'module.js',
+        'module.jsx',
+        'module.mjs',
+        'module.mts',
+      ])
+    },
+  )
+})
+
+test('source scan rejects a file symlink', (t) => {
+  withFixture(
+    {
+      'outside.ts': 'export {}\n',
+      'src/entry.ts': 'export {}\n',
+    },
+    { name: 'fixture' },
+    (root) => {
+      try {
+        symlinkSync(join(root, 'outside.ts'), join(root, 'src', 'linked.ts'), 'file')
+      } catch (error) {
+        if (process.platform === 'win32' && ['EACCES', 'EPERM'].includes((error as NodeJS.ErrnoException).code ?? '')) {
+          t.skip('Windows denied fixture file-symlink creation')
+          return
+        }
+        throw error
+      }
+
+      assert.throws(
+        () => findPackageBoundaryViolations(root),
+        /source tree contains symlink: linked\.ts/,
+      )
+    },
+  )
+})
+
+test('source scan rejects a directory symlink', (t) => {
+  withFixture(
+    { 'src/entry.ts': 'export {}\n' },
+    { name: 'fixture' },
+    (root) => {
+      const outside = join(root, 'outside')
+      mkdirSync(outside)
+      writeFileSync(join(outside, 'nested.ts'), 'export {}\n')
+      try {
+        symlinkSync(outside, join(root, 'src', 'linked-dir'), process.platform === 'win32' ? 'junction' : 'dir')
+      } catch (error) {
+        if (process.platform === 'win32' && ['EACCES', 'EPERM'].includes((error as NodeJS.ErrnoException).code ?? '')) {
+          t.skip('Windows denied fixture directory-symlink creation')
+          return
+        }
+        throw error
+      }
+
+      assert.throws(
+        () => listCoreSourceModulePaths(root),
+        /source tree contains symlink: linked-dir/,
+      )
+    },
+  )
+})
+
 test('public Core production dependency baseline is exact', () => {
   const repoRoot = join(fileURLToPath(new URL('..', import.meta.url)))
   assert.deepEqual(listProductionDependencyRoots(repoRoot), APPROVED_PRODUCTION_DEPENDENCY_ROOTS)
@@ -269,8 +408,8 @@ test('packed tarball contains exactly the approved Core modules', { timeout: 30_
     assert.equal(packed.length, 1)
     assert.equal(existsSync(join(temp, packed[0]!.filename)), true)
     assert.deepEqual(
-      listPackedDistSourceModulePaths(packed[0]!.files),
-      APPROVED_CORE_SOURCE_MODULES,
+      listPackedDistEntries(packed[0]!.files),
+      APPROVED_PACKED_DIST_ENTRIES,
     )
   } finally {
     rmSync(temp, { recursive: true, force: true })

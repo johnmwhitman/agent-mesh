@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, lstatSync, readFileSync, readdirSync } from 'node:fs'
 import { builtinModules } from 'node:module'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import ts from 'typescript'
@@ -29,12 +29,16 @@ function readPackageJson(repoRoot: string): PackageJson {
   return JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')) as PackageJson
 }
 
-function walkSourceFiles(directory: string): string[] {
+function walkSourceFiles(directory: string, sourceDir = directory): string[] {
   return readdirSync(directory)
     .sort()
     .flatMap((entry) => {
       const path = join(directory, entry)
-      if (statSync(path).isDirectory()) return walkSourceFiles(path)
+      const stats = lstatSync(path)
+      if (stats.isSymbolicLink()) {
+        throw new Error(`source tree contains symlink: ${relative(sourceDir, path).split(sep).join('/')}`)
+      }
+      if (stats.isDirectory()) return walkSourceFiles(path, sourceDir)
       return sourceExtensions.some((extension) => entry.endsWith(extension)) ? [path] : []
     })
 }
@@ -42,7 +46,6 @@ function walkSourceFiles(directory: string): string[] {
 export function listCoreSourceModulePaths(repoRoot: string): string[] {
   const sourceDir = join(repoRoot, 'src')
   return walkSourceFiles(sourceDir)
-    .filter((path) => path.endsWith('.ts'))
     .map((path) => relative(sourceDir, path).split(sep).join('/'))
 }
 
@@ -64,11 +67,10 @@ export function listProductionDependencyRoots(repoRoot: string): string[] {
   ])].sort()
 }
 
-export function listPackedDistSourceModulePaths(entries: ReadonlyArray<{ path: string }>): string[] {
+export function listPackedDistEntries(entries: ReadonlyArray<{ path: string }>): string[] {
   return entries
     .map(({ path }) => path)
-    .filter((path) => path.startsWith('dist/') && path.endsWith('.js'))
-    .map((path) => `${path.slice('dist/'.length, -'.js'.length)}.ts`)
+    .filter((path) => path.startsWith('dist/'))
     .sort()
 }
 
