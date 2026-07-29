@@ -60,6 +60,31 @@ receipt, or an execution commitment. Every effect remains false.
 An exhausted measured budget is returned under `excluded` with
 `BUDGET_EXHAUSTED`. It is never left in the ranked list with a zero score.
 
+## Weekly drain review composition
+
+`compileWeeklyDrainReview()` is a package-only
+`meshfleet.weekly-drain-review.v0.1` composition, not an MCP tool or a drain
+executor. The caller supplies one canonical RoutePlane model snapshot and
+policy list, one caller-sanitized Fleetbudget snapshot plus candidate bindings,
+quality annotations for every declared policy candidate, approved backlog
+tasks, a single caller `now_ms`, and a sanitized wrapper-usage summary.
+
+The function first projects Fleetbudget observations, then compiles only exact
+advertised RoutePlane models using that evidence, then invokes the existing
+speculative planner when candidates remain. An unadvertised policy model stays
+in catalog diagnostics; a review with no compiled candidates returns
+`no_compiled_candidates` and no proposal. Shared bindings copy their same lane
+evidence to each candidate and capacity stays unmodeled. If opted in, the
+existing near-reset preference receives the same supplied `now_ms` and remains
+a route-score tie-break only; it never changes priority queue order.
+
+Wrapper usage is validated and returned as context only. Its outcomes, token
+counts, duration, source metadata, and rejection counts do not become routing,
+budget, quality, provider, or capacity authority and cannot alter the proposal.
+The composition fetches, polls, persists, executes, authorizes, wakes, contacts
+providers, changes routing, allocates, reserves, schedules, spends, sends, or
+publishes nothing. It does not claim budget freshness or provider availability.
+
 ## Opt-in near-reset preference
 
 A measured candidate budget may carry a closed, caller-supplied window:

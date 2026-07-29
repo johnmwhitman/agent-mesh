@@ -183,6 +183,12 @@ Direction, not commitment — items ship when real usage pulls them.
   records a canonical replay hash with all effects false. It adds no provider
   selection, pool binding, budget polling, scheduling, allocation, reservation,
   execution, publication, or authority.
+- Weekly advisory composition is package-only: `compileWeeklyDrainReview()`
+  combines caller-owned RoutePlane catalog evidence, sanitized Fleetbudget
+  observations, declared quality eligibility, caller-approved backlog work, and
+  sanitized wrapper-usage context. It performs no collection or execution and
+  does not convert wrapper metrics into routing authority, shared capacity into
+  allocation, or snapshot timing into freshness/provider-availability claims.
 - Per-entry provenance confidence bands in verify output remain deferred; the
   shipped v3 local consistency labels deliberately do not establish that
   stronger evidence claim.

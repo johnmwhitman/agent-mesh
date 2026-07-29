@@ -19,6 +19,11 @@ const source = readFileSync(join(here, "..", "src", "index.ts"), "utf8");
 const readme = readFileSync(join(here, "..", "README.md"), "utf8");
 const compatibility = readFileSync(join(here, "..", "COMPATIBILITY.md"), "utf8");
 const roadmap = readFileSync(join(here, "..", "ROADMAP.md"), "utf8");
+const handoff = readFileSync(join(here, "..", "HANDOFF.md"), "utf8");
+const conformanceManifest = JSON.parse(readFileSync(join(here, "..", "blackbox", "a2a-conformance-v0.1", "manifest.json"), "utf8")) as {
+  expected_catalog_sha256: string;
+  families: Record<string, { tools: Array<{ advertised_input_schema_members: string[] }> }>;
+};
 
 // Declared tool names live in the ListToolsRequestSchema handler, i.e. between
 // the ListTools registration and the toolHandlers registry declaration.
@@ -197,6 +202,24 @@ test("README documents plan_speculative_backlog at its projection boundary", () 
     /^\| `plan_speculative_backlog` \| Pure projection of caller-approved speculative work, preserving route gates and explicitly leaving capacity unmodeled \|$/m,
     "README must describe plan_speculative_backlog at its projection boundary",
   );
+});
+
+test("HANDOFF derives current MCP and conformance counts from the registry and pinned manifest", () => {
+  const declared = declaredToolNames(source);
+  const normativeTools = Object.values(conformanceManifest.families).flatMap((family) => family.tools);
+  const runnerChecks = 18 + normativeTools.length + normativeTools.reduce(
+    (count, tool) => count + tool.advertised_input_schema_members.length,
+    0,
+  );
+
+  assert.equal(declared.size, 36);
+  assert.equal(normativeTools.length, declared.size);
+  assert.equal(runnerChecks, 140);
+  assert.equal(conformanceManifest.expected_catalog_sha256, "783d4af3c5674b7fc905d67cac9d9c337df175229b8ffb016e404c10e8d8269f");
+  assert.match(handoff, /^- \*\*36 MCP tools\*\* across 11 families:/m);
+  assert.match(handoff, /adds no MCP tool and claims no automatic selection/);
+  assert.match(handoff, /pinned to the 36-tool surface at `783d4af3c5674b7fc905d67cac9d9c337df175229b8ffb016e404c10e8d8269f`;[\s\S]*exactly 140 checks/);
+  assert.match(handoff, /last observed sync was 34 tools \/ 1021 tests \/ 8 tool categories,[\s\S]*lagging evidence, not a current-repository-parity claim/);
 });
 
 test("D3: all 27 pre-existing tool names remain present in both registries", () => {

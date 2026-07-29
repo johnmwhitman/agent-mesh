@@ -126,13 +126,13 @@ the reviewed implementation through committed code head `168996c`:
 
 ## Current state
 
-- **34 MCP tools** across 11 families: lifecycle, messaging, inbox, receipts, ratification,
+- **36 MCP tools** across 11 families: lifecycle, messaging, inbox, receipts, ratification,
   capability-routing, health, discussions, templates, advisory-routing, verification
 - **RoutePlane catalog discovery is landed host-side, not MCP:** the separate
   `meshfleet-routeplane-catalog` CLI fetches the fixed loopback `/v1/models`
   catalog into an expiring canonical snapshot, and the library projects exact
   advertised model IDs plus caller-owned policy into advisory candidates. It
-  does not add a 35th MCP tool or claim automatic selection, token-pool draining,
+  adds no MCP tool and claims no automatic selection, token-pool draining,
   budget freshness, health, authentication, credential handling, or execution.
   RoutePlane retains those provider responsibilities; MeshFleet retains policy
   projection and advisory ranking. See `docs/ROUTEPLANE-CATALOG.md`.
@@ -159,12 +159,21 @@ the reviewed implementation through committed code head `168996c`:
   `recommend_route` can separately opt in to use current window evidence only
   after existing final score as a near-reset tie-break. It does not refresh,
   attest, reserve, select, or execute. See `docs/FLEETBUDGET-OBSERVATIONS.md`.
+- **Weekly drain review is package-library-only:** pure
+  `compileWeeklyDrainReview()` composes caller-owned RoutePlane catalog and
+  Fleetbudget snapshots, exact quality annotations, caller-approved backlog
+  tasks, and sanitized wrapper-usage context into one advisory proposal. It
+  preserves absent catalog models as diagnostics, leaves shared capacity
+  unmodeled, and makes wrapper usage context-only. It adds no MCP tool,
+  polling, fetch, provider inference, allocation, scheduling, execution,
+  spending, freshness claim, provider-availability claim, or authority.
 - **12 A2A conformance witnesses** under `blackbox/` — pure offline blackbox suites with JS
   runners, Python evaluators, corpora, and review records. The 12th (discussion-derivation)
   has an 18-case corpus and a 1,273-line Grok-produced pure JS evaluator verified against
   the TypeScript reference at 18/18 match
 - **Live MCP stdio conformance harness** (`blackbox/a2a-conformance-v0.1/`) — catalog
-  re-pinned to 34-tool surface, 132 checks passing, 11 tool families in manifest
+  pinned to the 36-tool surface at `783d4af3c5674b7fc905d67cac9d9c337df175229b8ffb016e404c10e8d8269f`;
+  the runner is PASS with exactly 140 checks across 11 tool families in the manifest
 - **`send_message` and `send_messages` at parity** — both surfaces now validate identities,
   types, and correlation_ids before the writer. COMPATIBILITY.md records the tightening
 - **`VerifyReport.scope`** — the legacy verification report carries its own guarantee boundary
@@ -174,7 +183,8 @@ the reviewed implementation through committed code head `168996c`:
   review and integration gates complete
 - **Tags:** v0.9.0–v0.19.0 complete and pushed; v0.19.0 npm publication is
   blocked on the credential refresh above
-- **meshfleet-app:** synced to 34 tools / 1021 tests / 8 tool categories, live on Vercel
+- **meshfleet-app:** last observed sync was 34 tools / 1021 tests / 8 tool categories,
+  live on Vercel; this is lagging evidence, not a current-repository-parity claim
 
 ## What the A2A witnesses cover
 
