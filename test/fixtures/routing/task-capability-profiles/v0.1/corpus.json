@@ -1,0 +1,98 @@
+{
+  "version": "meshfleet.task-capability-profile.corpus.v0.1",
+  "vectors": [
+    {
+      "id": "text-inline",
+      "operation": "text.generate",
+      "lifecycle": "inline",
+      "artifact": "text",
+      "required_traits": ["structured_output"],
+      "expected_required_capabilities": [
+        "artifact:text",
+        "lifecycle:inline",
+        "operation:text.generate",
+        "trait:structured_output"
+      ]
+    },
+    {
+      "id": "image-job",
+      "operation": "image.generate",
+      "lifecycle": "async_job",
+      "artifact": "image",
+      "required_traits": ["background_omission"],
+      "expected_required_capabilities": [
+        "artifact:image",
+        "lifecycle:async_job",
+        "operation:image.generate",
+        "trait:background_omission"
+      ]
+    },
+    {
+      "id": "video-job",
+      "operation": "video.generate",
+      "lifecycle": "async_job",
+      "artifact": "video",
+      "required_traits": ["audio_track"],
+      "expected_required_capabilities": [
+        "artifact:video",
+        "lifecycle:async_job",
+        "operation:video.generate",
+        "trait:audio_track"
+      ]
+    },
+    {
+      "id": "speech-job",
+      "operation": "speech.synthesize",
+      "lifecycle": "async_job",
+      "artifact": "audio",
+      "required_traits": ["ssml"],
+      "expected_required_capabilities": [
+        "artifact:audio",
+        "lifecycle:async_job",
+        "operation:speech.synthesize",
+        "trait:ssml"
+      ]
+    },
+    {
+      "id": "music-job",
+      "operation": "music.generate",
+      "lifecycle": "async_job",
+      "artifact": "audio",
+      "required_traits": ["instrumental"],
+      "expected_required_capabilities": [
+        "artifact:audio",
+        "lifecycle:async_job",
+        "operation:music.generate",
+        "trait:instrumental"
+      ]
+    },
+    {
+      "id": "pixel-character-rotation",
+      "operation": "pixel_art.rotate_character",
+      "lifecycle": "async_job",
+      "artifact": "sprite_sheet",
+      "required_traits": ["eight_direction_rotation", "pixel_art"],
+      "expected_required_capabilities": [
+        "artifact:sprite_sheet",
+        "lifecycle:async_job",
+        "operation:pixel_art.rotate_character",
+        "trait:eight_direction_rotation",
+        "trait:pixel_art"
+      ]
+    },
+    {
+      "id": "pixel-tileset",
+      "operation": "pixel_art.generate_tileset",
+      "lifecycle": "async_job",
+      "artifact": "tileset",
+      "required_traits": ["pixel_art", "tile_transitions"],
+      "expected_required_capabilities": [
+        "artifact:tileset",
+        "lifecycle:async_job",
+        "operation:pixel_art.generate_tileset",
+        "trait:pixel_art",
+        "trait:tile_transitions"
+      ]
+    }
+  ]
+}
