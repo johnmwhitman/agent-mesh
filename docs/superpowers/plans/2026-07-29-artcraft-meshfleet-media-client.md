@@ -14,7 +14,7 @@
 - Create a fresh ArtCraft worktree from a reconciled remote base; the primary checkout is diverged and contains unrelated login-modal, realtime, frontend, and lockfile changes.
 - Do not add MeshFleet to `GenerationProvider` in Rust or TypeScript.
 - Do not edit `crates/desktop/tauri-realtime/**`, `frontend/apps/genhub/**`, or deprecated command/job trees.
-- The production bridge executable path is a build-time constant (absolute path outside any renderer input); only tests may inject a fake executable. The production spawn resolves via trusted host configuration, validates the canonical path exists with expected owner and mode (0600/0700), rejects any submission-provided executable, argv, cwd, or env, and uses `env_clear()` + explicit allowlist. Non-interactive confirmation uses MeshFleet's internal ArtCraft trusted-host mode and a pre-opened anonymous confirmation descriptor created by the Tauri backend. The renderer cannot create, select, or populate that descriptor.
+- The production bridge executable path is an absolute build-time constant or trusted desktop-host configuration outside every renderer/request input; only tests may inject a fake executable. The production spawn validates the canonical path, regular-file type, expected owner, owner-execute bit, and absence of group/other write bits, rejects any submission-provided executable, argv, cwd, or env, and uses `env_clear()` plus an explicit locale allowlist. Non-interactive confirmation uses MeshFleet's internal ArtCraft trusted-host mode and a pre-opened anonymous confirmation descriptor created by the Tauri backend. The renderer cannot create, select, or populate that descriptor.
 - Prompts and inputs cross the child boundary in bounded stdin JSON, never argv or environment.
 - The renderer receives quotes, readiness facts, execution IDs, state, route truth, and ArtCraft-owned artifact locations; it never receives grants, credential fields, registered consumer roots, or arbitrary artifact paths.
 - The first v1 image-to-video workflow accepts only a retained MeshFleet `MediaArtifactHandle` from a prior admitted local job. Existing ArtCraft/Storyteller URLs and arbitrary local files are not silently imported; the panel stays unavailable for those inputs until a separately designed input-admission contract exists.
@@ -48,16 +48,17 @@ Record pre-existing failures before editing. Build the private desktop only at t
 **Files:**
 - Create: `crates/desktop/artcraft/src/services/meshfleet_media/mod.rs`
 - Create: `crates/desktop/artcraft/src/services/meshfleet_media/contract.rs`
+- Create: `crates/desktop/artcraft/src/services/meshfleet_media/bridge_config.rs`
 - Create: `crates/desktop/artcraft/src/services/meshfleet_media/bridge.rs`
 - Modify: `crates/desktop/artcraft/src/services/mod.rs`
 
 **Interfaces:**
-- Consumes: committed `meshfleet-media` JSON fixtures for `version`, `capabilities`, `plan`, `confirm`, `submit`, `status`, `artifacts`, and `cancel`.
+- Consumes: committed `meshfleet-media` JSON fixtures for `version`, `capabilities`, `plan`, `confirm`, `submit`, `status`, `artifacts`, `review`, `cancel`, and `worker --run-until-idle`.
 - Produces: `MeshfleetMediaBridge`, `MeshfleetMediaBridgeConfig`, `MeshfleetReadiness`, `MeshfleetPlan`, `MeshfleetSubmission`, `MeshfleetJob`, `MeshfleetArtifactHandle`, `MeshfleetBridgeError`.
 
 - [ ] **Step 1: Write failing Rust unit tests beside the new modules**
 
-Use a temporary fake executable that records argv and stdin. Cover version mismatch, unknown JSON fields, stdout/stderr limits, timeout, non-zero exit, malformed JSON, secret-shaped output rejection, fixed argv, and `env_clear()`:
+Use a temporary fake executable that records argv and stdin. Cover version mismatch, unknown JSON fields, stdout/stderr limits, timeout, non-zero exit, malformed JSON, secret-shaped output rejection, fixed argv, and `env_clear()`. Table-test every `BridgeCommand` mapping, including `Review -> ["review", "--json"]` and `WorkerRunUntilIdle -> ["worker", "--run-until-idle", "--json"]`; review stdin contains only execution/candidate IDs. Production-config tests reject a relative path, symlink, wrong owner, group/other-writable mode, non-file target, and any renderer/request executable field:
 
 ```rust
 #[tokio::test]
@@ -85,7 +86,7 @@ Expected: FAIL because `services::meshfleet_media` is absent.
 
 - [ ] **Step 3: Implement the closed bridge**
 
-Use closed serde contracts with `#[serde(deny_unknown_fields)]`. Production construction uses the fixed executable name `meshfleet-media`, `kill_on_drop(true)`, piped stdin/stdout/stderr, `env_clear()`, an explicit locale/path allowlist, a 30-second control timeout, and independent byte caps. Command selection is an internal enum:
+Use closed serde contracts with `#[serde(deny_unknown_fields)]`. `bridge_config.rs` resolves one host-owned absolute executable path from a build-time constant or trusted desktop-host configuration that is never renderer/request input. Canonicalize it once; require a regular non-symlink executable owned by the current user, owner-executable, and not group/other-writable; spawn that exact path. Production construction uses `kill_on_drop(true)`, piped stdin/stdout/stderr, `env_clear()`, an explicit locale-only allowlist, a 30-second control timeout, and independent byte caps. Command selection is an internal enum:
 
 ```rust
 enum BridgeCommand {
@@ -98,9 +99,10 @@ enum BridgeCommand {
   MaterializeArtifacts,
   Review,
   Cancel,
+  WorkerRunUntilIdle,
 }
 ```
-Add `Review` to match the approved design's generic review projection. Sprite-only PixelLab review UX remains in the PixelLab wrapper; ArtCraft uses the generic CLI review surface. If review_gated=true is required inside ArtCraft scope, explicitly fail planning and record the decision.
+Map every enum variant to the exact committed CLI fixture; `Review` uses only the generic execution/candidate selection contract and `WorkerRunUntilIdle` is the fixed listener-free wake command. Sprite-only PixelLab candidate UX remains in the PixelLab wrapper; ArtCraft exposes only the generic execution review projection. If `review_gated=true` requires provider-specific candidate UX unavailable in ArtCraft, planning fails before confirmation.
 
 Map missing binary, incompatible version, malformed response, timeout, and non-dispatchable capability to distinct readiness reasons. The production `ArtcraftHostConfirm` spawn creates and passes the anonymous descriptor expected by MeshFleet; all other commands omit it. Do not translate `configured_unverified` into ready.
 
@@ -193,12 +195,12 @@ git commit -m "feat(artcraft): persist MeshFleet media jobs separately"
 
 **Interfaces:**
 - Consumes: `MeshfleetMediaBridge`, `TaskDbConnection`, `MediaPlanIntent`, trusted Tauri window/principal context.
-- Produces Tauri commands: `meshfleet_media_readiness_command`, `meshfleet_media_plan_command`, `meshfleet_media_confirm_submit_command`, `meshfleet_media_status_command`, `meshfleet_media_cancel_command`.
-- Produces frontend functions: `GetMeshfleetMediaReadiness`, `PlanMeshfleetMedia`, `ConfirmSubmitMeshfleetMedia`, `GetMeshfleetMediaStatus`, `CancelMeshfleetMedia`.
+- Produces Tauri commands: `meshfleet_media_readiness_command`, `meshfleet_media_plan_command`, `meshfleet_media_confirm_submit_command`, `meshfleet_media_status_command`, `meshfleet_media_review_command`, `meshfleet_media_cancel_command`.
+- Produces frontend functions: `GetMeshfleetMediaReadiness`, `PlanMeshfleetMedia`, `ConfirmSubmitMeshfleetMedia`, `GetMeshfleetMediaStatus`, `ReviewMeshfleetMedia`, `CancelMeshfleetMedia`.
 
 - [ ] **Step 1: Write failing command tests**
 
-Use a fake bridge and temporary task DB. Assert plan has no side effects, confirm-submit requires the exact plan hash, the renderer cannot supply `authority_ref`, double-clicking confirm returns the same execution, changed plan content conflicts, and cancel preserves best-effort truth:
+Use a fake bridge and temporary task DB. Assert plan has no side effects, confirm-submit requires the exact plan hash, the renderer cannot supply `authority_ref`, double-clicking confirm returns the same execution, changed plan content conflicts, review accepts only execution/candidate IDs, and cancel preserves best-effort truth. After the durable submit transaction, prove exactly one worker wake is requested per successful call; concurrent calls may start competing fixed processes, but the committed Core fixture proves one SQLite lease winner and no duplicate provider dispatch:
 
 ```rust
 assert!(serde_json::to_value(&request).unwrap().get("authority_ref").is_none());
@@ -217,11 +219,11 @@ Expected: FAIL because commands are absent.
 
 - [ ] **Step 3: Implement the trusted host flow**
 
-`plan` sends the closed intent and returns the persisted quote. `confirm_submit` accepts only `plan_id` plus the trusted Tauri invocation context, creates the anonymous confirmation descriptor, calls the bridge’s fixed internal `artcraft-host-confirm` mode, receives the opaque grant internally, submits IDs only, and creates one durable local row. The descriptor carries no prompt, credential, approver name, or reusable token and closes immediately after the child exits. Register the five commands in `lib.rs`. Do not add a browser-accessible route or listener.
+`plan` sends the closed intent and returns the persisted quote. `confirm_submit` accepts only `plan_id` plus the trusted Tauri invocation context, creates the anonymous confirmation descriptor, calls the bridge’s fixed internal `artcraft-host-confirm` mode, receives the opaque grant internally, submits IDs only, and creates one durable local row. Only after that transaction commits, start the fixed `WorkerRunUntilIdle` command detached from the renderer request; MeshFleet's SQLite singleton lease owns election. A wake failure leaves the row durably queued and returns truthful remediation rather than resubmitting. `review` sends only execution and selected-candidate IDs, then ensures the worker again. The descriptor carries no prompt, credential, approver name, or reusable token and closes immediately after the child exits. Register all six commands in `lib.rs`. Do not add a browser-accessible route or listener.
 
 - [ ] **Step 4: Add and test the TypeScript wrappers**
 
-Use explicit request/result unions and no generic invoke escape hatch. Add Jest tests beside `MeshfleetMedia.ts` that mock `invoke` and prove the confirm request contains only `plan_id`.
+Use explicit request/result unions and no generic invoke escape hatch. Add Jest tests beside `MeshfleetMedia.ts` that mock `invoke` and prove the confirm request contains only `plan_id` and review contains only `execution_id` plus `candidate_id`.
 
 Run:
 
@@ -253,7 +255,7 @@ git commit -m "feat(artcraft): add MeshFleet plan confirm submit commands"
 
 - [ ] **Step 1: Write failing projection and recovery tests**
 
-Table-test every approved projection. Add restart fixtures for durable async resume, missing synchronous child, `needs_review`, and terminal rows:
+Table-test every approved projection. Add restart fixtures for durable async resume, missing synchronous child, `needs_review`, accepted review selection (`needs_review -> awaiting_artifact|succeeded`), rejected/expired review, and terminal rows:
 
 ```rust
 assert_eq!(
@@ -271,7 +273,7 @@ cargo test -p artcraft meshfleet_media::reconcile
 
 - [ ] **Step 3: Implement reconciliation**
 
-At startup, list incomplete rows, query only by `execution_id`, and update projections. Never call `plan`, `confirm`, or `submit` from reconciliation. A lost synchronous execution remains `interrupted_unknown`; only durable provider evidence may resume it. Poll with bounded backoff and shut down with the Tauri lifecycle.
+At startup, first invoke the fixed `WorkerRunUntilIdle` wake once, then list incomplete rows, query only by `execution_id`, and update projections. Concurrent app windows or submit/startup races are safe only because the Core SQLite singleton lease elects one polling worker; add a fake-plane race test for this exact path. Never call `plan`, `confirm`, or `submit` from reconciliation. A lost synchronous execution remains `interrupted_unknown`; only durable provider evidence may resume it. Poll with bounded backoff and shut down with the Tauri lifecycle.
 
 - [ ] **Step 4: Run focused and startup tests**
 
@@ -346,7 +348,7 @@ git commit -m "feat(artcraft): commit local MeshFleet artifacts atomically"
 
 - [ ] **Step 1: Write failing hook tests**
 
-Mock both existing task queue and MeshFleet job listing. Prove jobs appear after restart, deduplicate by local job ID, do not disappear when no completion event arrives, and complete only when the event points to an ArtCraft-owned path. Additionally assert: exactly one bounded `worker --run-until-idle` lease is active (no duplicate dispatch), and queued work cannot strand (restart always drains the lease-bounded queue). These tests reference the Core worker-singleton lease contract.
+Mock both existing task queue and MeshFleet job listing. Prove jobs appear after restart, deduplicate by local job ID, do not disappear when no completion event arrives, and complete only when the event points to an ArtCraft-owned path. Worker election and queue-drain assertions remain backend/Core tests; the React hook never starts a process.
 
 - [ ] **Step 2: Verify red**
 
