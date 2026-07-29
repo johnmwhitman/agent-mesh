@@ -85,6 +85,10 @@ Expected: dirty primary bytes remain in place and are not copied into the execut
 
 Use `superpowers:using-git-worktrees`, record one lock row per repository, and create branches with the `codex/` prefix from the exact approved bases. Create a portfolio-root worktree bounded to the named `Tools/` and handoff paths; do not borrow its dirty primary bytes. Do not reuse the current `/private/tmp/agent-mesh-codex-media-execution-suite-20260729` planning worktree for implementation if it cannot be cleanly reconciled with `origin/main`.
 
+- [ ] **Step 4: Cross-repo fixture vendoring after wrapper commit (EXPLICIT)**
+
+After the portfolio-root wrapper plan commits its protocol fixtures, copy ONLY the committed closed adapter fixtures and schema into `agent-mesh/test/fixtures/media-adapters/`. Create a `provenance.json` manifest recording: source repo, source commit SHA, file list, each file's SHA-256, and timestamp. Commit the vendored bytes + manifest BEFORE MeshFleet core adapter Task 9. ArtCraft and Sprite Factory consume only the committed public consumer fixtures from the same vendored set. Never copy uncommitted or dirty bytes.
+
 - [ ] **Step 4: Run repository baselines**
 
 Run the baseline named at the start of each child plan. Record failures as pre-existing or repair blockers before implementing a task.

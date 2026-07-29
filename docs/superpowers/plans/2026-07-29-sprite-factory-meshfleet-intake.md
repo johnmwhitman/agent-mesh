@@ -50,7 +50,7 @@ Record any pre-existing failure before editing.
 
 - [ ] **Step 1: Write failing contract tests**
 
-Cover exact version, required fields, unknown fields, duplicate JSON keys, wrong JSON types, zero/duplicate artifacts, malformed IDs, malformed hashes, invalid review state, empty provider/model facts, missing prompt hash, and every unsupported license:
+Cover exact version, required fields, unknown fields, duplicate JSON keys, wrong JSON types, zero/duplicate artifacts, malformed IDs, malformed hashes, invalid review state, empty provider/model facts, missing prompt hash, and every unsupported license. The closed `sprite-factory.meshfleet-intake.v1` manifest MUST be produced by Core from completed artifacts and MUST include: prompt_sha256, requested/selected/observed model distinctions, license_declaration, and artifact hashes. Sprite pins and validates these committed fixtures (not live generation output).
 
 ```python
 def test_manifest_rejects_raw_paths_and_urls(tmp_path):
