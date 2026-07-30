@@ -38,27 +38,36 @@ function collectTests(dir) {
 // imports nothing at all — it is deliberately the pure seam, with `extension.ts` holding the
 // `vscode` dependency. If model.ts ever grows an import of `vscode`, root `npm test` breaks
 // loudly; that is the correct outcome and not a reason to drop the root.
-const PRUNE = new Set([
-  "node_modules",
-  "dist",
-  "out",
-  ".git",
-  ".github",
-  "coverage",
-  "reference", // language-reference implementations, driven by suites under test/
-]);
+// Prune BUILD OUTPUT AND VCS ONLY. An adversarial review of the first version of this guard
+// caught it reproducing the very defect it was written to prevent: the prune list also held
+// "reference", matched by NAME AT ANY DEPTH, so a `*.test.ts` anywhere under any directory
+// so named would have been invisible to the scan and the guard would have reported a false
+// green. Nothing may be pruned here for being "probably not tests" — only for being
+// generated or not source.
+const PRUNE = new Set(["node_modules", "dist", "out", "coverage", ".git", ".github"]);
 
 function scanForTests(dir) {
   let entries;
   try {
     entries = readdirSync(dir, { withFileTypes: true });
-  } catch {
-    return []; // unreadable directory is not a silently-skipped test
+  } catch (err) {
+    // A directory we cannot read is not evidence of no tests — it is an unknown, and an
+    // unknown reported as "clean" is the failure mode this whole guard exists to prevent.
+    throw new Error(`orphan scan could not read ${dir}: ${err.message}`, { cause: err });
   }
   return entries.flatMap((entry) => {
     if (PRUNE.has(entry.name)) return [];
     const full = join(dir, entry.name);
     if (entry.isDirectory()) return scanForTests(full);
+    // A symlinked test file is neither isFile() nor isDirectory(), so the naive check would
+    // drop it from BOTH the collected list and this scan — silently skipped and silently
+    // blessed. Surface it instead of guessing.
+    if (entry.isSymbolicLink() && entry.name.endsWith(".test.ts")) {
+      throw new Error(
+        `orphan scan found a symlinked test file: ${full}. Resolve it to a real file; ` +
+          `a symlink is skipped by the collector and would pass this guard unnoticed.`,
+      );
+    }
     return entry.isFile() && entry.name.endsWith(".test.ts") ? [full] : [];
   });
 }
@@ -88,7 +97,9 @@ if (orphans.length > 0) {
 
 const result = spawnSync(
   process.execPath,
-  ["--import", "tsx", "--test", "--test-concurrency=1", ...files],
+  // `--` before the file list: a test named `-foo.test.ts` would otherwise be parsed as a
+  // flag rather than a path, and the suite it holds would never run.
+  ["--import", "tsx", "--test", "--test-concurrency=1", "--", ...files],
   { stdio: "inherit" },
 );
 process.exit(result.status ?? 1);
