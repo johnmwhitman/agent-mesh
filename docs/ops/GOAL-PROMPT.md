@@ -65,8 +65,10 @@ cut through it (fixed 2026-07-23).
 🔴 **Set `MESHFLEET_EVENT_LOG_FILE` — and only that one — when running the verifier.** The suite
 manages its own temp ledgers, but it does **not** redirect the event log, so a bare run appends real
 test events to whatever `agent-mesh.events.log` the environment resolves: in a developer checkout,
-the operator's live one. Measured 2026-07-29 — with the variable set the suite is **1292/1292, exit
+the operator's live one. Measured 2026-07-30 — with the variable set the suite is **1302/1302, exit
 0**, the operator's log is byte-for-byte untouched, and the events land in the temp file instead.
+(It read 1292 until `editors/vscode/src/model.test.ts` — 10 tests that no gate ran — was wired into
+`TEST_ROOTS`; that runner now also fails on any `*.test.ts` no declared root covers.)
 A sandboxed run surfaces the same fact as an `EPERM` on that path, which is a redirection failure,
 not a product failure.
 
