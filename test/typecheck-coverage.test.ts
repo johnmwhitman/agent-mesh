@@ -23,15 +23,31 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const require = createRequire(import.meta.url);
 const ROOT = join(__dirname, "..");
 const CHECK_CONFIG = "tsconfig.check.json";
 
 function tscListFiles(): string[] {
+  // Run the compiler under THIS interpreter rather than shelling out to `npx`.
+  //
+  // `spawnSync("npx", …)` failed on four CI legs and passed on the other five, by two DIFFERENT
+  // mechanisms — which is why fixing only the obvious one would have left a leg red:
+  //   · windows-2022, all three Node versions: `npx` is `npx.cmd`, a batch script. spawnSync goes
+  //     straight to CreateProcess, which cannot launch a .cmd, so the spawn dies before tsc runs.
+  //     `shell: true` fixes that one and re-introduces shell quoting on every argument.
+  //   · macOS Node 20: there is no .cmd on macOS, so the shell theory cannot explain it. Node 20
+  //     ships npm 9, whose `npx` resolves a local binary differently from npm 10.8+ on Node 22/24.
+  //
+  // Both vanish when nothing has to RESOLVE anything: require.resolve locates the compiler through
+  // ordinary module resolution, and process.execPath is the interpreter already running. No PATH
+  // lookup, no shell, no .cmd, no npm version anywhere in the path. This is the same shape
+  // run-tests-ledger-env-preflight.test.ts uses, and that file is green on all nine legs.
   const result = spawnSync(
-    "npx",
-    ["tsc", "-p", CHECK_CONFIG, "--listFiles", "--noEmit"],
+    process.execPath,
+    [require.resolve("typescript/bin/tsc"), "-p", CHECK_CONFIG, "--listFiles", "--noEmit"],
     { cwd: ROOT, encoding: "utf8", timeout: 120_000 },
   );
   assert.notEqual(result.status, null, `tsc did not run: ${result.error?.message ?? "timeout"}`);
