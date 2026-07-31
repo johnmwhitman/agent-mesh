@@ -1056,6 +1056,27 @@
       ]
     },
     {
+      "id": "fleet-invalid-created-at",
+      "primary": "fleet.invalid_timestamp",
+      "classification": "caught",
+      "lie": "the fleet's own created_at is not a finite number — and it is the anchor its agents' and messages' lifecycle comparisons are made against, so while it is unreadable those comparisons silently pass",
+      "ops": [
+        {
+          "op": "set",
+          "path": "fleets|f1|created_at",
+          "value": null
+        }
+      ],
+      "expected_ok": false,
+      "expected_findings": [
+        {
+          "severity": "error",
+          "check": "fleet.invalid_timestamp",
+          "subject": "f1"
+        }
+      ]
+    },
+    {
       "id": "agent-key-mismatch",
       "primary": "agent.key_mismatch",
       "classification": "caught",
