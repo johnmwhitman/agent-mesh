@@ -785,6 +785,12 @@ const CHECK_EXPLANATIONS: Record<string, CheckExplanation> = {
     benign: "a cross-attached fleet advertising capabilities before its agent rows synced",
     investigate: "agent-mesh inspect --export | jq '.capabilities'",
   },
+  "capability.fleet_mismatch": {
+    what: "a capability row and the agent's own row disagree about which fleet that agent belongs to, while this ledger holds both fleets",
+    benign: "a register_capability call that passed the caller's current fleet id instead of the one the named agent was spawned into — the field is not used for routing, so nothing failed loudly at the time",
+    investigate:
+      "agent-mesh inspect --export | jq '.capabilities | to_entries | map(select(.value.fleet_id != null)) | map({cap: .key, cap_fleet: .value.fleet_id})' and compare each against .agents[<agent_id>].fleet_id",
+  },
   "inbox.unknown_agent": {
     what: "messages are queued for an agent this ledger never registered — nothing will ever collect them",
     benign: "a cross-attached fleet whose agent rows have not synced yet; otherwise it is a mistyped recipient in a send_message call",

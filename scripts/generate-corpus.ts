@@ -168,6 +168,12 @@ const V: Vector[] = [
   { id: "capability-unknown-agent", primary: "capability.unknown_agent", classification: "anomaly",
     lie: "a capability is held by an agent absent from this ledger",
     ops: [{ op: "set", path: "capabilities|a-ghost", value: { agent_id: "a-ghost", fleet_id: "f1", role: "x", skills: ["y"] } }] },
+  { id: "capability-fleet-mismatch", primary: "capability.fleet_mismatch", classification: "anomaly",
+    lie: "a capability places its agent in a fleet this ledger holds, while that agent's own row names a different held fleet — nothing is absent, the two records simply disagree",
+    ops: [
+      { op: "set", path: "fleets|f2", value: { id: "f2", status: "complete", created_at: T0, completed_at: T0 + 9000 } },
+      { op: "set", path: "capabilities|a2", value: { agent_id: "a2", fleet_id: "f2", role: "x", skills: ["y"] } },
+    ] },
   { id: "capability-key-mismatch", primary: "capability.key_mismatch", classification: "anomaly",
     lie: "the capability's key and its body name different agents",
     ops: [{ op: "set", path: "capabilities|wrong-key", value: { agent_id: "a2", fleet_id: "f1", role: "x", skills: ["y"] } }] },

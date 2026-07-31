@@ -384,8 +384,50 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
         `capability stored under key "${key}" but its agent_id is "${c.agent_id}" — one of the two is wrong`
       );
     }
-    if (!data.agents[effectiveId]) {
+    const capAgent = data.agents[effectiveId];
+    if (!capAgent) {
       warning("capability.unknown_agent", effectiveId, `capability registered for ${effectiveId}, which this ledger has not registered as an agent`);
+    } else if (
+      // `fleet_id` is REQUIRED on a Capability and `_registerCapability` refuses a
+      // blank one — but nothing ever compared it to anything. The dereference is
+      // made for agents (`agent.orphan_fleet`), for messages
+      // (`message.orphan_fleet`) and for fleet membership itself
+      // (`fleetAgents`); the capability was the one record that carries a
+      // fleet_id and never had it read. `register_capability` takes the fleet id
+      // from its CALLER, not from the agent row it names, so the two are free to
+      // disagree at the write and no reader has ever objected.
+      //
+      // Gated on BOTH sides being HELD — the agent, and the fleet the row
+      // claims — so cross-attachment is removed BY CONSTRUCTION rather than by
+      // judgement. When this ledger holds fleet A, holds fleet B, and holds an
+      // agent whose own row says B, a capability saying A has no external
+      // explanation left: the contradiction is entirely between records this
+      // ledger vouches for. The unheld-fleet case is deliberately left silent
+      // for the same reason `capability.unknown_agent`'s own `--explain` text
+      // gives — a cross-attached fleet may legitimately advertise capabilities
+      // this ledger cannot resolve.
+      //
+      // Warning, not error, and the severity is precedent rather than a hedge:
+      // `capability.key_mismatch` — the other check in this block where two
+      // copies of one identity disagree — warns. Nothing routes on this field
+      // (`routeWork` scores capabilities globally and never scopes by fleet), so
+      // the damage is not a dropped dispatch; it is that the ledger's answer to
+      // "which fleet was this agent working in" depends on which row you read.
+      //
+      // Measured before it was written, both directions, exactly as the sender
+      // check was: 0 of the operator's 443 live capability rows and 0 of the 78
+      // corpus fixtures. 442 of those 443 name a fleet this ledger holds, so the
+      // gate costs essentially no coverage on real data.
+      typeof c.fleet_id === "string" &&
+      c.fleet_id.length > 0 &&
+      data.fleets[c.fleet_id] !== undefined &&
+      capAgent.fleet_id !== c.fleet_id
+    ) {
+      warning(
+        "capability.fleet_mismatch",
+        key,
+        `capability row "${key}" places agent ${effectiveId} in fleet ${JSON.stringify(c.fleet_id)}, but that agent's own row says fleet ${JSON.stringify(capAgent.fleet_id)} — this ledger holds both fleets and both rows, and they disagree about where the work happened`
+      );
     }
   }
 

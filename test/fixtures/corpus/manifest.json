@@ -801,6 +801,44 @@
       ]
     },
     {
+      "id": "capability-fleet-mismatch",
+      "primary": "capability.fleet_mismatch",
+      "classification": "anomaly",
+      "lie": "a capability places its agent in a fleet this ledger holds, while that agent's own row names a different held fleet — nothing is absent, the two records simply disagree",
+      "ops": [
+        {
+          "op": "set",
+          "path": "fleets|f2",
+          "value": {
+            "id": "f2",
+            "status": "complete",
+            "created_at": 1700000000000,
+            "completed_at": 1700000009000
+          }
+        },
+        {
+          "op": "set",
+          "path": "capabilities|a2",
+          "value": {
+            "agent_id": "a2",
+            "fleet_id": "f2",
+            "role": "x",
+            "skills": [
+              "y"
+            ]
+          }
+        }
+      ],
+      "expected_ok": true,
+      "expected_findings": [
+        {
+          "severity": "warning",
+          "check": "capability.fleet_mismatch",
+          "subject": "a2"
+        }
+      ]
+    },
+    {
       "id": "capability-key-mismatch",
       "primary": "capability.key_mismatch",
       "classification": "anomaly",
