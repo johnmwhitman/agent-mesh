@@ -76,6 +76,17 @@ test("agent.invalid_timestamp explains finite lifecycle timestamp requirements",
   assert.match(out, /--export/, "the investigation command goes through the export surface");
 });
 
+test("fleet.invalid_timestamp explains that the anchor's siblings go quiet with it", () => {
+  const out = formatVerifyExplanation(finding("fleet.invalid_timestamp"));
+  assert.match(out, /finite number/i);
+  assert.match(out, /created_at/);
+  // The reader's actual next move. An unreadable anchor does not only mislabel
+  // its own row — it suppresses the agent and message tamper checks that are
+  // compared against it, so "no other findings" means nothing for that fleet.
+  assert.match(out, /tampered_timestamp/, "tells the operator what else could not be evaluated");
+  assert.match(out, /--export/, "the investigation command goes through the export surface");
+});
+
 function report(over: Partial<VerifyReport> = {}): VerifyReport {
   return {
     ok: true,

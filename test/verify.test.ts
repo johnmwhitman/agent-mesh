@@ -481,6 +481,113 @@ test("two invalid agent timestamps produce ordered field-specific findings", () 
   assert.equal(found(report, "agent.tampered_timestamp").length, 0);
 });
 
+// ---------------------------------------------------------------------------
+// fleet.created_at — the anchor every lifecycle comparison above is made
+// AGAINST. Its three read sites compare with `<`, and `<` against a non-finite
+// right-hand side is false, so degrading this one field made three tamper
+// errors silently not fire while the fleet drew no finding of its own. Each
+// assertion class below is pinned by a different mutation, because disabling
+// the check alone leaves the negative tests passing.
+// ---------------------------------------------------------------------------
+
+function withFleetCreatedAt(value: unknown, present = true): MeshData {
+  const data = consistent();
+  const row: Record<string, unknown> = { id: "f1", status: "running" };
+  if (present) row.created_at = value;
+  data.fleets.f1 = row as unknown as MeshData["fleets"][string];
+  return data;
+}
+
+for (const [label, value] of [["zero", 0], ["finite", 500]] as const) {
+  test(`${label} fleet created_at is a valid ordering anchor`, () => {
+    const report = verifyMeshData(withFleetCreatedAt(value));
+    // The positive contract, not just the absence of this one check: a valid
+    // anchor must leave the whole ledger clean. Asserting only that
+    // `fleet.invalid_timestamp` is absent would still pass if the new check
+    // raised something else instead.
+    assert.equal(found(report, "fleet.invalid_timestamp").length, 0);
+    assert.deepEqual(report.findings, []);
+    assert.equal(report.ok, true);
+  });
+}
+
+for (const [label, value] of [
+  ["null", null],
+  ["numeric string", "500"],
+  ["nonnumeric string", "bad"],
+  ["NaN", Number.NaN],
+  ["positive infinity", Number.POSITIVE_INFINITY],
+  ["negative infinity", Number.NEGATIVE_INFINITY],
+] as const) {
+  test(`${label} fleet created_at cannot anchor an ordering and is an error`, () => {
+    const report = verifyMeshData(withFleetCreatedAt(value));
+    const invalid = found(report, "fleet.invalid_timestamp");
+    assert.equal(report.ok, false);
+    assert.equal(invalid.length, 1);
+    assert.equal(invalid[0].severity, "error");
+    assert.equal(invalid[0].subject, "f1");
+    // Pin the operator-facing sentence too. Without this the detail string can
+    // be corrupted — or quietly re-broadened past what the check actually
+    // proves — while every other assertion here stays green.
+    assert.equal(
+      invalid[0].detail,
+      "fleet f1 has a missing or non-finite created_at — the lifecycle comparisons for THIS fleet's own agents and messages are made against it, and each of those silently passes while it cannot be ordered",
+    );
+  });
+}
+
+test("an absent fleet created_at is an error, unlike the optional agent fields", () => {
+  const report = verifyMeshData(withFleetCreatedAt(undefined, false));
+  const invalid = found(report, "fleet.invalid_timestamp");
+  assert.equal(report.ok, false);
+  assert.equal(invalid.length, 1);
+  assert.equal(invalid[0].subject, "f1");
+});
+
+test("an EMPTY fleet with an unreadable created_at is still reported", () => {
+  // The fleet block `continue`s past agent-less fleets, deliberately, because
+  // the lattice checks below it are vacuous for them. A row's own timestamp is
+  // a different fact — and an agent-less fleet is exactly the shape a partial
+  // export produces, so this must be checked before that skip.
+  const data = withFleetCreatedAt(null);
+  data.agents = {};
+  data.messages = {};
+  data.inboxes = {};
+
+  const report = verifyMeshData(data);
+  assert.equal(found(report, "fleet.invalid_timestamp").length, 1);
+  assert.equal(report.ok, false);
+});
+
+test("one unreadable fleet timestamp yields one finding, not one per agent", () => {
+  const data = withFleetCreatedAt(null);
+  data.agents.a3 = agent("a3", "f1");
+  data.agents.a4 = agent("a4", "f1");
+
+  assert.equal(found(verifyMeshData(data), "fleet.invalid_timestamp").length, 1);
+});
+
+test("degrading the fleet anchor no longer leaves the audit silent", () => {
+  // The falsifier this check exists for. On the same lying ledger — agents and
+  // a message dated before their fleet — `created_at: null` erased all three
+  // tamper errors and `verify` reported ok: true. The tamper findings are still
+  // suppressed by the `<` comparisons (a separate, deliberate slice); what must
+  // never happen again is the ledger reading CLEAN while it contradicts itself.
+  const data = withFleetCreatedAt(10_000);
+  data.agents.a1 = { ...agent("a1", "f1"), status: "complete", started_at: 1, completed_at: 2 };
+  data.messages.m1 = msg("m1", "a1", "a2", "f1", { timestamp: 1 });
+
+  const honest = verifyMeshData(data);
+  assert.equal(honest.ok, false);
+  assert.equal(found(honest, "agent.tampered_timestamp").length, 2);
+  assert.equal(found(honest, "message.tampered_timestamp").length, 1);
+
+  (data.fleets.f1 as unknown as Record<string, unknown>).created_at = null;
+  const degraded = verifyMeshData(data);
+  assert.equal(degraded.ok, false, "a self-contradicting ledger must not verify clean");
+  assert.equal(found(degraded, "fleet.invalid_timestamp").length, 1);
+});
+
 test("invalid orphan-agent timestamp is reported before the orphan warning", () => {
   const data = consistent();
   data.agents.a9 = { ...agent("a9", "ghost-fleet"), status: "complete", completed_at: null as unknown as number };

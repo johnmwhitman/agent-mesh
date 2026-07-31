@@ -186,6 +186,42 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
         `fleet stored under key "${key}" but its body claims id "${f.id}" — the map name and the row's own identity are different facts, and every join in this ledger picks one of them`
       );
     }
+    // The container every lifecycle comparison in this file is made AGAINST —
+    // each one scoped to the fleet the row itself names — and until now the one
+    // timestamp nothing validated. Agents, messages and receipts each get an
+    // `*.invalid_timestamp` error; `fleet.created_at` is READ three times below
+    // (`agent.tampered_timestamp` ×2, and `message.tampered_timestamp`) and was
+    // checked nowhere.
+    //
+    // That asymmetry is not cosmetic, it is load-bearing in the wrong
+    // direction: `<` against a non-finite right-hand side evaluates false, so
+    // degrading this one field makes all three tamper findings silently NOT
+    // fire — and the fleet drew no finding of its own to replace them. A
+    // ledger whose agents start and whose messages are sent before their fleet
+    // existed verified `ok: true` with `created_at` set to null, absent, NaN,
+    // Infinity, or a non-numeric string. This is reachable from a real FILE,
+    // not only from a hand-built object: `null`, an absent key and a string all
+    // survive a JSON round-trip verbatim, and NaN/±Infinity arrive as `null`
+    // because that is what `JSON.stringify` emits for them — a different value
+    // that lands in the same hole. The audit went quiet in both directions at
+    // once, which is the failure this product exists to prevent.
+    //
+    // Error, not warning: every sibling `*.invalid_timestamp` is an error, and
+    // `created_at` is REQUIRED by the `Fleet` type — so "missing or non-finite"
+    // is the message/receipt wording, not the agent wording (theirs guards
+    // optional fields and exempts `undefined`).
+    //
+    // Deliberately BEFORE the empty-fleet `continue` below. A fleet row's own
+    // timestamp is valid or not on its own terms; whether the ledger happens to
+    // hold agents for it is a different fact, and an empty fleet is exactly the
+    // shape an export or a partial copy produces.
+    if (!Number.isFinite(f.created_at)) {
+      error(
+        "fleet.invalid_timestamp",
+        f.id,
+        `fleet ${f.id} has a missing or non-finite created_at — the lifecycle comparisons for THIS fleet's own agents and messages are made against it, and each of those silently passes while it cannot be ordered`
+      );
+    }
     const fleetAgents = Object.values(data.agents).filter((a) => a.fleet_id === f.id);
     // An EMPTY fleet is deliberately excluded from BOTH directions below:
     // `[].every(...)` is vacuously true, and such a fleet is stuck rather than
