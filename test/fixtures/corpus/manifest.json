@@ -1149,6 +1149,36 @@
       ]
     },
     {
+      "id": "message-unknown-recipient",
+      "primary": "message.unknown_recipient",
+      "classification": "anomaly",
+      "lie": "a message is addressed to an agent absent from this ledger, inside a fleet the ledger holds",
+      "ops": [
+        {
+          "op": "set",
+          "path": "messages|m3",
+          "value": {
+            "id": "m3",
+            "from_agent_id": "a1",
+            "to_agent_id": "a-ghost",
+            "fleet_id": "f1",
+            "type": "handoff",
+            "payload": "hand this to the reviewer",
+            "timestamp": 1700000000400,
+            "acknowledged": false
+          }
+        }
+      ],
+      "expected_ok": true,
+      "expected_findings": [
+        {
+          "severity": "warning",
+          "check": "message.unknown_recipient",
+          "subject": "m3"
+        }
+      ]
+    },
+    {
       "id": "inbox-non-recipient",
       "primary": "inbox.non_recipient",
       "classification": "caught",
