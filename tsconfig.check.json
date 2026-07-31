@@ -1,0 +1,18 @@
+{
+  "//": "Typecheck-only config. `tsconfig.json` is the BUILD config and its `include` is",
+  "//1": "`src/**/*` only, so `tsc --noEmit` against it never loaded `scripts/` — a type error",
+  "//2": "there was invisible to every stage of the verifier (tests run under `tsx`, which strips",
+  "//3": "types without checking them). This widens the net without changing what `npm run build`",
+  "//4": "emits: it is `noEmit`, and the build still uses `tsconfig.json`.",
+  "//5": "",
+  "//6": "`test/**/*` is NOT covered yet. That is a stated gap, not a suppression: it carries 69",
+  "//7": "pre-existing errors across 24 files, and a large share are DELIBERATE malformed fixtures",
+  "//8": "fed to the verifier on purpose. Making those type-clean without care would delete the",
+  "//9": "negative tests. Add `test/**/*` here once they are genuinely fixed — never an ignore list.",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "."
+  },
+  "include": ["src/**/*", "scripts/**/*"]
+}
