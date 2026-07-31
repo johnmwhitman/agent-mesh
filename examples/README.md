@@ -49,7 +49,7 @@ Fan-out: 3 frontend specialists each investigate the same bug from a different a
 
 Use with `route_work(description, top_n=3)` to pick the right agent for each handoff.
 
-## [Pipeline: explore → plan → implement](pipeline-explain-plan-implement.json)
+## [Pipeline: explore → plan → implement](pipeline-explore-plan-implement.json)
 
 Sequential handoff via `send_message`. Agent A finishes, hands off to B, B hands off to C.
 
