@@ -53,9 +53,19 @@ green its tests.
 ## The verifier — the only definition of green
 
 ```
-MESHFLEET_EVENT_LOG_FILE="$(mktemp -t meshfleet-verify-events)" \
-  npm run typecheck && npm run build && node scripts/run-tests.mjs
+export MESHFLEET_EVENT_LOG_FILE="$(mktemp -t meshfleet-verify-events)"
+npm run typecheck && npm run build && node scripts/run-tests.mjs
 ```
+
+🔴 **`export` is load-bearing — do not fold it back into a one-line prefix.** A `VAR=x` prefix
+binds to **one** command, not to an `&&` chain, so the previous wording isolated `npm run
+typecheck` (which writes no events) and left `node scripts/run-tests.mjs` (the only stage that
+does) resolving to the operator's live log. Proven, not reasoned:
+`FOO=v node -e 'print FOO' && node -e 'print FOO'` → `v`, then `undefined`. Following the old
+line verbatim on 2026-07-31 appended a synthetic `fleet_reconciled` event for the fixture fleet
+`fleet-abandoned-0` to the operator's real `agent-mesh.events.log`
+(`test/attach-abandoned-fleet.test.ts` is the writer; with the variable actually applied the same
+event lands in the temp file and the live log is byte-identical).
 
 **Build BEFORE test.** `mcp-stdio.test.ts` packs this package and asserts the tarball contains
 `dist/index.js`. `release.yml` lacked that step, so the release job could not pass on any runner
