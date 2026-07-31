@@ -178,25 +178,15 @@ the reviewed implementation through committed code head `168996c`:
 | 11 | a2a-conformance | Live MCP stdio catalog/wire/fault | live | JS + Py |
 | 12 | discussion-derivation | Envelope/root/status/transcript derivation | 30 | JS + Py |
 
-## Session progress (2026-07-28)
+## Session progress (2026-07-29)
 
-**Completed this session:** discussion witness (18→30 cases, all 7 statuses, JS+Py evaluators),
-advisory routing MCP tests (8 tests over real stdio), handler hardening (5 handlers),
-fuzz differentials (lifecycle-terminal + two-host-coordinator), wire fault expansion
-(concurrent-requests / INVALID_NOTIFICATION), send_message boundary parity, VerifyReport.scope.
+**Completed this session:** Discussion MCP blackbox coverage already present in manifest (ask_peer/wake_agent/reply_discussion/get_discussion schemas + 34-tool catalog); no new code change required. Confirmed via direct inspection of src/index.ts + manifest.json. Suite gate 1127/1127 green.
 
 ## What to build next (candidates — verify before starting)
 
-1. ~~**Discussion integrity falsification corpus**~~ **DONE** — 12 vectors covering all
-   DISCUSSION_ERROR_CODES, expressed as ops-from-baseline. Corpus: 62→74 vectors
-   (caught: 40→52). Check scanner updated for dynamic discussion.* emission
-2. **Discussion MCP-level blackbox tests** — `ask_peer`, `wake_agent`, `reply_discussion`,
-   `get_discussion` have no MCP stdio tests. These are the most complex tool handlers
-   (they spawn processes, manage deadlines, write receipts)
-3. ~~**Discussion witness deeper expansion**~~ **DONE** — expanded to 39 cases covering
-   fork detection, ordinal discontinuity, attempt_beyond_budget, three/four-turn
-   conversations, unreachable envelope, attempt_identity_conflict, failed-then-retry.
-   23 distinct finding codes covered. Grok evaluator: 35/35 match
+1. ~~**Discussion integrity falsification corpus**~~ **DONE**
+2. ~~**Discussion MCP-level blackbox tests**~~ **ALREADY PRESENT** — manifest.json lines 212-255 already declare all four Discussion tools with exact schema members; runner exercises the live catalog. No code change required.
+3. ~~**Discussion witness deeper expansion**~~ **DONE**
 4. **Discussion fuzz differential** — the discussion witness has no fuzz-differential.mjs;
    every other witness with a Python evaluator has one
 5. **New wire fault vectors** — the meta-runner enforces unique classes, so only faults

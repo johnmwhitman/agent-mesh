@@ -46,24 +46,62 @@ export function resetSkillTaxonomy(): void {
 
 export function getSkillTaxonomy(): Taxonomy {
   if (activeTaxonomy === null && !envChecked) {
-    envChecked = true;
     const raw = process.env.AGENT_MESH_TAXONOMY;
     if (raw && raw.trim().length > 0) {
-      const looksInline = raw.trimStart().startsWith("{");
-      if (looksInline) {
-        activeTaxonomy = parseSkillTaxonomy(raw);
-      } else {
-        try {
-          activeTaxonomy = parseSkillTaxonomy(readFileSync(raw, "utf8"));
-        } catch {
-          activeTaxonomy = {};
-        }
-      }
+      // Setting AGENT_MESH_TAXONOMY is deliberate operator configuration, so a value
+      // that cannot be honored throws instead of degrading to {}. The previous
+      // behavior — an unreadable path, malformed JSON, or an array silently yielding
+      // an EMPTY taxonomy with no error and no log — meant routing scored against
+      // nothing while the operator believed their taxonomy was live. envChecked is
+      // set only on success: a broken config must stay loud on every call, not
+      // throw once and then quietly return {} from the cache.
+      activeTaxonomy = loadTaxonomyFromEnv(raw);
     } else {
       activeTaxonomy = {};
     }
+    envChecked = true;
   }
   return activeTaxonomy ?? {};
+}
+
+function loadTaxonomyFromEnv(raw: string): Taxonomy {
+  const looksInline = raw.trimStart().startsWith("{");
+  let source: string;
+  let origin: string;
+  if (looksInline) {
+    source = raw;
+    origin = "inline JSON";
+  } else {
+    origin = `file ${raw}`;
+    try {
+      source = readFileSync(raw, "utf8");
+    } catch (err) {
+      throw new Error(
+        `AGENT_MESH_TAXONOMY points at an unreadable file (${raw}): ` +
+          `${err instanceof Error ? err.message : String(err)}. ` +
+          `Fix the path or unset the variable; refusing to run with an empty taxonomy ` +
+          `the operator did not ask for.`,
+        { cause: err },
+      );
+    }
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(source);
+  } catch (err) {
+    throw new Error(
+      `AGENT_MESH_TAXONOMY (${origin}) is not valid JSON: ` +
+        `${err instanceof Error ? err.message : String(err)}`,
+      { cause: err },
+    );
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error(
+      `AGENT_MESH_TAXONOMY (${origin}) must be a JSON object of the shape ` +
+        `{"top":{"mid":["leaf"]}}, got ${Array.isArray(parsed) ? "an array" : typeof parsed}`,
+    );
+  }
+  return parsed as Taxonomy;
 }
 
 export function parseSkillTaxonomy(input: string | Taxonomy): Taxonomy {
