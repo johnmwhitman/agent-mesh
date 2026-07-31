@@ -21,7 +21,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { join, dirname, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 
@@ -51,13 +51,25 @@ function tscListFiles(): string[] {
     { cwd: ROOT, encoding: "utf8", timeout: 120_000 },
   );
   assert.notEqual(result.status, null, `tsc did not run: ${result.error?.message ?? "timeout"}`);
-  return `${result.stdout}`.split("\n").map((l) => l.trim()).filter(Boolean);
+  return `${result.stdout}`.split("\n").map((l) => l.trim()).filter(Boolean).map(posix);
+}
+
+/**
+ * tsc `--listFiles` emits FORWARD-slash paths on every platform, while `path.join` emits
+ * backslashes on win32. Comparing one against the other with `startsWith` silently matches
+ * NOTHING — the test then reports "loaded 0 file(s) under scripts/" and reads as though the
+ * typecheck config had stopped covering scripts/, which is the exact failure this file exists
+ * to detect. A separator mismatch that impersonates the real defect is worse than a crash.
+ * Normalise both sides to forward slashes and compare like with like.
+ */
+function posix(p: string): string {
+  return p.split(sep).join("/");
 }
 
 test("the typecheck stage actually loads scripts/ — the directory it used to skip", () => {
   const loaded = tscListFiles().filter((f) => !f.includes("node_modules"));
 
-  const scripts = loaded.filter((f) => f.startsWith(join(ROOT, "scripts")));
+  const scripts = loaded.filter((f) => f.startsWith(posix(join(ROOT, "scripts"))));
   assert.ok(
     scripts.some((f) => f.endsWith("generate-corpus.ts")),
     `tsc never loaded scripts/generate-corpus.ts. Loaded ${scripts.length} file(s) under scripts/. ` +
@@ -66,7 +78,7 @@ test("the typecheck stage actually loads scripts/ — the directory it used to s
 
   // src/ must not have been traded away for scripts/.
   assert.ok(
-    loaded.some((f) => f.startsWith(join(ROOT, "src"))),
+    loaded.some((f) => f.startsWith(posix(join(ROOT, "src")))),
     `tsc loaded no files under src/. ${CHECK_CONFIG} must cover src/ as well as scripts/.`,
   );
 });
