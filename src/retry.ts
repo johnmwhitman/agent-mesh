@@ -79,7 +79,56 @@ export function computeBackoff(
  * Whether a retry should be attempted given the current attempt count.
  * attempt is 1-indexed (the attempt that JUST failed).
  */
-export function shouldRetry(attempt: number): boolean {
+/**
+ * Failure phrasings that will NOT become true by waiting. A provider out of
+ * credits, over quota, or refusing our credentials answers the same way in one
+ * second as in ten, so spending the retry budget on it buys nothing except
+ * delay and a rawer error message for the operator.
+ *
+ * Measured 2026-08-01: a fleet lost both agents this way. One died
+ * `Forbidden: You have run out of credits or need a Grok subscription`, the
+ * other `Request had invalid authentication credentials`. Each was attempted
+ * THREE times with backoff before being reported, and the report was the raw
+ * vendor string with no indication that retrying was hopeless.
+ *
+ * Deliberately narrow. Matching too broadly would convert genuinely transient
+ * faults into permanent ones, which is the worse error: a missed retry costs a
+ * fleet, a wasted retry costs a second.
+ */
+const TERMINAL_FAILURE_PATTERNS: readonly RegExp[] = [
+  /\bout of credits\b/i,
+  /\binsufficient (credits|balance|funds|quota)\b/i,
+  /\bquota (exceeded|exhausted)\b/i,
+  /\bexceeded your current quota\b/i,
+  /\bneed a [\w.\- ]{0,32}subscription\b/i,
+  /\brequires a [\w.\- ]{0,32}subscription\b/i,
+  /\b402\b[^\n]{0,40}\bpayment required\b/i,
+  /\bpayment required\b/i,
+  /\binvalid authentication credentials\b/i,
+  /\bexpected oauth ?2 access token\b/i,
+];
+
+/**
+ * True when the failure detail names a condition a retry cannot fix.
+ *
+ * Takes the already-built failure detail rather than an error object so it sees
+ * exactly the text the operator will be shown — a classifier that reasons over
+ * a richer value than the one reported can disagree with its own message.
+ */
+export function isTerminalProviderFailure(detail: string | undefined | null): boolean {
+  if (!detail) return false;
+  return TERMINAL_FAILURE_PATTERNS.some((re) => re.test(detail));
+}
+
+/**
+ * Retry vs give up.
+ *
+ * `detail` is optional so existing single-argument callers keep their exact
+ * behaviour; when supplied, a terminal provider failure short-circuits the
+ * attempt budget instead of burning it.
+ */
+export function shouldRetry(attempt: number, detail?: string | null): boolean {
+  if (isTerminalProviderFailure(detail)) return false;
   return attempt < config.maxAttempts;
 }
 

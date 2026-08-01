@@ -64,6 +64,7 @@ import {
   computeBackoff,
   scheduleRetry as scheduleAgentRetry,
   shouldRetry as shouldAgentRetry,
+  isTerminalProviderFailure,
 } from "./retry.js";
 import { recordRoutingOutcome } from "./routing-feedback.js";
 import { recommendRoute, type RecommendRouteInput } from "./recommend-route.js";
@@ -331,7 +332,17 @@ function handleTransientFailure(
   runtimeModel?: string
 ): void {
   const failureDetail = buildFailureDetail(stderr, errorDetail);
-  if (!shouldAgentRetry(attempt)) {
+  // Which runtime just refused. `input.runtime` is absent on the default path, and both the
+  // failover decision and the hop record must name the runtime that actually ran.
+  const refusedRuntimeId = (input.runtime ? requireRuntimeAdapter(input.runtime) : runtimeAdapter).id;
+  const failoverCandidate = selectFailoverRuntime(input, agentId, refusedRuntimeId, failureDetail);
+  // A provider out of credits, or refusing our credentials, will answer the same way on every
+  // attempt — so do not spend the budget re-asking IT. That is emphatically not the same as
+  // giving up: this is exactly when another runtime should take the work, which is what
+  // `selectFailoverRuntime` is for. Terminal therefore means "stop asking this one", and only
+  // becomes permanent when nothing else can take the spec.
+  const terminal = isTerminalProviderFailure(failureDetail);
+  if ((terminal && !failoverCandidate) || !shouldAgentRetry(attempt)) {
     appendEvent("agent_failed_permanent", {
       agent_id: agentId,
       attempts: attempt,
@@ -342,7 +353,10 @@ function handleTransientFailure(
       agentId,
       "failed",
       stdout,
-      `Permanent failure after ${attempt} attempt(s). Last error: ${failureDetail}`,
+      terminal
+        ? `Provider refused in a way retrying cannot fix (not retried; stopped after ` +
+          `${attempt} attempt(s)). Choose a different model or runtime. Last error: ${failureDetail}`
+        : `Permanent failure after ${attempt} attempt(s). Last error: ${failureDetail}`,
       runtimeAgent,
       runtimeModel
     );
@@ -350,10 +364,8 @@ function handleTransientFailure(
   }
   const nextAttempt = attempt + 1;
   const delayMs = computeBackoff(nextAttempt);
-  // Which runtime just refused. `input.runtime` is absent on the default path, and the hop record
-  // must name the runtime that actually ran, not the caller's silence about it.
-  const currentRuntimeId = (input.runtime ? requireRuntimeAdapter(input.runtime) : runtimeAdapter).id;
-  const failover = selectFailoverRuntime(input, agentId, currentRuntimeId, failureDetail);
+  const currentRuntimeId = refusedRuntimeId;
+  const failover = failoverCandidate;
   // Failing over rather than repeating: a retry on the runtime that just refused for quota will
   // refuse again, and the whole retry budget is spent proving it while other subscriptions sit
   // idle. Where no other runtime can take the spec, this is exactly the old behaviour — and with
