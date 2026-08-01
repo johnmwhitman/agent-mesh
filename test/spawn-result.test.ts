@@ -576,3 +576,52 @@ test('spawn result: Anthropic insufficient-balance Error ending in a billing URL
   assert.equal(result.success, false)
   assert.match(result.error ?? '', /insufficient balance/i)
 })
+
+/**
+ * Regression: a non-zero exit used to discard everything the child said.
+ *
+ * Observed 2026-08-01 across three fleets: every agent died with the same
+ * useless line — "Spawn failed with exit code 1" — while the child's stderr
+ * held the real cause and a support ref. `plainStderr` was already computed one
+ * line above the exit-code branch and then thrown away, so the operator had to
+ * dispatch a SECOND fleet on a different model just to learn whether the
+ * provider was down or the model selector was wrong.
+ */
+test('a non-zero exit surfaces the upstream error, not just the exit code', () => {
+  const stderr =
+    '\x1b[91m\x1b[1mError: \x1b[0m{\n' +
+    '  "name": "UnknownError",\n' +
+    '  "data": {\n' +
+    '    "message": "Unexpected server error. Check server logs for details.",\n' +
+    '    "ref": "err_667b280a"\n' +
+    '  }\n' +
+    '}\n'
+  const result = classifySpawnResult({ exitCode: 1, stdout: '', stderr })
+
+  assert.equal(result.success, false)
+  // The operator must be able to read the cause without opening raw stderr.
+  assert.match(result.error ?? '', /Unexpected server error/)
+  // The support ref is the only handle on an opaque upstream failure — keep it.
+  assert.match(result.error ?? '', /err_667b280a/)
+  // Still says what happened at the process level.
+  assert.match(result.error ?? '', /exit code 1/)
+  // No escape codes in a message meant for humans and logs.
+  assert.ok(!/\x1b\[/.test(result.error ?? ''), 'error must not carry ANSI escapes')
+})
+
+test('an upstream provider failure is distinguished from a caller mistake', () => {
+  const upstream = classifySpawnResult({
+    exitCode: 1,
+    stdout: '',
+    stderr: 'Error: {"name":"UnknownError","data":{"message":"Unexpected server error.","ref":"err_1"}}',
+  })
+  const caller = classifySpawnResult({
+    exitCode: 1,
+    stdout: '',
+    stderr: 'Error: ProviderModelNotFoundError: model "vendor/nope" cannot be routed',
+  })
+
+  // Reroute vs fix-your-call is the decision the caller actually has to make.
+  assert.equal(upstream.failure_kind, 'upstream')
+  assert.equal(caller.failure_kind, 'caller')
+})
