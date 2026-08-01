@@ -129,9 +129,13 @@ function agentDiagnostic(dir: string): string {
     const require = createRequire(import.meta.url);
     const Database = require("better-sqlite3");
     const handle = new Database(db, { readonly: true });
-    const row = handle.prepare("SELECT status, error, output FROM agents LIMIT 1").get();
+    // The agents table is (id, fleet_id, data) — the row is a JSON blob, not columns. Selecting
+    // `status` directly threw "no such column" on the first instrumented run.
+    const row = handle.prepare("SELECT data FROM agents LIMIT 1").get() as { data?: string } | undefined;
     handle.close();
-    return JSON.stringify(row);
+    if (!row?.data) return "no agent row";
+    const agent = JSON.parse(row.data) as Record<string, unknown>;
+    return JSON.stringify({ status: agent.status, error: agent.error, output: agent.output, pid: agent.pid });
   } catch (err) {
     return `ledger unreadable: ${err instanceof Error ? err.message : String(err)}`;
   }
