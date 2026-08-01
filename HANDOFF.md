@@ -1,6 +1,6 @@
 # MeshFleet Handoff
 
-**Baseline main:** `41fc3bc` · **Suite:** 1337/1337, 0 fail · **CI:** 9/9 per job
+**Code baseline:** `41fc3bc` (this doc commit sits on top of it) · **Suite:** 1337/1337, 0 fail · **CI:** 9/9 per job
 **npm:** `0.20.0` is live (`dist-tags.latest`, registry-verified) · **Source:** 0.20.0
 
 ## Current posture — 2026-07-31
