@@ -58,8 +58,10 @@ Anyone building this should measure real reset behaviour first.
 
 ## Where it lives
 
-Full history, both design docs (~1,900 lines): `~/AI/.backups/routeplane-allowance-ledger-20260801.bundle`
-(`git bundle verify` passes, tip `7768153`). Restore with `git clone <bundle>`.
+Full history, both design docs (~1,900 lines), is preserved in a maintainer-held git bundle
+outside this repository (`git bundle verify` passes, tip `7768153`). This file deliberately does
+not name its location: a path under a maintainer's home directory is local operational detail, and
+the tracked-file guard rejects it.
 
 ## What this is NOT
 
