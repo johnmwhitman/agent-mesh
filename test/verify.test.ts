@@ -659,6 +659,80 @@ test("capability registered for an unknown agent is a warning", () => {
 });
 
 // ---------------------------------------------------------------------------
+// capability.fleet_mismatch — the capability was the one record carrying a
+// fleet_id that no reader ever dereferenced. Both fleets held, both rows held,
+// and they disagree about where the agent worked.
+// ---------------------------------------------------------------------------
+
+/** consistent(), plus a second HELD fleet the mismatch can point at. */
+function twoFleets(): MeshData {
+  const data = consistent();
+  data.fleets.f2 = { id: "f2", status: "running", created_at: 500 };
+  return data;
+}
+
+test("a capability naming a held fleet its agent's own row contradicts is a warning", () => {
+  const data = twoFleets();
+  data.capabilities = {
+    a2: { agent_id: "a2", fleet_id: "f2", role: "worker", skills: ["x"], registered_at: 1_000 },
+  };
+  const report = verifyMeshData(data);
+  const hits = found(report, "capability.fleet_mismatch");
+  assert.equal(hits.length, 1, "a2 is recorded in f1 by its agent row and in f2 by its capability");
+  assert.equal(hits[0].severity, "warning");
+  assert.equal(hits[0].subject, "a2");
+  // The row is the defect; the agent is fine. Nothing here is an unknown agent.
+  assert.equal(found(report, "capability.unknown_agent").length, 0);
+});
+
+test("a capability agreeing with its agent's fleet is silent", () => {
+  const data = twoFleets();
+  data.capabilities = {
+    a2: { agent_id: "a2", fleet_id: "f1", role: "worker", skills: ["x"], registered_at: 1_000 },
+  };
+  assert.equal(found(verifyMeshData(data), "capability.fleet_mismatch").length, 0);
+});
+
+test("a capability naming a fleet this ledger does not hold is NOT a fleet mismatch", () => {
+  // The cross-attachment exemption, and it is the whole reason the check is
+  // gated rather than symmetric: a foreign fleet advertising capabilities this
+  // ledger cannot resolve is the benign case `capability.unknown_agent`'s own
+  // --explain text already names. Without this gate the check would fire on
+  // honest federation traffic — the same shape that killed the sender-existence
+  // check on 62% of the operator's real messages.
+  const data = consistent();
+  data.capabilities = {
+    a2: { agent_id: "a2", fleet_id: "f-ghost", role: "worker", skills: ["x"], registered_at: 1_000 },
+  };
+  assert.equal(found(verifyMeshData(data), "capability.fleet_mismatch").length, 0);
+});
+
+test("an unknown agent's capability reports the unknown agent, never a fleet mismatch", () => {
+  // Mutual exclusivity, asserted rather than assumed: the two checks share an
+  // if/else and a reader should not have to derive that from the source.
+  const data = twoFleets();
+  data.capabilities = {
+    ghost: { agent_id: "ghost", fleet_id: "f2", role: "worker", skills: ["x"], registered_at: 1_000 },
+  };
+  const report = verifyMeshData(data);
+  assert.equal(found(report, "capability.unknown_agent").length, 1);
+  assert.equal(found(report, "capability.fleet_mismatch").length, 0);
+});
+
+test("capability.fleet_mismatch leaves ok true — it is a warning, and ok gates on errors", () => {
+  // Stated because Q3's original falsifier ("show ok:true while the invariant is
+  // violated") does NOT discriminate for a warning-severity check: ok is true
+  // before AND after this fix. The finding SET is the discriminator, not ok.
+  const data = twoFleets();
+  data.capabilities = {
+    a2: { agent_id: "a2", fleet_id: "f2", role: "worker", skills: ["x"], registered_at: 1_000 },
+  };
+  const report = verifyMeshData(data);
+  assert.equal(report.ok, true);
+  assert.equal(found(report, "capability.fleet_mismatch").length, 1);
+});
+
+// ---------------------------------------------------------------------------
 // verifyLedger reads the live ledger
 // ---------------------------------------------------------------------------
 
