@@ -56,9 +56,34 @@ interface Options {
   lifecycleMode?: string;
 }
 
+/** True once the agent row has stopped moving — spawned and settled, or given up. */
+function agentSettled(dir: string): boolean {
+  const d = agentDiagnostic(dir);
+  return d.includes('"status":"complete"') || d.includes('"status":"failed"');
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Wait until the outcome is decided, rather than for a fixed duration.
+ *
+ * The first version of this file slept 4.5s and asserted. It passed on macOS and Linux and failed
+ * all three windows-2022 legs, and the instrumented run showed why: `{"status":"running"}` — the
+ * child simply had not finished on a slower runner. A fixed sleep does not test the product, it
+ * tests the runner's speed, and for the NEGATIVE controls it is worse than useless: "the marker is
+ * absent" is trivially true if you look before anything could have written it.
+ */
+async function awaitOutcome(dir: string, marker: string): Promise<void> {
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline) {
+    if (existsSync(marker) || agentSettled(dir)) return;
+    await sleep(250);
+  }
+}
+
 /** Spawn the real server over stdio, call spawn_fleet once, return the response line. */
 function callSpawnFleet(dir: string, port: string, opts: Options): Promise<string> {
-  const { command } = writeFakeRuntime(dir);
+  const { command, marker } = writeFakeRuntime(dir);
   return new Promise((resolve, reject) => {
     const env: Record<string, string> = {
       ...(process.env as Record<string, string>),
@@ -70,6 +95,9 @@ function callSpawnFleet(dir: string, port: string, opts: Options): Promise<strin
       AGENT_MESH_CHILD: "1",
       MESHFLEET_SSE_PORT: port,
       MESHFLEET_KIMI_COMMAND: command,
+      // A rejected spec retries with backoff before the row reaches a terminal state, and the
+      // negative controls wait for exactly that. Collapse the delay so they settle in seconds.
+      MESHFLEET_RETRY_BASE_MS: "1",
     };
     if (opts.admit !== undefined) env.MESHFLEET_KIMI_WORKSPACE_BINDINGS = opts.admit;
     else delete env.MESHFLEET_KIMI_WORKSPACE_BINDINGS;
@@ -95,15 +123,24 @@ function callSpawnFleet(dir: string, port: string, opts: Options): Promise<strin
       () => send({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "spawn_fleet", arguments: { agents: [agent] } } }),
       600,
     );
-    const timer = setTimeout(() => { p.kill(); reject(new Error("timeout")); }, 25000);
+    const timer = setTimeout(() => { p.kill(); reject(new Error("timeout waiting for the response")); }, 45000);
     // Spawning is a side effect that happens AFTER the response is written, so reading the
     // response is not enough — wait for the child to actually run before looking at the marker.
-    setTimeout(() => {
+    const poll = setInterval(() => {
+      const line = out.split("\n").find((l) => l.includes('"id":2'));
+      if (!line) return;
+      clearInterval(poll);
       clearTimeout(timer);
-      const line = out.split("\n").find((l) => l.includes('"id":2')) ?? "NO RESPONSE";
-      p.on("close", () => resolve(line));
-      p.kill();
-    }, 4500);
+      const finish = () => {
+        // Settle on close: kill() returns when the SIGNAL is delivered, not when the process is
+        // gone, and the caller deletes this directory next.
+        p.on("close", () => resolve(line));
+        p.kill();
+      };
+      // A refusal never spawns, so there is nothing to wait for.
+      if (!line.includes("fleet_id")) finish();
+      else void awaitOutcome(dir, marker).then(finish);
+    }, 200);
   });
 }
 
@@ -153,12 +190,25 @@ test("a selected runtime is actually invoked", async () => {
   });
 });
 
+/**
+ * Absence of the marker only means something once the attempt is OVER.
+ *
+ * Asserting `!existsSync(marker)` on its own is the weakest possible check: it passes if the
+ * runtime was correctly refused, and it passes just as happily if nobody waited long enough, or if
+ * the fixture could never have run on this platform at all. Requiring a settled agent row is what
+ * makes each of these a control rather than decoration.
+ */
+function assertNotInvoked(dir: string, why: string): void {
+  assert.ok(agentSettled(dir), `the attempt never concluded, so absence proves nothing: ${agentDiagnostic(dir)}`);
+  assert.ok(!existsSync(join(dir, "INVOKED")), why);
+}
+
 test("NEGATIVE CONTROL: the caller's claim alone admits nothing", async () => {
   // Caller key present, operator key absent. If this passes the runtime would run on the caller's
   // unverified say-so, which is the whole reason the admission list exists.
   await withDir(async (dir) => {
     await callSpawnFleet(dir, "13972", { runtime: "kimi-cli", binding: "ws-1" });
-    assert.ok(!existsSync(join(dir, "INVOKED")), "an unadmitted binding must not reach the runtime");
+    assertNotInvoked(dir, "an unadmitted binding must not reach the runtime");
   });
 });
 
@@ -166,14 +216,14 @@ test("NEGATIVE CONTROL: an admission list alone admits nothing", async () => {
   // Operator key present, caller key absent.
   await withDir(async (dir) => {
     await callSpawnFleet(dir, "13973", { runtime: "kimi-cli", admit: "ws-1" });
-    assert.ok(!existsSync(join(dir, "INVOKED")), "configuration must not silently supply the caller's claim");
+    assertNotInvoked(dir, "configuration must not silently supply the caller's claim");
   });
 });
 
 test("NEGATIVE CONTROL: a binding that is not the admitted one is refused", async () => {
   await withDir(async (dir) => {
     await callSpawnFleet(dir, "13974", { runtime: "kimi-cli", binding: "ws-9", admit: "ws-1" });
-    assert.ok(!existsSync(join(dir, "INVOKED")), "admission must match the named binding, not merely be non-empty");
+    assertNotInvoked(dir, "admission must match the named binding, not merely be non-empty");
   });
 });
 
@@ -183,7 +233,7 @@ test("CONTROL: omitting runtime never reaches the non-default runtime", async ()
   await withDir(async (dir) => {
     const res = await callSpawnFleet(dir, "13975", { binding: "ws-1", admit: "ws-1" });
     assert.match(res, /fleet_id/, "the default path must still work");
-    assert.ok(!existsSync(join(dir, "INVOKED")), "an agent that selected nothing must not run under a selected runtime");
+    assertNotInvoked(dir, "an agent that selected nothing must not run under a selected runtime");
   });
 });
 
