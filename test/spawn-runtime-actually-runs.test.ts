@@ -36,17 +36,29 @@ const isWindows = platform() === "win32";
  * here is the WIRING: did MeshFleet spawn the selected runtime's command at all. The frame shape
  * (`{role, content}`, exactly those two keys) is what `parseFinalAssistantText` accepts.
  */
-function writeFakeRuntime(dir: string): { command: string; marker: string } {
+function writeFakeRuntime(dir: string): { command: string; marker: string; defaultCommand: string } {
   const marker = join(dir, "INVOKED");
   const command = join(dir, isWindows ? "fake-kimi.cmd" : "fake-kimi");
   const frame = '{"role":"assistant","content":"ok"}';
+  // The DEFAULT runtime is stubbed too, and it fails with text no provider would emit.
+  //
+  // Without this the default path ran the operator's real `opencode`, so what these tests observed
+  // depended on a live subscription: on a machine where the provider was refusing for quota the
+  // failure carried a provider signal, runtime failover fired, and the "omitting runtime never
+  // reaches the non-default runtime" control failed — while on CI, where `opencode` is not
+  // installed at all, the same control passed. A test whose verdict turns on someone's billing
+  // state is not measuring the product.
+  const defaultCommand = join(dir, isWindows ? "fake-opencode.cmd" : "fake-opencode");
   if (isWindows) {
     writeFileSync(command, `@echo off\r\necho RAN > "${marker}"\r\necho ${frame}\r\n`);
+    writeFileSync(defaultCommand, `@echo off\r\necho stub default runtime declined 1>&2\r\nexit 1\r\n`);
   } else {
     writeFileSync(command, `#!/bin/sh\necho RAN > "${marker}"\nprintf '%s\\n' '${frame}'\n`);
     chmodSync(command, 0o755);
+    writeFileSync(defaultCommand, `#!/bin/sh\necho "stub default runtime declined" >&2\nexit 1\n`);
+    chmodSync(defaultCommand, 0o755);
   }
-  return { command, marker };
+  return { command, marker, defaultCommand };
 }
 
 interface Options {
@@ -83,7 +95,7 @@ async function awaitOutcome(dir: string, marker: string): Promise<void> {
 
 /** Spawn the real server over stdio, call spawn_fleet once, return the response line. */
 function callSpawnFleet(dir: string, port: string, opts: Options): Promise<string> {
-  const { command, marker } = writeFakeRuntime(dir);
+  const { command, marker, defaultCommand } = writeFakeRuntime(dir);
   return new Promise((resolve, reject) => {
     const env: Record<string, string> = {
       ...(process.env as Record<string, string>),
@@ -95,6 +107,7 @@ function callSpawnFleet(dir: string, port: string, opts: Options): Promise<strin
       AGENT_MESH_CHILD: "1",
       MESHFLEET_SSE_PORT: port,
       MESHFLEET_KIMI_COMMAND: command,
+      MESHFLEET_OPENCODE_COMMAND: defaultCommand,
       // A rejected spec retries with backoff before the row reaches a terminal state, and the
       // negative controls wait for exactly that. Collapse the delay so they settle in seconds.
       MESHFLEET_RETRY_BASE_MS: "1",

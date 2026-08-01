@@ -37,6 +37,17 @@ export interface Agent {
   retry_count?: number;
   runtime_agent?: string;
   runtime_model?: string;
+  /**
+   * Runtime adapter ids this agent has been spawned under, oldest first, one entry per attempt
+   * that reached a spawn. A second distinct entry IS the failover record: it says which runtime
+   * refused, which one took over, and in what order.
+   *
+   * Not a Receipt, deliberately. A Receipt here is keyed to a message and `verify_ledger` raises
+   * `receipt.orphan_message` for one that names none, so recording a spawn hop as a receipt would
+   * mean inventing a message id or quieting the auditor. This is durable agent state, which is
+   * what a spawn hop actually is.
+   */
+  runtime_attempts?: string[];
 }
 
 export interface Fleet {

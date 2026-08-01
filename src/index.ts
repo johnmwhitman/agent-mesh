@@ -90,6 +90,8 @@ import {
 } from "./tool-args.js";
 import { buildFailureDetail } from "./spawn-attempt.js";
 import { getDefaultRuntimeAdapter, requireRuntimeAdapter, availableRuntimeIds } from "./runtime/registry.js";
+import type { RuntimeAdapter } from "./runtime/types.js";
+import { decideFailover } from "./failover.js";
 import { defaultLifecycleMode, LifecycleExecutionCoordinator, repairLifecycleOutbox } from "./lifecycle-execution.js";
 import { getDiscussionStore, primeDiscussionSweepIndex } from "./discussion-mcp.js";
 import {
@@ -123,6 +125,12 @@ interface SpawnAgentInput {
   runtime?: string;
   /** Opaque workspace binding the caller claims is verified isolation. Never a path. */
   workspaceBinding?: string;
+  /**
+   * Runtime ids already tried for this agent, oldest first. In-memory only: it exists to stop
+   * failover from re-offering a runtime that just refused, which would spend the retry budget
+   * proving the same thing twice.
+   */
+  attemptedRuntimes?: readonly string[];
 }
 
 const runtimeAdapter = getDefaultRuntimeAdapter();
@@ -132,17 +140,20 @@ const lifecycleCoordinator = new LifecycleExecutionCoordinator(runtimeAdapter);
  * Inner spawn loop. attempt is 1-indexed (first attempt = 1).
  * On any transient failure path, decides retry vs permanent via shouldAgentRetry().
  */
-function trySpawn(input: SpawnAgentInput, agentId: string, attempt: number): void {
-  // Resolve ONCE and use the same adapter for describe/start/cancel/wait. Mixing them would give
-  // a Kimi agent opencode's timeout and opencode's cancel semantics, which is worse than not
-  // supporting selection at all: it would look like it worked.
-  const adapter = input.runtime ? requireRuntimeAdapter(input.runtime) : runtimeAdapter;
+/**
+ * The exact spec a given adapter would be started with.
+ *
+ * Extracted so failover can ask a CANDIDATE adapter `validate(spec)` about the spec it would
+ * really receive. Rebuilding an approximation here would be the classic guard that cannot see its
+ * own subject: it would answer about a spec nobody runs.
+ */
+function buildExecutionSpec(input: SpawnAgentInput, agentId: string, adapter: RuntimeAdapter) {
   // Both branches resolve out of the SAME module-level registry, so `runtime: "opencode-cli"`
   // yields the identical instance the default path uses. Comparing instances — not comparing the
   // id string against a literal — is what makes "explicitly asked for the default" and "asked for
   // nothing" the same execution, instead of two paths that drift.
   const nonDefaultRuntime = adapter !== runtimeAdapter;
-  const spec = {
+  return {
     fleetId: input.fleetId,
     agentId,
     role: input.role,
@@ -176,6 +187,21 @@ function trySpawn(input: SpawnAgentInput, agentId: string, attempt: number): voi
         }
       : {}),
   };
+}
+
+/**
+ * Inner spawn loop. attempt is 1-indexed (first attempt = 1).
+ * On any transient failure path, decides retry vs failover vs permanent.
+ */
+function trySpawn(input: SpawnAgentInput, agentId: string, attempt: number): void {
+  // Resolve ONCE and use the same adapter for describe/start/cancel/wait. Mixing them would give
+  // a Kimi agent opencode's timeout and opencode's cancel semantics, which is worse than not
+  // supporting selection at all: it would look like it worked.
+  const adapter = input.runtime ? requireRuntimeAdapter(input.runtime) : runtimeAdapter;
+  const spec = buildExecutionSpec(input, agentId, adapter);
+  // Append BEFORE the spawn, not after it resolves. A runtime that refuses instantly is exactly
+  // the case failover exists for, and a record written only on success would omit it.
+  recordRuntimeAttempt(agentId, adapter.id);
   void adapter.start(spec).then((handle) => {
     if (handle.pid !== undefined) {
       withLedger((data) => {
@@ -223,6 +249,77 @@ function trySpawn(input: SpawnAgentInput, agentId: string, attempt: number): voi
   });
 }
 
+/**
+ * Append the runtime this attempt is using to the agent's durable row.
+ *
+ * This IS the hop record, and it is deliberately NOT a `Receipt`. A Receipt in this ledger is
+ * `{message_id, agent_id, action, timestamp}` keyed `${message_id}:${agent_id}:${action}`, and
+ * `verify_ledger` raises `receipt.orphan_message` for one that names no real message. Recording a
+ * spawn hop as a receipt would mean inventing a message id — either orphaning the row, which the
+ * audit is built to catch, or fabricating a message to hold it. Making the auditor quieter to fit
+ * a new writer is the failure this product exists to prevent, so the hop goes where durable agent
+ * facts already go. The same distinction the `fleet_reconciled` correction drew: an entry in the
+ * ledger is not automatically a receipt.
+ *
+ * An ordered list, not a counter: `["opencode-cli","kimi-cli"]` states which runtime ran first,
+ * which one it hopped to, and in what order — a count would say only that something happened.
+ */
+function recordRuntimeAttempt(agentId: string, runtimeId: string): void {
+  withLedger((data) => {
+    const agent = data.agents[agentId];
+    if (!agent) return;
+    const attempts = agent.runtime_attempts ?? [];
+    // Idempotent on the id that is already last: a re-entry must not inflate the history into
+    // evidence of a hop that never happened.
+    if (attempts[attempts.length - 1] === runtimeId) return;
+    agent.runtime_attempts = [...attempts, runtimeId];
+  });
+}
+
+/**
+ * The next runtime worth trying for this agent, or undefined to retry where it is.
+ *
+ * The gate is `validate()` and ONLY `validate()`. The tempting alternative is to read the failed
+ * child's stderr and decide whether it "looks like" a quota refusal — but that is provider text,
+ * unversioned and free to change, and the repo's standing scar is that three attempts to guess a
+ * classification failed where probing worked. A candidate that cannot even accept the spec is
+ * knowably useless; a candidate that can is worth an attempt whatever the previous error said.
+ *
+ * ⚠️ Order is the registry's sorted id order, which is ALPHABETICAL and therefore arbitrary. It
+ * encodes no preference, health, cost or remaining quota, because MeshFleet observes none of those
+ * — `recommend_route` exists for ranking and is advisory-only by design. With two runtimes this is
+ * a distinction without a difference; it stops being one at three, and that is the point at which
+ * ordering needs a real input rather than a better sort.
+ */
+function selectFailoverRuntime(
+  input: SpawnAgentInput,
+  agentId: string,
+  currentRuntimeId: string,
+  failureDetail: string,
+): { adapter: RuntimeAdapter; input: SpawnAgentInput } | undefined {
+  const attempted = [...(input.attemptedRuntimes ?? []), currentRuntimeId];
+  const decision = decideFailover({
+    available: availableRuntimeIds(),
+    attempted,
+    failureDetail,
+    requestedModel: input.requestedModel,
+    // The spec is built for the CANDIDATE, because the spec depends on which adapter it is for: a
+    // non-default runtime carries permission, session and environment requests the default path
+    // does not. Validating the outgoing runtime's spec against the incoming one would answer the
+    // wrong question.
+    accepts: (id) => {
+      const candidate = requireRuntimeAdapter(id);
+      const next: SpawnAgentInput = { ...input, runtime: id, attemptedRuntimes: attempted };
+      return candidate.validate(buildExecutionSpec(next, agentId, candidate)).ok;
+    },
+  });
+  if (!decision.hop) return undefined;
+  return {
+    adapter: requireRuntimeAdapter(decision.to),
+    input: { ...input, runtime: decision.to, attemptedRuntimes: attempted },
+  };
+}
+
 function handleTransientFailure(
   input: SpawnAgentInput,
   agentId: string,
@@ -253,6 +350,28 @@ function handleTransientFailure(
   }
   const nextAttempt = attempt + 1;
   const delayMs = computeBackoff(nextAttempt);
+  // Which runtime just refused. `input.runtime` is absent on the default path, and the hop record
+  // must name the runtime that actually ran, not the caller's silence about it.
+  const currentRuntimeId = (input.runtime ? requireRuntimeAdapter(input.runtime) : runtimeAdapter).id;
+  const failover = selectFailoverRuntime(input, agentId, currentRuntimeId, failureDetail);
+  // Failing over rather than repeating: a retry on the runtime that just refused for quota will
+  // refuse again, and the whole retry budget is spent proving it while other subscriptions sit
+  // idle. Where no other runtime can take the spec, this is exactly the old behaviour — and with
+  // only the default adapter registered, which is every deployment that configures nothing, the
+  // candidate list is empty and nothing changes at all.
+  const nextInput = failover?.input ?? input;
+  if (failover) {
+    appendEvent("agent_runtime_failover", {
+      agent_id: agentId,
+      fleet_id: input.fleetId,
+      from_runtime: currentRuntimeId,
+      to_runtime: failover.adapter.id,
+      from_attempt: attempt,
+      to_attempt: nextAttempt,
+      last_error: failureDetail,
+      timestamp: Date.now(),
+    });
+  }
   appendEvent("agent_retry_scheduled", {
     agent_id: agentId,
     from_attempt: attempt,
@@ -262,7 +381,7 @@ function handleTransientFailure(
     timestamp: Date.now(),
   });
   scheduleAgentRetry(nextAttempt, () => {
-    trySpawn(input, agentId, nextAttempt);
+    trySpawn(nextInput, agentId, nextAttempt);
   });
   void stdout;
 }
