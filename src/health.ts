@@ -27,6 +27,7 @@ import {
 import { join, dirname } from 'node:path'
 import { loadData, resolveEventLogFile } from './core.js'
 import { resolveDbFile } from './db.js'
+import { createRequire } from 'node:module'
 
 // ---------------------------------------------------------------------------
 // Process startup time (for uptime)
@@ -54,8 +55,30 @@ export function ping(): PingResult {
 // getHealth
 // ---------------------------------------------------------------------------
 
+/**
+ * Read the same way `src/index.ts` reads it for the MCP handshake. Deliberately re-derived here
+ * rather than imported from index.ts, which would be a circular import — health is a leaf module.
+ */
+const MESH_VERSION: string = createRequire(import.meta.url)('../package.json').version
+
 export interface HealthReport {
   status: 'ok' | 'degraded' | 'error'
+  /**
+   * The version of the server ANSWERING this call, read from its own package.json.
+   *
+   * WHY THIS EXISTS. On 2026-08-01 `get_health` reported `degraded` and it took ~20 minutes to
+   * find the cause: the MCP server running from
+   * `~/.config/opencode/mcp-servers/agent-mesh/dist/index.js` was **0.14.0** while the repo was
+   * **0.20.0**, six minor versions apart. 0.14.0 predates the 0.16.0 stuck/abandoned split, so
+   * every long-lived fleet latched `degraded` forever. Every field in this report described the
+   * ledger; none described the reporter. The staleness was only found by noticing that
+   * `abandoned_fleets` — a field 0.16.0+ declares REQUIRED — was missing from the response.
+   *
+   * Inferring a server's version from which fields it forgot to send is not diagnosis. A health
+   * report that cannot say what is answering can be wrong about everything else and give no clue
+   * why, which is the failure mode this whole module exists to prevent.
+   */
+  version: string
   uptime_ms: number
   fleets: number
   agents: number
@@ -139,6 +162,7 @@ export function getHealth(): HealthReport {
 
   return {
     status,
+    version: MESH_VERSION,
     uptime_ms: now - PROCESS_START_MS,
     fleets: fleets.length,
     agents: agents.length,

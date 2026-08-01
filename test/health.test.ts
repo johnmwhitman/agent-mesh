@@ -17,6 +17,7 @@ import {
 import { registerAgentInLedger, appendEvent } from '../src/core.js'
 import { withLedger } from '../src/db.js'
 import { withTempDb } from './helpers/with-temp-db.js'
+import { createRequire } from 'node:module'
 
 // ---------------------------------------------------------------------------
 // Test isolation
@@ -268,4 +269,30 @@ test('getHealth: abandoned fleets are counted even while another fleet is genuin
     assert.equal(health.status, 'degraded', 'the real hang still wins the status')
     assert.equal(health.abandoned_fleets, 1, 'and the inconsistency is still reported')
   } finally { cleanup() }
+})
+
+test('getHealth reports the version of the server answering, matching its own package.json', () => {
+  // On 2026-08-01 a deployed MCP server sat six minor versions behind the repo (0.14.0 vs 0.20.0)
+  // and latched `degraded` for a reason that no longer existed. Every field described the ledger;
+  // none described the reporter, so the staleness was only caught by noticing that a field
+  // 0.16.0+ declares REQUIRED (`abandoned_fleets`) was absent from the response. Inferring a
+  // server's version from which fields it forgot to send is not diagnosis.
+  const { cleanup } = freshLedger()
+  try {
+    const expected = createRequire(import.meta.url)('../package.json').version as string
+    const health = getHealth()
+
+    assert.equal(
+      health.version,
+      expected,
+      'health must report the version of the running server, read from its own package.json',
+    )
+    assert.match(
+      health.version,
+      /^\d+\.\d+\.\d+/,
+      'version must be a real semver string, not a placeholder',
+    )
+  } finally {
+    cleanup()
+  }
 })
