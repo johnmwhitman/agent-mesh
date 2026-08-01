@@ -1,55 +1,105 @@
 # MeshFleet Handoff
 
-**Code baseline:** `41fc3bc` (this doc commit sits on top of it) · **Suite:** 1337/1337, 0 fail · **CI:** 9/9 per job
+**Code baseline:** `87f2a97` · **Suite:** 1384/1384, 0 fail, exit 0 · **CI:** 9/9 per job on the last twelve merges
 **npm:** `0.20.0` is live (`dist-tags.latest`, registry-verified) · **Source:** 0.20.0
 
-## Current posture — 2026-07-31
+## Current posture — 2026-08-01
 
-Per-agent **runtime selection** landed. `spawn_fleet` accepts an optional `runtime` on each
-agent, so one fleet can mix harnesses instead of every agent being an `opencode` session
-behind a single provider. `model` was already selectable and does **not** cover this: `model`
-picks a model *within* a runtime, `runtime` picks the harness itself.
+**Runtime failover is live and proven against a real provider outage.** An agent whose provider
+refuses is respawned on another runtime and the ledger records the hop in `Agent.runtime_attempts`
+plus an `agent_runtime_failover` event. Proven end to end with two real harnesses: the default
+runtime refused, the agent hopped, and the backup **wrote the file the task asked for** — eighteen
+seconds, no operator involved. The previous posture note said "failover is not built"; it is.
 
-The Kimi adapter (shipped earlier, registered nowhere, therefore unreachable) is now
-registered **only when configured** via `MESHFLEET_KIMI_COMMAND`. Its constructor requires an
-absolute path and refuses to guess — and this repository is public, so a machine-specific path
-must never be compiled in. Unconfigured, the adapter set and the default are unchanged.
+Four gates decide a hop, in order, and each exists because skipping it is a real defect:
 
-**Selection only. Failover is not built.** An agent whose provider refuses is not respawned on
-another runtime; there is no retry, and all `trySpawn` sites create new agents. That is the
-next slice, and it should carry a receipt recording the hop.
+1. **Provider refusal only** — hopping on every retry converts one quota-burning failure into a
+   quota-*amplifying* one: a malformed prompt would burn every registered subscription in turn to
+   re-learn the same bug. The signal reuses this repo's own maintained pattern set, not a new guess
+   at provider text.
+2. **No pinned model** — a model selector is provider-scoped. Carrying it to another harness would
+   run something the caller never named while reporting success.
+3. **Never re-offer** a runtime that already refused.
+4. **Only where the spec validates** — checked against the spec the candidate would really receive.
+
+With only the default adapter registered — every deployment that configures nothing — the candidate
+list is empty and failover is a no-op.
+
+### Also landed 2026-08-01 (twelve merges)
+
+- **Manifest integrity, in three passes.** A digest manifest had been invalid JSON on `main` for
+  five days: an edit updated a `sha256` and deleted the `path` and `bytes` in the same write,
+  leaving a hash bound to nothing. Then the guard written for it reached **11 of 12** manifests and
+  its own count floor passed anyway. Then a sweep of all 103 file rows found **five digests that no
+  longer matched their file**, and one attesting a build artifact that was never tracked and is
+  gitignored — unobtainable by anyone who clones this repository.
+- **The corpus count-collision sequence drained.** Corpus 77 → **79**, caught 55 / anomaly 14 /
+  undetectable 10, core checks 49 → **51**. Two verifier checks landed: `capability.fleet_mismatch`
+  and `message.unknown_recipient`.
+- **`register_capability` now refuses at the write** a fleet its agent's own row contradicts, using
+  the verifier's gate character for character so the writer can never out-strict the audit. Driven
+  over real MCP stdio, not just the writer.
 
 ### Scars worth carrying
 
-- 🔴 **`spawnSync("npx", …)` cannot run on Windows** — `npx` is `npx.cmd`, a batch script
-  `CreateProcess` cannot launch. `spawnSync(process.execPath, [script])` is **safe**, because
-  `node.exe` is a real binary passed as one argv entry with no shell parsing. **The two calls
-  look identical and behave oppositely.** A review once proposed adding `shell: true` to the
-  safe one; that would have made it worse.
-- 🔴 **`tsc --listFiles` emits forward slashes on every platform; `path.join` emits backslashes
-  on win32.** Comparing them with `startsWith` matched nothing and reported "loaded 0 files
-  under scripts/" — indistinguishable from the real defect that test exists to catch. A guard
-  that impersonates the bug it hunts is worse than one that crashes.
-- 🔴 **Branches that each bump a published count are not order-independent.** Several add one
-  corpus vector and each set the README to the same number. Individually green,
-  `git merge-tree` reports clean, and the count guard only fires *after* a merge. Merge them as
-  a sequence: merge → recount → fix the README → run the suite → merge the next.
-- **The verifier command takes one isolation variable, not three.** Adding the ledger-path
-  variables around `node scripts/run-tests.mjs` forces every test onto one ledger and reddens a
-  green tree, with the failures pointing at innocent tests. The three-variable rule governs
-  probes that spawn the server, not the suite.
-- **Never pipe the gate.** `head`/`tail` exit 0 and swallow the real exit code. This has caused
-  both a missed failure and a false accusation.
-- **A pushed branch with no PR gets no CI.** `ci.yml` fires on push-to-main and PR-to-main
-  only. Local green is not green: work verified on one OS has repeatedly failed the matrix.
+- 🔴 **A count floor is not a completeness check.** A `>= N` control can only catch a filter
+  matching too little *in total* — never a filter missing a particular member. One read `>= 10`
+  while the filter reached 11 of 12, and the twelfth stayed unchecked for as long as it existed.
+  Build the control on a predicate the enumerator does not use.
+- 🔴 **Blob equality proves a branch landed; a difference proves nothing.** Three git instruments
+  all report merged work as unmerged — `merge-base --is-ancestor` (a squash leaves the branch a
+  non-ancestor), `diff main...branch` (diffs the merge base regardless of what landed), and
+  `diff main..branch` (reports every file *main* gained since the branch point). Comparing changed
+  blobs also over-reports, because main's shared files keep evolving. The sound signal is the
+  branch's **added** files.
+- 🔴 **"Would merging change main?" ≠ "does this branch hold unmerged work?"** A stale branch whose
+  work already landed answers YES to the first — it would *revert* newer commits — and NO to the
+  second. `merge-tree --write-tree` against main's tree answers only the first.
+- 🔴 **A scanner that reads source must strip comments before a negative assertion**, or it reports
+  the author's own explanation of the fix as the defect. One did, and the red-on-revert run against
+  it proved nothing because it failed identically both ways.
+- 🔴 **Uncommitted work must never cross a branch boundary.** `git checkout <ref> -- <path>` is a
+  *staging* operation, so a red-on-revert proof leaves a loaded index that the next `git add` fires;
+  one commit silently reverted an entire fix while its message quoted a real green run. **Grep the
+  COMMIT, not the tree** — `git show HEAD:<path> | grep`.
+- 🔴 **"No conflict markers left" is not "resolved correctly."** A resolution script that assumed
+  one conflict per file left a doc holding *both* count tables, one right and one stale. Assert the
+  markers are gone AND that exactly one copy of the thing survives.
+- **A fixed sleep in a test measures the runner, not the product.** A 4.5s wait passed on macOS and
+  Linux and failed all three windows legs; the instrumented run showed the child simply had not
+  finished. Wait on the observable outcome with a generous ceiling.
+- **The verifier command takes one isolation variable, not three.** Adding the ledger-path variables
+  around the suite forces every test onto one ledger and reddens a green tree, with the failures
+  pointing at innocent tests. The three-variable rule governs probes that spawn the server.
+- **Never pipe the gate.** `head`/`tail` exit 0 and swallow the real exit code — this has caused both
+  a missed failure and a false accusation.
+- **A pushed branch with no PR gets no CI.** Local green is not green.
+- **The server a client talks to is not this checkout.** It is a separate clone the operator
+  installs, updated by pulling — not by the npm registry. It was found nine commits behind with no
+  failover while the repo, the tests and the receipts all said the feature shipped. Publishing to
+  npm changes nothing about local behaviour. A stewardship check now reports that drift.
 
 ### Open
 
-- One PR remains red on the three windows-2022 legs. Its log carries a single file-level
-  rollup and no nested detail, so the cause is not readable from CI. Three separate attempts
-  diagnosed it from source and all three were confidently wrong. **Add diagnostics to the
-  assertions and let CI name the failure before attempting a fourth fix.**
-- Several night branches remain unmerged; the count-bumping subset needs the sequence above.
+- **Two recovery tests flake under concurrent load.** `test/lifecycle-integration-adversarial.test.ts`
+  passes 19/19 in isolation; under a loaded machine one overshoots a 2000ms budget by single-digit
+  milliseconds. The tempting fix — raise the timeout — is the shape that moves a measured number in
+  the flattering direction. Prefer waiting on the observable.
+- **Nine of eleven witnesses never check that a digest MATCHES its file**; top-level pins are checked
+  for form only, and one witness carries dozens of nested digests no sweep reaches. Two pins are
+  published that **no code computes or compares anywhere** — a digest nobody derives can never be
+  wrong or right.
+- **Stale branches were pruned 2026-08-01** — 18 of them, each verified to contain nothing `main`
+  lacks (every file it *added* was on `main` byte-identical, and `merge-tree` against main's tree
+  confirmed 10 were exact no-ops). Every SHA was recorded before deletion, so any of them is one
+  `git push origin <sha>:refs/heads/<name>` from being restored. If a branch you were using is
+  gone, it held no commits `main` did not already have.
+- **Several sessions share this checkout.** `git add -A` has now swept another session's in-flight
+  files into a commit three times. Add by PATH, and run `git show --stat` on your own commit before
+  pushing — one line of output names every file you are about to publish.
+- **One PR is red on the three windows legs**, diagnosed from CI evidence: a dynamic import of a raw
+  filesystem path, which ESM rejects on a drive-letter path. The fix is `pathToFileURL(...).href`
+  and the repo already carries the precedent.
 
 ## Landed and tagged: caller-selected model execution
 
