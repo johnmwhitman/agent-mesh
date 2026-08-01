@@ -88,7 +88,7 @@ import {
   requireStringArray,
   requireEnum,
 } from "./tool-args.js";
-import { buildFailureDetail } from "./spawn-attempt.js";
+import { buildFailureDetail, projectSuccessDiagnostics } from "./spawn-attempt.js";
 import { getDefaultRuntimeAdapter, requireRuntimeAdapter, availableRuntimeIds } from "./runtime/registry.js";
 import type { RuntimeAdapter } from "./runtime/types.js";
 import { decideFailover } from "./failover.js";
@@ -227,9 +227,21 @@ function trySpawn(input: SpawnAgentInput, agentId: string, attempt: number): voi
           agentId,
           "complete",
           result.stdout,
-          result.stderr || undefined,
+          // A SUCCESS has no error. This used to pass `result.stderr`, so a completed agent's
+          // `error` held the child's entire stderr transcript — tool calls, their output,
+          // duplicated warning lines and all. Measured on the live store: 753 of 763 `complete`
+          // agents carried a populated `error`, averaging 4,352 bytes, 3.28 MB in total. A
+          // consumer asking `agent.error` whether the work failed got a non-empty string for
+          // 98.7% of successes, which makes a real failure indistinguishable from a normal run.
+          //
+          // The distilled signal was being DROPPED at the same moment. `classifySpawnResult`
+          // already separates an auxiliary provider warning from the raw transcript, and
+          // `opencode.ts` carries it in `diagnostics` — which this call ignored. The transcript
+          // was kept and the diagnosis discarded: exactly backwards.
+          undefined,
           result.identity.agent,
           result.identity.model,
+          projectSuccessDiagnostics(result.diagnostics),
         );
         return;
       }
@@ -1605,6 +1617,7 @@ toolHandlers["collect_results"] = async (args) => {
         status: a.status,
         output: a.output,
         error: a.error,
+        diagnostics: a.diagnostics,
       })),
     });
 };

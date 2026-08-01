@@ -15,6 +15,7 @@ import {
 } from "./core.js";
 import { LifecycleStore, type LifecycleState } from "./attempt-lifecycle.js";
 import type { RuntimeAdapter, RuntimeHandle, RuntimeResult } from "./runtime/types.js";
+import { projectSuccessDiagnostics } from "./spawn-attempt.js";
 
 export type LifecycleMode = "legacy" | "shadow" | "durable";
 export interface DurableAgentSpec {
@@ -406,6 +407,9 @@ export class LifecycleExecutionCoordinator {
       agent.status = state.work.status === "succeeded" ? "complete" : "failed";
       agent.output = typeof state.work.result === "string" ? state.work.result : "";
       agent.error = state.work.error === undefined ? undefined : redact(state.work.error);
+      agent.diagnostics = state.work.status === "succeeded" && result
+        ? projectSuccessDiagnostics(result.diagnostics)
+        : undefined;
       if (result?.identity.agent) agent.runtime_agent = result.identity.agent;
       if (result?.identity.model) agent.runtime_model = result.identity.model;
       agent.completed_at = this.now();
