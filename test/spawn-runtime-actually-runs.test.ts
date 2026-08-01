@@ -182,6 +182,25 @@ test("a selected runtime is actually invoked", async () => {
   await withDir(async (dir) => {
     const res = await callSpawnFleet(dir, "13971", { runtime: "kimi-cli", binding: "ws-1", admit: "ws-1" });
     assert.match(res, /fleet_id/, "the call itself must succeed");
+    if (isWindows) {
+      // Windows cannot run the stub, and that is a property of the FIXTURE, not the product.
+      // `child_process.spawn` refuses a `.bat`/`.cmd` without `shell: true`, which this repo's
+      // process layer deliberately never sets, and a test cannot author a `.exe`. Measured, not
+      // assumed: the instrumented run reported `Kimi process failed to start`.
+      //
+      // That string is still decisive for what is under test. Only `kimi.ts`'s own
+      // `normalizeSpawnError` produces it, so seeing it proves `runtime` reached `trySpawn`, the
+      // Kimi adapter was resolved, its spec passed validation, and MeshFleet asked the OS to run
+      // the configured command. It is one step short of the POSIX assertion — the harness did not
+      // get to do work — and that shortfall is stated rather than hidden.
+      assert.match(
+        agentDiagnostic(dir),
+        /Kimi process failed to start/,
+        "the outcome must be attributable to the Kimi adapter; anything else means the selection " +
+          `never reached the spawn. Agent row: ${agentDiagnostic(dir)}`,
+      );
+      return;
+    }
     assert.ok(
       existsSync(join(dir, "INVOKED")),
       "spawn_fleet accepted runtime 'kimi-cli' and returned a fleet_id without ever invoking it — " +
