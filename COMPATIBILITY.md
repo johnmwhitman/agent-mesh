@@ -96,10 +96,11 @@ The additive `meshfleet/recommend-route` library subpath exposes only the pure
 advisory evaluator and validators over caller-supplied sanitized evidence. It is
 not selection or execution authority.
 
-**Promise so far**: every minor release has been additive. No tool has been removed. Two
-signatures have been tightened — `send_messages` batch items and `send_message`, unreleased —
-deliberately and documented in the narrowing note below: the wire shapes they now refuse were
-violations of the contracts the schemas already claimed to enforce.
+**Promise so far**: every minor release has been additive. No tool has been removed. Three
+signatures have been tightened — `send_messages` batch items, `send_message`, and
+`register_capability`, all unreleased — deliberately and documented in the narrowing notes below:
+the shapes they now refuse were violations of the contracts the schemas already claimed to
+enforce, or rows the verifier already reported as contradictions.
 
 ### ⚠️ `send_messages` narrowing and stricter `verify_ledger` findings (unreleased)
 
@@ -123,6 +124,31 @@ present but non-finite `started_at`/`completed_at` now yields `agent.invalid_tim
 `started_at` is absent. A ledger that previously verified `ok: true` can now fail — that is the
 point: the previous pass was a false clean over data no evidence product could be built on. The
 report *shape* (`VerifyReport`/`VerifyFinding`) is unchanged.
+
+### ⚠️ `register_capability` refuses a fleet its agent's own row contradicts (unreleased)
+
+`register_capability` validated the SHAPE of `fleet_id` — non-empty string — and never compared it
+to the agent it names. `capability.fleet_mismatch` (shipped in the same unreleased line) reports
+that contradiction afterwards, which is what an audit is for: no writer change can reach rows a
+ledger already holds. But nothing objected at the write, so a caller using `fleet_id` as a logical
+label rather than the technical fleet got a clean success and a ledger the verifier would warn
+about permanently, with no signal at the moment they created it.
+
+The call now throws when **all three** hold: this ledger holds the named agent, this ledger holds
+the named fleet, and the agent's own `fleet_id` differs. That is the verifier's gate character for
+character, so the writer can never be stricter than the audit. Three shapes remain accepted exactly
+as before — a capability agreeing with its agent's fleet; one naming a fleet this ledger does not
+hold (the cross-attachment case the verifier deliberately tolerates); and one for an agent this
+ledger has not registered (already covered by the warning `capability.unknown_agent`).
+
+Measured against a live store before the change: **457 capability rows, 0** where the two fleets
+differ at all, so no existing caller pattern is refused. `autoRegisterFromAgent` cannot produce a
+mismatch by construction — it is invoked with the same fleet id the agent was registered under.
+
+This makes future `capability.fleet_mismatch` findings rarer, which is a measured number moving in
+a flattering direction and is flagged rather than taken quietly. It is the legitimate form of that
+move: the verifier is untouched and still reports every row already written. Prevention at the
+source, not a quieter check.
 
 ### Implemented opt-in verifier v2 MCP and CLI contract
 
