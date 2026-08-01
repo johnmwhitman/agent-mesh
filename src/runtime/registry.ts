@@ -77,8 +77,34 @@ function registerKimiIfConfigured(registry: RuntimeAdapterRegistry): void {
       // "configured" evidence: the adapter does not probe the binary, so this is the operator's
       // assertion. Unset means unknown, and unknown is reported rather than invented.
       harnessVersion: process.env.MESHFLEET_KIMI_VERSION?.trim() || "unknown",
+      verifiedWorkspaceBindingIds: parseAdmittedWorkspaceBindings(
+        process.env.MESHFLEET_KIMI_WORKSPACE_BINDINGS,
+      ),
     }),
   );
+}
+
+/**
+ * Workspace bindings the OPERATOR admits as verified isolation, from configuration.
+ *
+ * `kimi.ts` gates both `plan` and `unattended` on `hasAdmittedWorkspace()`, which needs the
+ * caller's `workspace.bindingId` to appear in this set. Registering the adapter without one left
+ * the set EMPTY, so every permission mode failed validation and no Kimi agent could start under
+ * any spec — measured 2026-08-01, all three modes returned an error from `validate()`.
+ *
+ * This is deliberately the second of two independent keys. The caller names a binding on the
+ * agent and claims `isolation: "verified"`; a caller can assert anything, so that claim alone
+ * grants nothing. Admission here is the actual authority, and it lives in operator configuration
+ * rather than in this repository — the same reason the command path does. Ids are opaque tokens
+ * (`kimi.ts` rejects anything with path separators, tildes, or whitespace), so nothing
+ * machine-specific reaches the public tree.
+ *
+ * Unset means the set stays empty and Kimi still refuses every spec, which is the honest default:
+ * MeshFleet has no per-agent workspace isolation of its own to attest to yet.
+ */
+function parseAdmittedWorkspaceBindings(raw: string | undefined): string[] {
+  if (!raw) return [];
+  return raw.split(",").map((id) => id.trim()).filter((id) => id.length > 0);
 }
 
 const defaultRegistry = createDefaultRuntimeRegistry();
