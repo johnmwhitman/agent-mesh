@@ -187,6 +187,14 @@ public roadmap.
   records a canonical replay hash with all effects false. It adds no provider
   selection, pool binding, budget polling, scheduling, allocation, reservation,
   execution, publication, or authority.
+- The speculative-backlog planner's `capacity: { mode: "unmodeled" }` has a known
+  counterpart design: an expiring-allowance observation record, written for
+  RoutePlane 2026-07-27 and archived rather than built. Its five speculative
+  kinds are verbatim the planner's five. The trigger question it answers, when
+  is a flat-rate pool about to expire, is the one the planner cannot ask today.
+  Pointer, evidence and caveats: `docs/ops/ALLOWANCE-TRIGGER-SEAM-2026-08-01.md`.
+  Filed as a pointer only; budget polling and quota inference stay behind their
+  existing human gates and this changes none of them.
 - Per-entry provenance confidence bands in verify output remain deferred; the
   shipped v3 local consistency labels deliberately do not establish that
   stronger evidence claim.
