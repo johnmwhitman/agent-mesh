@@ -89,9 +89,17 @@ The PR matrix passed Node 20/22/24 on Ubuntu, macOS, and Windows. The tagged
 also passed all nine test legs and the publish job's checkout, main-history,
 install, and tag/version gates. `npm publish --provenance --access public`
 built and passed all 1094 tests, signed Sigstore provenance, then failed on
-`PUT /meshfleet` with npm `E404`. The public registry remains at 0.18.0 and
-local `npm whoami` returns `E401`; per `docs/ops/GOAL-PROMPT.md`, this is the
-known not-logged-in failure, not evidence that the package is absent.
+`PUT /meshfleet` with npm `E404`, and local `npm whoami` returned `E401`; per
+`docs/ops/GOAL-PROMPT.md`, that is the known not-logged-in failure, not evidence
+that the package is absent.
+
+> **Superseded 2026-08-01 — the registry is at `0.20.0`.** `npm view meshfleet
+> version` and `dist-tags.latest` both report `0.20.0`, matching the header. The
+> paragraph above is retained as the account of the v0.19.0 release run; its
+> closing claim that "the public registry remains at 0.18.0" was true when
+> written and is no longer. This file asserted both `0.20.0 is live` and
+> `remains at 0.18.0` at the same time — a document contradicting itself about a
+> published fact is the same defect class this repo repairs in its manifests.
 
 **Exact unblock:** John refreshes the repository's `NPM_TOKEN` with a granular
 read-write token for `meshfleet` with automation/2FA bypass, then reruns failed
