@@ -121,6 +121,8 @@ interface SpawnAgentInput {
   requestedModel?: string;
   /** Runtime adapter id. Absent = the process default (opencode-cli). */
   runtime?: string;
+  /** Opaque workspace binding the caller claims is verified isolation. Never a path. */
+  workspaceBinding?: string;
 }
 
 const runtimeAdapter = getDefaultRuntimeAdapter();
@@ -135,6 +137,11 @@ function trySpawn(input: SpawnAgentInput, agentId: string, attempt: number): voi
   // a Kimi agent opencode's timeout and opencode's cancel semantics, which is worse than not
   // supporting selection at all: it would look like it worked.
   const adapter = input.runtime ? requireRuntimeAdapter(input.runtime) : runtimeAdapter;
+  // Both branches resolve out of the SAME module-level registry, so `runtime: "opencode-cli"`
+  // yields the identical instance the default path uses. Comparing instances — not comparing the
+  // id string against a literal — is what makes "explicitly asked for the default" and "asked for
+  // nothing" the same execution, instead of two paths that drift.
+  const nonDefaultRuntime = adapter !== runtimeAdapter;
   const spec = {
     fleetId: input.fleetId,
     agentId,
@@ -144,6 +151,30 @@ function trySpawn(input: SpawnAgentInput, agentId: string, attempt: number): voi
     requestedModel: input.requestedModel,
     cwd: process.cwd(),
     timeoutMs: adapter.describe().defaultTimeoutMs,
+    // The default path's spec is unchanged BY CONSTRUCTION — this object literal only grows when
+    // a non-default runtime was selected — so opencode's argv and child environment stay
+    // byte-identical. That matters: `environmentPolicy` is what `opencode.ts` feeds to
+    // `resolveChildEnvironment`, so setting it unconditionally would scrub the environment
+    // opencode authenticates with.
+    //
+    // These fields are REQUESTS, not attestations. `kimi.ts` refuses an inherited environment, an
+    // absent permission request, and a resumed session; a spec without them fails validation and
+    // `start()` throws, which is how a selected Kimi agent died before this. Naming them here says
+    // what MeshFleet actually does: it spawns an unattended agent that may edit its workspace.
+    ...(nonDefaultRuntime
+      ? {
+          environmentPolicy: { mode: "scrubbed" as const },
+          session: { mode: "new" as const },
+          permissions: { mode: "unattended" as const, edit: "workspace" as const },
+          // Only the CALLER may claim isolation, and the claim is worth nothing on its own — the
+          // adapter's operator-configured admission list is the deciding key. Omitted when the
+          // caller named no binding, so the adapter refuses rather than MeshFleet inventing an
+          // isolation guarantee it does not provide.
+          ...(input.workspaceBinding
+            ? { workspace: { isolation: "verified" as const, bindingId: input.workspaceBinding } }
+            : {}),
+        }
+      : {}),
   };
   void adapter.start(spec).then((handle) => {
     if (handle.pid !== undefined) {
@@ -272,7 +303,15 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
                     "Runtime adapter to spawn this agent under. Omit for the default. `model` " +
                     "picks a model WITHIN a runtime; `runtime` picks the harness itself, so agents " +
                     "in one fleet can run under different CLIs and one provider outage cannot stop " +
-                    "every agent at once.",
+                    "every agent at once. Not supported in durable lifecycle mode.",
+                },
+                workspace_binding: {
+                  type: "string",
+                  description:
+                    "Opaque identifier for a workspace the caller asserts is verified isolation. " +
+                    "Never a path. Some runtimes refuse to edit files without one, and the claim " +
+                    "grants nothing on its own — the runtime independently admits the identifier " +
+                    "from operator configuration. Ignored when 'runtime' is omitted.",
                 },
               },
               required: ["role", "prompt"],
@@ -1258,7 +1297,10 @@ const toolHandlers: Record<
 
 toolHandlers["spawn_fleet"] = async (args) => {
     const { agents } = args as {
-      agents: { role: string; prompt: string; agent?: string; model?: string; runtime?: string }[];
+      agents: {
+        role: string; prompt: string; agent?: string; model?: string;
+        runtime?: string; workspace_binding?: string;
+      }[];
     };
     // The published schema declares agents[] items with REQUIRED string role and
     // prompt, and the MCP SDK enforces neither `required` nor `type`. Without this
@@ -1303,6 +1345,13 @@ toolHandlers["spawn_fleet"] = async (args) => {
       prompt: a.prompt,
       agent: a.agent,
       model: a.model,
+      // Carrying `runtime` here is the whole point of the field. It was validated above and then
+      // dropped: nothing copied it into these specs and nothing passed it to trySpawn, so
+      // `SpawnAgentInput.runtime` had no producer and every selected agent silently ran on
+      // opencode anyway. Measured 2026-08-01 — `runtime: "kimi-cli"` pointed at a marker-writing
+      // executable returned a fleet_id and never invoked it.
+      runtime: a.runtime,
+      workspaceBinding: a.workspace_binding,
     }));
 
     let lifecycleMode;
@@ -1312,6 +1361,18 @@ toolHandlers["spawn_fleet"] = async (args) => {
       return jsonError(err instanceof Error ? err.message : String(err));
     }
     if (lifecycleMode === "durable") {
+      // Durable mode rehydrates a spec from the persisted Agent row, and that row has no runtime
+      // column — so a durable respawn would come back on the default adapter. Refuse instead:
+      // running an agent on a runtime the caller did not ask for is the defect this field exists
+      // to remove, and silently honouring it only on the first attempt would hide it better.
+      const durableRuntimeAgent = specs.find((s) => s.runtime !== undefined);
+      if (durableRuntimeAgent) {
+        return jsonError(
+          "spawn_fleet: per-agent 'runtime' is not supported in durable lifecycle mode, because a " +
+            "durable respawn rehydrates from the agent row and the row does not persist it. Use " +
+            "legacy or shadow mode, or omit 'runtime'.",
+        );
+      }
       try {
         lifecycleCoordinator.createFleet(fleetId, specs.map((s) => ({
           fleetId,
@@ -1360,6 +1421,8 @@ toolHandlers["spawn_fleet"] = async (args) => {
         prompt: s.prompt,
         agentFile: s.agent,
         requestedModel: s.model,
+        runtime: s.runtime,
+        workspaceBinding: s.workspaceBinding,
       }, s.agentId, 1);
       appendEvent("agent_spawned", { fleet_id: fleetId, agent_id: s.agentId, role: s.role, agent_file: s.agent });
       if (s.agent) autoRegisterFromAgent(s.agentId, fleetId, s.agent);
