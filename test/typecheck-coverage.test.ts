@@ -83,6 +83,37 @@ test("the typecheck stage actually loads scripts/ — the directory it used to s
   );
 });
 
+/**
+ * `test/` was the other half of the same hole, and it stayed open longer: tests run under
+ * `tsx`, which strips types without checking them, so a type error in a test file was caught
+ * by NO stage in either order. Measured on a0ec5b1: 71 errors across 25 files, none of which
+ * any gate could see. They were fixed — 7 in one pass, then 64 — and this test is what stops
+ * them coming back.
+ *
+ * It pins the LOADED FILE SET, not the config's prose, for the same reason the scripts/ test
+ * above does: the failure mode is someone dropping `test/**\/*` from `include` (or adding an
+ * `exclude`) to get a red pipeline green again, and a config-shape assertion misses that the
+ * moment it is worded differently.
+ */
+test("the typecheck stage loads test/ — where tsx strips types and no gate could see them", () => {
+  const loaded = tscListFiles().filter((f) => !f.includes("node_modules"));
+  const tests = loaded.filter((f) => f.startsWith(posix(join(ROOT, "test"))));
+
+  assert.ok(
+    tests.some((f) => f.endsWith("typecheck-coverage.test.ts")),
+    `tsc never loaded this very file. Loaded ${tests.length} file(s) under test/. ` +
+      `The typecheck stage is not checking test/ — restore "test/**\/*" in ${CHECK_CONFIG}.`,
+  );
+
+  // One file is not coverage. The suite is ~120 files; a collapse to a handful means an
+  // `exclude` was added, which is the downgrade this test exists to catch.
+  assert.ok(
+    tests.length > 50,
+    `tsc loaded only ${tests.length} file(s) under test/, far below the suite's size. ` +
+      `Something is narrowing coverage — check for an "exclude" in ${CHECK_CONFIG}.`,
+  );
+});
+
 test("npm run typecheck uses the wider config, not the build config", () => {
   const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as {
     scripts?: Record<string, string>;

@@ -3,7 +3,15 @@ import assert from "node:assert/strict";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { setTimeout as sleep } from "node:timers/promises";
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, type ChildProcessByStdio } from "node:child_process";
+import type { Readable } from "node:stream";
+
+// `stdio: ["ignore", "pipe", "pipe"]` gives the child NO stdin pipe, so the previous
+// annotation (`PipedChild`) promised a writable `child.stdin` that
+// is always null here. Nothing in these files writes to stdin — but the annotation was
+// a standing invitation to, and no stage of the verifier could see it.
+type PipedChild = ChildProcessByStdio<null, Readable, Readable>;
+
 import Database from "better-sqlite3";
 import { readLedger, withLedger, closeDb } from "../src/db.js";
 import { verifyMeshData } from "../src/verify.js";
@@ -84,7 +92,7 @@ function withStormSeed() {
   });
 }
 
-function spawnChild(agentId: string, dbFile: string, eventLog: string): ChildProcessWithoutNullStreams {
+function spawnChild(agentId: string, dbFile: string, eventLog: string): PipedChild {
   return spawn(
     process.execPath,
     ["--import", "tsx", CHILD_SCRIPT, agentId, CHAOS_MESSAGE, eventLog],
@@ -95,7 +103,7 @@ function spawnChild(agentId: string, dbFile: string, eventLog: string): ChildPro
   );
 }
 
-function collectIds(proc: ChildProcessWithoutNullStreams, sink: Set<string>): void {
+function collectIds(proc: PipedChild, sink: Set<string>): void {
   let buffer = "";
   proc.stdout.setEncoding("utf8");
   proc.stdout.on("data", (chunk) => {
@@ -109,14 +117,14 @@ function collectIds(proc: ChildProcessWithoutNullStreams, sink: Set<string>): vo
   });
 }
 
-async function waitForExit(child: ChildProcessWithoutNullStreams): Promise<void> {
+async function waitForExit(child: PipedChild): Promise<void> {
   if (child.exitCode !== null) return;
   await new Promise<void>((resolve) => {
     child.once("exit", () => resolve());
   });
 }
 
-async function killAll(children: ChildProcessWithoutNullStreams[]): Promise<void> {
+async function killAll(children: PipedChild[]): Promise<void> {
   await Promise.all(
     children.map(async (child) => {
       if (child.exitCode === null) child.kill("SIGKILL");

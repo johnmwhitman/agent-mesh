@@ -114,7 +114,7 @@ test("a message stored under a key that disagrees with its own id is an error", 
         recipients: ["B"],
         acknowledged: false,
         payload: "p",
-      } as MeshData["messages"][string],
+      } as unknown as MeshData["messages"][string],
     },
   });
   assert.ok(
@@ -151,7 +151,7 @@ test("an inbox holding a message its owner was never addressed is an error", () 
         recipients: ["A"],
         acknowledged: false,
         payload: "p",
-      } as MeshData["messages"][string],
+      } as unknown as MeshData["messages"][string],
     },
     inboxes: { A: [], B: ["M"] },
   });
@@ -200,7 +200,7 @@ test("a message whose fleet_id names no fleet is a warning, matching agent.orpha
         recipients: ["B"],
         acknowledged: false,
         payload: "p",
-      } as MeshData["messages"][string],
+      } as unknown as MeshData["messages"][string],
     },
   });
   assert.ok(checks(data, "warning").includes("message.orphan_fleet"));
@@ -223,7 +223,7 @@ test("acknowledged:true over an empty recipient set is an error, not a vacuous p
         recipients: [],
         acknowledged: true,
         payload: "p",
-      } as MeshData["messages"][string],
+      } as unknown as MeshData["messages"][string],
     },
   });
   assert.ok(
@@ -244,7 +244,7 @@ test("CONTROL: acknowledged:false over an empty recipient set is not flagged", (
         recipients: [],
         acknowledged: false,
         payload: "p",
-      } as MeshData["messages"][string],
+      } as unknown as MeshData["messages"][string],
     },
   });
   assert.ok(!checks(data, "error").includes("message.vacuous_ack"));

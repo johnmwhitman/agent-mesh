@@ -40,8 +40,12 @@ async function withClient(fn: (client: Client) => Promise<void>) {
   }
 }
 
-function parse(result: { content: Array<{ type: string; text?: string }> }) {
-  return JSON.parse(result.content[0].text!);
+// `callTool` returns the SDK's CallToolResult union, whose other arm carries
+// `toolResult` and no `content` at all — so a narrower parameter type here made every
+// call site below un-typecheckable. Same shape as `textOf` in the sibling
+// speculative-backlog suite: take `unknown`, assert at the one point that reads it.
+function parse(result: unknown) {
+  return JSON.parse((result as { content: Array<{ type: string; text?: string }> }).content[0]!.text!);
 }
 
 const VERSION = "meshfleet.route-candidates.v0.1";

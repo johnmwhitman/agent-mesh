@@ -9,6 +9,9 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import {
   planSpeculativeBacklog,
   SPECULATIVE_BACKLOG_PLANNER_VERSION,
+  type PlanSpeculativeBacklogInput,
+  type SpeculativeBacklogCandidate,
+  type SpeculativeBacklogTask,
 } from "../src/speculative-backlog-planner.js";
 
 const NOW_MS = 1_800_000_000_000;
@@ -43,7 +46,11 @@ async function withServer(fn: (client: Client, dataDir: string) => Promise<void>
   }
 }
 
-function candidate(candidate_id: string, overrides: Record<string, unknown> = {}) {
+// The `...overrides` spread is `Record<string, unknown>`, so it widens every literal
+// in these fixtures — `privacy: "network_ok"` becomes `string`, and the planner's
+// input types are unions and literals. The assertion states what the fixture is
+// already building; it does not change a single value the tests feed.
+function candidate(candidate_id: string, overrides: Record<string, unknown> = {}): SpeculativeBacklogCandidate {
   return {
     candidate_id,
     capabilities: ["code"],
@@ -52,10 +59,10 @@ function candidate(candidate_id: string, overrides: Record<string, unknown> = {}
     budget: { measured: false },
     quality_tags: ["reviewed"],
     ...overrides,
-  };
+  } as SpeculativeBacklogCandidate;
 }
 
-function task(task_id: string, overrides: Record<string, unknown> = {}) {
+function task(task_id: string, overrides: Record<string, unknown> = {}): SpeculativeBacklogTask {
   return {
     task_id,
     kind: "code_review",
@@ -68,16 +75,16 @@ function task(task_id: string, overrides: Record<string, unknown> = {}) {
     },
     required_quality_tags: ["reviewed"],
     ...overrides,
-  };
+  } as SpeculativeBacklogTask;
 }
 
-function input(overrides: Record<string, unknown> = {}) {
+function input(overrides: Record<string, unknown> = {}): PlanSpeculativeBacklogInput {
   return {
     version: SPECULATIVE_BACKLOG_PLANNER_VERSION,
     candidates: [candidate("candidate-a")],
     tasks: [task("task-a")],
     ...overrides,
-  };
+  } as PlanSpeculativeBacklogInput;
 }
 
 test("projects only approved tasks with declared quality eligibility and all effects false", () => {
@@ -301,7 +308,9 @@ test("MCP exposes the closed projection and does not mutate its ledger", async (
 
     const snapshot = (): Array<[string, string]> => readdirSync(dataDir).sort().map((name) => [name, readFileSync(join(dataDir, name)).toString("base64")]);
     const before = snapshot();
-    const response = await client.callTool({ name: "plan_speculative_backlog", arguments: input() });
+    // `arguments` is an index-signature type; an interface has no implicit index
+    // signature, so the assertion is about TS's structural rule, not the value.
+    const response = await client.callTool({ name: "plan_speculative_backlog", arguments: input() as unknown as Record<string, unknown> });
     assert.equal((response as { isError?: boolean }).isError, undefined);
     const body = JSON.parse(textOf(response));
     assert.deepEqual(body.effects, {
@@ -312,7 +321,7 @@ test("MCP exposes the closed projection and does not mutate its ledger", async (
     });
     assert.deepEqual(snapshot(), before);
 
-    const rejected = await client.callTool({ name: "plan_speculative_backlog", arguments: input({ provider_id: "smuggled" }) });
+    const rejected = await client.callTool({ name: "plan_speculative_backlog", arguments: input({ provider_id: "smuggled" }) as unknown as Record<string, unknown> });
     assert.equal((rejected as { isError?: boolean }).isError, true);
     assert.match(textOf(rejected), /provider_id/);
   });

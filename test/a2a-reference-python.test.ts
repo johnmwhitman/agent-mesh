@@ -1,5 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import type { AssertPredicate } from "node:assert";
+// `assert.throws(fn, error, message)`: the middle argument has to be present for the
+// third to be read as the message, and `undefined` there means "accept any error".
+// @types/node types that overload's middle parameter as a required AssertPredicate,
+// so the deliberate placeholder needs an assertion. The call is unchanged.
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
@@ -207,7 +212,7 @@ test("numeric spellings share canonical identity only inside the permitted domai
       "1e309",
     ]) {
       const raw = prefix + unsafe + "}}";
-      assert.throws(() => a2aCodec.decodeEnvelope(raw), undefined, unsafe);
+      assert.throws(() => a2aCodec.decodeEnvelope(raw), undefined as unknown as AssertPredicate, unsafe);
       const path = join(directory, "unsafe_" + unsafe.replace(/[^a-z0-9]/gi, "_") + ".json");
       writeFileSync(path, raw, "utf8");
       const run = spawnSync("python3", [witness, "--digest-envelope", path], { encoding: "utf8", timeout: 10_000 });
