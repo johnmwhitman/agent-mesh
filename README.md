@@ -2,9 +2,9 @@
 
 > **Auditable multi-agent coordination for OpenCode.** Spawn parallel agents as independent OS processes. Route work to specialists. Let agents collaborate peer-to-peer — with witnessed receipts and quorum ratification, so you can answer: *who saw this, who approved it, prove it.* The core is MIT and free.
 
-**Website**: [meshfleet.app](https://meshfleet.app) · **Source version**: 0.20.0 (npm publish pending) · [CI](https://github.com/johnmwhitman/agent-mesh/actions)
+**Website**: [meshfleet.app](https://meshfleet.app) · **Source version**: 0.20.0 · **npm latest**: 0.20.0 · [CI](https://github.com/johnmwhitman/agent-mesh/actions)
 
-*Maintained: source is 0.20.0 and untagged; the newest tag is v0.19.0 (2026-07-28); npm latest remains v0.18.0 · issues answered within 48h · no download-count theater.*
+*Maintained: source and npm latest are 0.20.0; the newest Git tag is v0.19.0 (2026-07-28) · issues answered within 48h · no download-count theater.*
 
 > **Project status — deliberately pre-1.0, actively maintained.** Releases are intentionally
 > infrequent (we cut versions when something is worth shipping, not on a calendar); the repo
@@ -37,13 +37,16 @@ const { fleet_id } = await callTool("spawn_fleet", {
     { role: "Explorer",   prompt: "Map the auth layer",    agent: "codebase-onboarding-engineer" },
     { role: "Analyst",    prompt: "Review the architecture", agent: "oracle" },
     { role: "Engineer",   prompt: "Implement JWT refresh",  agent: "backend-architect", model: "opencode-go/minimax-m3" },
+    { role: "Reviewer",   prompt: "Review the resulting diff", runtime: "claude-cli", workspace_binding: "review-worktree" },
   ],
 });
 ```
 
-Three specialists. Three independent processes. They hand off, ask questions, alert on problems. You read the result.
+Four specialists. Four independent processes. They hand off, ask questions, alert on problems. You read the result.
 
-Each agent accepts an optional `model` (`provider/model`) selector. When set, Meshfleet persists it as the immutable request (`Agent.requested_model`) and launches `opencode run --model <value>` for that agent; the observed runtime banner lands in `Agent.runtime_model`, and a `complete` agent whose banner is missing or contradicts the request fails closed. Omitting `model` keeps the old argv exactly. The selector is data, not shell text, and the banner is observed evidence — not authentication, billing, provider availability, or attestation. Default execution is still OpenCode; there is no public runtime-adapter selector, credential flow, account-control plane, automatic model choice, or default token-budget policy. Local smoke tests exercised the installed OpenCode IDs `opencode-go/minimax-m3` and `kilo/kilo-auto/free`; that evidence is environment-local. The separate pure `recommend_route` advisory may opt in to a caller-evidenced near-reset tie-break, but it never polls an account, grants provider authority, or executes a paid service.
+Each OpenCode agent accepts an optional `model` (`provider/model`) selector. When set, Meshfleet persists it as the immutable request (`Agent.requested_model`) and launches `opencode run --model <value>` for that agent; the observed runtime banner lands in `Agent.runtime_model`, and a `complete` agent whose banner is missing or contradicts the request fails closed. Omitting `model` keeps the old argv exactly. The selector is data, not shell text, and the banner is observed evidence — not authentication, billing, provider availability, or attestation.
+
+`spawn_fleet` also accepts an optional per-agent `runtime`. The default remains `opencode-cli`; non-default runtimes are available only when the operator configures them. `claude-cli` requires an absolute command, a configured version label, and an operator-admitted opaque workspace binding. The caller must repeat that binding as `workspace_binding`, and must omit OpenCode-specific `agent` and `model` selectors. Claude Code owns its OAuth session; Meshfleet never reads or serializes it. See [the adapter contract](./docs/ADAPTER-CONTRACT.md#native-claude-code-cli-boundary) for the exact permission and evidence limits. Local smoke tests for any account remain environment-local. The separate pure `recommend_route` advisory may opt in to a caller-evidenced near-reset tie-break, but it never polls an account, grants provider authority, or executes a paid service.
 
 And when an agent's action matters, Meshfleet can prove what happened. Every message writes **per-recipient receipts** (delivered, seen, acked). Decisions can go through **councils** — quorum-based ratification with required sign-offs, recorded on the same ledger. The design is a port of a bus that ran a 10+ agent fleet in production for 40 days and 18,404 messages, including quorum-ratified decisions.
 
@@ -175,9 +178,10 @@ Configure Codex's MCP server entry with the same command and arguments:
 
 These Claude Code, Codex, OpenCode, and generic MCP configurations all call the
 same inbound stdio server. This proves client interoperability at the MCP
-boundary only: workers spawned by Meshfleet still execute through OpenCode's
-`opencode run`. The `subscribe_inbox` SSE endpoint is optional acceleration; it
-is not required for compatibility, and clients can use `get_inbox` polling.
+boundary only. Workers default to OpenCode's `opencode run`; an operator may
+separately register a non-default runtime such as `claude-cli`. The
+`subscribe_inbox` SSE endpoint is optional acceleration; it is not required for
+compatibility, and clients can use `get_inbox` polling.
 
 If any block above doesn't work in your client, [open an issue](https://github.com/johnmwhitman/agent-mesh/issues) — config rot is a bug.
 
@@ -241,7 +245,7 @@ evidence, authenticated provenance, or external time.
 
 | Tool | What it does |
 |---|---|
-| `spawn_fleet` | Spawn N parallel agents as independent OS processes; each agent may set an optional `model` (`provider/model`) selector that becomes `opencode run --model <value>` and is preserved across retries and Discussion wakeups |
+| `spawn_fleet` | Spawn N parallel agents as independent OS processes; each agent may select a registered `runtime` plus its required opaque `workspace_binding`, or use the default OpenCode runtime and optional `model` (`provider/model`) selector |
 | `spawn_from_template` | Spawn a fleet from a saved template |
 | `save_fleet_template` / `list_fleet_templates` | Reusable, versioned fleet configs |
 | `list_fleets` / `fleet_status` | All fleets, or one fleet's full state |
