@@ -30,6 +30,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -184,4 +185,73 @@ test("no manifest entry binds a digest to nothing", () => {
     }
   }
   assert.deepEqual(findings, [], "a digest with no path proves nothing about any file");
+});
+
+/**
+ * Read a tracked file's bytes from the INDEX, not the worktree.
+ *
+ * The published artifact is what is committed. `public-surface-sanitization.test.ts` already reads
+ * the index for the same reason, and its own tests are named for it: "a sanitized worktree cannot
+ * hide staged forbidden content." A digest check that trusted the worktree could be satisfied by a
+ * file nobody will ever receive.
+ */
+function indexedBytes(rel: string): Buffer | undefined {
+  try {
+    return execFileSync("git", ["show", `:${rel}`], { cwd: repoRoot, maxBuffer: 1 << 28 });
+  } catch {
+    return undefined; // not in the index: the manifest attests a file the repo does not publish
+  }
+}
+
+test("every manifest digest matches the bytes it names", () => {
+  // 🔴 THIS IS THE PROPERTY THE REST OF THIS FILE DELIBERATELY DID NOT CHECK, and five manifests
+  // were wrong the whole time. Measured on `37c2503`: of 103 file rows across 12 manifests, FIVE
+  // declared bytes and a sha256 that no longer matched their file, and one named
+  // `python/__pycache__/evaluator.cpython-314.pyc` — never tracked, matched by `.gitignore:23`, so
+  // no one who clones this repository could obtain it or verify that row at all.
+  //
+  // A missing binding (the defect #84 repaired) is a manifest that says nothing. A stale binding is
+  // worse: it says something specific and false, and it is the exact failure this product exists to
+  // prevent — an audit surface reporting fine about content that contradicts it.
+  //
+  // The five drifted because PR #66 sanitized the evidence files and did not restamp the manifests
+  // that attest them. Nothing connected the two, which is why this test is a sweep over the index
+  // rather than a per-witness assertion: a per-witness check is exactly what was already there for
+  // two of the twelve, and it did not generalise on its own.
+  const findings: string[] = [];
+  let rowsChecked = 0;
+  for (const rel of trackedManifests()) {
+    const profileDir = rel.replace(/\/manifest\/[^/]+\/expected\.json$|\/manifest\.json$/, "");
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(readFileSync(join(repoRoot, rel), "utf8")) as Record<string, unknown>;
+    } catch {
+      continue; // reported by the parse test; do not double-count
+    }
+    const entries = (parsed.files ?? parsed.artifacts) as Array<Record<string, unknown>> | undefined;
+    if (!Array.isArray(entries)) continue;
+    for (const entry of entries) {
+      if (typeof entry.path !== "string" || typeof entry.sha256 !== "string") continue;
+      const target = `${profileDir}/${entry.path}`;
+      const bytes = indexedBytes(target);
+      if (bytes === undefined) {
+        findings.push(`${rel}: attests ${entry.path}, which is not in the index`);
+        continue;
+      }
+      rowsChecked += 1;
+      const actual = createHash("sha256").update(bytes).digest("hex");
+      if (actual !== entry.sha256) {
+        findings.push(`${rel}: ${entry.path} sha256 ${entry.sha256.slice(0, 12)}… but bytes hash ${actual.slice(0, 12)}…`);
+      }
+      if (typeof entry.bytes === "number" && entry.bytes !== bytes.length) {
+        findings.push(`${rel}: ${entry.path} declares ${entry.bytes} bytes, index holds ${bytes.length}`);
+      }
+    }
+  }
+  // Not a count FLOOR — a floor is what let a filter reach 11 of 12 and pass. This asserts the
+  // sweep did real work, and the completeness control above independently asserts it reached every
+  // profile. Both are needed: this one cannot see a missing member, and that one cannot see a
+  // member reached but never hashed.
+  assert.ok(rowsChecked > 0, "CONTROL: no manifest row was hashed, so this test proved nothing");
+  assert.deepEqual(findings, [], "a digest that does not match its bytes attests the opposite of the truth");
 });
