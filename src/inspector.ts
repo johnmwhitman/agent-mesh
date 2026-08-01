@@ -710,6 +710,11 @@ const CHECK_EXPLANATIONS: Record<string, CheckExplanation> = {
     benign: "a cross-attached fleet, or a partial copy between ledgers that brought the messages without their fleet — the same shape agent.orphan_fleet tolerates, and warning for the same reason",
     investigate: "agent-mesh inspect --export | jq '.messages[] | select(.fleet_id as $f | (.. | objects | select(has(\"objective\"))) | not)'",
   },
+  "message.unknown_recipient": {
+    what: "a message is addressed to an agent this ledger has not registered, inside a fleet this ledger does hold — the recipient cannot take delivery, so no ack for it can ever exist and the message's acknowledged flag can never derive true",
+    benign: "an agent row deleted or trimmed out of an export while its messages were kept, or a hand-edited ledger. Note the check deliberately ignores the SENDER: external and human senders (root, orchestrator) write into held fleets routinely and are ordinary traffic, and it skips messages whose fleet is absent, since message.orphan_fleet already reports that cross-attached case",
+    investigate: "agent-mesh inspect --export | jq '.messages[] | select((.recipients // [.to_agent_id])[] as $r | $r != \"*\" and ($r | in(.agents) | not))'",
+  },
   "message.vacuous_ack": {
     what: "a message claims acknowledged while addressing nobody — the acknowledgement rests on an empty recipient set, so it is vacuously true and backed by no delivery evidence",
     benign: "nothing benign produces this: the write path refuses a broadcast with no recipients outright, so an honest send cannot leave this row",
