@@ -190,6 +190,19 @@ export interface PremadeAgent {
   name: string;
   description: string;
   mode: string;
+  /**
+   * The agent's declared `tools:` block, verbatim, or `undefined` when the definition declares
+   * none. THREE-VALUED ON PURPOSE — `undefined` means "this file does not say", never "no tools"
+   * and never "all tools". The runnable definition may live in `.opencode/opencode.jsonc`, which
+   * this discovery does not read, so an absent block is genuinely unknown.
+   *
+   * Why it exists: a caller picking a premade agent needs to know whether it can READ THE
+   * FILESYSTEM before spending a dispatch. Measured 2026-08-01 — `minimax-portfolio-analyst` was
+   * sent a source audit, ran, and honestly refused because its harness exposes no
+   * bash/read/grep/glob. Nothing in `list_agents` said so, and its description
+   * ("Read-only structured analysis and high-volume review") reads to a caller as "can read".
+   */
+  tools?: Record<string, boolean>;
 }
 
 export interface RouteMatch {
@@ -402,11 +415,28 @@ export function discoverPremadeAgents(
         const descMatch = fm.match(/^description:\s*(.+)$/m);
         const modeMatch = fm.match(/^mode:\s*(.+)$/m);
 
+        // `tools:` is a nested block, not a scalar, so it needs its own pass. Only explicit
+        // booleans are admitted: a non-boolean value is NOT coerced, because reading `bash: yes`
+        // or `bash: "maybe"` as capability is the failure this field exists to prevent. A block
+        // that yields no parseable boolean stays `undefined` — unknown, never an empty set, which
+        // a caller would read as "declares nothing, so probably fine".
+        const toolsBlock = (fm + "\n").match(/^tools:[ \t]*\r?\n((?:[ \t]+.*\r?\n)+)/m);
+        let tools: Record<string, boolean> | undefined;
+        if (toolsBlock && toolsBlock[1]) {
+          const parsed: Record<string, boolean> = {};
+          for (const ln of toolsBlock[1].split(/\r?\n/)) {
+            const kv = ln.match(/^[ \t]+([A-Za-z0-9_.-]+):[ \t]*(true|false)[ \t]*$/);
+            if (kv && kv[1]) parsed[kv[1]] = kv[2] === "true";
+          }
+          if (Object.keys(parsed).length > 0) tools = parsed;
+        }
+
         agents.push({
           filename: stem,
           name: nameMatch ? nameMatch[1].trim() : stem,
           description: descMatch ? descMatch[1].trim() : "",
           mode: modeMatch ? modeMatch[1].trim() : "subagent",
+          ...(tools ? { tools } : {}),
         });
       } catch {
         // skip unreadable files

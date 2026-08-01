@@ -242,6 +242,63 @@ mode: subagent
   cleanup();
 });
 
+// A caller choosing a premade agent needs to know whether it can READ THE FILESYSTEM before
+// spending a dispatch. Measured 2026-08-01: `minimax-portfolio-analyst` was sent a source audit,
+// completed, and honestly refused — its harness exposes no bash/read/grep/glob. Nothing in
+// `list_agents` said so; its description reads "Read-only structured analysis and high-volume
+// review", which a caller reasonably reads as "can read". The frontmatter of 4 of the 9 live
+// definitions DOES declare a `tools:` block, and discoverPremadeAgents was dropping it.
+test("discoverPremadeAgents: surfaces a declared tools block", () => {
+  const { cleanup, dir } = freshLedger();
+  const agentsDir = join(dir, "agents");
+  mkdirSync(agentsDir, { recursive: true });
+  writeFileSync(
+    join(agentsDir, "worker.md"),
+    `---
+name: Worker
+description: does work
+mode: subagent
+tools:
+  write: true
+  edit: true
+  bash: true
+  read: false
+---
+
+body
+`
+  );
+  const agents = discoverPremadeAgents([agentsDir]);
+  assert.equal(agents.length, 1);
+  assert.deepEqual(agents[0].tools, { write: true, edit: true, bash: true, read: false });
+  cleanup();
+});
+
+// THREE-VALUED, never "assume it can". An agent whose definition declares no `tools:` block is
+// UNKNOWN, not capable — the runnable definition may live in .opencode/opencode.jsonc, which this
+// discovery never reads. Reporting unknown as an empty capability set would be the same lie in the
+// other direction: a caller would read `{}` as "declares nothing, so probably fine".
+test("discoverPremadeAgents: an undeclared tools block is undefined, not an empty object", () => {
+  const { cleanup, dir } = freshLedger();
+  const agentsDir = join(dir, "agents");
+  mkdirSync(agentsDir, { recursive: true });
+  writeFileSync(
+    join(agentsDir, "plain.md"),
+    `---
+name: Plain
+description: no tools block at all
+mode: primary
+---
+
+body
+`
+  );
+  const agents = discoverPremadeAgents([agentsDir]);
+  assert.equal(agents.length, 1);
+  assert.equal(agents[0].tools, undefined);
+  cleanup();
+});
+
 test("discoverPremadeAgents: skips files without frontmatter", () => {
   const { cleanup, dir } = freshLedger();
   const agentsDir = join(dir, "agents");
