@@ -24,6 +24,7 @@ import { mkdtempSync, rmSync, existsSync, writeFileSync, chmodSync } from "node:
 import { tmpdir, platform } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const isWindows = platform() === "win32";
@@ -111,6 +112,31 @@ async function withDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   try { return await fn(dir); } finally { rmSync(dir, { recursive: true, force: true, maxRetries: 5 }); }
 }
 
+/**
+ * What the ledger recorded about the single agent, for the failure message.
+ *
+ * The adapter deliberately never projects a child's stderr — Kimi diagnostics may echo prompts and
+ * authentication details — so a bare "the marker is missing" assertion cannot distinguish "the
+ * runtime was never selected" from "the runtime was selected and the OS refused to start it". The
+ * agent row's normalized `error` is the only evidence that survives, and this repo's scar is to
+ * PROBE rather than predict: three attempts to guess wire classifications failed where reading the
+ * actual output worked first try.
+ */
+function agentDiagnostic(dir: string): string {
+  const db = join(dir, "l.db");
+  if (!existsSync(db)) return "no ledger was created";
+  try {
+    const require = createRequire(import.meta.url);
+    const Database = require("better-sqlite3");
+    const handle = new Database(db, { readonly: true });
+    const row = handle.prepare("SELECT status, error, output FROM agents LIMIT 1").get();
+    handle.close();
+    return JSON.stringify(row);
+  } catch (err) {
+    return `ledger unreadable: ${err instanceof Error ? err.message : String(err)}`;
+  }
+}
+
 test("a selected runtime is actually invoked", async () => {
   await withDir(async (dir) => {
     const res = await callSpawnFleet(dir, "13971", { runtime: "kimi-cli", binding: "ws-1", admit: "ws-1" });
@@ -118,7 +144,7 @@ test("a selected runtime is actually invoked", async () => {
     assert.ok(
       existsSync(join(dir, "INVOKED")),
       "spawn_fleet accepted runtime 'kimi-cli' and returned a fleet_id without ever invoking it — " +
-        "a fleet_id is not evidence that the selected harness ran",
+        `a fleet_id is not evidence that the selected harness ran. Agent row: ${agentDiagnostic(dir)}`,
     );
   });
 });
