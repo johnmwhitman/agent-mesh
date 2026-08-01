@@ -89,3 +89,19 @@ const defaultRegistry = createDefaultRuntimeRegistry();
 export function getDefaultRuntimeAdapter(): RuntimeAdapter {
   return defaultRegistry.require("opencode-cli");
 }
+
+/** Ids a caller may select. Only what is actually registered — an unconfigured Kimi is absent. */
+export function availableRuntimeIds(): string[] {
+  return defaultRegistry.ids();
+}
+
+/**
+ * Resolve a runtime by id, throwing when it is not registered.
+ *
+ * Throwing is the point. Falling back to the default on an unknown id would run the agent on a
+ * runtime the caller did not ask for — the same class of defect as spawn_fleet accepting an agent
+ * with no prompt: a normal-looking success that did something other than what was requested.
+ */
+export function requireRuntimeAdapter(id: string): RuntimeAdapter {
+  return defaultRegistry.require(id);
+}
