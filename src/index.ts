@@ -89,7 +89,7 @@ import {
   requireEnum,
 } from "./tool-args.js";
 import { buildFailureDetail } from "./spawn-attempt.js";
-import { getDefaultRuntimeAdapter } from "./runtime/registry.js";
+import { getDefaultRuntimeAdapter, requireRuntimeAdapter, availableRuntimeIds } from "./runtime/registry.js";
 import { defaultLifecycleMode, LifecycleExecutionCoordinator, repairLifecycleOutbox } from "./lifecycle-execution.js";
 import { getDiscussionStore, primeDiscussionSweepIndex } from "./discussion-mcp.js";
 import {
@@ -119,6 +119,8 @@ interface SpawnAgentInput {
   prompt: string;
   agentFile?: string;
   requestedModel?: string;
+  /** Runtime adapter id. Absent = the process default (opencode-cli). */
+  runtime?: string;
 }
 
 const runtimeAdapter = getDefaultRuntimeAdapter();
@@ -129,6 +131,10 @@ const lifecycleCoordinator = new LifecycleExecutionCoordinator(runtimeAdapter);
  * On any transient failure path, decides retry vs permanent via shouldAgentRetry().
  */
 function trySpawn(input: SpawnAgentInput, agentId: string, attempt: number): void {
+  // Resolve ONCE and use the same adapter for describe/start/cancel/wait. Mixing them would give
+  // a Kimi agent opencode's timeout and opencode's cancel semantics, which is worse than not
+  // supporting selection at all: it would look like it worked.
+  const adapter = input.runtime ? requireRuntimeAdapter(input.runtime) : runtimeAdapter;
   const spec = {
     fleetId: input.fleetId,
     agentId,
@@ -137,9 +143,9 @@ function trySpawn(input: SpawnAgentInput, agentId: string, attempt: number): voi
     requestedAgent: input.agentFile,
     requestedModel: input.requestedModel,
     cwd: process.cwd(),
-    timeoutMs: runtimeAdapter.describe().defaultTimeoutMs,
+    timeoutMs: adapter.describe().defaultTimeoutMs,
   };
-  void runtimeAdapter.start(spec).then((handle) => {
+  void adapter.start(spec).then((handle) => {
     if (handle.pid !== undefined) {
       withLedger((data) => {
         const agent = data.agents[agentId];
@@ -154,10 +160,10 @@ function trySpawn(input: SpawnAgentInput, agentId: string, attempt: number): voi
       isAlive: () => handle.isAlive(),
       onMaxMissed: (reason) => {
         watchdogReason = `Heartbeat watchdog: ${reason}`;
-        void runtimeAdapter.cancel(handle, watchdogReason);
+        void adapter.cancel(handle, watchdogReason);
       },
     });
-    void runtimeAdapter.wait(handle).then((result) => {
+    void adapter.wait(handle).then((result) => {
       heartbeat.stop();
       if (result.status === "success") {
         markAgentFinished(
@@ -259,6 +265,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
                   type: "string",
                   description:
                     "Optional OpenCode model selector as provider/model (e.g. 'opencode-go/minimax-m3').",
+                },
+                runtime: {
+                  type: "string",
+                  description:
+                    "Runtime adapter to spawn this agent under. Omit for the default. `model` " +
+                    "picks a model WITHIN a runtime; `runtime` picks the harness itself, so agents " +
+                    "in one fleet can run under different CLIs and one provider outage cannot stop " +
+                    "every agent at once.",
                 },
               },
               required: ["role", "prompt"],
@@ -1244,7 +1258,7 @@ const toolHandlers: Record<
 
 toolHandlers["spawn_fleet"] = async (args) => {
     const { agents } = args as {
-      agents: { role: string; prompt: string; agent?: string; model?: string }[];
+      agents: { role: string; prompt: string; agent?: string; model?: string; runtime?: string }[];
     };
     // The published schema declares agents[] items with REQUIRED string role and
     // prompt, and the MCP SDK enforces neither `required` nor `type`. Without this
@@ -1256,6 +1270,20 @@ toolHandlers["spawn_fleet"] = async (args) => {
     // refusal must precede the transaction and the spawn, not merely report after.
     if (!Array.isArray(agents)) {
       return jsonError("spawn_fleet: 'agents' is required and must be an array");
+    }
+    // Refuse an unknown runtime BEFORE the transaction and the spawn. Resolving it lazily inside
+    // trySpawn would throw AFTER the fleet row was committed, leaving a ledger that records a
+    // fleet whose agents never start.
+    const knownRuntimes = availableRuntimeIds();
+    const badRuntimeAgent = agents.find(
+      (a) => a?.runtime !== undefined && !knownRuntimes.includes(a.runtime),
+    );
+    if (badRuntimeAgent) {
+      return jsonError(
+        `spawn_fleet: unknown runtime '${badRuntimeAgent.runtime}'. Available: ` +
+          `${knownRuntimes.join(", ")}. A runtime is available only once registered, and some ` +
+          `require configuration.`,
+      );
     }
     const badAgent = firstError(
       ...agents.flatMap((a, i) => [
