@@ -123,7 +123,7 @@
         "src/runtime",
         "test/runtime-adapter.test.ts"
       ],
-      "notes": "Internal adapter only; public runtime selection remains deferred."
+      "notes": "Default adapter; spawn_fleet may select another registered runtime per agent."
     },
     {
       "target": "local-process runtime adapter",
@@ -136,11 +136,14 @@
     },
     {
       "target": "Claude Code worker launch",
-      "status": "deferred",
+      "status": "fixture-verified",
       "evidence": [
+        "src/runtime/claude.ts",
+        "test/runtime-claude-adapter.test.ts",
+        "test/runtime-registry-claude.test.ts",
         "docs/ADAPTER-CONTRACT.md"
       ],
-      "notes": "Real vendor adapter requires an explicit authentication/network/spend gate."
+      "notes": "Env-gated non-default adapter; fixture evidence does not attest a live account, effective model, quota, or spend authority."
     },
     {
       "target": "Codex worker launch",

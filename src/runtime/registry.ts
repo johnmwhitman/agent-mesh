@@ -1,5 +1,6 @@
 import { OpenCodeRuntimeAdapter } from "./opencode.js";
 import { KimiRuntimeAdapter } from "./kimi.js";
+import { ClaudeRuntimeAdapter } from "./claude.js";
 import type { RuntimeAdapter } from "./types.js";
 
 /** Registry holds every runtime an agent could be spawned under. Selection is not yet
@@ -47,7 +48,24 @@ export function createDefaultRuntimeRegistry(): RuntimeAdapterRegistry {
   // the same moment, and no amount of budget elsewhere helps. Per-agent runtime selection is
   // what turns a single chokepoint into something that can fail over.
   registerKimiIfConfigured(registry);
+  registerClaudeIfConfigured(registry);
   return registry;
+}
+
+/** Register Claude Code only when its private executable binding is configured. */
+function registerClaudeIfConfigured(registry: RuntimeAdapterRegistry): void {
+  const command = process.env.MESHFLEET_CLAUDE_COMMAND?.trim();
+  if (!command) return;
+  registry.register(
+    new ClaudeRuntimeAdapter({
+      command,
+      // Configured evidence only: the adapter does not run a version probe during registry setup.
+      harnessVersion: process.env.MESHFLEET_CLAUDE_VERSION?.trim() || "unknown",
+      verifiedWorkspaceBindingIds: parseAdmittedWorkspaceBindings(
+        process.env.MESHFLEET_CLAUDE_WORKSPACE_BINDINGS,
+      ),
+    }),
+  );
 }
 
 /**
