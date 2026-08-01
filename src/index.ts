@@ -88,7 +88,7 @@ import {
   requireStringArray,
   requireEnum,
 } from "./tool-args.js";
-import { buildFailureDetail } from "./spawn-attempt.js";
+import { buildFailureDetail, annotateProxiedModelFailure } from "./spawn-attempt.js";
 import { getDefaultRuntimeAdapter, requireRuntimeAdapter, availableRuntimeIds } from "./runtime/registry.js";
 import type { RuntimeAdapter } from "./runtime/types.js";
 import { decideFailover } from "./failover.js";
@@ -330,7 +330,10 @@ function handleTransientFailure(
   runtimeAgent?: string,
   runtimeModel?: string
 ): void {
-  const failureDetail = buildFailureDetail(stderr, errorDetail);
+  const failureDetail = annotateProxiedModelFailure(
+    buildFailureDetail(stderr, errorDetail),
+    runtimeModel
+  );
   if (!shouldAgentRetry(attempt)) {
     appendEvent("agent_failed_permanent", {
       agent_id: agentId,
