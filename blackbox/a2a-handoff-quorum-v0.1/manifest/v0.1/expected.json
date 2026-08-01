@@ -52,11 +52,6 @@
       "sha256": "686dd901c4267bdb55088989ee44e677b1c57e93c356bd069f00e0dc107f4f41"
     },
     {
-      "path": "python/__pycache__/evaluator.cpython-314.pyc",
-      "bytes": 25688,
-      "sha256": "f5510dd33c6c18c0cf7cc404c02a182ce7a34828c26295f2af6a925adac3523f"
-    },
-    {
       "path": "python/evaluator.py",
       "bytes": 14419,
       "sha256": "8fb25857291996230b8800f0f250818b3cf845698c708f4aebc07065c4796ef7"
