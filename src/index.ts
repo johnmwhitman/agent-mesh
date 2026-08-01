@@ -223,6 +223,30 @@ function trySpawn(input: SpawnAgentInput, agentId: string, attempt: number): voi
     void adapter.wait(handle).then((result) => {
       heartbeat.stop();
       if (result.status === "success") {
+        // HOLLOW SUCCESS (2026-08-01): a runtime can exit 0 having produced no
+        // output at all — the model burned its turn on tool calls and never
+        // emitted a final answer. Exit code alone therefore does not mean the
+        // work happened. Sealing that as `complete` is the exact overclaim
+        // verify.ts already forbids: `complete` must never "claim work that
+        // never happened". It is also invisible to every caller, because
+        // `collect_results` returns an empty string that reads like a real
+        // result, and an orchestrator accepts nothing while believing it got
+        // something. `failed` is the honest seal — it is terminal (no
+        // re-execution, so an agent that edited files cannot be double-run)
+        // and every existing consumer already knows to reroute on it.
+        if (result.stdout.trim() === "") {
+          markAgentFinished(
+            agentId,
+            "failed",
+            result.stdout,
+            `Runtime exited successfully but produced no output. Treated as a failure: an empty result is indistinguishable from a real one to every caller, so sealing it as complete would claim work that never happened.${
+              result.stderr ? ` Runtime stderr: ${result.stderr}` : ""
+            }`,
+            result.identity.agent,
+            result.identity.model,
+          );
+          return;
+        }
         markAgentFinished(
           agentId,
           "complete",
