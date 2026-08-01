@@ -10,7 +10,12 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { verifyMeshData, type MeshData } from '../src/verify.js'
+import { verifyMeshData } from '../src/verify.js'
+// `MeshData` is declared and exported by core.ts; verify.ts only imports it, so
+// naming verify.js here was a broken import (TS2459) that `tsx` hid by stripping
+// types without checking them. Every other consumer in this repo — including the
+// sibling verify-overclaims.test.ts — takes it from core.js.
+import type { MeshData } from '../src/core.js'
 
 const base = (): MeshData => ({
   fleets: {}, agents: {}, messages: {}, inboxes: {},

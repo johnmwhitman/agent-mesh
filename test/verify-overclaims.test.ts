@@ -356,7 +356,7 @@ test("a ratification whose key disagrees with the proposal in its body is an err
         opened_at: 1000,
         silence_policy: "abstain",
         status: "open",
-      } as unknown as MeshData["ratifications"][string],
+      } as unknown as NonNullable<MeshData["ratifications"]>[string],
     },
   });
   assert.ok(checks(data, "error").includes("ratification.key_mismatch"));
@@ -382,7 +382,7 @@ test("quorum 0 is an error — it makes a terminal status recompute as supported
         silence_policy: "abstain",
         status: "ratified",
         resolved_at: 3000,
-      } as unknown as MeshData["ratifications"][string],
+      } as unknown as NonNullable<MeshData["ratifications"]>[string],
     },
   });
   assert.ok(checks(data, "error").includes("ratification.invalid_quorum"));
@@ -404,7 +404,7 @@ test("CONTROL: quorum 1 over one voter is not flagged", () => {
         opened_at: 1000,
         silence_policy: "abstain",
         status: "open",
-      } as unknown as MeshData["ratifications"][string],
+      } as unknown as NonNullable<MeshData["ratifications"]>[string],
     },
   });
   assert.ok(!checks(data, "error").includes("ratification.invalid_quorum"));
