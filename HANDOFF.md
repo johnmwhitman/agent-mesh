@@ -1,13 +1,55 @@
 # MeshFleet Handoff
 
-**Release candidate verified:** 2026-07-28 · **Baseline main:** `0e203ea` · **Tag:** `v0.19.0`
-**Release-candidate suite:** 1127/1127 · **Corpus:** 76 vectors · **Discussion:** 39 cases (23 finding codes) · **Conformance:** 133/133 · **npm:** 0.18.0 live; 0.19.0 auth-blocked
+**Baseline main:** `41fc3bc` · **Suite:** 1337/1337, 0 fail · **CI:** 9/9 per job
+**npm:** `0.20.0` is live (`dist-tags.latest`, registry-verified) · **Source:** 0.20.0
 
-> **2026-07-29 factual integration correction:** merge `5dc767a`'s message
-> reports 1127 tests, but the authoritative pre-merge receipt was 1247/1247
-> plus `npm pack`, with PR #59 checks 9/9. An external workspace actor created
-> and pushed the branch commit. This corrects evidence attribution only; it
-> makes no claim that any commit trailer was cleanly removed.
+## Current posture — 2026-07-31
+
+Per-agent **runtime selection** landed. `spawn_fleet` accepts an optional `runtime` on each
+agent, so one fleet can mix harnesses instead of every agent being an `opencode` session
+behind a single provider. `model` was already selectable and does **not** cover this: `model`
+picks a model *within* a runtime, `runtime` picks the harness itself.
+
+The Kimi adapter (shipped earlier, registered nowhere, therefore unreachable) is now
+registered **only when configured** via `MESHFLEET_KIMI_COMMAND`. Its constructor requires an
+absolute path and refuses to guess — and this repository is public, so a machine-specific path
+must never be compiled in. Unconfigured, the adapter set and the default are unchanged.
+
+**Selection only. Failover is not built.** An agent whose provider refuses is not respawned on
+another runtime; there is no retry, and all `trySpawn` sites create new agents. That is the
+next slice, and it should carry a receipt recording the hop.
+
+### Scars worth carrying
+
+- 🔴 **`spawnSync("npx", …)` cannot run on Windows** — `npx` is `npx.cmd`, a batch script
+  `CreateProcess` cannot launch. `spawnSync(process.execPath, [script])` is **safe**, because
+  `node.exe` is a real binary passed as one argv entry with no shell parsing. **The two calls
+  look identical and behave oppositely.** A review once proposed adding `shell: true` to the
+  safe one; that would have made it worse.
+- 🔴 **`tsc --listFiles` emits forward slashes on every platform; `path.join` emits backslashes
+  on win32.** Comparing them with `startsWith` matched nothing and reported "loaded 0 files
+  under scripts/" — indistinguishable from the real defect that test exists to catch. A guard
+  that impersonates the bug it hunts is worse than one that crashes.
+- 🔴 **Branches that each bump a published count are not order-independent.** Several add one
+  corpus vector and each set the README to the same number. Individually green,
+  `git merge-tree` reports clean, and the count guard only fires *after* a merge. Merge them as
+  a sequence: merge → recount → fix the README → run the suite → merge the next.
+- **The verifier command takes one isolation variable, not three.** Adding the ledger-path
+  variables around `node scripts/run-tests.mjs` forces every test onto one ledger and reddens a
+  green tree, with the failures pointing at innocent tests. The three-variable rule governs
+  probes that spawn the server, not the suite.
+- **Never pipe the gate.** `head`/`tail` exit 0 and swallow the real exit code. This has caused
+  both a missed failure and a false accusation.
+- **A pushed branch with no PR gets no CI.** `ci.yml` fires on push-to-main and PR-to-main
+  only. Local green is not green: work verified on one OS has repeatedly failed the matrix.
+
+### Open
+
+- One PR remains red on the three windows-2022 legs. Its log carries a single file-level
+  rollup and no nested detail, so the cause is not readable from CI. Three separate attempts
+  diagnosed it from source and all three were confidently wrong. **Add diagnostics to the
+  assertions and let CI name the failure before attempting a fourth fix.**
+- Several night branches remain unmerged; the count-bumping subset needs the sequence above.
 
 ## Landed and tagged: caller-selected model execution
 
