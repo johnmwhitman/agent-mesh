@@ -29,7 +29,12 @@ export class RuntimeAdapterRegistry {
 
 export function createDefaultRuntimeRegistry(): RuntimeAdapterRegistry {
   const registry = new RuntimeAdapterRegistry();
-  registry.register(new OpenCodeRuntimeAdapter());
+  // The command is resolvable so an operator whose `opencode` is not on PATH can still run, and so
+  // failover can be exercised end to end against a stub instead of a real subscription. Unset is
+  // the adapter's own default, so every deployment that configures nothing is unchanged.
+  registry.register(
+    new OpenCodeRuntimeAdapter({ command: process.env.MESHFLEET_OPENCODE_COMMAND?.trim() || undefined }),
+  );
   // The Kimi adapter shipped in #67 and was registered NOWHERE, so nothing could reach it:
   // `createDefaultRuntimeRegistry().ids()` returned `["opencode-cli"]` and a grep for `kimi`
   // across src/ found no importer outside the adapter's own file. Registering it does not
