@@ -594,6 +594,46 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
       );
     }
 
+    // The same comparison `receipt.unknown_agent`, `capability.unknown_agent`
+    // and `inbox.unknown_agent` all make — the message was the one addressable
+    // record that never made it. `data.agents` and the message's own address
+    // list sat side by side and were never compared. An addressed recipient
+    // that does not exist can never take delivery and can never write an ack,
+    // so `acknowledged` can never derive true for that message: it is lost, and
+    // lost silently, which is the failure this ledger exists to make loud.
+    //
+    // Gated on the fleet being HELD, which removes cross-attachment BY
+    // CONSTRUCTION rather than by judgement: `message.orphan_fleet` above
+    // already reports the foreign case, and its comment states why a ledger may
+    // legitimately not hold a foreign fleet's parties.
+    //
+    // 🔴 SENDERS ARE DELIBERATELY NOT CHECKED, and this is a measurement, not
+    // caution. On the operator's real ledger 44 of the 71 messages whose fleet
+    // is held — 62% — carry a `from_agent_id` that is no agent row: `root` (18),
+    // `orchestrator` (13), `root-codex` (10), and three others. External and
+    // human senders writing into a held fleet are ordinary honest traffic, so
+    // "the sender must be an agent" is not an invariant of honest ledgers and a
+    // symmetric check here would be a false positive on two thirds of real
+    // messages.
+    //
+    // Warning, not error: all three sibling checks warn on "this ledger has not
+    // registered as an agent", and inventing a stricter rule here would be the
+    // severity drift this file audits for. With both exemptions applied the
+    // predicate fires on zero of the operator's 72 live messages and zero of
+    // the 78 corpus fixtures.
+    if (f) {
+      const absent = messageRecipients(msg).filter(
+        (r) => typeof r === "string" && r.length > 0 && r !== BROADCAST && !data.agents[r]
+      );
+      if (absent.length > 0) {
+        warning(
+          "message.unknown_recipient",
+          msg.id,
+          `message ${msg.id} is addressed to ${absent.map((r) => JSON.stringify(r)).join(", ")}, which this ledger has not registered as an agent — an addressed recipient that does not exist can never take delivery, so no ack for it can ever exist`
+        );
+      }
+    }
+
     // `acknowledged` derives as "every addressed recipient holds an ack". Over
     // an empty address set `every` is vacuously true, so the flag could claim
     // acknowledgement backed by zero delivery evidence and the mismatch check
