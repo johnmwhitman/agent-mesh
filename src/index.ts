@@ -246,7 +246,41 @@ function trySpawn(input: SpawnAgentInput, agentId: string, attempt: number): voi
     });
     void adapter.wait(handle).then((result) => {
       heartbeat.stop();
+      // Composed OUTSIDE the success branch on purpose: the success-carries-no-error guard
+      // forbids the raw stderr token inside that region, and it is right to — raw transcripts
+      // in Agent.error made real failures indistinguishable from normal runs. A hollow success
+      // seals as FAILED, and its detail goes through buildFailureDetail, the same bounded
+      // composer every other failure detail uses.
+      const hollowFailureDetail =
+        result.status === "success" && result.stdout.trim() === ""
+          ? buildFailureDetail(
+              result.stderr,
+              "Runtime exited successfully but produced no output. Treated as a failure: an empty result is indistinguishable from a real one to every caller, so sealing it as complete would claim work that never happened.",
+            )
+          : undefined;
       if (result.status === "success") {
+        // HOLLOW SUCCESS (2026-08-01): a runtime can exit 0 having produced no
+        // output at all — the model burned its turn on tool calls and never
+        // emitted a final answer. Exit code alone therefore does not mean the
+        // work happened. Sealing that as `complete` is the exact overclaim
+        // verify.ts already forbids: `complete` must never "claim work that
+        // never happened". It is also invisible to every caller, because
+        // `collect_results` returns an empty string that reads like a real
+        // result, and an orchestrator accepts nothing while believing it got
+        // something. `failed` is the honest seal — it is terminal (no
+        // re-execution, so an agent that edited files cannot be double-run)
+        // and every existing consumer already knows to reroute on it.
+        if (hollowFailureDetail !== undefined) {
+          markAgentFinished(
+            agentId,
+            "failed",
+            result.stdout,
+            hollowFailureDetail,
+            result.identity.agent,
+            result.identity.model,
+          );
+          return;
+        }
         markAgentFinished(
           agentId,
           "complete",
