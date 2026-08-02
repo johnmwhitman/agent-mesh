@@ -4,6 +4,19 @@ This is the canonical strategy and sequencing document for the next Agent Mesh
 A2A program. It separates planned or designed work from implemented evidence;
 it does not turn a design into an implementation claim.
 
+## Scope ruling (2026-08-02): single-host is the product
+
+Remote transport, authenticated network ingress, and production multi-host
+coordination are **out of scope for this project** — a deliberate product
+decision, not a pending phase. Agent Mesh is a local-first, single-host
+coordination control plane; that is its identity, not its current limitation.
+The offline witnesses (including the Slice 4E two-host coordinator witness)
+remain maintained as protocol evidence: they price the semantics honestly so
+the protocol stays interop-ready on paper, and any future transport would be a
+separate project consuming these documents rather than an extension of this
+server. Sections below that sequence transport-adjacent work are retained as
+design records under this ruling.
+
 ## Current position
 
 Agent Mesh currently provides a local coordination control plane with these
