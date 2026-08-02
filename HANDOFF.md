@@ -37,7 +37,7 @@ only. Failover's unit-level spec and registry tests run on every platform.
 
 ## Platform-skipped tests (what does not run on Windows)
 
-The suite collects the same total everywhere, but **22 tests skip on
+The suite collects the same total everywhere, but **20 tests skip on
 `windows-2022`**, consistent across Node 20, 22, and 24. Every skip is a
 deliberate `process.platform === "win32"` (or equivalent) predicate, not flake.
 This repository's own rule is that a test that does not run is indistinguishable
@@ -49,15 +49,19 @@ silently:
 | 3 | ledger SIGKILL/checkpoint storm recovery | POSIX signals are required |
 | 7 | local process adapter signal semantics (SIGTERM escalation, process-group termination, cancellation races) | Windows `TerminateProcess` cannot deliver a catchable SIGTERM |
 | 2 | Kimi adapter descendant process-group kill | Windows does not expose process-group signal semantics |
-| 5 | **runtime failover end-to-end** (refusal → hop → receipts, plus three negative controls) | needs an executable stub; `spawn` refuses `.cmd` without a shell and a test cannot author a `.exe` |
-| 2 | capability-contradiction refusal through the published tool | same executable-stub limitation |
+| 5 | **runtime failover end-to-end** (refusal → hop → receipts, plus three negative controls) | the backup-runtime leg cannot be stubbed: the Kimi adapter scrubs its child environment by design, so the `process.execPath`+`NODE_OPTIONS` stub that serves the default runtime has no channel to the Kimi child |
 | 3 | doctor checks (two unwritable-directory cases, one PATH probe) | POSIX permission semantics / platform predicate |
 
 The signal-semantics rows are structural platform differences and are expected to
-remain skipped. The executable-stub rows (7 tests, including the failover
-end-to-end proof) are a test-harness limitation rather than a product one — a
-Windows-launchable stub would let them run, and that remains open work. Windows
-coverage for failover currently ends at the unit boundary.
+remain skipped. The capability-contradiction tests formerly in this table now run
+on every platform: their stub is `process.execPath` plus a
+`NODE_OPTIONS`-required module, which reaches the default runtime's child because
+that adapter inherits its environment. The failover end-to-end rows remain: their
+backup-runtime leg spawns under the Kimi adapter, which deliberately scrubs its
+child environment, so the same mechanism has no channel there and no
+test-authorable Windows executable exists. Un-skipping them requires an
+operator-facing child-environment admission feature — a product decision.
+Windows coverage for failover currently ends at the unit boundary.
 
 One prior Windows skip was a **witness defect, not a platform difference**: the
 effect-key-collapse differential passed each case's raw document as a single
