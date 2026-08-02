@@ -94,7 +94,7 @@ test("exit 0 with WHITESPACE-ONLY output is not banked as success", async () => 
 test("a hollow success is RETRIED, not banked — the remedy actually fires", async () => {
   const temp = withTempDb();
   try {
-    const { agent, events } = await settleOnce(hollowSuccess(""), (runtime) => runtime.starts.length >= 2);
+    const { agent, events, starts } = await settleOnce(hollowSuccess(""), (runtime) => runtime.starts.length >= 2);
     // The point of refusing to bank an empty result is that the work gets
     // ANOTHER shot. Assert the observable remedy — a retry was scheduled and a
     // fresh attempt launched — rather than the reason string, which this store
@@ -102,7 +102,12 @@ test("a hollow success is RETRIED, not banked — the remedy actually fires", as
     const kinds = events.map((e: { event: string }) => e.event);
     assert.ok(kinds.includes("agent_retry_scheduled"),
       `hollow success must schedule a retry; saw ${JSON.stringify(kinds)}`);
-    assert.ok(kinds.filter((k: string) => k === "agent_launch_intended").length >= 2,
+    // Assert the relaunch on the RUNTIME's own start count — the same observable the wait
+    // predicate used. The first version asserted on agent_launch_intended EVENTS, which ride
+    // the NDJSON outbox and flush later; on a fast runner the second event legitimately had
+    // not landed yet and the test failed against correct behavior (Node 22/macos, 15ms run).
+    // Waiting on one observable and asserting on a laggier one is just the same race moved.
+    assert.ok(starts >= 2,
       "a second attempt must actually launch, not just be recorded as scheduled");
     assert.notEqual(agent.status, "complete");
   } finally {
