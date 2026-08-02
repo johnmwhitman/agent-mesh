@@ -20,6 +20,19 @@ import {
 } from "./types.js";
 
 const DEFAULT_CLAUDE_PROMPT_BYTES = 1024 * 1024;
+const CLAUDE_AUTH_DISCOVERY_ENVIRONMENT = new Set([
+  "HOME",
+  "USER",
+  "USERPROFILE",
+  "USERNAME",
+  "HOMEDRIVE",
+  "HOMEPATH",
+]);
+
+interface ClaudeAuthDiscoveryEnvironment {
+  available: boolean;
+  environment: Readonly<Record<string, string>>;
+}
 
 export interface ClaudeRuntimeAdapterOptions {
   /** Operator-resolved exact executable. There is intentionally no ambient `claude` fallback. */
@@ -31,6 +44,10 @@ export interface ClaudeRuntimeAdapterOptions {
   spawnProcess?: SpawnProcess;
   terminationGraceMs?: number;
   maxPromptBytes?: number;
+  /** Test/operator seam. Only fixed host-profile locator names can cross into the child. */
+  hostEnvironment?: NodeJS.ProcessEnv;
+  /** Test seam for the platform-specific profile locator contract. */
+  platform?: NodeJS.Platform;
 }
 
 function result(
@@ -67,6 +84,38 @@ function isProviderOverrideEnvironment(name: string): boolean {
     normalized.startsWith("FOUNDRY_");
 }
 
+function nonemptyEnvironmentValue(host: NodeJS.ProcessEnv, name: string): string | undefined {
+  const value = host[name];
+  return value !== undefined && value.trim().length > 0 ? value : undefined;
+}
+
+function resolveClaudeAuthDiscoveryEnvironment(
+  host: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform,
+): ClaudeAuthDiscoveryEnvironment {
+  if (platform === "win32") {
+    const username = nonemptyEnvironmentValue(host, "USERNAME");
+    const explicitProfile = nonemptyEnvironmentValue(host, "USERPROFILE");
+    const homeDrive = nonemptyEnvironmentValue(host, "HOMEDRIVE");
+    const homePath = nonemptyEnvironmentValue(host, "HOMEPATH");
+    const userProfile = explicitProfile ?? (homeDrive && homePath ? `${homeDrive}${homePath}` : undefined);
+    if (!username || !userProfile) return { available: false, environment: {} };
+    return {
+      available: true,
+      environment: { USERPROFILE: userProfile, USERNAME: username },
+    };
+  }
+
+  const home = nonemptyEnvironmentValue(host, "HOME");
+  const user = nonemptyEnvironmentValue(host, "USER");
+  if (!home || !user) return { available: false, environment: {} };
+  return { available: true, environment: { HOME: home, USER: user } };
+}
+
+function isClaudeAuthDiscoveryEnvironment(name: string): boolean {
+  return CLAUDE_AUTH_DISCOVERY_ENVIRONMENT.has(name.toUpperCase());
+}
+
 /**
  * Offline-testable adapter for Claude Code's noninteractive print surface.
  *
@@ -82,6 +131,7 @@ export class ClaudeRuntimeAdapter implements RuntimeAdapter {
   private readonly spawnProcess?: SpawnProcess;
   private readonly terminationGraceMs?: number;
   private readonly maxPromptBytes: number;
+  private readonly authDiscoveryEnvironment: ClaudeAuthDiscoveryEnvironment;
 
   constructor(options: ClaudeRuntimeAdapterOptions) {
     this.command = options.command;
@@ -90,6 +140,10 @@ export class ClaudeRuntimeAdapter implements RuntimeAdapter {
     this.spawnProcess = options.spawnProcess;
     this.terminationGraceMs = options.terminationGraceMs;
     this.maxPromptBytes = options.maxPromptBytes ?? DEFAULT_CLAUDE_PROMPT_BYTES;
+    this.authDiscoveryEnvironment = resolveClaudeAuthDiscoveryEnvironment(
+      options.hostEnvironment ?? process.env,
+      options.platform ?? process.platform,
+    );
   }
 
   describe(): RuntimeDescriptor {
@@ -121,6 +175,9 @@ export class ClaudeRuntimeAdapter implements RuntimeAdapter {
     if (!Number.isSafeInteger(this.maxPromptBytes) || this.maxPromptBytes <= 0) {
       errors.push("Claude maxPromptBytes must be a positive safe integer");
     }
+    if (!this.authDiscoveryEnvironment.available) {
+      errors.push("Claude CLI host profile discovery is unavailable");
+    }
     if (spec.input !== undefined) errors.push("Claude adapter owns stdin input delivery");
     if (!spec.prompt) errors.push("Claude prompt is required");
     if (Buffer.byteLength(spec.prompt, "utf8") > this.maxPromptBytes) {
@@ -145,6 +202,9 @@ export class ClaudeRuntimeAdapter implements RuntimeAdapter {
     ]) {
       if (isProviderOverrideEnvironment(name)) {
         errors.push(`Claude provider override environment is not allowed: ${name}`);
+      }
+      if (isClaudeAuthDiscoveryEnvironment(name)) {
+        errors.push(`Claude host profile environment is operator-owned: ${name}`);
       }
     }
     if (!spec.permissions) {
@@ -200,7 +260,12 @@ export class ClaudeRuntimeAdapter implements RuntimeAdapter {
         command: this.command,
         args,
         cwd: spec.cwd,
-        environment: resolveChildEnvironment(process.env, spec.environment, spec.environmentPolicy),
+        environment: resolveChildEnvironment(
+          process.env,
+          spec.environment,
+          spec.environmentPolicy,
+          this.authDiscoveryEnvironment.environment,
+        ),
         timeoutMs: spec.timeoutMs,
         terminationGraceMs: this.terminationGraceMs,
         normalizeClose: (raw) => {

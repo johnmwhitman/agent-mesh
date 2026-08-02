@@ -242,6 +242,11 @@ surface: the prompt arrives on stdin and the final text arrives on stdout under
   label; it neither searches `PATH` nor probes or attests the version;
 - refuses ambient environment inheritance and explicit Anthropic, Claude,
   Bedrock, Vertex, Foundry, Azure, Google, and AWS routing overrides;
+- supplies an adapter-owned minimal host-profile locator to the otherwise
+  scrubbed child (`HOME` + `USER` on POSIX, or `USERPROFILE` + `USERNAME` on
+  Windows, with the standard drive/path pair used only to derive a missing
+  Windows profile); callers cannot supply or allowlist those names, and a
+  missing host locator fails closed;
 - leaves OAuth login, refresh, account selection, and credential storage
   entirely to Claude Code;
 - requires the caller's verified opaque workspace binding to match the

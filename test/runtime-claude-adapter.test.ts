@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { join } from "node:path";
 import { test } from "node:test";
 import { ClaudeRuntimeAdapter } from "../src/runtime/claude.js";
+import type { ClaudeRuntimeAdapterOptions } from "../src/runtime/claude.js";
 import type { ExecutionSpec, RuntimeResult } from "../src/runtime/types.js";
 
 const FIXTURE = join(process.cwd(), "test/fixtures/runtime-claude.mjs");
@@ -24,7 +25,10 @@ function spec(overrides: Partial<ExecutionSpec> = {}): ExecutionSpec {
   };
 }
 
-function adapter(maxPromptBytes?: number): ClaudeRuntimeAdapter {
+function adapter(
+  maxPromptBytes?: number,
+  overrides: Partial<ClaudeRuntimeAdapterOptions> = {},
+): ClaudeRuntimeAdapter {
   return new ClaudeRuntimeAdapter({
     command: join(process.cwd(), "operator-bin/claude"),
     harnessVersion: "2.1.220",
@@ -32,6 +36,7 @@ function adapter(maxPromptBytes?: number): ClaudeRuntimeAdapter {
     spawnProcess: (_command, args, options) => spawn(process.execPath, [FIXTURE, ...args], options),
     terminationGraceMs: 100,
     maxPromptBytes,
+    ...overrides,
   });
 }
 
@@ -68,6 +73,82 @@ test("Claude adapter sends the prompt only on stdin with bounded native print ar
   assert.deepEqual(result.identity, { adapterId: "claude-cli", evidence: "none" });
 });
 
+test("Claude adapter owns the minimal host-profile environment required for CLI OAuth discovery", async () => {
+  const cases: Array<{
+    name: string;
+    platform: NodeJS.Platform;
+    hostEnvironment: NodeJS.ProcessEnv;
+    expected: Record<string, string>;
+  }> = [
+    {
+      name: "POSIX",
+      platform: "darwin",
+      hostEnvironment: {
+        HOME: "/operator/home",
+        USER: "operator-user",
+        PATH: "/must/not/cross",
+        ANTHROPIC_API_KEY: "must-not-cross",
+      },
+      expected: { HOME: "/operator/home", USER: "operator-user" },
+    },
+    {
+      name: "Windows USERPROFILE",
+      platform: "win32",
+      hostEnvironment: {
+        USERPROFILE: "C:\\Users\\operator",
+        USERNAME: "operator-user",
+        PATH: "C:\\must-not-cross",
+        CLAUDE_CODE_USE_BEDROCK: "must-not-cross",
+      },
+      expected: { USERPROFILE: "C:\\Users\\operator", USERNAME: "operator-user" },
+    },
+    {
+      name: "Windows profile fallback",
+      platform: "win32",
+      hostEnvironment: {
+        HOMEDRIVE: "C:",
+        HOMEPATH: "\\Users\\operator",
+        USERNAME: "operator-user",
+      },
+      expected: { USERPROFILE: "C:\\Users\\operator", USERNAME: "operator-user" },
+    },
+  ];
+
+  for (const item of cases) {
+    const runtime = adapter(undefined, {
+      hostEnvironment: item.hostEnvironment,
+      platform: item.platform,
+    });
+    const handle = await runtime.start(spec());
+    const result = await runtime.wait(handle);
+    assert.equal(result.status, "success", item.name);
+    const observed = JSON.parse(result.stdout) as {
+      authDiscoveryEnvironment: Record<string, string>;
+      environmentKeys: string[];
+    };
+    assert.deepEqual(observed.authDiscoveryEnvironment, item.expected, item.name);
+    assert.equal(observed.environmentKeys.includes("PATH"), false, item.name);
+    assert.equal(observed.environmentKeys.includes("ANTHROPIC_API_KEY"), false, item.name);
+    assert.equal(observed.environmentKeys.includes("CLAUDE_CODE_USE_BEDROCK"), false, item.name);
+  }
+});
+
+test("Claude adapter fails closed when host OAuth discovery is unavailable", () => {
+  const posix = adapter(undefined, {
+    hostEnvironment: { HOME: "/operator/home" },
+    platform: "linux",
+  });
+  assert.equal(posix.validate(spec()).ok, false);
+  assert.match(posix.validate(spec()).errors.join(" "), /host profile discovery is unavailable/i);
+
+  const windows = adapter(undefined, {
+    hostEnvironment: { HOMEDRIVE: "C:", USERNAME: "operator-user" },
+    platform: "win32",
+  });
+  assert.equal(windows.validate(spec()).ok, false);
+  assert.match(windows.validate(spec()).errors.join(" "), /host profile discovery is unavailable/i);
+});
+
 test("Claude adapter maps plan and unattended permissions without silently enabling sessions", async () => {
   const plan = await execute(spec({ permissions: { mode: "plan", edit: "forbidden" } }));
   const planArgs = (JSON.parse(plan.stdout) as { argv: string[] }).argv;
@@ -97,6 +178,13 @@ test("Claude adapter requires safe environment, permissions, session, and two-ke
     "AWS_ACCESS_KEY_ID",
   ]) {
     assert.equal(runtime.validate(spec({ environment: { [name]: "must-not-cross" } })).ok, false, name);
+    assert.equal(runtime.validate(spec({
+      environment: undefined,
+      environmentPolicy: { mode: "allowlist", allowlist: [name.toLowerCase()] },
+    })).ok, false, name);
+  }
+  for (const name of ["HOME", "USER", "USERPROFILE", "USERNAME", "HOMEDRIVE", "HOMEPATH"]) {
+    assert.equal(runtime.validate(spec({ environment: { [name]: "caller-owned" } })).ok, false, name);
     assert.equal(runtime.validate(spec({
       environment: undefined,
       environmentPolicy: { mode: "allowlist", allowlist: [name.toLowerCase()] },

@@ -18,4 +18,9 @@ process.stdout.write(JSON.stringify({
   stdin,
   promptInEnvironment: Object.values(process.env).includes(stdin),
   environmentKeys: Object.keys(process.env).sort(),
+  authDiscoveryEnvironment: Object.fromEntries(
+    ["HOME", "USER", "USERPROFILE", "USERNAME", "HOMEDRIVE", "HOMEPATH"]
+      .filter((name) => process.env[name] !== undefined)
+      .map((name) => [name, process.env[name]]),
+  ),
 }));
