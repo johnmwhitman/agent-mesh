@@ -114,7 +114,7 @@ test("a message stored under a key that disagrees with its own id is an error", 
         recipients: ["B"],
         acknowledged: false,
         payload: "p",
-      } as MeshData["messages"][string],
+      } as unknown as MeshData["messages"][string],
     },
   });
   assert.ok(
@@ -151,7 +151,7 @@ test("an inbox holding a message its owner was never addressed is an error", () 
         recipients: ["A"],
         acknowledged: false,
         payload: "p",
-      } as MeshData["messages"][string],
+      } as unknown as MeshData["messages"][string],
     },
     inboxes: { A: [], B: ["M"] },
   });
@@ -200,7 +200,7 @@ test("a message whose fleet_id names no fleet is a warning, matching agent.orpha
         recipients: ["B"],
         acknowledged: false,
         payload: "p",
-      } as MeshData["messages"][string],
+      } as unknown as MeshData["messages"][string],
     },
   });
   assert.ok(checks(data, "warning").includes("message.orphan_fleet"));
@@ -223,7 +223,7 @@ test("acknowledged:true over an empty recipient set is an error, not a vacuous p
         recipients: [],
         acknowledged: true,
         payload: "p",
-      } as MeshData["messages"][string],
+      } as unknown as MeshData["messages"][string],
     },
   });
   assert.ok(
@@ -244,7 +244,7 @@ test("CONTROL: acknowledged:false over an empty recipient set is not flagged", (
         recipients: [],
         acknowledged: false,
         payload: "p",
-      } as MeshData["messages"][string],
+      } as unknown as MeshData["messages"][string],
     },
   });
   assert.ok(!checks(data, "error").includes("message.vacuous_ack"));
@@ -356,7 +356,7 @@ test("a ratification whose key disagrees with the proposal in its body is an err
         opened_at: 1000,
         silence_policy: "abstain",
         status: "open",
-      } as unknown as MeshData["ratifications"][string],
+      } as unknown as NonNullable<MeshData["ratifications"]>[string],
     },
   });
   assert.ok(checks(data, "error").includes("ratification.key_mismatch"));
@@ -382,7 +382,7 @@ test("quorum 0 is an error — it makes a terminal status recompute as supported
         silence_policy: "abstain",
         status: "ratified",
         resolved_at: 3000,
-      } as unknown as MeshData["ratifications"][string],
+      } as unknown as NonNullable<MeshData["ratifications"]>[string],
     },
   });
   assert.ok(checks(data, "error").includes("ratification.invalid_quorum"));
@@ -404,7 +404,7 @@ test("CONTROL: quorum 1 over one voter is not flagged", () => {
         opened_at: 1000,
         silence_policy: "abstain",
         status: "open",
-      } as unknown as MeshData["ratifications"][string],
+      } as unknown as NonNullable<MeshData["ratifications"]>[string],
     },
   });
   assert.ok(!checks(data, "error").includes("ratification.invalid_quorum"));

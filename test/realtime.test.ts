@@ -21,7 +21,11 @@ function makeFakeRes() {
   let closed = false
   const res: any = {
     writes,
-    closed: false,
+    // A `closed: false` data property used to sit here as well. It was dead: the
+    // later accessor overwrote it, so `getOwnPropertyDescriptor(res, 'closed')`
+    // reported `value: undefined` with a getter. `const res: any` hid the
+    // duplicate from the reader and `tsx` hid TS2300 from every stage. The getter
+    // is the wanted behaviour, so only the dead declaration is gone.
     get closed() { return closed },
     write(chunk: string) {
       writes.push(chunk)

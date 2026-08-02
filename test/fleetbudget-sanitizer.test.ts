@@ -465,7 +465,7 @@ test("validates caller timing, duration, TTL, safe expiry, and half-open freshne
     [{ ttl_ms: 600_001 }, "input.ttl_ms"],
   ] as const) {
     captureError(
-      () => sanitizeFleetBudgetReport(input(bytes(report()), overrides)),
+      () => sanitizeFleetBudgetReport(input(bytes(report()), overrides as Partial<SanitizeFleetBudgetReportInput>)),
       "invalid_input",
       path,
     );

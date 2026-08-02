@@ -1,5 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import type { AssertPredicate } from "node:assert";
+// `assert.throws(fn, error, message)`: the middle argument has to be present for the
+// third to be read as the message, and `undefined` there means "accept any error".
+// @types/node types that overload's middle parameter as a required AssertPredicate,
+// so the deliberate placeholder needs an assertion. The call is unchanged.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -91,7 +96,7 @@ test("A2A v0.1 conformance corpus validates canonical envelopes and identity out
   for (const testCase of corpus()) {
     if (testCase.raw_json !== undefined) {
       if (testCase.expected === "invalid") {
-        assert.throws(() => decodeEnvelope(testCase.raw_json!), undefined, testCase.name);
+        assert.throws(() => decodeEnvelope(testCase.raw_json!), undefined as unknown as AssertPredicate, testCase.name);
       } else {
         const decoded = decodeEnvelope(testCase.raw_json!);
         const actual = registry.accept(decoded);
@@ -120,7 +125,7 @@ test("A2A v0.1 conformance corpus validates canonical envelopes and identity out
       continue;
     }
     if (testCase.expected === "invalid") {
-      assert.throws(() => validateEnvelope(input, testCase.options), undefined, testCase.name);
+      assert.throws(() => validateEnvelope(input, testCase.options), undefined as unknown as AssertPredicate, testCase.name);
       continue;
     }
     assert.equal(registry.accept(input), testCase.expected, testCase.name);
@@ -200,7 +205,7 @@ test("object-level envelope validation rejects every non-JSON shape without invo
     for (const operation of [validateEnvelope, encodeEnvelope, canonicalEnvelopeDigest]) {
       const envelope = direct() as Record<string, unknown>;
       envelope.extensions = { invalid };
-      assert.throws(() => operation(envelope), undefined, `${name}:${operation.name}`);
+      assert.throws(() => operation(envelope), undefined as unknown as AssertPredicate, `${name}:${operation.name}`);
     }
   }
   assert.equal(getterCalls, 0, "validation must inspect descriptors without invoking getters");
@@ -279,7 +284,7 @@ test("envelope numbers and timestamps use the exact safe-integer domain", () => 
     "invalid-overflow-number",
     "invalid-unsafe-timestamp",
   ]) {
-    assert.throws(() => validateEnvelope(inputFor(name)), undefined, name);
+    assert.throws(() => validateEnvelope(inputFor(name)), undefined as unknown as AssertPredicate, name);
   }
 });
 

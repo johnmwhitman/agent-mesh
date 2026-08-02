@@ -10,6 +10,7 @@ import { sanitizeFleetBudgetReport } from "../src/fleetbudget-sanitizer.js";
 import {
   compileRouteCandidates,
   ROUTE_CANDIDATE_COMPILER_VERSION,
+  type CompileRouteCandidatesInput,
 } from "../src/compile-route-candidates.js";
 import { recommendRoute } from "../src/recommend-route.js";
 
@@ -707,11 +708,14 @@ test("adding or removing a shared candidate changes only the binding provenance 
   assert.deepEqual(removedCandidate, oneCandidate);
 });
 
-function manifest(...candidates: Record<string, unknown>[]) {
+// The varargs are `Record<string, unknown>` so each call site can write a bare object
+// literal; the compiler's manifest type is exact. Asserted once here rather than at
+// each of the five call sites. The rows the tests feed are unchanged.
+function manifest(...candidates: Record<string, unknown>[]): CompileRouteCandidatesInput["manifest"] {
   return {
     version: ROUTE_CANDIDATE_COMPILER_VERSION,
     candidates,
-  };
+  } as unknown as CompileRouteCandidatesInput["manifest"];
 }
 
 const routeTask = {
@@ -994,8 +998,8 @@ test("provider-shaped fleetbudget lane IDs cannot alter route authority", () => 
     requested_identity: { runtime: "declared-runtime", model: "declared-model" },
   });
   assert.equal("observed_identity" in candidate, false);
-  assert.equal("health" in (candidate as Record<string, unknown>), false);
-  assert.equal("authentication" in (candidate as Record<string, unknown>), false);
+  assert.equal("health" in (candidate as unknown as Record<string, unknown>), false);
+  assert.equal("authentication" in (candidate as unknown as Record<string, unknown>), false);
   assert.deepEqual(recommendation.effects, effects);
   assert.deepEqual(recommendation.ranked[0]!.identity, {
     requested: { runtime: "declared-runtime", model: "declared-model" },
