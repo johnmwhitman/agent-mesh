@@ -58,8 +58,8 @@
     },
     {
       "path": "python/runner.py",
-      "bytes": 4788,
-      "sha256": "92f7047f94db933de8120df17ce2b1eb461dc0dd498a84a53f29380395e909a1"
+      "bytes": 5357,
+      "sha256": "6d9312e9784c9d5a207d0da7d21b94fc6be55aa68a7e0e73c23125976c80bba5"
     },
     {
       "path": "reviews/v0.1/review-record.json",

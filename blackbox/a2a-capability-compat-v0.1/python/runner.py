@@ -16,6 +16,15 @@ from evaluator import (
     projection,
 )
 
+# Byte-differential contract: stdout is UTF-8 with "\n" newlines on every platform. Without
+# this, a cp1252 console (the Windows default) raises UnicodeEncodeError on corpus content --
+# measured under PYTHONIOENCODING=cp1252 on 2026-08-02 -- and Windows text-mode newline
+# translation would emit \r\n bytes the JavaScript side of the differential never emits.
+# PYTHONIOENCODING outranks this only if set to a non-UTF-8 value deliberately; the runner
+# pins its own contract rather than trusting the console.
+sys.stdout.reconfigure(encoding="utf-8", newline="\n")
+
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 
