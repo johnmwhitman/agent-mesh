@@ -115,21 +115,28 @@ test("Claude adapter owns the minimal host-profile environment required for CLI 
   ];
 
   for (const item of cases) {
+    let launchEnvironment: NodeJS.ProcessEnv | undefined;
     const runtime = adapter(undefined, {
       hostEnvironment: item.hostEnvironment,
       platform: item.platform,
+      spawnProcess: (_command, args, options) => {
+        launchEnvironment = options.env;
+        return spawn(process.execPath, [FIXTURE, ...args], options);
+      },
     });
     const handle = await runtime.start(spec());
     const result = await runtime.wait(handle);
     assert.equal(result.status, "success", item.name);
-    const observed = JSON.parse(result.stdout) as {
-      authDiscoveryEnvironment: Record<string, string>;
-      environmentKeys: string[];
-    };
-    assert.deepEqual(observed.authDiscoveryEnvironment, item.expected, item.name);
-    assert.equal(observed.environmentKeys.includes("PATH"), false, item.name);
-    assert.equal(observed.environmentKeys.includes("ANTHROPIC_API_KEY"), false, item.name);
-    assert.equal(observed.environmentKeys.includes("CLAUDE_CODE_USE_BEDROCK"), false, item.name);
+    assert.ok(launchEnvironment, item.name);
+    const observedProfile = Object.fromEntries(
+      ["HOME", "USER", "USERPROFILE", "USERNAME", "HOMEDRIVE", "HOMEPATH"]
+        .filter((name) => launchEnvironment![name] !== undefined)
+        .map((name) => [name, launchEnvironment![name]]),
+    );
+    assert.deepEqual(observedProfile, item.expected, item.name);
+    assert.equal(launchEnvironment.PATH, undefined, item.name);
+    assert.equal(launchEnvironment.ANTHROPIC_API_KEY, undefined, item.name);
+    assert.equal(launchEnvironment.CLAUDE_CODE_USE_BEDROCK, undefined, item.name);
   }
 });
 
