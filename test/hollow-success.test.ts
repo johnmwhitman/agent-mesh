@@ -10,7 +10,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { LifecycleExecutionCoordinator } from "../src/lifecycle-execution.js";
-import { loadData } from "../src/core.js";
+import { loadData, readEventLog } from "../src/core.js";
 import type { ExecutionSpec, RuntimeAdapter, RuntimeHandle, RuntimeResult } from "../src/runtime/types.js";
 import { withTempDb } from "./helpers/with-temp-db.js";
 
@@ -52,15 +52,16 @@ async function settleOnce(result: RuntimeResult) {
   await new Promise((done) => setImmediate(done));
   runtime.results[0].resolve(result);
   await new Promise((done) => setImmediate(done));
-  const agent = loadData().agents["agent-h"];
+  const data = loadData();
+  const agent = data.agents["agent-h"];
   coordinator.stop();
-  return agent;
+  return { agent, events: readEventLog() };
 }
 
 test("exit 0 with EMPTY output is not banked as success", async () => {
   const temp = withTempDb();
   try {
-    const agent = await settleOnce(hollowSuccess(""));
+    const { agent, events } = await settleOnce(hollowSuccess(""));
     assert.notEqual(agent.status, "complete",
       "an agent that produced nothing must not be sealed `complete` — that claims work that never happened");
   } finally {
@@ -71,7 +72,7 @@ test("exit 0 with EMPTY output is not banked as success", async () => {
 test("exit 0 with WHITESPACE-ONLY output is not banked as success", async () => {
   const temp = withTempDb();
   try {
-    const agent = await settleOnce(hollowSuccess("\n  \t\n"));
+    const { agent } = await settleOnce(hollowSuccess("\n  \t\n"));
     assert.notEqual(agent.status, "complete",
       "whitespace is not a deliverable; trim() before judging emptiness");
   } finally {
@@ -79,12 +80,20 @@ test("exit 0 with WHITESPACE-ONLY output is not banked as success", async () => 
   }
 });
 
-test("the hollow-success verdict says WHY, so an orchestrator can reroute", async () => {
+test("a hollow success is RETRIED, not banked — the remedy actually fires", async () => {
   const temp = withTempDb();
   try {
-    const agent = await settleOnce(hollowSuccess(""));
-    assert.match(String(agent.error ?? ""), /produced no output/i,
-      "the recorded error must name the actual cause, not a generic failure");
+    const { agent, events } = await settleOnce(hollowSuccess(""));
+    // The point of refusing to bank an empty result is that the work gets
+    // ANOTHER shot. Assert the observable remedy — a retry was scheduled and a
+    // fresh attempt launched — rather than the reason string, which this store
+    // deliberately keeps on the attempt record (not on `work`) while pending.
+    const kinds = events.map((e: { event: string }) => e.event);
+    assert.ok(kinds.includes("agent_retry_scheduled"),
+      `hollow success must schedule a retry; saw ${JSON.stringify(kinds)}`);
+    assert.ok(kinds.filter((k: string) => k === "agent_launch_intended").length >= 2,
+      "a second attempt must actually launch, not just be recorded as scheduled");
+    assert.notEqual(agent.status, "complete");
   } finally {
     temp.cleanup();
   }
@@ -93,7 +102,7 @@ test("the hollow-success verdict says WHY, so an orchestrator can reroute", asyn
 test("CONTROL: a real answer still completes normally (the fix must not eat good runs)", async () => {
   const temp = withTempDb();
   try {
-    const agent = await settleOnce(realSuccess("the deliverable"));
+    const { agent } = await settleOnce(realSuccess("the deliverable"));
     assert.equal(agent.status, "complete");
     assert.equal(agent.output, "the deliverable");
   } finally {
@@ -106,7 +115,7 @@ test("CONTROL: a single space of real content is enough — we judge emptiness, 
   try {
     // Deliberate boundary: this guard must never become a prose-quality judge.
     // Anything non-blank is the agent's answer, however short.
-    const agent = await settleOnce(realSuccess("x"));
+    const { agent } = await settleOnce(realSuccess("x"));
     assert.equal(agent.status, "complete");
   } finally {
     temp.cleanup();
