@@ -45,17 +45,28 @@ function realSuccess(stdout = "the deliverable"): RuntimeResult {
   return { status: "success", stdout, stderr: "", exitCode: 0, diagnostics: [], identity: { adapterId: "controlled", evidence: "none" } };
 }
 
-async function settleOnce(result: RuntimeResult) {
+async function settleOnce(result: RuntimeResult, until?: (runtime: ControlledRuntime) => boolean) {
   const runtime = new ControlledRuntime();
   const coordinator = new LifecycleExecutionCoordinator(runtime, { ownerId: "owner-hollow", retryBaseMs: 0 });
   coordinator.createFleet("fleet-h", [{ fleetId: "fleet-h", agentId: "agent-h", role: "worker", prompt: "produce the thing" }]);
   await new Promise((done) => setImmediate(done));
   runtime.results[0].resolve(result);
   await new Promise((done) => setImmediate(done));
+  // The retry relaunch rides a TIMER (scheduleDue with retryBaseMs 0 is still a macrotask),
+  // so a microtask tick alone stops the coordinator before the second attempt can launch —
+  // which made the relaunch assertion fail against CORRECT source. Wait on observable state
+  // with a ceiling, per this repo's own wait law; callers that expect no retry pass no
+  // predicate and take the fast path.
+  if (until) {
+    const deadline = Date.now() + 2_000;
+    while (!until(runtime) && Date.now() < deadline) {
+      await new Promise((done) => setTimeout(done, 10));
+    }
+  }
   const data = loadData();
   const agent = data.agents["agent-h"];
   coordinator.stop();
-  return { agent, events: readEventLog() };
+  return { agent, events: readEventLog(), starts: runtime.starts.length };
 }
 
 test("exit 0 with EMPTY output is not banked as success", async () => {
@@ -83,7 +94,7 @@ test("exit 0 with WHITESPACE-ONLY output is not banked as success", async () => 
 test("a hollow success is RETRIED, not banked — the remedy actually fires", async () => {
   const temp = withTempDb();
   try {
-    const { agent, events } = await settleOnce(hollowSuccess(""));
+    const { agent, events } = await settleOnce(hollowSuccess(""), (runtime) => runtime.starts.length >= 2);
     // The point of refusing to bank an empty result is that the work gets
     // ANOTHER shot. Assert the observable remedy — a retry was scheduled and a
     // fresh attempt launched — rather than the reason string, which this store
