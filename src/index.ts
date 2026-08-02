@@ -9,6 +9,7 @@ import {
 import { randomUUID } from "crypto";
 import { createRequire } from "module";
 import { resolveEnv } from "./env.js";
+import { requireAuditIsolationEnvironment } from "./audit-access-profile.js";
 
 // Single source of truth for the advertised version — package.json.
 // (The literal here drifted to 0.7.0 while releases moved to 0.11.x.)
@@ -37,8 +38,10 @@ import {
   sendMessage,
   sendMessages,
   setFleetTimeout,
+  defaultDataFile,
+  DEFAULT_EVENT_LOG,
 } from "./core.js";
-import { readLedger, resolveDbFile, withLedger } from "./db.js";
+import { defaultDbFile, readLedger, resolveDbFile, withLedger } from "./db.js";
 import { migrateJsonToSqlite } from "./migrate.js";
 import { checkRateLimit, getHealth, ping } from "./health.js";
 import {
@@ -105,6 +108,27 @@ import {
 // ---------------------------------------------------------------------------
 // Server
 // ---------------------------------------------------------------------------
+
+const accessProfile = requireAuditIsolationEnvironment(process.env, {
+  dbFile: defaultDbFile(),
+  dataFile: defaultDataFile(),
+  eventLogFile: DEFAULT_EVENT_LOG,
+});
+const isAuditProfile = accessProfile.profile === "audit";
+if (accessProfile.profile === "audit") {
+  process.env.MESHFLEET_ISOLATION_ROOT = accessProfile.isolationRoot;
+  process.env.MESHFLEET_DB_FILE = accessProfile.dbFile;
+  process.env.MESHFLEET_DATA_FILE = accessProfile.dataFile;
+  process.env.MESHFLEET_EVENT_LOG_FILE = accessProfile.eventLogFile;
+}
+const AUDIT_TOOL_NAMES: ReadonlySet<string> = new Set([
+  "compile_route_candidates",
+  "ping",
+  "plan_speculative_backlog",
+  "recommend_route",
+]);
+const toolAllowedByAccessProfile = (name: string): boolean =>
+  !isAuditProfile || AUDIT_TOOL_NAMES.has(name);
 
 const server = new Server(
   { name: "agent-mesh", version: MESH_VERSION },
@@ -1384,7 +1408,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         additionalProperties: false,
       },
     },
-  ],
+  ].filter((tool) => toolAllowedByAccessProfile(tool.name)),
 }));
 
 // ---------------------------------------------------------------------------
@@ -2387,6 +2411,9 @@ toolHandlers["get_discussion"] = async (args) => {
 
 server.setRequestHandler(CallToolRequestSchema, async (req) => {
   const { name, arguments: args } = req.params;
+  if (!toolAllowedByAccessProfile(name)) {
+    return jsonError(`Tool '${name}' is unavailable in the audit access profile`);
+  }
   const handler = toolHandlers[name];
   if (!handler) {
     throw new Error(`Unknown tool: ${name}`);
@@ -2408,7 +2435,7 @@ await server.connect(transport);
 // competing ratification sweeper.
 const isChildInstance = process.env.AGENT_MESH_CHILD === "1";
 
-if (!isChildInstance) {
+if (!isChildInstance && !isAuditProfile) {
   // Phase 2: one-shot JSON→SQLite migration. Stop-the-world, parent-only, BEFORE
   // any ledger read/write — a fresh getDb() would otherwise create an empty db
   // and strand the JSON. Fails-closed: a validation mismatch aborts startup with
@@ -2504,6 +2531,8 @@ if (!isChildInstance) {
   } catch (err) {
     console.error(`Agent Mesh v${MESH_VERSION} started (JSON persistence + P2P messaging + capability routing + premade agent discovery + timeout/resilience + SSE push) — SSE server failed to start: ${err instanceof Error ? err.message : String(err)}`);
   }
+} else if (isAuditProfile) {
+  console.error("Agent Mesh started in audit access profile — storage startup, recovery, sweepers, and SSE skipped");
 } else {
   console.error("Agent Mesh started in child mode (AGENT_MESH_CHILD=1) — recovery, sweeper, and SSE skipped");
 }
