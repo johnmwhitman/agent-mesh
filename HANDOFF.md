@@ -30,7 +30,34 @@ Runtime failover is implemented for bounded provider-refusal cases. The complete
 end-to-end proof is fixture-scoped: deterministic stub runtimes show one refusal,
 one eligible alternate launch, persisted runtime attempts, and one failover event.
 It is not evidence of a live provider outage, future availability, or spend
-authority. With no eligible alternate runtime, failover is a no-op.
+authority. With no eligible alternate runtime, failover is a no-op. The proof is
+also platform-scoped: it does not execute on Windows (see the skip inventory
+below), so failover's end-to-end evidence comes from the POSIX legs of the matrix
+only. Failover's unit-level spec and registry tests run on every platform.
+
+## Platform-skipped tests (what does not run on Windows)
+
+The suite collects the same total everywhere, but **22 tests skip on
+`windows-2022`**, consistent across Node 20, 22, and 24. Every skip is a
+deliberate `process.platform === "win32"` (or equivalent) predicate, not flake.
+This repository's own rule is that a test that does not run is indistinguishable
+from a test that passes, so the subset is published rather than tolerated
+silently:
+
+| Count | Subset | Stated reason |
+|---|---|---|
+| 3 | ledger SIGKILL/checkpoint storm recovery | POSIX signals are required |
+| 7 | local process adapter signal semantics (SIGTERM escalation, process-group termination, cancellation races) | Windows `TerminateProcess` cannot deliver a catchable SIGTERM |
+| 2 | Kimi adapter descendant process-group kill | Windows does not expose process-group signal semantics |
+| 5 | **runtime failover end-to-end** (refusal → hop → receipts, plus three negative controls) | needs an executable stub; `spawn` refuses `.cmd` without a shell and a test cannot author a `.exe` |
+| 2 | capability-contradiction refusal through the published tool | same executable-stub limitation |
+| 3 | doctor checks (two unwritable-directory cases, one PATH probe) | POSIX permission semantics / platform predicate |
+
+The signal-semantics rows are structural platform differences and are expected to
+remain skipped. The executable-stub rows (7 tests, including the failover
+end-to-end proof) are a test-harness limitation rather than a product one — a
+Windows-launchable stub would let them run, and that remains open work. Windows
+coverage for failover currently ends at the unit boundary.
 
 `recommend_route`, `compile_route_candidates`, and
 `plan_speculative_backlog` are advisory projections. They do not execute work,
