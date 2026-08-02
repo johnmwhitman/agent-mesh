@@ -1,11 +1,12 @@
 # MeshFleet public handoff
 
 **Source version:** `0.20.0` · **MCP surface:** **36 MCP tools** ·
-**clean local baseline:** **1422/1422** tests, plus typecheck and build
+**clean local baseline:** **1423/1423** tests, plus typecheck and build
 
-Base `01f0fa0` passed 1416/1416. The 1422/1422 baseline includes this parity
-worktree's six contract guards. Fresh repository evidence outranks this snapshot
-when source moves.
+Base `01f0fa0` passed 1416/1416; `dd7c4f8` passed 1422/1422, independently
+re-measured on a clean detached worktree. The 1423/1423 baseline adds the
+closed-world boundary guard that derives its subject list from the published
+tool surface. Fresh repository evidence outranks this snapshot when source moves.
 
 ## Current product boundary
 

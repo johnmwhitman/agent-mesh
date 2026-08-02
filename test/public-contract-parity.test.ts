@@ -33,7 +33,7 @@ const publicContracts = [
 test("public handoff binds the current release, tool, suite, corpus, and witness facts", () => {
   assert.match(handoff, /Source version:\*\* `0\.20\.0`/);
   assert.match(handoff, /\*\*36 MCP tools\*\*/);
-  assert.match(handoff, /\*\*1422\/1422\*\*/);
+  assert.match(handoff, /\*\*1423\/1423\*\*/);
   assert.match(handoff, /79 total[\s\S]*55 caught[\s\S]*14\s+anomal(?:y|ies)/);
   assert.match(handoff, /10 deliberately undetectable/);
   assert.match(handoff, /blackbox-corpus-transcript-integrity\.test\.ts/);

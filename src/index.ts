@@ -1568,6 +1568,16 @@ toolHandlers["fleet_status"] = async (args) => {
       return { content: [{ type: "text", text: JSON.stringify({ error: "Read rate limit exceeded. Slow down." }) }], isError: true };
     }
     const { fleet_id } = args as { fleet_id: string };
+    // `fleet_id` is published as required, and the SDK enforces neither `required`
+    // nor `type`. Without this, `data.fleets[undefined]` is undefined and the filter
+    // matches nothing, so a malformed call returned `{"agents":[]}` — byte-identical
+    // to a well-formed query for a fleet that does not exist. Measured over real MCP
+    // stdio against a NON-EMPTY store: of the 23 tools declaring required fields that
+    // can be probed without starting work, this was the ONLY one that answered a
+    // contract violation with a success envelope. A client polling this in a loop
+    // cannot tell "you sent no fleet_id" from "that fleet is gone".
+    const bad = requireString("fleet_status", "fleet_id", fleet_id);
+    if (bad) return jsonError(bad);
     const data = readLedger();
     const fleet = data.fleets[fleet_id];
     const agents = Object.values(data.agents).filter(
@@ -2060,6 +2070,16 @@ toolHandlers["register_capability"] = async (args) => {
 
 toolHandlers["route_work"] = async (args) => {
     const { description, top_n } = args as { description: string; top_n?: number };
+    // `routeWork` returns [] early when the capability store is empty — BEFORE it
+    // reads `description` — so an omitted field looks validated on an empty ledger
+    // and throws `Cannot read properties of undefined (reading 'toLowerCase')` on a
+    // real one. A wrong type throws too (`s.toLowerCase is not a function`). Either
+    // way the raw TypeError escapes as a `-32603` PROTOCOL error, and #90 already
+    // settled what that costs: a client that gets a transport error cannot tell
+    // "you sent a bad argument" from "the server died". Same refusal, same envelope
+    // as every sibling.
+    const bad = requireString("route_work", "description", description);
+    if (bad) return jsonError(bad);
     return jsonResult({ matches: routeWork(description, top_n ?? 1) });
 };
 

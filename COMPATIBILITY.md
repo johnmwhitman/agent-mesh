@@ -96,9 +96,10 @@ The additive `meshfleet/recommend-route` library subpath exposes only the pure
 advisory evaluator and validators over caller-supplied sanitized evidence. It is
 not selection or execution authority.
 
-**Promise so far**: every minor release has been additive. No tool has been removed. Three
-signatures have been tightened — `send_messages` batch items, `send_message`, and
-`register_capability`, all unreleased — deliberately and documented in the narrowing notes below:
+**Promise so far**: every minor release has been additive. No tool has been removed. Five
+signatures have been tightened — `send_messages` batch items, `send_message`,
+`register_capability`, `fleet_status`, and `route_work`, all unreleased — deliberately and
+documented in the narrowing notes below:
 the shapes they now refuse were violations of the contracts the schemas already claimed to
 enforce, or rows the verifier already reported as contradictions.
 
@@ -149,6 +150,28 @@ This makes future `capability.fleet_mismatch` findings rarer, which is a measure
 a flattering direction and is flagged rather than taken quietly. It is the legitimate form of that
 move: the verifier is untouched and still reports every row already written. Prevention at the
 source, not a quieter check.
+
+### ⚠️ `fleet_status` and `route_work` enforce the `required` they already published (unreleased)
+
+Both tools have always declared a required field — `fleet_status.fleet_id`, `route_work.description`
+— and the MCP SDK enforces neither `required` nor `type`. Neither handler enforced it either.
+
+`fleet_status` returned `{"agents":[]}` for a call with no `fleet_id` at all: a success envelope,
+and byte-identical to a well-formed query for a fleet that does not exist. A client polling it in a
+loop could not tell "you sent no fleet_id" from "that fleet is gone". `route_work` let the raw
+`TypeError` escape as a JSON-RPC `-32603` protocol error, which a caller cannot distinguish from
+the server dying — the same distinction `register_capability`'s stdio coverage was added to pin.
+Both now refuse with the standard `jsonError` envelope naming the field, exactly as their siblings
+`collect_results` and `set_fleet_timeout` already did.
+
+**No well-formed call changes.** `fleet_status` with a valid id for a fleet that does not exist
+still returns `{"agents":[]}`; only calls that violate the published schema are affected. Measured
+over real MCP stdio across all 27 tools that declare required fields: 25 already refused, and these
+two were the only exceptions.
+
+A closed-world guard now derives its subject list from what the server publishes rather than from a
+hand-maintained list, so a future tool with a required field is covered without anyone remembering.
+The two tools above were missed precisely because the previous boundary suite was hand-enumerated.
 
 ### Implemented opt-in verifier v2 MCP and CLI contract
 
