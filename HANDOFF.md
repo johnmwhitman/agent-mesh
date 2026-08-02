@@ -59,14 +59,15 @@ end-to-end proof) are a test-harness limitation rather than a product one — a
 Windows-launchable stub would let them run, and that remains open work. Windows
 coverage for failover currently ends at the unit boundary.
 
-One further Windows skip is a **witness defect, not a platform difference**: the
-effect-key-collapse differential passes each case's raw document as a single
+One prior Windows skip was a **witness defect, not a platform difference**: the
+effect-key-collapse differential passed each case's raw document as a single
 argv argument, and its `M51-document-too-large` case is an 87,383-character
 argument — over the 32,767-character Windows `CreateProcess` command-line limit.
-Its in-suite execution therefore skips on `windows-2022`, with the measurement in
-the skip reason. The fix (stdin transport for oversized documents) is open work;
-the witness's runner and differential are digest-pinned, so it lands as its own
-reviewed change.
+Both of its runners now accept a `--raw-stdin` transport and the differential
+uses it automatically for payloads over 30,000 characters, so the witness
+executes on every platform and the skip is retired. Transport equivalence is
+proven byte-for-byte: both transports, both runners, identical output on the
+offending case.
 
 `recommend_route`, `compile_route_candidates`, and
 `plan_speculative_backlog` are advisory projections. They do not execute work,
