@@ -1,11 +1,13 @@
 # MeshFleet public handoff
 
 **Source version:** `0.20.0` · **MCP surface:** **36 MCP tools** ·
-**clean local baseline:** **1422/1422** tests, plus typecheck and build
+**clean local baseline:** **1443/1443** tests, plus typecheck and build, measured on
+`ecb7243` in a clean worktree
 
-Base `01f0fa0` passed 1416/1416. The 1422/1422 baseline includes this parity
-worktree's six contract guards. Fresh repository evidence outranks this snapshot
-when source moves.
+Base `01f0fa0` passed 1416/1416; the parity snapshot that introduced this document
+read 1422/1422 with its six contract guards. The current figure supersedes both.
+Fresh repository evidence outranks this snapshot when source moves — and it has
+moved twice since the 1422 reading, so re-measure rather than quoting this line.
 
 ## Current product boundary
 

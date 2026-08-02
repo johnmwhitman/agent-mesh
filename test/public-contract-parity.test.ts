@@ -33,7 +33,16 @@ const publicContracts = [
 test("public handoff binds the current release, tool, suite, corpus, and witness facts", () => {
   assert.match(handoff, /Source version:\*\* `0\.20\.0`/);
   assert.match(handoff, /\*\*36 MCP tools\*\*/);
-  assert.match(handoff, /\*\*1422\/1422\*\*/);
+  // 🔴 HARDCODED, not derived — and that is the defect this line keeps re-creating. It pins the
+  // published baseline to a literal, so when the suite grows the DOCUMENT goes stale and this
+  // guard actively defends the stale number: it fails whoever corrects it. Measured on `ecb7243`
+  // in a clean worktree the suite is 1443/1443, while the document said 1422.
+  //
+  // Updated rather than removed because the parity idea is right — a published figure should be
+  // pinned to something. It should be pinned to a DERIVED value; a test cannot cheaply run the
+  // suite to count itself, so the honest interim is a literal that is at least CURRENT, plus this
+  // note so the next person who trips it knows which side to trust. Trust the measurement.
+  assert.match(handoff, /\*\*1443\/1443\*\*/);
   assert.match(handoff, /79 total[\s\S]*55 caught[\s\S]*14\s+anomal(?:y|ies)/);
   assert.match(handoff, /10 deliberately undetectable/);
   assert.match(handoff, /blackbox-corpus-transcript-integrity\.test\.ts/);
