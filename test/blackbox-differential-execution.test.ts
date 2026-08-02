@@ -52,21 +52,12 @@ function discoveredDifferentials(): Array<{ witness: string; path: string; root:
 
 const differentials = discoveredDifferentials();
 
-// A witness whose documented command CANNOT run on this platform, with the measurement that
-// proves it. effect-key-collapse's differential passes each case's raw document as one argv
-// argument; case M51-document-too-large is 87,383 characters, and Windows CreateProcess caps a
-// command line at 32,767. POSIX ARG_MAX admits it, so the witness passes everywhere else. This
-// is a real witness defect this suite exists to surface — the honest treatment is a skip that
-// names it, not a green produced by omitting the witness from discovery. Fixing the witness
-// (stdin transport for oversized documents) is separate work: its runner and differential are
-// digest-pinned, and a transport change alters the documented CLI contract.
-const platformDefects: Record<string, string> = {
-  "a2a-effect-key-collapse-v0.1":
-    process.platform === "win32"
-      ? "M51-document-too-large is an 87,383-char argv argument; Windows CreateProcess caps " +
-        "command lines at 32,767 (measured on the #108 matrix). Witness defect, tracked."
-      : "",
-};
+// Witnesses whose documented command cannot run on a platform, with the measurement that
+// proves it. Empty today: the one prior entry (effect-key-collapse's 87,383-char argv argument
+// vs Windows' 32,767 CreateProcess cap, measured on the #108 matrix) was closed by giving its
+// runners a stdin transport for oversized documents. The mechanism stays so the next defect of
+// this class is a named, measured skip rather than a red matrix or a silent omission.
+const platformDefects: Record<string, string> = {};
 
 test("CONTROL: discovery finds the differentials, so a skip or a pass is about real files", () => {
   // Without a floor, a rename of `blackbox/` or `differential.mjs` would turn every test below
