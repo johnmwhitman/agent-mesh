@@ -61,5 +61,7 @@ only with deterministic stub runtimes.
    public ingress surface.
 2. Expand Slice 4D transport evidence without upgrading it to live transport or
    interoperability.
-3. Treat any production multi-host coordinator, authenticated ingress, remote
-   transport, or activation as a separately reviewed program.
+3. Production multi-host coordination, authenticated ingress, and remote
+   transport are OUT OF SCOPE for this project (scope ruling, 2026-08-02 —
+   see A2A-PROGRAM.md). Any future transport is a separate project consuming
+   these documents, not an activation of this server.

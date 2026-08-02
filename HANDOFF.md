@@ -115,5 +115,7 @@ authorize spend. Runtime execution and advisory ranking remain separate contract
   evidence, not session history.
 - Add compact status output only as an opt-in projection; preserve current output
   bytes by default.
-- Treat public authenticated A2A ingress, remote transport, production multi-host
-  coordination, and additional vendor runtimes as separate reviewed slices.
+- Public authenticated A2A ingress, remote transport, and production multi-host
+  coordination are out of scope for this project (scope ruling, 2026-08-02 —
+  `docs/A2A-PROGRAM.md`). Additional vendor runtimes remain separate reviewed
+  slices.
