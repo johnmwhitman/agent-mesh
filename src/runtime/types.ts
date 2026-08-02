@@ -190,6 +190,34 @@ export function validateExecutionSpec(spec: ExecutionSpec): ValidationResult {
   if (!Number.isFinite(spec.timeoutMs) || spec.timeoutMs <= 0) {
     errors.push("timeoutMs must be a positive finite number");
   }
+  // requestedModel hygiene, shared by EVERY adapter.
+  //
+  // 2026-08-01: kimi.ts validated this locally; the DEFAULT opencode adapter did
+  // not, so an unvalidated selector reached argv. A spawn_fleet call carrying a
+  // malformed selector ("github-copilot/openai/gpt-5.4" - a provider prefix
+  // doubled onto an already-qualified id) came back as
+  // "MCP server crashed before this agent completed. This agent cannot be
+  // resumed", losing the agent rather than reporting a bad input. Whatever the
+  // precise crash path, a caller-supplied string reaching a child process argv
+  // unvalidated is the wrong shape: reject it at the boundary, where the error
+  // can still name what was wrong.
+  //
+  // Deliberately hygiene only - length, control characters, empty segments. It
+  // does NOT police provider taxonomy: adapters register their own vocabularies
+  // and a shared validator guessing which providers exist would reject valid
+  // selectors the moment a new one is configured.
+  if (spec.requestedModel !== undefined) {
+    const m = spec.requestedModel;
+    if (typeof m !== "string" || m.length === 0) {
+      errors.push("requestedModel must be a non-empty string when provided");
+    } else if (m.length > 256) {
+      errors.push("requestedModel must be at most 256 characters");
+    } else if (/[\s\0]/u.test(m)) {
+      errors.push("requestedModel must not contain whitespace or NUL");
+    } else if (m.startsWith("/") || m.endsWith("/") || m.includes("//")) {
+      errors.push(`requestedModel has an empty path segment: ${JSON.stringify(m)}`);
+    }
+  }
   if (spec.input && spec.input.transport !== "stdin") errors.push("input transport must be stdin");
   if (spec.input && !(spec.input.bytes instanceof Uint8Array)) errors.push("input bytes must be Uint8Array");
   if (spec.input?.maxBytes !== undefined && (!Number.isSafeInteger(spec.input.maxBytes) || spec.input.maxBytes < 0)) {

@@ -33,8 +33,8 @@
     },
     {
       "path": "differential.mjs",
-      "bytes": 2955,
-      "sha256": "3699a2b3b1b6108d2f341c2f7e6ba7c32cbb7a3f7b205e107f4feab34774a23b"
+      "bytes": 3635,
+      "sha256": "3ca1140ea8762a639ca1688adf504214fcb99318ad8754a623dd87f8714e4bf2"
     },
     {
       "path": "evaluator.mjs",
@@ -43,8 +43,8 @@
     },
     {
       "path": "evidence/acceptance-20260727.json",
-      "bytes": 4749,
-      "sha256": "b8309912c4ab25ba5b0c91f2ead23c01a7a4328c8e31262fdfd48ddca0465ab2"
+      "bytes": 4669,
+      "sha256": "9f54a2845f947ac51b3aebf9c17a58548e8f2d448f5817506143635f0f34f426"
     },
     {
       "path": "fuzz-differential.mjs",
@@ -58,8 +58,8 @@
     },
     {
       "path": "python/runner.py",
-      "bytes": 3120,
-      "sha256": "727ad82c7cef6cab076e8ec7ac56c10b12af6bbee21fc2f272daff59cb8f99d9"
+      "bytes": 4130,
+      "sha256": "9f0827f0c942da94df691b4e17e01a00691d89ef966ebe889efee148140f84b1"
     },
     {
       "path": "reviews/v0.1/review-record.json",
@@ -68,8 +68,8 @@
     },
     {
       "path": "runner.mjs",
-      "bytes": 3038,
-      "sha256": "da5fa4212d8798cd608951b9b15d661fb4b6ffcb8f36a3d4d026b8dc4cc29b73"
+      "bytes": 3698,
+      "sha256": "b837a47bcd33373da075e271befcb7c585d203a1d0383939100588a973026027"
     }
   ]
 }

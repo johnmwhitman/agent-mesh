@@ -4,10 +4,15 @@
 traits. It is the stateless counterpart to `route_work`, which searches capabilities
 already registered in MeshFleet's local ledger.
 
-The tool constructs an ordered advisory plan. It does not persist the plan, execute it,
-authorize it, wake agents, contact providers, fetch budgets, or handle credentials,
-failover, circuit breakers, and exact metering. Those provider mechanics remain the
-gateway's job.
+The tool constructs an ordered advisory plan. `recommend_route` never performs
+runtime failover: it does not persist the plan, execute it, authorize it, wake
+agents, contact providers, fetch budgets, or handle credentials, circuit
+breakers, and exact metering.
+
+MeshFleet's runtime execution layer separately implements bounded failover for a
+classified provider refusal when an eligible registered alternate runtime exists.
+That execution behavior does not turn an advisory candidate into an available
+provider, authorize spend, or change the all-false effects of this contract.
 
 ## Evaluation order
 
@@ -91,8 +96,16 @@ response adds a result-level evidence-only preference record,
 those fields and reason codes are omitted and both output bytes and ranking law remain
 the prior default even when candidate windows are present.
 
+A second opt-in objective, `preference.objective: "exhaust_before_reset"`, uses the
+same urgency value as the PRIMARY ranking key instead of a post-score tie-break: among
+eligible candidates, higher measured urgency ranks first, and candidates whose urgency
+is zero — unmeasured, no window, or a window that does not contain `now_ms` — fall back
+to the default ranking law relative to each other. Evidence the caller did not supply
+never promotes or demotes a candidate under either objective, and measured exhaustion
+remains an exclusion before any urgency ordering applies.
+
 This is not a default account- or reset-window optimization policy; urgency
-applies only when `preference.objective: "prefer_near_reset"` is set.
+applies only when a `preference.objective` is set.
 `now_ms`, usage, totals, and window bounds all come
 from the caller. MeshFleet does not refresh them, attest freshness, infer a provider or
 account, divide a shared pool, reserve quota, dispatch work, or claim that using the
@@ -149,8 +162,9 @@ dynamic evidence fields that `recommend_route` may consider.
 }
 ```
 
-Gateways retain catalogs, credentials, health and freshness policy, execution, retry,
-failover, and metering. The compiler does not read wrappers or RoutePlane, and its
+Gateways retain catalogs, credentials, health and freshness policy, and metering.
+The runtime execution layer owns launch, retry, and bounded failover. The
+compiler does not read wrappers or RoutePlane, and its
 output is not availability, authentication, freshness, execution, or authority
 evidence.
 
@@ -161,7 +175,8 @@ Capabilities, context, and policy describe fit. Provider, runtime, and model str
 are opaque evidence: they never score, establish availability, or authenticate an
 identity. Unknown budget is the correct result when freshness cannot be established.
 
-Gateways retain provider catalogs, credentials, execution, failover, and metering.
+Gateways retain provider catalogs, credentials, and metering; MeshFleet's
+runtime execution layer separately owns launch and bounded failover.
 The portable subscription-lane corpus is evidence only that an offline snapshot
 conforms to this advisory contract; it is not provider availability, live gateway,
 authentication, execution, or authorization evidence.
