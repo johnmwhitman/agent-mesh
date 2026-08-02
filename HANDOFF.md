@@ -1,13 +1,19 @@
 # MeshFleet public handoff
 
 **Source version:** `0.20.0` · **MCP surface:** **36 MCP tools** ·
-**clean local baseline:** **1443/1443** tests, plus typecheck and build, measured on
-`ecb7243` in a clean worktree
+**clean local baseline:** **1444/1444** tests, plus typecheck and build, measured on
+`7604cd7` plus this change, in a clean worktree
 
 Base `01f0fa0` passed 1416/1416; the parity snapshot that introduced this document
 read 1422/1422 with its six contract guards. The current figure supersedes both.
-Fresh repository evidence outranks this snapshot when source moves — and it has
-moved twice since the 1422 reading, so re-measure rather than quoting this line.
+This figure is no longer maintained by hand: `scripts/run-tests.mjs` measures the
+suite it just ran and fails if this line disagrees with it, naming the true count.
+The document can therefore be stale for at most one run.
+
+The figure is the COLLECTED total, and every platform must collect it with zero
+failures. It is not a claim that every test executes everywhere: a platform-skipped
+subset does not run on `windows-2022`, so passes there are fewer than the total
+while the collected count and the zero-failure requirement are identical.
 
 ## Current product boundary
 

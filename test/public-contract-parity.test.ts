@@ -30,21 +30,89 @@ const publicContracts = [
   a2aHandoff,
 ];
 
+// 🔴 Every published figure below is DERIVED from the artifact that defines it. It used to be a
+// hardcoded literal, and that is not a style preference — it is the defect this file shipped.
+// A literal here compares a DOCUMENT to a DOCUMENT: when reality moved, neither side moved, so
+// nothing failed. HANDOFF.md published a suite baseline of 1422 while the suite measured 1443,
+// and the guard did not catch the drift — it failed the person who CORRECTED the document.
+// A guard that defends a stale number is worse than no guard, because it is read as agreement.
+//
+// The rule this file now follows: a published figure is pinned to the thing it describes, or it
+// is not pinned here at all. The one figure that cannot be derived in-process is the suite count
+// — a test cannot count the suite it is part of — so its VALUE moved to scripts/run-tests.mjs,
+// which holds the real measurement. This file keeps only the form check.
+const packageJson = JSON.parse(read("package.json")) as { version: string };
+const corpusManifest = JSON.parse(read("test/fixtures/corpus/manifest.json")) as {
+  vectors: Array<{ classification: string }>;
+};
+const indexSource = read("src/index.ts");
+
+const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+// Same parse dispatch-registry.test.ts uses to prove declared === registered. Derived from
+// src/index.ts, so adding or removing a tool moves this number without anyone editing a test.
+const registeredToolNames = new Set(
+  Array.from(indexSource.matchAll(/toolHandlers\["([^"]+)"\]\s*=/g), (match) => match[1]),
+);
+
+const corpusBucket = (classification: string): number =>
+  corpusManifest.vectors.filter((vector) => vector.classification === classification).length;
+
+test("the derivations this file depends on are non-vacuous", () => {
+  // A derived guard that derives ZERO asserts nothing. If the tool regex stops matching after a
+  // refactor, every figure check below would silently compare the document against 0 and the
+  // suite would still be green on a file that checks nothing. Prove the instruments first.
+  assert.ok(
+    registeredToolNames.size > 0,
+    "tool-handler parse matched nothing in src/index.ts — the derivation, not the document, is broken",
+  );
+  assert.ok(corpusManifest.vectors.length > 0, "corpus manifest parsed to zero vectors");
+  assert.ok(packageJson.version.length > 0, "package.json declares no version");
+  for (const bucket of ["caught", "anomaly", "undetectable"]) {
+    assert.ok(corpusBucket(bucket) > 0, `corpus bucket '${bucket}' derived as empty`);
+  }
+});
+
 test("public handoff binds the current release, tool, suite, corpus, and witness facts", () => {
-  assert.match(handoff, /Source version:\*\* `0\.20\.0`/);
-  assert.match(handoff, /\*\*36 MCP tools\*\*/);
-  // 🔴 HARDCODED, not derived — and that is the defect this line keeps re-creating. It pins the
-  // published baseline to a literal, so when the suite grows the DOCUMENT goes stale and this
-  // guard actively defends the stale number: it fails whoever corrects it. Measured on `ecb7243`
-  // in a clean worktree the suite is 1443/1443, while the document said 1422.
-  //
-  // Updated rather than removed because the parity idea is right — a published figure should be
-  // pinned to something. It should be pinned to a DERIVED value; a test cannot cheaply run the
-  // suite to count itself, so the honest interim is a literal that is at least CURRENT, plus this
-  // note so the next person who trips it knows which side to trust. Trust the measurement.
-  assert.match(handoff, /\*\*1443\/1443\*\*/);
-  assert.match(handoff, /79 total[\s\S]*55 caught[\s\S]*14\s+anomal(?:y|ies)/);
-  assert.match(handoff, /10 deliberately undetectable/);
+  assert.match(
+    handoff,
+    new RegExp(`Source version:\\*\\* \`${escapeRegExp(packageJson.version)}\``),
+    `HANDOFF.md must publish the version package.json declares (${packageJson.version})`,
+  );
+  assert.match(
+    handoff,
+    new RegExp(`\\*\\*${registeredToolNames.size} MCP tools\\*\\*`),
+    `HANDOFF.md must publish the ${registeredToolNames.size} handlers registered in src/index.ts`,
+  );
+
+  // The suite count is deliberately NOT pinned to a value here. A test cannot count the suite it
+  // belongs to, so any number written in this file is a second document, not a measurement — and
+  // that is precisely how 1422 survived a 1443 suite. What this file CAN honestly check is that
+  // the figure is still published, and still in the shape scripts/run-tests.mjs parses. The value
+  // is compared against the real count there, by the process that actually ran the tests.
+  const publishedSuite = handoff.match(/\*\*(\d+)\/(\d+)\*\* tests/);
+  assert.ok(
+    publishedSuite,
+    "HANDOFF.md must publish a `**N/N** tests` baseline — scripts/run-tests.mjs checks its value",
+  );
+  assert.equal(
+    publishedSuite[1],
+    publishedSuite[2],
+    "the published baseline must report every test passing, not a partial run",
+  );
+
+  assert.match(
+    handoff,
+    new RegExp(
+      `${corpusManifest.vectors.length} total[\\s\\S]*${corpusBucket("caught")} caught[\\s\\S]*${corpusBucket("anomaly")}\\s+anomal(?:y|ies)`,
+    ),
+    "HANDOFF.md corpus buckets must match test/fixtures/corpus/manifest.json",
+  );
+  assert.match(
+    handoff,
+    new RegExp(`${corpusBucket("undetectable")} deliberately undetectable`),
+    "HANDOFF.md undetectable count must match test/fixtures/corpus/manifest.json",
+  );
   assert.match(handoff, /blackbox-corpus-transcript-integrity\.test\.ts/);
   assert.match(handoff, /wait-until\.test\.ts/);
   assert.match(handoff, /run-tests-ledger-env-preflight\.test\.ts/);
@@ -56,7 +124,14 @@ test("roadmap and specification describe shipped behavior without upgrading evid
   assert.match(roadmap, /offline delivery-trace.*implemented/s);
   assert.match(roadmap, /two-host coordinator.*witness.*implemented/s);
   assert.match(roadmap, /keyword.*taxonomy/s);
-  assert.match(roadmap, /79 total.*55 caught.*14 anomal(?:y|ies)/s);
+  assert.match(
+    roadmap,
+    new RegExp(
+      `${corpusManifest.vectors.length} total.*${corpusBucket("caught")} caught.*${corpusBucket("anomaly")} anomal(?:y|ies)`,
+      "s",
+    ),
+    "ROADMAP.md corpus buckets must match test/fixtures/corpus/manifest.json",
+  );
   assert.doesNotMatch(roadmap, /Embedding-based `route_work`[^\n]*\[x\]/);
 
   assert.match(spec, /provider-neutral runtime adapter/);
