@@ -171,9 +171,17 @@ if ((result.status ?? 1) !== 0) {
 // An unreadable or unparsable summary is NOT a pass. This guard exists because a missing
 // measurement reported as "fine" is the failure mode the whole file is built against; if the
 // reporter pairing ever stops working on some Node version, that must be loud on arrival.
+// Compare the COLLECTED total, not the pass count. The first version of this guard compared
+// `# pass`, which is green on Linux and macOS and red on windows-2022: 22 tests are
+// platform-skipped there, so the matrix measured 1422 passing out of 1444 collected and the
+// guard called a correct document stale. `# tests` is identical on all nine legs; `# pass` is
+// not. A published total is a claim about the suite, and the suite does not shrink because one
+// platform skips part of it — but a FAILURE is never acceptable, hence the separate fail check.
+const testsMatch = summary.match(/^# tests (\d+)$/m);
 const passMatch = summary.match(/^# pass (\d+)$/m);
 const failMatch = summary.match(/^# fail (\d+)$/m);
-if (!passMatch || !failMatch) {
+const skippedMatch = summary.match(/^# skipped (\d+)$/m);
+if (!testsMatch || !passMatch || !failMatch || !skippedMatch) {
   console.error(
     `\nThe suite passed but produced no readable TAP summary at ${summaryPath}.\n` +
       `Cannot verify the published baseline, and an unverified baseline is not a verified one.\n` +
@@ -182,8 +190,10 @@ if (!passMatch || !failMatch) {
   process.exit(1);
 }
 
+const measuredTotal = Number(testsMatch[1]);
 const measuredPass = Number(passMatch[1]);
 const measuredFail = Number(failMatch[1]);
+const measuredSkipped = Number(skippedMatch[1]);
 
 let handoff;
 try {
@@ -197,16 +207,23 @@ const published = handoff.match(/\*\*(\d+)\/(\d+)\*\* tests/);
 if (!published) {
   console.error(
     `\nHANDOFF.md publishes no \`**N/N** tests\` baseline.\n` +
-      `The suite measured ${measuredPass} passing. Publish that figure rather than removing it.\n`,
+      `The suite collected ${measuredTotal}. Publish that figure rather than removing it.\n`,
   );
   process.exit(1);
 }
 
-if (Number(published[1]) !== measuredPass || Number(published[2]) !== measuredPass || measuredFail !== 0) {
+const measured = `${measuredTotal} collected, ${measuredPass} passing, ${measuredFail} failing, ${measuredSkipped} skipped`;
+
+if (measuredFail !== 0) {
+  console.error(`\nThe suite reported ${measuredFail} failing (${measured}).\n`);
+  process.exit(1);
+}
+
+if (Number(published[1]) !== measuredTotal || Number(published[2]) !== measuredTotal) {
   console.error(
     `\nPublished baseline is stale.\n` +
       `  HANDOFF.md publishes: **${published[1]}/${published[2]}** tests\n` +
-      `  This run measured:    ${measuredPass} passing, ${measuredFail} failing\n\n` +
+      `  This run measured:    ${measured}\n\n` +
       `Update HANDOFF.md to the MEASURED figure. Never adjust the measurement to match the\n` +
       `document — that is the direction this guard exists to prevent.\n`,
   );

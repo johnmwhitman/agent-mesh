@@ -10,6 +10,11 @@ This figure is no longer maintained by hand: `scripts/run-tests.mjs` measures th
 suite it just ran and fails if this line disagrees with it, naming the true count.
 The document can therefore be stale for at most one run.
 
+The figure is the COLLECTED total, and every platform must collect it with zero
+failures. It is not a claim that every test executes everywhere: a platform-skipped
+subset does not run on `windows-2022`, so passes there are fewer than the total
+while the collected count and the zero-failure requirement are identical.
+
 ## Current product boundary
 
 MeshFleet Core is a local-first MCP coordination server. It provides fleet
