@@ -4,10 +4,15 @@
 traits. It is the stateless counterpart to `route_work`, which searches capabilities
 already registered in MeshFleet's local ledger.
 
-The tool constructs an ordered advisory plan. It does not persist the plan, execute it,
-authorize it, wake agents, contact providers, fetch budgets, or handle credentials,
-failover, circuit breakers, and exact metering. Those provider mechanics remain the
-gateway's job.
+The tool constructs an ordered advisory plan. `recommend_route` never performs
+runtime failover: it does not persist the plan, execute it, authorize it, wake
+agents, contact providers, fetch budgets, or handle credentials, circuit
+breakers, and exact metering.
+
+MeshFleet's runtime execution layer separately implements bounded failover for a
+classified provider refusal when an eligible registered alternate runtime exists.
+That execution behavior does not turn an advisory candidate into an available
+provider, authorize spend, or change the all-false effects of this contract.
 
 ## Evaluation order
 
@@ -149,8 +154,9 @@ dynamic evidence fields that `recommend_route` may consider.
 }
 ```
 
-Gateways retain catalogs, credentials, health and freshness policy, execution, retry,
-failover, and metering. The compiler does not read wrappers or RoutePlane, and its
+Gateways retain catalogs, credentials, health and freshness policy, and metering.
+The runtime execution layer owns launch, retry, and bounded failover. The
+compiler does not read wrappers or RoutePlane, and its
 output is not availability, authentication, freshness, execution, or authority
 evidence.
 
@@ -161,7 +167,8 @@ Capabilities, context, and policy describe fit. Provider, runtime, and model str
 are opaque evidence: they never score, establish availability, or authenticate an
 identity. Unknown budget is the correct result when freshness cannot be established.
 
-Gateways retain provider catalogs, credentials, execution, failover, and metering.
+Gateways retain provider catalogs, credentials, and metering; MeshFleet's
+runtime execution layer separately owns launch and bounded failover.
 The portable subscription-lane corpus is evidence only that an offline snapshot
 conforms to this advisory contract; it is not provider availability, live gateway,
 authentication, execution, or authorization evidence.
