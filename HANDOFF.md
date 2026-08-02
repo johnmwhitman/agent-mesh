@@ -1,8 +1,8 @@
 # MeshFleet public handoff
 
 **Source version:** `0.20.0` · **MCP surface:** **36 MCP tools** ·
-**clean local baseline:** **1447/1447** tests, plus typecheck and build, measured on
-`5545d12` plus this change, in a clean worktree
+**clean local baseline:** **1458/1458** tests, plus typecheck and build, measured on
+`b7e08e7` plus this change, in a clean worktree
 
 Base `01f0fa0` passed 1416/1416; the parity snapshot that introduced this document
 read 1422/1422 with its six contract guards. The current figure supersedes both.
@@ -58,6 +58,15 @@ remain skipped. The executable-stub rows (7 tests, including the failover
 end-to-end proof) are a test-harness limitation rather than a product one — a
 Windows-launchable stub would let them run, and that remains open work. Windows
 coverage for failover currently ends at the unit boundary.
+
+One further Windows skip is a **witness defect, not a platform difference**: the
+effect-key-collapse differential passes each case's raw document as a single
+argv argument, and its `M51-document-too-large` case is an 87,383-character
+argument — over the 32,767-character Windows `CreateProcess` command-line limit.
+Its in-suite execution therefore skips on `windows-2022`, with the measurement in
+the skip reason. The fix (stdin transport for oversized documents) is open work;
+the witness's runner and differential are digest-pinned, so it lands as its own
+reviewed change.
 
 `recommend_route`, `compile_route_candidates`, and
 `plan_speculative_backlog` are advisory projections. They do not execute work,

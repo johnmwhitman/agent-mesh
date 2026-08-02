@@ -6,6 +6,13 @@ import os
 import sys
 from evaluator import PROFILE, evaluate_bytes
 
+# Byte-differential contract: stdout is UTF-8 with "\n" newlines on every platform. The five
+# runners patched in #106 proved this line on real windows-2022 CI; the unpatched ones failed
+# there (#108 first run) -- Windows text-mode stdout emits \r\n from print(), bytes the
+# JavaScript side of the differential never emits, and cp1252 cannot encode all corpus content.
+sys.stdout.reconfigure(encoding="utf-8", newline="\n")
+
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CORPUS_PATH = os.path.join(ROOT, "corpus", "v0.1", "cases.json")
 
