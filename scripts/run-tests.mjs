@@ -6,6 +6,21 @@
 import { readdirSync } from "node:fs";
 import { join, sep } from "node:path";
 import { spawnSync } from "node:child_process";
+import { findLedgerEnvOverrides, ledgerEnvRefusal } from "./lib/ledger-env-preflight.mjs";
+
+// Ledger-env preflight. FIRST, before any scan — a ledger path in the environment outranks
+// the isolation the tests install for themselves, and the suite then fails in files the
+// caller never touched while naming no cause. Same class as the corpus generator that
+// destroys vectors and exits 0: the suite catches the mistake and points at the wrong repair.
+// See scripts/lib/ledger-env-preflight.mjs for the precedence and the measurement.
+//
+// There is deliberately NO override flag. An escape hatch here is a bypass, and the bypass
+// would be reached for by exactly the run that most needs the refusal.
+const ledgerEnvOverrides = findLedgerEnvOverrides(process.env);
+if (ledgerEnvOverrides.length > 0) {
+  console.error(ledgerEnvRefusal(ledgerEnvOverrides));
+  process.exit(1);
+}
 
 // Every directory whose `*.test.ts` files this runner executes. `npm test` is the
 // only test command CI invokes, so a suite absent from this list runs NOWHERE —
