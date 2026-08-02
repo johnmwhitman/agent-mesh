@@ -11,6 +11,7 @@ import { resolveEnv } from "./env.js";
 import { withLedger, withLedgerAndStorage, readLedger } from "./db.js";
 import { mapLegacyMessage, projectLegacyMessage } from "./a2a/legacy-map.js";
 import { A2A_MESSAGE_TYPES, type A2AMessageType } from "./a2a/types.js";
+import type { RuntimeDiagnostic } from "./runtime/types.js";
 
 // ---------------------------------------------------------------------------
 // Data Models
@@ -32,6 +33,8 @@ export interface Agent {
   status: "pending" | "running" | "complete" | "failed" | "interrupted";
   output?: string;
   error?: string;
+  /** Sanitized, bounded runtime warnings. Success keeps this separate from Agent.error. */
+  diagnostics?: RuntimeDiagnostic[];
   started_at?: number;
   completed_at?: number;
   retry_count?: number;
@@ -726,7 +729,8 @@ export function markAgentFinished(
   output: string,
   error: string | undefined,
   runtimeAgent?: string,
-  runtimeModel?: string
+  runtimeModel?: string,
+  diagnostics?: readonly RuntimeDiagnostic[],
 ): void {
   // ONE transaction: mark the agent AND decide+set fleet completion from the same
   // snapshot (was two RMW cycles — two finishers could both read "not all done").
@@ -736,6 +740,9 @@ export function markAgentFinished(
     agent.status = status;
     agent.output = output;
     agent.error = error;
+    agent.diagnostics = status === "complete" && diagnostics && diagnostics.length > 0
+      ? [...diagnostics]
+      : undefined;
     if (runtimeAgent !== undefined) agent.runtime_agent = runtimeAgent;
     if (runtimeModel !== undefined) agent.runtime_model = runtimeModel;
     agent.completed_at = Date.now();

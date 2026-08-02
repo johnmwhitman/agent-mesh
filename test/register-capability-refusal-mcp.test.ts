@@ -20,15 +20,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync, chmodSync } from "node:fs";
-import { tmpdir, platform } from "node:os";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
-const skipOnWindows = platform() === "win32"
-  ? { skip: "needs an executable stub for the default runtime; spawn refuses .cmd without a shell" }
-  : {};
 
 interface Call { name: string; arguments: Record<string, unknown> }
 
@@ -38,9 +35,24 @@ function callTools(dir: string, port: string, calls: Call[]): Promise<Record<num
   // only needs the rows. Without it the children are real `opencode` sessions whose success
   // depends on a live subscription — the environment-dependence that made the runtime-selection
   // suite pass on CI and fail on a machine whose provider was refusing.
-  const stub = join(dir, "fake-runtime");
-  writeFileSync(stub, "#!/bin/sh\nexit 1\n");
-  chmodSync(stub, 0o755);
+  //
+  // The stub is node's own executable plus NODE_OPTIONS="--require <exit1.cjs>": the required
+  // module exits before Node ever resolves its (nonexistent) main, so the adapter's argv shape
+  // is irrelevant. This works on every platform — `process.execPath` is a genuine executable
+  // Windows CreateProcess will run, where a `#!/bin/sh` script is not and `.cmd` is refused by
+  // spawn without a shell. It reaches the child because the opencode adapter's environment
+  // default is "inherit" (src/runtime/opencode.ts); the kimi adapter scrubs by design, which is
+  // why the failover suite cannot use this mechanism for its backup-runtime leg.
+  // ⚠️ NODE_OPTIONS applies to EVERY node process in this env — including the SERVER itself,
+  // which is also `node dist/index.js`. The first version of this stub had no discriminator and
+  // silently killed the server on boot; every callTools then ran to its 40s timeout. The
+  // required module therefore no-ops when argv[1] is the server entrypoint and acts only in the
+  // runtime child, whose argv is the adapter's (`run --model …`, no .js anywhere).
+  const stubBehavior = join(dir, "stub-exit1.cjs");
+  writeFileSync(
+    stubBehavior,
+    'if (!process.argv[1] || !process.argv[1].endsWith("index.js")) process.exit(1);\n',
+  );
 
   return new Promise((resolve, reject) => {
     const p = spawn("node", [join(repoRoot, "dist", "index.js")], {
@@ -54,7 +66,8 @@ function callTools(dir: string, port: string, calls: Call[]): Promise<Record<num
         MESHFLEET_EVENT_LOG_FILE: join(dir, "e.log"),
         AGENT_MESH_CHILD: "1",
         MESHFLEET_SSE_PORT: port,
-        MESHFLEET_OPENCODE_COMMAND: stub,
+        MESHFLEET_OPENCODE_COMMAND: process.execPath,
+        NODE_OPTIONS: `--require ${stubBehavior}`,
         MESHFLEET_RETRY_BASE_MS: "1",
       },
       stdio: ["pipe", "pipe", "pipe"],
@@ -108,7 +121,7 @@ const idsFrom = (res: string) => JSON.parse(JSON.parse(res).result.content[0].te
   fleet_id: string; agent_ids: string[];
 };
 
-test("the published tool refuses a capability whose fleet its agent contradicts", skipOnWindows, async () => {
+test("the published tool refuses a capability whose fleet its agent contradicts", async () => {
   await withDir(async (dir) => {
     const first = await callTools(dir, "13991", twoFleets);
     const f1 = idsFrom(first[0]);
@@ -125,7 +138,7 @@ test("the published tool refuses a capability whose fleet its agent contradicts"
   });
 });
 
-test("CONTROL: the same call with the agent's OWN fleet succeeds", skipOnWindows, async () => {
+test("CONTROL: the same call with the agent's OWN fleet succeeds", async () => {
   // Without this the test above would pass just as well if register_capability had started
   // refusing everything — which is exactly how a tightening turns into an outage.
   await withDir(async (dir) => {
