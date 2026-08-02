@@ -1100,7 +1100,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
             properties: {
               objective: {
                 type: "string",
-                const: "prefer_near_reset",
+                // prefer_near_reset: post-score tie-break on measured window urgency.
+                // exhaust_before_reset: the same measured, current-window urgency as the
+                // PRIMARY key — spend the fullest pool before its rotation discards the
+                // remainder. Both are advisory projections over caller-supplied evidence;
+                // unmeasured candidates are never promoted or demoted by either.
+                enum: ["prefer_near_reset", "exhaust_before_reset"],
               },
               now_ms: {
                 type: "integer",

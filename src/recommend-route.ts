@@ -54,7 +54,7 @@ export interface RecommendRouteInput {
   candidates: RecommendRouteCandidate[];
   top_n?: number;
   preference?: {
-    objective: "prefer_near_reset";
+    objective: "prefer_near_reset" | "exhaust_before_reset";
     now_ms: number;
   };
 }
@@ -69,7 +69,7 @@ export interface RecommendRouteResult {
     contacted_providers: false;
   };
   preference?: {
-    objective: "prefer_near_reset";
+    objective: "prefer_near_reset" | "exhaust_before_reset";
     now_ms: number;
     horizon_ms: number;
     evidence_only: true;
@@ -268,8 +268,14 @@ function validateRecommendRouteInput(value: unknown): asserts value is Recommend
       "preference",
       new Set(["objective", "now_ms"]),
     );
-    if (preference.objective !== "prefer_near_reset") {
-      invalid("preference.objective", "must equal prefer_near_reset");
+    if (
+      preference.objective !== "prefer_near_reset" &&
+      preference.objective !== "exhaust_before_reset"
+    ) {
+      invalid(
+        "preference.objective",
+        "must equal prefer_near_reset or exhaust_before_reset",
+      );
     }
     requireFiniteInteger(
       preference.now_ms,
@@ -500,6 +506,16 @@ export function recommendRoute(input: RecommendRouteInput): RecommendRouteResult
   }
 
   eligible.sort((a, b) => {
+    // exhaust_before_reset: the same measured, current-window urgency prefer_near_reset uses as
+    // a tie-break becomes the PRIMARY key. Unmeasured or non-current evidence scores urgency 0,
+    // so candidates the evidence cannot speak to keep their default relative order below every
+    // measured pool -- absence of measurement never reorders, and never promotes.
+    if (
+      input.preference?.objective === "exhaust_before_reset" &&
+      a.resetUrgency !== b.resetUrgency
+    ) {
+      return (b.resetUrgency ?? 0) - (a.resetUrgency ?? 0);
+    }
     if (a.components.final_score !== b.components.final_score) {
       return b.components.final_score - a.components.final_score;
     }

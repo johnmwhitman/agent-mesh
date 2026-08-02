@@ -96,8 +96,16 @@ response adds a result-level evidence-only preference record,
 those fields and reason codes are omitted and both output bytes and ranking law remain
 the prior default even when candidate windows are present.
 
+A second opt-in objective, `preference.objective: "exhaust_before_reset"`, uses the
+same urgency value as the PRIMARY ranking key instead of a post-score tie-break: among
+eligible candidates, higher measured urgency ranks first, and candidates whose urgency
+is zero — unmeasured, no window, or a window that does not contain `now_ms` — fall back
+to the default ranking law relative to each other. Evidence the caller did not supply
+never promotes or demotes a candidate under either objective, and measured exhaustion
+remains an exclusion before any urgency ordering applies.
+
 This is not a default account- or reset-window optimization policy; urgency
-applies only when `preference.objective: "prefer_near_reset"` is set.
+applies only when a `preference.objective` is set.
 `now_ms`, usage, totals, and window bounds all come
 from the caller. MeshFleet does not refresh them, attest freshness, infer a provider or
 account, divide a shared pool, reserve quota, dispatch work, or claim that using the

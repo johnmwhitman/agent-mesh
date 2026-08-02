@@ -42,7 +42,11 @@ export interface PlanSpeculativeBacklogInput {
   candidates: SpeculativeBacklogCandidate[];
   tasks: SpeculativeBacklogTask[];
   candidate_limit?: number;
-  preference?: RecommendRouteInput["preference"];
+  // Deliberately NARROWER than RecommendRouteInput["preference"]: the planner's published
+  // schema and validator admit only prefer_near_reset. recommend_route's newer
+  // exhaust_before_reset objective is not plumbed through here until someone asks for it —
+  // widening a published surface as a type side-effect is how contracts drift.
+  preference?: { objective: "prefer_near_reset"; now_ms: number };
 }
 
 export interface PlanSpeculativeBacklogResult {
