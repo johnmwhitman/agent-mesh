@@ -83,7 +83,10 @@ test("recommend_route advertises a caller-supplied advisory candidate contract",
     assert.equal(properties.top_n.maximum, 256);
     assert.equal(properties.preference.additionalProperties, false);
     assert.deepEqual(properties.preference.required, ["objective", "now_ms"]);
-    assert.equal(properties.preference.properties.objective.const, "prefer_near_reset");
+    assert.deepEqual(properties.preference.properties.objective.enum, [
+      "prefer_near_reset",
+      "exhaust_before_reset",
+    ]);
     assert.equal(properties.preference.properties.now_ms.type, "integer");
     assert.equal(
       properties.preference.properties.now_ms.maximum,
