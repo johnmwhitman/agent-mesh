@@ -1,6 +1,15 @@
 import base64, hashlib, json, sys
 from pathlib import Path
 from evaluator import BarrierError, PROFILE, canonical_json, evaluate_bytes
+
+# Byte-differential contract: stdout is UTF-8 with "\n" newlines on every platform. Without
+# this, a cp1252 console (the Windows default) raises UnicodeEncodeError on corpus content --
+# measured under PYTHONIOENCODING=cp1252 on 2026-08-02 -- and Windows text-mode newline
+# translation would emit \r\n bytes the JavaScript side of the differential never emits.
+# PYTHONIOENCODING outranks this only if set to a non-UTF-8 value deliberately; the runner
+# pins its own contract rather than trusting the console.
+sys.stdout.reconfigure(encoding="utf-8", newline="\n")
+
 ROOT = Path(__file__).resolve().parents[1]
 def one(case):
     data = base64.b64decode(case["raw_base64"]) if "raw_base64" in case else json.dumps(case["input"], ensure_ascii=False, separators=(",", ":")).encode()

@@ -15,9 +15,11 @@ The ranked A2A strategy is canonical in
    fencing, launch-intent quarantine, recorded-PID containment only, and a
    sequence-ordered repairable event
    outbox. Logical ledger schema remains v2.
-3. **Provider-neutral runtime adapters** - internal OpenCode compatibility and
-   deterministic local-process proof are implemented; public selection and real
-   vendor adapters remain deferred.
+3. **Provider-neutral runtime adapters** - the runtime SPI, OpenCode default,
+   deterministic local-process proof, and per-agent runtime selection are
+   implemented. Kimi and Claude Code adapters are fixture-verified, non-default,
+   and require operator configuration; that evidence does not prove a provider
+   account, quota, or availability.
 4. **Slice 4A portability proof** - canonical-ingress semantics are frozen in
    design, and a standalone offline Python witness agrees with the
    language-neutral corpora, strict raw-decoder limits, and exact custom
@@ -26,33 +28,29 @@ The ranked A2A strategy is canonical in
    negative self-tests. This is reference-conformance only: no production
    ingress/store/tool, RFC JCS, signature, durable acceptance, delivery, or
    authenticated-principal claim.
-5. **Slice 4B durable acceptance foundation** - implemented and locally
-   verified on the unmerged branch at `f1f98fb`: ordered global physical SQLite
-   v3-to-v4 migration, three private append-only keyed-token tables, exact
-   validation, and one accepted local-decision receipt per acceptance. Logical
-   ledger schema remains v2; v3 code refuses v4, so rollback needs a
-   pre-migration WAL-safe backup. No hidden lazy schema, raw identity/content
-   storage, legacy/lifecycle/outbox projection, auth, delivery, public tool, or
-   activation.
-6. **Slice 4C-0 capability profile and evidence taxonomy** - implemented and
-   independently verified as an offline/dormant semantic foundation at
-   `ea69cb9` over `234cd55..ea69cb9`: 363 exact five-operation cases, 363/363
-   direct TypeScript/Python byte differential, 530/530 full tests, passed
-   typecheck, and two APPROVED final independent reviews. Capability claims,
-   proof carriers, provider strings, model banners, and durable receipts never
-   grant authority. No public/runtime/auth/network/durable-registry activation.
+5. **Slice 4B durable acceptance foundation** - design and migration records are
+   retained, but the acceptance writer is absent from current main. No public
+   ingress, auth, delivery, execution, or released durable-acceptance surface is
+   claimed.
+6. **Slice 4C-0 capability profile and evidence taxonomy** - the specification
+   and decision record remain, but the former reference implementation is absent
+   from current main. Static harness mapping is a separate test-only sidecar and
+   does not grant authority or restore that implementation.
 7. **Slice 4C-1 authenticated-local adapter proof** - bounded evidence-alpha
    implemented; exactly one offline `evaluate-local-admission(request_json,
    envelope_json, replay_oracle)` operation over independent raw UTF-8 texts is
    specified, with an ephemeral non-acceptance plan, explicit
    assumed local adapter boundary, supplied fixture binding/all-recipient policy
    before replay, and no
-   public/auth/network/storage/runtime activation. The 32-case shared corpus,
+   public/auth/network/storage/runtime activation. The 44-case mandatory corpus,
    independent Python witness, recipient normalization proof, strict corpus
    canaries, and closed sidecar fixtures do not yet satisfy the profile's full
    exhaustive coverage gate. No active, approved, remote, or multi-host claim.
-8. **Slice 4D then 4E** - offline delivery-attempt/transport conformance, then
-   deterministic two-host coordinator simulation; neither is implemented.
+8. **Slices 4D and 4E** - the offline delivery-trace profile and its independent
+   Python reference are implemented as conformance evidence. A deterministic
+   two-host coordinator witness is also implemented under
+   `blackbox/a2a-two-host-coordinator-v0.1/`. Neither is a live transport or a
+   production multi-host coordinator.
 
 Inbound MCP process compatibility does not imply outbound runtime neutrality,
 authenticated principal binding, lifecycle durability, or multi-host support.
@@ -120,9 +118,10 @@ The fleet must be self-healing. A hung agent should not block the whole mesh.
 
 ## v0.8.0 — Smart routing (Q3 2026)
 
-Routing becomes capability-aware, not just keyword-overlap.
+Routing combines deterministic keyword and synonym matching with an optional
+hierarchical skill taxonomy; it does not ship an embedding model.
 
-- [x] **Embedding-based `route_work`** — use a local embedding model (e.g., all-MiniLM via `@xenova/transformers`) for semantic match
+- [ ] **Embedding-based `route_work`** — exploratory only; current routing remains keyword-, synonym-, and taxonomy-based
 - [x] **Skill taxonomy** — formalize skills as a hierarchy (e.g., `frontend` > `react` > `nextjs`)
 - [x] **Multi-agent routing** — `route_work` returns N best matches for fan-out tasks
 - [x] **Routing feedback loop** — if a routed task fails, learn from the failure to improve future routing
@@ -144,7 +143,9 @@ API freeze. Production-ready. Backward-compatible.
 - [x] **Backward compatibility matrix** — `COMPATIBILITY.md` documents the API + ledger schema guarantees per version; per-version fixture tests are a v1.0 follow-up
 - [x] **Performance benchmarks** — sub-100ms overhead per agent spawn, 10k messages per fleet
 - [x] **Single-host SQLite ledger** — resolved differently and better in 0.12.0: SQLite (better-sqlite3, WAL + `BEGIN IMMEDIATE`) became THE ledger, not a flagged option, because the JSON store provably lost concurrent writes. This provides same-host process write exclusion only; it is not multi-host readiness. Cross-machine coordination (the libSQL idea) folds into the post-1.0 cloud relay.
-- [x] **npm publish** — Publishing is verified against the registry's `dist-tags`, not against the publish command's output. Verified 2026-07-29 with `npm view meshfleet versions`, the registry has served exactly five versions: `0.11.1`, `0.13.0`, `0.15.0`, `0.16.0`, `0.18.0`. **Registry latest is `0.18.0`.** A version being tagged in git is not a release: `0.14.0`, `0.15.1`, `0.17.0` and `0.19.0` exist as tags and were never published, so treat a git tag as an intent to ship and the registry as the only record of shipping. (This bullet previously advertised `meshfleet@0.15.1` as the current release — a version the registry has never served — while in the same sentence instructing readers to verify against `dist-tags`. A rule you state is not a rule you followed.) No release line contains the unmerged Slice 4B durable-acceptance work (`acc4090..f1f98fb`) or Slice 4C-0 capability-profile work (`234cd55..ea69cb9`).
+- [x] **npm publish** — Source and registry latest are `0.20.0`. Publication
+  truth is verified against the registry's `dist-tags`, not inferred from a Git
+  tag or a publish command's output.
 - [x] **Auth token for MCP** — DONE (2026-07-16). Optional `MESHFLEET_AUTH_TOKEN` (legacy `AGENT_MESH_AUTH_TOKEN`): when set, the SSE listener requires `Authorization: Bearer <token>` (or `?token=` for EventSource) on every endpoint except `/healthz`; constant-time comparison; unset keeps the historical open local-trust default. The stdio MCP transport stays process-local (auth is the OS process boundary there by design).
 
 ## v0.13 (released / historical)
@@ -161,7 +162,8 @@ Commercial assurance and account-specific provider operations are outside this
 public roadmap.
 
 **Now**
-- Provenance-signed npm releases (the "prove it" project practicing its own thesis at the package layer) — the workflow is built (`.github/workflows/release.yml`, OIDC + `npm publish --provenance`); it is waiting on a working `NPM_TOKEN` repository secret, not on code.
+- Provenance-signed tagged npm releases remain the release path; source and
+  registry latest are currently `0.20.0`.
 - VS Code extension marketplace listing (the read-only inspector MVP already lives in `editors/vscode/`) — waiting on a publisher account, not on code.
 
 **Next**
@@ -244,7 +246,11 @@ public roadmap.
   once before that composition; it neither caches nor schedules refreshes, and
   retains the same advisory, all-false-effects boundary.
 - P1 spawn receipts and bounded public model selection: `spawn_fleet` / `attach_agent` accept an optional `model`, the request is persisted separately from the observed banner, legacy and durable retries plus Discussion wakeups preserve it, and missing or contradictory observation fails closed. Banner agreement remains observed evidence only. Capability `model` remains routing self-description.
-- A published corpus of tampered-ledger fixtures the verifier must catch — [`test/fixtures/corpus/`](test/fixtures/corpus/README.md). 76 vectors over a shared clean baseline, each one baseline-plus-declared-change so the baseline is a genuine near-neighbour control. Reported in three separate buckets, never blended: 54 `caught` (overclaims that must raise an error and fail the ledger), 12 `anomaly` (warning-only; deliberately not counted as caught), and 10 `undetectable` — vectors the unsigned local core structurally cannot see, published because a boundary you conceal is more dangerous than one you demonstrate. Coverage over all 48 non-`discussion` checks is re-derived from source each run, so a new check without a vector fails the suite.
+- A published corpus of tampered-ledger fixtures the verifier must catch —
+  [`test/fixtures/corpus/`](test/fixtures/corpus/README.md). **79 total** vectors
+  over a shared clean baseline: **55 caught**, **14 anomaly** cases, and 10
+  deliberately undetectable cases. The buckets remain separate; coverage over
+  all 51 non-`discussion` checks is re-derived from source each run.
 - `verify --explain` — failure triage for the ledger auditor
 - Zero-install ledger verification (`npx agent-mesh inspect --verify <file>` against any ledger someone sends you; the audited file is copied read-only and never mutated)
 - A quickstart demo that ends with a verification, not a wall of text (`npx agent-mesh demo`)
@@ -287,20 +293,11 @@ observable, not a daemon, dashboard, or service claim.
 
 ## A2A program closeout and next sequencing (2026-07-20)
 
-- [x] **Slice 4B: dormant durable acceptance** — implemented and locally
-  verified at `f1f98fb` over `acc4090..f1f98fb`. Physical SQLite v4 is ordered
-  and fail-closed; logical ledger schema remains v2. The private journal has no
-  public ingress, delivery, execution, auth provider, transport activation,
-  outbox, lifecycle execution, NDJSON, or legacy projection.
-- [x] **Slice 4C-0: capability profile and evidence taxonomy** — offline/dormant
-  semantic foundation implemented and independently verified at `ea69cb9` over
-  `234cd55..ea69cb9`. Exactly five operations, 363 executable cases, 363/363
-  direct byte differential, 56 extension-family cases, R00-R22, T00-T16
-  rejection precedence, all eight target behaviors, and producer uniqueness are
-  evidenced. The 13 serialized-report ingestion-only duplicate vectors remain
-  explicitly deferred. This is not proof verification, authority, public
-  ingress, runtime selection, network, persistence, delivery, execution,
-  release, or activation.
+- [ ] **Slice 4B: dormant durable acceptance** — design records remain, but the
+  acceptance writer is absent from current main. Treat it as unshipped.
+- [ ] **Slice 4C-0: capability profile and evidence taxonomy** — specification
+  records remain, but the former reference implementation is absent from current
+  main. Treat it as unshipped.
 - [ ] **Slice 4C-1: principal-bound authenticated-local semantic path** —
   bounded offline evidence-alpha implemented, full profile still open. The
   contract has one operation over independent
@@ -309,11 +306,11 @@ observable, not a daemon, dashboard, or service claim.
   public intermediate-success APIs; its admission plan is not acceptance,
   persistence, receipt, delivery, execution, or reusable authority. No released
   package export, MCP tool, CLI, runtime, DB, transport, or network consumer.
-  The current 32-case direct TypeScript/Python evidence and sidecar fixtures do
+  The current 44-case direct TypeScript/Python evidence and sidecar fixtures do
   not close every exhaustive Section 9 family/cardinality/path gate. Keep the
   row open and do not treat it as authenticated ingress, acceptance, remote,
   multi-host, or released capability.
-- [ ] **Slice 4D: offline delivery-attempt and transport conformance** — compare
+- [x] **Slice 4D: offline delivery-attempt and transport conformance** — compare
   stdio, mailbox, HTTP/SSE, and WebSocket semantic traces without live peers.
   **4D-alpha is implemented locally at reference-conformance:** the pure
   TypeScript evaluator and independent stdlib-only Python witness agree over a
@@ -323,9 +320,10 @@ observable, not a daemon, dashboard, or service claim.
   plane field smuggling, and freeze live-transport/interoperability/wake/
   execution/persistence claims to false. This does not implement any transport
   or close the broader 4D row.
-- [ ] **Slice 4E: deterministic two-host coordinator simulation** — prove
-  leases, monotonic fencing, cancellation, partition, and recovery semantics
-  before operational multi-host work.
+- [x] **Slice 4E: deterministic two-host coordinator witness** — an offline
+  24-case JS/Python differential witness covers leases, monotonic fencing,
+  cancellation, partition, and recovery semantics. It is not a production
+  coordinator, network, consensus system, datastore, or multi-host authority.
 
 Public or remote activation, credentials, spend, deployment, and provider-live
 conformance remain separate human gates.

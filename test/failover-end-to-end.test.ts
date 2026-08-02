@@ -29,7 +29,15 @@ import { createRequire } from "node:module";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const skipOnWindows = platform() === "win32"
-  ? { skip: "needs an executable stub; spawn refuses .cmd without a shell and a test cannot author a .exe" }
+  ? {
+      skip:
+        "the backup-runtime leg cannot be stubbed on Windows: the kimi adapter scrubs its child " +
+        "environment by design (src/runtime/kimi.ts) and the spec never carries environment, so " +
+        "the process.execPath+NODE_OPTIONS stub that works for the default runtime (which " +
+        "inherits) has no channel to the kimi child, and no test-authorable Windows executable " +
+        "exists. Un-skipping needs an operator-facing child-env admission feature — a product " +
+        "decision, not a fixture.",
+    }
   : {};
 
 const ESC = String.fromCharCode(27);

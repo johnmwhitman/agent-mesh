@@ -11,6 +11,7 @@ import { resolveEnv } from "./env.js";
 import { withLedger, withLedgerAndStorage, readLedger } from "./db.js";
 import { mapLegacyMessage, projectLegacyMessage } from "./a2a/legacy-map.js";
 import { A2A_MESSAGE_TYPES, type A2AMessageType } from "./a2a/types.js";
+import type { RuntimeDiagnostic } from "./runtime/types.js";
 
 // ---------------------------------------------------------------------------
 // Data Models
@@ -32,6 +33,8 @@ export interface Agent {
   status: "pending" | "running" | "complete" | "failed" | "interrupted";
   output?: string;
   error?: string;
+  /** Sanitized, bounded runtime warnings. Success keeps this separate from Agent.error. */
+  diagnostics?: RuntimeDiagnostic[];
   started_at?: number;
   completed_at?: number;
   retry_count?: number;
@@ -726,7 +729,8 @@ export function markAgentFinished(
   output: string,
   error: string | undefined,
   runtimeAgent?: string,
-  runtimeModel?: string
+  runtimeModel?: string,
+  diagnostics?: readonly RuntimeDiagnostic[],
 ): void {
   // ONE transaction: mark the agent AND decide+set fleet completion from the same
   // snapshot (was two RMW cycles — two finishers could both read "not all done").
@@ -736,6 +740,9 @@ export function markAgentFinished(
     agent.status = status;
     agent.output = output;
     agent.error = error;
+    agent.diagnostics = status === "complete" && diagnostics && diagnostics.length > 0
+      ? [...diagnostics]
+      : undefined;
     if (runtimeAgent !== undefined) agent.runtime_agent = runtimeAgent;
     if (runtimeModel !== undefined) agent.runtime_model = runtimeModel;
     agent.completed_at = Date.now();
@@ -1124,6 +1131,43 @@ export function _registerCapability(data: MeshData, input: CapabilityInput): voi
   if (!Array.isArray(input.skills) || !input.skills.every((sk) => typeof sk === "string")) {
     throw new Error(
       `register_capability: skills is required and must be an array of strings (got ${JSON.stringify(input.skills)})`
+    );
+  }
+  // A capability may not place an agent in a fleet its own row contradicts.
+  //
+  // `capability.fleet_mismatch` (the verifier) reports this AFTER the fact, and it has to: an
+  // audit exists for rows a ledger already holds, and no writer change can reach those. But
+  // nothing objected at the WRITE, so an operator who used `fleet_id` as a logical label rather
+  // than the technical fleet got a clean success and a ledger the auditor would warn about
+  // forever, with no signal at the moment they created it. That silence is the defect here; the
+  // warning was only ever the second half.
+  //
+  // The gate is the verifier's, character for character, so the two can never disagree about what
+  // counts: the agent must be HELD, the named fleet must be HELD, and they must differ. A
+  // capability for an agent this ledger has not registered, or naming a fleet it does not hold, is
+  // the legitimate cross-attachment case and is accepted exactly as before.
+  //
+  // ⚠️ This is a TIGHTENING of a published tool: `register_capability` now rejects a call it used
+  // to accept. Measured against the live store before writing it — 457 capability rows, 457 with a
+  // resolvable agent, and ZERO where the two fleets differ at all, so nothing real is refused
+  // today. `autoRegisterFromAgent` cannot produce a mismatch by construction: it is called with
+  // the same fleet id the agent was registered under (`src/index.ts` spawn and attach paths).
+  //
+  // ⚠️ It also makes a measured number move in the flattering direction — future
+  // `capability.fleet_mismatch` findings become rarer. Flagged rather than taken quietly. It is
+  // the legitimate version of that move: the auditor is untouched and still reports every row
+  // already written. Prevention at the source, not a quieter check.
+  const namedAgent = data.agents[input.agentId];
+  if (
+    namedAgent !== undefined &&
+    data.fleets[input.fleetId] !== undefined &&
+    namedAgent.fleet_id !== input.fleetId
+  ) {
+    throw new Error(
+      `register_capability: agent ${input.agentId} is registered in fleet ${JSON.stringify(namedAgent.fleet_id)}, ` +
+        `but this capability names fleet ${JSON.stringify(input.fleetId)} — this ledger holds both, so the two rows ` +
+        `would disagree about where the work happened. Pass the agent's own fleet id, or register the capability ` +
+        `under an agent that belongs to ${JSON.stringify(input.fleetId)}.`
     );
   }
   data.capabilities[input.agentId] = {

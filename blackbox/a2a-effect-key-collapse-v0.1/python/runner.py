@@ -6,6 +6,13 @@ import os
 import sys
 from evaluator import PROFILE, evaluate_bytes
 
+# Byte-differential contract: stdout is UTF-8 with "\n" newlines on every platform. The five
+# runners patched in #106 proved this line on real windows-2022 CI; the unpatched ones failed
+# there (#108 first run) -- Windows text-mode stdout emits \r\n from print(), bytes the
+# JavaScript side of the differential never emits, and cp1252 cannot encode all corpus content.
+sys.stdout.reconfigure(encoding="utf-8", newline="\n")
+
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CORPUS_PATH = os.path.join(ROOT, "corpus", "v0.1", "cases.json")
 
@@ -57,6 +64,13 @@ def run_self():
 
 if len(sys.argv) == 3 and sys.argv[1] == "--raw-base64url":
     raw = decode_base64url(sys.argv[2])
+    sys.stdout.write(json.dumps(evaluate_bytes(raw), ensure_ascii=True, separators=(",", ":")))
+elif len(sys.argv) == 2 and sys.argv[1] == "--raw-stdin":
+    # Same evaluation as --raw-base64url, payload on stdin instead of argv. Exists because a
+    # corpus document can exceed an OS argv limit: M51-document-too-large is an 87,383-character
+    # base64url argument, and Windows CreateProcess caps a command line at 32,767 characters, so
+    # the argv transport cannot carry it there at all (measured on the #108 CI matrix).
+    raw = decode_base64url(sys.stdin.read().strip())
     sys.stdout.write(json.dumps(evaluate_bytes(raw), ensure_ascii=True, separators=(",", ":")))
 elif len(sys.argv) == 1 or (len(sys.argv) == 2 and sys.argv[1] == "--corpus"):
     sys.stdout.write(json.dumps(run_corpus(), ensure_ascii=True, separators=(",", ":")))

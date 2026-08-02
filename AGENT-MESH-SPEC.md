@@ -21,21 +21,27 @@ This file intentionally does not duplicate their registries or acceptance bars.
 
 Agent Mesh is a local-first MCP coordination server. Compatible clients connect
 through the packaged stdio server, invoke coordination tools, and share a local
-SQLite ledger. The current outbound worker path launches independent processes
-through `opencode run`.
+SQLite ledger. Outbound work launches independent processes through a
+provider-neutral runtime adapter contract. OpenCode remains the default.
+Callers may choose an operator-registered runtime per agent in legacy lifecycle
+mode; durable mode refuses that selector. Kimi and Claude Code are shipped as
+fixture-verified, non-default adapters with explicit configuration gates.
 
 ```text
 MCP client
   -> MCP stdio
     -> Agent Mesh coordination core
       -> local SQLite ledger
-      -> OpenCode-backed worker process
+      -> selected registered runtime adapter
+        -> independent worker process
       -> optional local SSE inbox projection
 ```
 
-The MCP boundary is transport-portable. The outbound execution path is not yet
-runtime-portable. A provider selected inside OpenCode is still OpenCode-routed
-execution, not a second Agent Mesh runtime adapter.
+The inbound MCP boundary and outbound runtime registry are separate. A provider
+selected with OpenCode's `provider/model` argument is still OpenCode-routed
+execution; a per-agent runtime selector chooses a separately registered
+adapter. Neither label proves account identity, entitlement, availability, or
+billing.
 
 ## Current guarantees
 
@@ -43,22 +49,28 @@ execution, not a second Agent Mesh runtime adapter.
 - The SQLite ledger provides same-host transactional write exclusion.
 - The packaged `npx -y meshfleet` process completes the MCP initialization
   handshake.
+- The canonical A2A codec validates and fingerprints provider-neutral
+  envelopes; its public evidence is offline conformance, not authenticated
+  ingress.
+- The durable lifecycle kernel provides fenced leases, persisted retries,
+  recovery, cancellation, and a repairable event outbox on one SQLite
+  authority.
+- The provider-neutral runtime adapter registry normalizes execution outcomes
+  and accepts per-agent runtime selection in legacy lifecycle mode;
+  unconfigured selections and durable-mode selection fail closed.
 - Messages are at-least-once ledger delivery with receipt-derived acknowledgment
   projections.
 - Capabilities are self-described routing metadata.
-- Runtime metadata is an observation or report from the current OpenCode path,
-  not an attestation.
+- Runtime metadata is observation or report data, not attestation.
 
 ## Explicit non-guarantees
 
 The current system does not claim:
 
-- A canonical versioned A2A wire envelope implementation.
 - Authenticated principal binding or signed sender and receipt identity.
-- Durable attempt leases, fencing, cancellation, or replay-backed recovery.
-- Provider-neutral runtime adapters.
 - General HTTP A2A transport or remote relay behavior.
-- Multi-host coordination or shared remote ownership.
+- Production multi-host coordination or shared remote ownership. The two-host
+  witness is a deterministic offline model only.
 - Exactly-once external side effects.
 
 ## Extension rule

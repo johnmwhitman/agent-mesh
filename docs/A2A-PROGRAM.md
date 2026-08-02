@@ -4,6 +4,19 @@ This is the canonical strategy and sequencing document for the next Agent Mesh
 A2A program. It separates planned or designed work from implemented evidence;
 it does not turn a design into an implementation claim.
 
+## Scope ruling (2026-08-02): single-host is the product
+
+Remote transport, authenticated network ingress, and production multi-host
+coordination are **out of scope for this project** — a deliberate product
+decision, not a pending phase. Agent Mesh is a local-first, single-host
+coordination control plane; that is its identity, not its current limitation.
+The offline witnesses (including the Slice 4E two-host coordinator witness)
+remain maintained as protocol evidence: they price the semantics honestly so
+the protocol stays interop-ready on paper, and any future transport would be a
+separate project consuming these documents rather than an extension of this
+server. Sections below that sequence transport-adjacent work are retained as
+design records under this ruling.
+
 ## Current position
 
 Agent Mesh currently provides a local coordination control plane with these
@@ -13,8 +26,10 @@ verified boundaries:
   Claude Code, Codex, OpenCode, and generic MCP clients are documented against
   the same inbound server shape, but live semantic conformance for each client
   is not yet claimed.
-- Worker execution is still coupled to `opencode run`. A different provider
-  selected inside OpenCode is not a second runtime adapter.
+- Worker execution uses a provider-neutral runtime registry. OpenCode is the
+  default; Kimi and Claude Code are configuration-gated fixture-verified
+  adapters. `spawn_fleet` may select a registered runtime per agent in legacy
+  lifecycle mode, while durable mode refuses that selector.
 - SQLite provides same-host transactional write exclusion. It is not a
   multi-host lease or ownership protocol.
 - Messages, receipts, and capabilities are local ledger records. They are not
@@ -26,17 +41,14 @@ verified boundaries:
   deterministic retries, launch-intent quarantine, scheduled lease recovery, and a sequence-ordered
   NDJSON-repair outbox without changing MCP
   inputs or outputs.
-- Public canonical-envelope ingress and its durable duplicate persistence,
-  authenticated principals, public lifecycle controls, and public runtime
-  selection remain unimplemented. Private durable duplicate persistence is
-  implemented and verified only in the dormant Slice 4B journal. The
-  provider-neutral RuntimeAdapter SPI plus isolated
-  OpenCode and deterministic local-process adapters are implemented and
-  runtime-launch-verified; they are not yet public multi-runtime orchestration.
-- Slice 4A is reference-conformance verified. Slice 4B is implemented and
-  locally verified, dormant, and not activated: physical SQLite v4, the private
-  acceptance journal, and its migration/privacy/atomicity evidence exist only
-  on this unmerged branch.
+- Public canonical-envelope ingress, durable duplicate persistence,
+  authenticated principals, public lifecycle controls, and production
+  multi-host coordination remain unimplemented. The former Slice 4B acceptance
+  writer and Slice 4C-0 reference implementation are absent from current main;
+  their specifications remain design records.
+- Slice 4A is reference-conformance verified. Slice 4C-1 remains an incomplete
+  offline evidence path. Slice 4D has offline delivery-trace reference evidence,
+  and Slice 4E has an offline two-host coordinator witness only.
 
 ## Slice 4C-1 bounded evidence-alpha
 
@@ -96,9 +108,8 @@ independent imports. Existing MCP compatibility tests must remain unchanged.
 
 **Status:** Codec, fixture corpus, and legacy internal mapping implemented and
 covered by focused conformance plus existing API-compatibility tests. Public
-canonical-envelope ingress, its durable duplicate detection, remote transport,
-and authenticated principals are not implemented. The private dormant Slice 4B
-journal's durable duplicate detection is implemented and locally verified.
+canonical-envelope ingress, durable duplicate detection, remote transport, and
+authenticated principals are not implemented in current main.
 
 ### Slice 2: Durable lifecycle kernel
 
@@ -159,9 +170,10 @@ vendor smoke test is opt-in and cannot be required for the offline suite.
 **Status:** Slice 3A implemented with a provider-neutral runtime contract,
 internal registry, OpenCode compatibility adapter, and deterministic local
 process proof. `spawn_fleet` remains OpenCode-backed by default with unchanged
-MCP input/output. Bounded durable single-host lifecycle integration is
-implemented; real vendor adapters, target configuration renderers, public
-runtime selection, and remote execution remain separate.
+MCP output. Per-agent runtime selection is public in legacy lifecycle mode and
+refused in durable mode. Kimi and Claude Code adapters are configuration-gated
+and fixture-verified; that is not live account or availability evidence. No
+target configuration renderer ships, and remote execution remains separate.
 
 ## Sequencing and dependencies
 
@@ -186,7 +198,10 @@ separate human and architecture gate:
   authorization.
 - Signed messages, signed receipts, or runtime attestations.
 - Public `send_a2a`, public cancellation, and remote control APIs.
-- Direct Claude, Codex, Antigravity/Gemini, Grok, or other vendor adapters (Slice 3B adds only inbound static config renderers; outbound remains deferred).
+- Direct Codex, Antigravity/Gemini, Grok, or other additional vendor adapters.
+  Kimi and Claude Code implementations already exist behind configuration and
+  fixture gates; live account execution remains separately gated. Inbound
+  client configurations are hand-authored documentation examples, not rendered.
 - Production deployment, external relay activation, credentials, spend, and
   private-data or production-data egress.
 - Exactly-once external side effects. Idempotency and fencing do not provide
@@ -228,68 +243,49 @@ They are additive, reversible, and do not widen the current MCP surface.
    witness and language-neutral fixtures. This is codec/profile evidence only:
    no production ingress/store/tool, delivery, legacy projection, transport,
    authentication, or multi-host claim.
-2. **Slice 4B: explicit dormant durable acceptance foundation.** Implemented
-   and locally verified at `f1f98fb` over `acc4090..f1f98fb`: ordered physical
-   SQLite v4, a three-table private journal, exact schema validation,
-   request-first durable classification, and accepted-only local receipts. It
-   remains unmerged, unpublished, inactive, and below public ingress.
-3. **Slice 4C-0: capability profile and evidence taxonomy.** Implemented and
-   independently verified as an offline/dormant semantic foundation at
-   `ea69cb9`; capability claims and model banners do not grant authorization.
+2. **Slice 4B: explicit dormant durable acceptance foundation.** Design and
+   migration records remain, but the acceptance writer is absent from current
+   main. No released durable-acceptance surface is claimed.
+3. **Slice 4C-0: capability profile and evidence taxonomy.** The specification
+   and decision record remain, but the former reference implementation is absent
+   from current main.
 4. **Slice 4C-1: principal-bound authenticated-local semantic path.** Bounded
    evidence-alpha is executable but the exhaustive profile gate remains open.
    It models a local adapter path without public
    ingress, remote transport, credentials, or delivery and remains separately
    gated.
-5. **Slice 4D then 4E:** 4D-alpha now has a pure reference-conformance offline
+5. **Slice 4D then 4E:** 4D-alpha has a pure reference-conformance offline
    delivery-trace normalizer; an independent stdlib-only Python witness agrees
    with the TypeScript evaluator over the language-neutral corpus. It implements
-   no transport and consumes no 4C-1 principal or admission result. Broader 4D
-   transport evidence and the 4E deterministic two-host coordinator simulation
-   remain unimplemented.
+   no transport and consumes no 4C-1 principal or admission result. The 4E
+   deterministic two-host coordinator witness is implemented as a 24-case
+   offline JS/Python differential model; it is not a production coordinator,
+   network, consensus system, datastore, or multi-host authority.
 
 `meshfleet.a2a` v0.1 remains a codec protocol. Its process-local identity
 registry is not durable ingress identity. The public `send_a2a` tool remains
 absent until all principal-binding, authorization, durable acceptance,
 compatibility, and independent-review gates are satisfied.
 
-## Slice 4B closeout: dormant durable acceptance (2026-07-20)
+## Slice 4B design record: dormant durable acceptance
 
-Slice 4B is **implemented and locally verified, not activated** at
-`f1f98fb` (`acc4090..f1f98fb`). It advances durable local acceptance only:
-physical SQLite v4 with logical ledger schema v2, an internal package-private
-journal, exact pre-mutation schema validation, request-first identity ordering,
-and one honest local-decision receipt per accepted semantic identity.
-
-It does not establish public ingress, authenticated remote identity, delivery,
-execution, transport activation, multi-host coordination, or interoperability
-with any named provider. Capability claims and model/runtime banners remain
-non-authorizing data. The subsequent program sequence is 4C-0 capability
-profile and evidence taxonomy, 4C-1 principal-bound
-authenticated-local semantic path, 4D offline delivery-attempt and transport
-conformance, then 4E deterministic two-host coordinator simulation. Public or
-remote activation remains human-gated.
+The durable-acceptance specification and migration ADR remain as design
+records. The acceptance writer is absent from current main, so current source
+does not claim a durable canonical-ingress store. Public ingress,
+authenticated remote identity, delivery, execution, transport activation, and
+multi-host coordination remain outside this record.
 
 ## Slice 4C-0 capability profile closeout
 
 Slice 4C-0 is specified in
 [A2A Capability Profile v0.1](./A2A-CAPABILITY-PROFILE-v0.1.md) and
 [ADR 0006](./adr/0006-capability-evidence-is-not-authority.md) and is
-**implemented and independently verified as an offline/dormant semantic
-foundation** at `ea69cb9` over `234cd55..ea69cb9`. It separates
-non-authorizing claim provenance, proof verification, external principal
-authentication, external authorization, conformance maturity, and external
-local-persistence facts.
+retained as a design record. Its former reference implementation is absent from
+current main. The record separates non-authorizing claim provenance, proof
+verification, external principal authentication, external authorization,
+conformance maturity, and external local-persistence facts.
 
-The shared inventory has 363 exact executable cases across exactly five
-normative operations; direct TypeScript/Python byte differential is 363/363.
-`npm test` passed 530/530 after local-loopback permission and typecheck passed.
-Both final independent reviews reported no Critical or Important findings and
-APPROVED. The 13 serialized-report ingestion-only duplicate vectors remain
-deferred until an actual ingestion API exists and are not satisfied by report
-generation.
-
-This closeout authorizes no public ingress, `send_a2a`, principal provider,
+This design record authorizes no public ingress, `send_a2a`, principal provider,
 provider call, runtime selection, transport, persistence, durable registry,
 delivery, execution, cryptographic verification, credentials, network, deploy,
 publish, merge, push, or activation. Slice 4C-1 remains offline, inactive,
