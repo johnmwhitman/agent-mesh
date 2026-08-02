@@ -99,7 +99,7 @@ test("a hollow success is RETRIED, not banked — the remedy actually fires", as
     // ANOTHER shot. Assert the observable remedy — a retry was scheduled and a
     // fresh attempt launched — rather than the reason string, which this store
     // deliberately keeps on the attempt record (not on `work`) while pending.
-    const kinds = events.map((e: { event: string }) => e.event);
+    const kinds = events.map((e) => e.event);
     assert.ok(kinds.includes("agent_retry_scheduled"),
       `hollow success must schedule a retry; saw ${JSON.stringify(kinds)}`);
     // Assert the relaunch on the RUNTIME's own start count — the same observable the wait

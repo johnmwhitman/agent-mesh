@@ -5,7 +5,7 @@ import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import { buildVerifyEnvelopeV3 } from '../src/verify-envelope-v3.js'
-import { verifyMeshData, type VerifyReport } from '../src/verify.js'
+import { VERIFY_SCOPE, verifyMeshData, type VerifyReport } from '../src/verify.js'
 import { loadDataFromFile, type MeshData } from '../src/core.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -34,6 +34,10 @@ function report(): VerifyReport {
     ok: false,
     errors: 2,
     warnings: 1,
+    // `scope` is required on VerifyReport and every real report carries it
+    // (`src/verify.ts:987`). Omitting it here built a report the producer cannot
+    // emit, and sent the formatter down its `report.scope ? ... : ""` branch.
+    scope: VERIFY_SCOPE,
     counts: { fleets: 1, agents: 2, messages: 3, receipts: 4, ratifications: 5 },
     findings: [
       { severity: 'error', check: 'error.one', subject: 'a', detail: 'first' },
@@ -76,7 +80,7 @@ test('v3 emits a frozen detached four-key envelope with severity-derived local b
     ;(envelope.finding_local_bands as string[]).push('local_consistency_error')
   })
   assert.throws(() => {
-    ;(envelope.evidence_scope.not_established as string[]).push('forged')
+    ;(envelope.evidence_scope.not_established as unknown as string[]).push('forged')
   })
 })
 

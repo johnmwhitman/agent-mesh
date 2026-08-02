@@ -1000,7 +1000,7 @@ test("rejects expired, future-dated, malformed, and unknown-version catalog snap
     /snapshot.*future/i,
   );
   assert.throws(
-    () => compileRoutePlaneCandidates({ snapshot: { ...snapshot, version: "wrong" }, policies, now_ms: 100 }),
+    () => compileRoutePlaneCandidates({ snapshot: { ...snapshot, version: "wrong" } as unknown as typeof snapshot, policies, now_ms: 100 }),
     /snapshot\.version.*meshfleet\.routeplane-model-snapshot\.v1/i,
   );
   assert.throws(

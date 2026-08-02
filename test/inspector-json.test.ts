@@ -17,7 +17,7 @@ import {
   type FleetSummary,
 } from "../src/inspector.js";
 import type { MeshData, Ratification, Receipt } from "../src/core.js";
-import type { VerifyReport } from "../src/verify.js";
+import { VERIFY_SCOPE, type VerifyReport } from "../src/verify.js";
 import { closeDb, getDbPathOverride, importSnapshot, setDbPath } from "../src/db.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -73,6 +73,10 @@ test("buildVerifyJson wraps the full VerifyReport under kind 'verify'", () => {
     ok: false,
     errors: 1,
     warnings: 0,
+    // `scope` is required on VerifyReport and every real report carries it
+    // (`src/verify.ts:987`). Omitting it here built a report the producer cannot
+    // emit, and sent the formatter down its `report.scope ? ... : ""` branch.
+    scope: VERIFY_SCOPE,
     counts: { fleets: 1, agents: 2, messages: 3, receipts: 4, ratifications: 5 },
     findings: [{ severity: "error", check: "receipt.orphan_message", subject: "s", detail: "d" }],
   };
