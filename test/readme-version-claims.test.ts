@@ -84,6 +84,17 @@ test("README does not assert what the npm registry currently serves", () => {
       pattern: /(?:not|never)\s+(?:yet\s+)?published\s+to\s+npm/i,
       why: "publication status stated as a standing fact",
     },
+    {
+      // Caught in the wild during this guard's own integration: main had rewritten the claim
+      // into colon form (`**npm latest**: 0.20.0`) which none of the verb patterns matched —
+      // the guard would have landed vacuously green beside the exact class it forbids.
+      pattern: /npm\s+latest\s*\**\s*:\s*`?v?[0-9]/i,
+      why: "the registry's current dist-tag (colon form)",
+    },
+    {
+      pattern: /npm\s+latest\s+are\s+`?v?[0-9]/i,
+      why: "the registry's current dist-tag (plural-verb form)",
+    },
   ];
 
   const lines = readme.split("\n");
