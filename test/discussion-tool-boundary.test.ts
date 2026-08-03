@@ -260,3 +260,95 @@ test("get_discussion refuses a missing id and a non-boolean include_receipts", a
     assert.match(textOf(badFlag), /'include_receipts' must be a boolean/);
   });
 });
+
+/**
+ * The test above is the ONLY place in `test/` that named `include_receipts`
+ * before this one, and it passes the string `"false"` to assert a type refusal.
+ * So across 47 `get_discussion` call sites, nothing ever set the boolean and
+ * watched receipts disappear — measured by exhaustive grep, and then proven:
+ * deleting the whole `include_receipts === false` branch from
+ * `src/discussion-store.ts` left typecheck, build and the entire suite GREEN
+ * (1359/1359 on a8ec462).
+ *
+ * A published, documented parameter with a real behaviour branch and no test is
+ * a contract nobody is holding. `additionalProperties: false` on the schema
+ * means naming the field is the only way to reach it, so the grep is exhaustive
+ * here — do not generalise that shortcut to behaviour reachable indirectly.
+ */
+test("get_discussion honours include_receipts, and changes nothing else", async () => {
+  await withServer(async ({ client }) => {
+    // `wake_peer: true` RESERVES turn 2 — it does not launch anything
+    // (`openDiscussion` writes a receipt and calls `notify`, which is SSE only).
+    // The reservation is what makes `attempts` non-empty, and without it the
+    // "nothing else moves" assertion below is vacuous for that field: measured,
+    // by mutating the branch to also blank `attempts` and watching this test
+    // still PASS on the `wake_peer: false` fixture.
+    const ask = await client.callTool({ name: "ask_peer", arguments: { ...ASK, wake_peer: true } });
+    const discussion_id = (JSON.parse(textOf(ask)) as { discussion_id: string }).discussion_id;
+
+    interface View {
+      attempts: unknown[];
+      policy: { conversation_deadline: number };
+      transcript: { receipts: { action: string }[] }[];
+    }
+    const get = async (args: Record<string, unknown>): Promise<View> =>
+      JSON.parse(
+        textOf(await client.callTool({ name: "get_discussion", arguments: { discussion_id, ...args } }))
+      ) as View;
+
+    // Settle the clock before comparing anything. The derived view depends on
+    // `now`, and the FIRST read past the conversation deadline terminalizes the
+    // stranded attempt — measured on this fixture: receipts 3 -> 4, status
+    // `exhausted` -> `expired`, attempt `started` -> `failed`. Every read after
+    // that is byte-identical. Comparing views across that one-time transition is
+    // a race, so cross the deadline and then discard exactly one read.
+    // (`ask_peer` returns right AT the deadline, so an earlier draft that simply
+    // read three times in a row passed 5 runs and was still racing.)
+    const deadline = (await get({})).policy.conversation_deadline;
+    await new Promise((r) => setTimeout(r, Math.max(0, deadline - Date.now()) + 150));
+    await get({});
+
+    // `ask_peer` writes both of these on the root message it creates
+    // (`turn.sent` at discussion-store.ts:797, `wake.reserved` at :802), so the
+    // default view has something to lose. A test whose "before" was already
+    // empty would pass against a store that never attaches receipts at all.
+    const omitted = await get({});
+    assert.equal(omitted.transcript.length, 1);
+    const actions = omitted.transcript[0]!.receipts.map((r) => r.action.split(":")[0]);
+    for (const expected of ["discussion.turn.sent.v1", "discussion.wake.reserved.v1"]) {
+      assert.ok(
+        actions.includes(expected),
+        `omitting the flag must include lifecycle receipts (missing ${expected}) — ` +
+          "the published description says it defaults to true"
+      );
+    }
+    // Subset, not equality: the terminal receipt is `started` or `deadman`
+    // depending on where the deadline falls, and pinning it would be a flake.
+    assert.ok(omitted.attempts.length > 0, "fixture guard: the checks below cannot see `attempts` if it is empty");
+
+    const explicitTrue = await get({ include_receipts: true });
+    assert.deepEqual(explicitTrue, omitted, "include_receipts:true must equal the documented default");
+
+    const off = await get({ include_receipts: false });
+
+    // Key-presence is checked BEFORE emptiness on purpose. A missing key also
+    // fails the deepEqual below, so ordered the other way this assertion could
+    // never be the one that fires and would be decoration.
+    assert.ok(
+      Object.prototype.hasOwnProperty.call(off.transcript[0]!, "receipts"),
+      "the flag suppresses receipt CONTENT, not the receipts key itself — a client " +
+        "reading `entry.receipts.length` must not crash on a dropped field"
+    );
+    assert.deepEqual(off.transcript[0]!.receipts, [], "include_receipts:false must empty the transcript's receipts");
+
+    // Nothing but receipts may move. Without this, narrowing `include_receipts`
+    // into a filter that also dropped attempts, status or budget would pass.
+    const stripped = (v: View): unknown =>
+      JSON.parse(JSON.stringify({ ...v, transcript: v.transcript.map((e) => ({ ...e, receipts: null })) }));
+    assert.deepEqual(
+      stripped(off),
+      stripped(omitted),
+      "include_receipts must change receipts and NOTHING else in the derived view"
+    );
+  });
+});
