@@ -522,7 +522,7 @@ test("preference and window ingress are closed, safe-integer, and measured-only"
                 starts_at_ms: 0,
                 ends_at_ms: 1,
                 id: "forbidden",
-              },
+              } as unknown as { starts_at_ms: number; ends_at_ms: number },
             },
           }),
         ],

@@ -1,18 +1,22 @@
 {
   "//": "Typecheck-only config. `tsconfig.json` is the BUILD config and its `include` is",
-  "//1": "`src/**/*` only, so `tsc --noEmit` against it never loaded `scripts/` — a type error",
-  "//2": "there was invisible to every stage of the verifier (tests run under `tsx`, which strips",
-  "//3": "types without checking them). This widens the net without changing what `npm run build`",
-  "//4": "emits: it is `noEmit`, and the build still uses `tsconfig.json`.",
+  "//1": "`src/**/*` only, so `tsc --noEmit` against it never loaded `scripts/` or `test/` — a type",
+  "//2": "error there was invisible to every stage of the verifier (tests run under `tsx`, which",
+  "//3": "strips types without checking them). This widens the net without changing what",
+  "//4": "`npm run build` emits: it is `noEmit`, and the build still uses `tsconfig.json`.",
   "//5": "",
-  "//6": "`test/**/*` is NOT covered yet. That is a stated gap, not a suppression: it carries 69",
-  "//7": "pre-existing errors across 24 files, and a large share are DELIBERATE malformed fixtures",
-  "//8": "fed to the verifier on purpose. Making those type-clean without care would delete the",
-  "//9": "negative tests. Add `test/**/*` here once they are genuinely fixed — never an ignore list.",
+  "//6": "`test/**/*` was added only once its errors were genuinely fixed — 64 of them, none by an",
+  "//7": "ignore list and none by changing what a test feeds. The deliberately malformed fixtures",
+  "//8": "kept their exact values and were widened with `as unknown as X`. Do NOT reach for",
+  "//9": "`exclude`, `skipLibCheck` scope tricks, or `@ts-expect-error` when this stage goes red:",
+  "//10": "a finding downgraded to keep a pipeline green is the failure this repo exists to prevent.",
+  "//11": "To measure coverage rather than trust this comment, run",
+  "//12": "`tsc -p tsconfig.check.json --listFiles` and look for the directory you care about —",
+  "//13": "which is exactly what `test/typecheck-coverage.test.ts` does on every run.",
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": true,
     "rootDir": "."
   },
-  "include": ["src/**/*", "scripts/**/*"]
+  "include": ["src/**/*", "scripts/**/*", "test/**/*"]
 }

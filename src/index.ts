@@ -9,6 +9,7 @@ import {
 import { randomUUID } from "crypto";
 import { createRequire } from "module";
 import { resolveEnv } from "./env.js";
+import { requireAuditIsolationEnvironment } from "./audit-access-profile.js";
 
 // Single source of truth for the advertised version — package.json.
 // (The literal here drifted to 0.7.0 while releases moved to 0.11.x.)
@@ -37,8 +38,10 @@ import {
   sendMessage,
   sendMessages,
   setFleetTimeout,
+  defaultDataFile,
+  DEFAULT_EVENT_LOG,
 } from "./core.js";
-import { readLedger, resolveDbFile, withLedger } from "./db.js";
+import { defaultDbFile, readLedger, resolveDbFile, withLedger } from "./db.js";
 import { migrateJsonToSqlite } from "./migrate.js";
 import { checkRateLimit, getHealth, ping } from "./health.js";
 import {
@@ -88,7 +91,7 @@ import {
   requireStringArray,
   requireEnum,
 } from "./tool-args.js";
-import { buildFailureDetail } from "./spawn-attempt.js";
+import { buildFailureDetail, projectSuccessDiagnostics } from "./spawn-attempt.js";
 import { getDefaultRuntimeAdapter, requireRuntimeAdapter, availableRuntimeIds } from "./runtime/registry.js";
 import type { RuntimeAdapter } from "./runtime/types.js";
 import { decideFailover } from "./failover.js";
@@ -105,6 +108,27 @@ import {
 // ---------------------------------------------------------------------------
 // Server
 // ---------------------------------------------------------------------------
+
+const accessProfile = requireAuditIsolationEnvironment(process.env, {
+  dbFile: defaultDbFile(),
+  dataFile: defaultDataFile(),
+  eventLogFile: DEFAULT_EVENT_LOG,
+});
+const isAuditProfile = accessProfile.profile === "audit";
+if (accessProfile.profile === "audit") {
+  process.env.MESHFLEET_ISOLATION_ROOT = accessProfile.isolationRoot;
+  process.env.MESHFLEET_DB_FILE = accessProfile.dbFile;
+  process.env.MESHFLEET_DATA_FILE = accessProfile.dataFile;
+  process.env.MESHFLEET_EVENT_LOG_FILE = accessProfile.eventLogFile;
+}
+const AUDIT_TOOL_NAMES: ReadonlySet<string> = new Set([
+  "compile_route_candidates",
+  "ping",
+  "plan_speculative_backlog",
+  "recommend_route",
+]);
+const toolAllowedByAccessProfile = (name: string): boolean =>
+  !isAuditProfile || AUDIT_TOOL_NAMES.has(name);
 
 const server = new Server(
   { name: "agent-mesh", version: MESH_VERSION },
@@ -222,14 +246,60 @@ function trySpawn(input: SpawnAgentInput, agentId: string, attempt: number): voi
     });
     void adapter.wait(handle).then((result) => {
       heartbeat.stop();
+      // Composed OUTSIDE the success branch on purpose: the success-carries-no-error guard
+      // forbids the raw stderr token inside that region, and it is right to — raw transcripts
+      // in Agent.error made real failures indistinguishable from normal runs. A hollow success
+      // seals as FAILED, and its detail goes through buildFailureDetail, the same bounded
+      // composer every other failure detail uses.
+      const hollowFailureDetail =
+        result.status === "success" && result.stdout.trim() === ""
+          ? buildFailureDetail(
+              result.stderr,
+              "Runtime exited successfully but produced no output. Treated as a failure: an empty result is indistinguishable from a real one to every caller, so sealing it as complete would claim work that never happened.",
+            )
+          : undefined;
       if (result.status === "success") {
+        // HOLLOW SUCCESS (2026-08-01): a runtime can exit 0 having produced no
+        // output at all — the model burned its turn on tool calls and never
+        // emitted a final answer. Exit code alone therefore does not mean the
+        // work happened. Sealing that as `complete` is the exact overclaim
+        // verify.ts already forbids: `complete` must never "claim work that
+        // never happened". It is also invisible to every caller, because
+        // `collect_results` returns an empty string that reads like a real
+        // result, and an orchestrator accepts nothing while believing it got
+        // something. `failed` is the honest seal — it is terminal (no
+        // re-execution, so an agent that edited files cannot be double-run)
+        // and every existing consumer already knows to reroute on it.
+        if (hollowFailureDetail !== undefined) {
+          markAgentFinished(
+            agentId,
+            "failed",
+            result.stdout,
+            hollowFailureDetail,
+            result.identity.agent,
+            result.identity.model,
+          );
+          return;
+        }
         markAgentFinished(
           agentId,
           "complete",
           result.stdout,
-          result.stderr || undefined,
+          // A SUCCESS has no error. This used to pass `result.stderr`, so a completed agent's
+          // `error` held the child's entire stderr transcript — tool calls, their output,
+          // duplicated warning lines and all. Measured on the live store: 753 of 763 `complete`
+          // agents carried a populated `error`, averaging 4,352 bytes, 3.28 MB in total. A
+          // consumer asking `agent.error` whether the work failed got a non-empty string for
+          // 98.7% of successes, which makes a real failure indistinguishable from a normal run.
+          //
+          // The distilled signal was being DROPPED at the same moment. `classifySpawnResult`
+          // already separates an auxiliary provider warning from the raw transcript, and
+          // `opencode.ts` carries it in `diagnostics` — which this call ignored. The transcript
+          // was kept and the diagnosis discarded: exactly backwards.
+          undefined,
           result.identity.agent,
           result.identity.model,
+          projectSuccessDiagnostics(result.diagnostics),
         );
         return;
       }
@@ -1064,7 +1134,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
             properties: {
               objective: {
                 type: "string",
-                const: "prefer_near_reset",
+                // prefer_near_reset: post-score tie-break on measured window urgency.
+                // exhaust_before_reset: the same measured, current-window urgency as the
+                // PRIMARY key — spend the fullest pool before its rotation discards the
+                // remainder. Both are advisory projections over caller-supplied evidence;
+                // unmeasured candidates are never promoted or demoted by either.
+                enum: ["prefer_near_reset", "exhaust_before_reset"],
               },
               now_ms: {
                 type: "integer",
@@ -1372,7 +1447,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         additionalProperties: false,
       },
     },
-  ],
+  ].filter((tool) => toolAllowedByAccessProfile(tool.name)),
 }));
 
 // ---------------------------------------------------------------------------
@@ -1605,6 +1680,7 @@ toolHandlers["collect_results"] = async (args) => {
         status: a.status,
         output: a.output,
         error: a.error,
+        diagnostics: a.diagnostics,
       })),
     });
 };
@@ -2374,6 +2450,9 @@ toolHandlers["get_discussion"] = async (args) => {
 
 server.setRequestHandler(CallToolRequestSchema, async (req) => {
   const { name, arguments: args } = req.params;
+  if (!toolAllowedByAccessProfile(name)) {
+    return jsonError(`Tool '${name}' is unavailable in the audit access profile`);
+  }
   const handler = toolHandlers[name];
   if (!handler) {
     throw new Error(`Unknown tool: ${name}`);
@@ -2395,7 +2474,7 @@ await server.connect(transport);
 // competing ratification sweeper.
 const isChildInstance = process.env.AGENT_MESH_CHILD === "1";
 
-if (!isChildInstance) {
+if (!isChildInstance && !isAuditProfile) {
   // Phase 2: one-shot JSON→SQLite migration. Stop-the-world, parent-only, BEFORE
   // any ledger read/write — a fresh getDb() would otherwise create an empty db
   // and strand the JSON. Fails-closed: a validation mismatch aborts startup with
@@ -2491,6 +2570,8 @@ if (!isChildInstance) {
   } catch (err) {
     console.error(`Agent Mesh v${MESH_VERSION} started (JSON persistence + P2P messaging + capability routing + premade agent discovery + timeout/resilience + SSE push) — SSE server failed to start: ${err instanceof Error ? err.message : String(err)}`);
   }
+} else if (isAuditProfile) {
+  console.error("Agent Mesh started in audit access profile — storage startup, recovery, sweepers, and SSE skipped");
 } else {
   console.error("Agent Mesh started in child mode (AGENT_MESH_CHILD=1) — recovery, sweeper, and SSE skipped");
 }

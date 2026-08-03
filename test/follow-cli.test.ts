@@ -20,7 +20,15 @@ import { mkdtempSync, rmSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, type ChildProcessByStdio } from "node:child_process";
+import type { Readable } from "node:stream";
+
+// `stdio: ["ignore", "pipe", "pipe"]` gives the child NO stdin pipe, so the previous
+// annotation (`PipedChild`) promised a writable `child.stdin` that
+// is always null here. Nothing in these files writes to stdin — but the annotation was
+// a standing invitation to, and no stage of the verifier could see it.
+type PipedChild = ChildProcessByStdio<null, Readable, Readable>;
+
 import Database from "better-sqlite3";
 import { setDbPath, closeDb, readLedger } from "../src/db.js";
 import { sendMessage } from "../src/core.js";
@@ -31,7 +39,7 @@ const INSPECT_BIN = join(here, "..", "src", "bin", "inspect.ts");
 const FIRST_MESSAGE_BUDGET_MS = 15_000; // roadmap row: "<20s to first message visible"
 const POLL_STEP_MS = 100;
 
-function spawnFollow(dbFile: string, extraArgs: string[] = []): ChildProcessWithoutNullStreams {
+function spawnFollow(dbFile: string, extraArgs: string[] = []): PipedChild {
   return spawn(process.execPath, ["--import", "tsx", INSPECT_BIN, "--follow", ...extraArgs], {
     env: { ...process.env, MESHFLEET_DB_FILE: dbFile },
     stdio: ["ignore", "pipe", "pipe"],
@@ -50,7 +58,7 @@ async function waitFor(getOutput: () => string, predicate: (out: string) => bool
 }
 
 function waitExit(
-  child: ChildProcessWithoutNullStreams,
+  child: PipedChild,
   budgetMs: number
 ): Promise<{ code: number | null; signal: NodeJS.Signals | null }> {
   return new Promise((resolve, reject) => {
@@ -124,7 +132,7 @@ test("inspect --follow: signal handlers are installed BEFORE the banner promises
 test("inspect --follow: idle banner on empty ledger, live message within budget, --fleet filters in-loop, clean ctrl-c exit", async () => {
   const dir = mkdtempSync(join(tmpdir(), "meshfleet-follow-"));
   const dbFile = join(dir, "ledger.db");
-  let child: ChildProcessWithoutNullStreams | undefined;
+  let child: PipedChild | undefined;
   try {
     // Pre-initialize the DB in the parent (matches db-concurrency.test.ts) so
     // the child attaches to an existing WAL db instead of racing the cold-file
@@ -177,7 +185,7 @@ test("inspect --follow: idle banner on empty ledger, live message within budget,
 test("inspect --follow: a malformed message row is skipped (logged to stderr), the loop keeps polling, later valid rows still print", async () => {
   const dir = mkdtempSync(join(tmpdir(), "meshfleet-follow-badjson-"));
   const dbFile = join(dir, "ledger.db");
-  let child: ChildProcessWithoutNullStreams | undefined;
+  let child: PipedChild | undefined;
   try {
     setDbPath(dbFile);
     readLedger();
@@ -222,7 +230,7 @@ test("inspect --follow: a malformed message row is skipped (logged to stderr), t
 test("inspect --follow: SIGTERM also exits promptly and cleanly (same cleanup path as SIGINT)", async () => {
   const dir = mkdtempSync(join(tmpdir(), "meshfleet-follow-sigterm-"));
   const dbFile = join(dir, "ledger.db");
-  let child: ChildProcessWithoutNullStreams | undefined;
+  let child: PipedChild | undefined;
   try {
     setDbPath(dbFile);
     readLedger();
@@ -246,7 +254,7 @@ test("inspect --follow: SIGTERM also exits promptly and cleanly (same cleanup pa
 test("inspect --follow: a genuinely missing ledger file is a hard error (exit 2) — never silently created", async () => {
   const dir = mkdtempSync(join(tmpdir(), "meshfleet-follow-missing-"));
   const dbFile = join(dir, "does-not-exist.db");
-  let child: ChildProcessWithoutNullStreams | undefined;
+  let child: PipedChild | undefined;
   try {
     assert.equal(existsSync(dbFile), false);
     child = spawnFollow(dbFile);

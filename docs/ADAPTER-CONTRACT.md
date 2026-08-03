@@ -21,17 +21,13 @@ DurableCoordinator
         v
 RuntimeAdapter
   OpenCode / local process / Claude / Codex / future runtimes
-        |
-        v
-ConfigRenderer
-  canonical connection spec -> target harness configuration
 ```
 
 Each layer owns its protocol and failure semantics. A transport MUST NOT write
 the ledger directly. The codec MUST NOT import MCP or provider SDKs. The
 delivery layer MUST NOT parse provider output. A runtime adapter MUST return a
-normalized outcome rather than inventing a message schema. A renderer MUST NOT
-emit credentials.
+normalized outcome rather than inventing a message schema. Inbound client
+configuration examples are documentation, not a runtime layer.
 
 ## Contracts
 
@@ -83,30 +79,36 @@ SHOULD prefer stdin so prompt bytes do not appear in process listings. Child
 stdin MUST be controlled, and bounded child output MUST NOT contaminate the MCP
 stdout protocol channel.
 
-### ConfigRenderer
+### Inbound client configuration
 
-Renders one canonical connection descriptor into a target's configuration,
-such as generic MCP JSON, OpenCode JSONC, Claude Code configuration, Codex
-configuration, or a future harness manifest. A renderer reports unsupported
-features instead of silently dropping them. Target schemas must be verified
-before a renderer is called supported.
+`mcp.json` verifies the generic packaged stdio command shape. `README.md`
+documents equivalent OpenCode, Claude Code, and Codex examples. The repository
+does not implement a canonical config renderer or executable translators for
+those target formats. See `docs/CONFIG-TRANSLATION.md`.
 
 ## Current compatibility state
 
 | Boundary | Current status | Truthful claim |
 |---|---|---|
 | Generic MCP stdio | `process-handshake-verified` | Packaged `npx -y meshfleet` starts and completes MCP initialization at the process boundary |
-| Claude Code, Codex, OpenCode config | `static-config-verified` | Slice 3B renderers produce proven shapes from README/mcp.json evidence; live semantic client execution remains unverified |
+| Claude Code, Codex, OpenCode config | `documented` | README examples use the packaged stdio command; no generated-config or live semantic client claim |
 | SSE inbox projection | `implemented` | Optional local inbox push, not a general A2A HTTP transport |
 | Offline delivery-trace normalization | `reference-conformance` | The pure TypeScript evaluator and independent stdlib-only Python witness agree that modeled stdio, mailbox, HTTP/SSE, and WebSocket labels preserve one canonical envelope binding and distinct delivery observations; no transport or live interoperability is implemented |
 | Durable execution coordinator | `recovery-verified` | Durable-mode `spawn_fleet` and `attach_agent` use fenced leases, deterministic persisted retry, launch-intent quarantine, scheduled recovery, recorded-PID containment only, sequence-ordered outbox, and compatibility projections on one SQLite authority |
-| Outbound worker launch | `runtime-launch-verified` | `spawn_fleet` uses the internal OpenCode compatibility adapter; callers may select its model, but there is no public runtime-adapter selector |
+| Outbound worker launch | `runtime-launch-verified` | `spawn_fleet` defaults to OpenCode and accepts a per-agent registered runtime id; selected non-default runtimes require their own validation and are refused before execution when unconfigured |
 | OpenCode result normalization | `runtime-launch-verified` | OpenCode command, banner parsing, fallback, and provider diagnostics are isolated behind `OpenCodeRuntimeAdapter` |
-| Provider-neutral runtime SPI | `runtime-launch-verified` | Core orchestration uses normalized execution contracts and an internal registry; there is no public runtime-adapter selector (a public `model` selector is exposed at the MCP boundary and flows through the default OpenCode adapter) |
+| Provider-neutral runtime SPI | `runtime-launch-verified` | Core orchestration uses normalized execution contracts and an internal registry; `spawn_fleet` exposes per-agent runtime selection while `model` remains an OpenCode-specific selector |
 | Local-process proof adapter | `runtime-launch-verified` | Deterministic local argv-only adapter covers process lifecycle without a provider, network, or credentials |
-| Kimi CLI native adapter | `fixture-verified` | An explicitly registered, non-default adapter proves stdin-only prompts, scrubbed environment policy, bounded final-message JSONL, isolation-gated unattended edits, and descendant cleanup against a fake executable; no live provider execution, OAuth inspection, version attestation, account binding, quota observation, or public selector is claimed |
+| Kimi CLI native adapter | `fixture-verified` | An env-gated non-default adapter proves stdin-only prompts, scrubbed environment policy, bounded final-message JSONL, isolation-gated unattended edits, and descendant cleanup against a fake executable; no live provider execution, OAuth inspection, version attestation, account binding, or quota observation is claimed |
+| Claude Code CLI native adapter | `fixture-verified` | An env-gated non-default adapter proves stdin-only prompts, current print-mode argv, scrubbed environment policy, two-key workspace admission, safe noninteractive permission modes, hollow-success refusal, bounded output, and diagnostic redaction against a fake executable; no public account identity, credential, effective-model, quota, or attestation claim is made |
 | Multi-host coordinator | `deferred` | No shared remote ownership authority exists |
-| Slice 3B config renderers (generic/OpenCode/Claude/Codex) | `static-config-verified` | Canonical spec + 4 recursive-preflight renderers with deterministic tests; live client execution, Antigravity/Gemini/Grok schemas, real vendor outbound adapters, auth, network, remote relay remain unverified/deferred |
+
+Runtime failover is a separate execution concern. `src/failover.ts`,
+`test/failover-decision.test.ts`, and the fixture-driven end-to-end proof in
+`test/failover-end-to-end.test.ts` verify bounded provider-refusal classification,
+candidate exclusion, an alternate stub launch, and persisted attempt/event
+evidence. They do not prove a real provider outage, account availability, or
+spend authority.
 
 `ExecutionSpec.requestedModel` carries the validated public `model` selector to
 the OpenCode adapter and fail-closes classification when the observed banner
@@ -138,17 +140,33 @@ input, not runtime identity:
 
 Omitting `model` preserves the prior launch and classification behavior
 exactly: no `--model` argument, no banner requirement, no new failure. The
-default execution remains OpenCode; there is still no public runtime-adapter
-selector, no vendor SDK or catalog, no credential flow, no account-control
-plane, no automatic model choice, no default token-budget policy, no remote
-relay, no publish, and no deploy in this slice.
+default execution remains OpenCode. `spawn_fleet` may select a separately
+registered runtime, but this field does not create a credential flow,
+account-control plane, automatic model choice, default token-budget policy, or
+remote relay.
 Account-specific provider operations are outside this public adapter contract.
 The separate pure
 `recommend_route` surface may opt in to caller-evidenced near-reset tie-breaking;
-it never selects or runs this adapter. Local smoke tests exercised
-the installed OpenCode IDs `opencode-go/minimax-m3` and
-`kilo/kilo-auto/free`; this is environment-local observed execution, not a
-general provider-availability claim.
+it never selects or runs this adapter. Environment-local model observations are
+operator evidence and are not part of this public compatibility contract.
+
+## Runtime selection (public `runtime` on `spawn_fleet`)
+
+Each `spawn_fleet` agent may name a registered runtime adapter. Unknown ids are
+refused before any fleet or agent row is written. Omitting the field preserves
+the OpenCode default. A selected non-default adapter receives an explicit
+scrubbed environment, new-session request, unattended workspace-edit request,
+and the caller's optional opaque `workspace_binding`; the adapter remains the
+authority that accepts or rejects that spec. Durable lifecycle mode refuses
+per-agent runtime selection because its persisted agent row does not yet retain
+the runtime id.
+
+Registration is operator configuration, not public machine state. The Kimi and
+Claude Code adapters require absolute command paths and optional configured
+version labels. Their workspace-binding admission lists live in environment
+configuration and contain opaque identifiers, never paths or account names.
+Neither registration nor selection proves login, availability, entitlement,
+quota, spend authority, effective model, or provider identity.
 
 ## Evidence levels
 
@@ -180,7 +198,7 @@ another evidence level.
 
 ## Slice 4C-1 adapter-evidence design boundary
 
-The designed-not-implemented local admission profile accepts independent raw
+The implemented offline local-admission evaluator accepts independent raw
 UTF-8 `request_json` and `envelope_json` texts and defines no wrapper envelope
 or public object-tree entrypoint. Its closed
 adapter-issued evidence carrier has an explicit `trusted_local_adapter`
@@ -190,10 +208,10 @@ PID, banner, model, or receipt.
 
 The closed `StaticHarnessMapping` sidecar for Codex, Codex CLI, Claude Code,
 OpenCode, Antigravity/Gemini, Grok, and unknown harnesses emits
-`authentication_evidence: null` and `principal_binding_input: null`. It is not
-part of `RendererResult`. Its validator and executable seven-target positive
-and required negative fixtures are a future 4C-1 implementation gate outside
-the admission corpus; no current conformance evidence exists. No `TransportAdapter`,
+`authentication_evidence: null` and `principal_binding_input: null`. It is
+implemented and fixture-verified by `src/a2a/static-harness-mapping.ts` and
+`test/a2a-local-admission.test.ts`. It is not a config-renderer result and does
+not emit client configuration. No `TransportAdapter`,
 `RuntimeAdapter`, renderer, MCP session, or process receipt implements this
 trust boundary. The sole success is an ephemeral plan, not adapter acceptance
 or lifecycle state.
@@ -208,9 +226,48 @@ or lifecycle state.
    private-data policy.
 6. Design a shared coordinator before using the phrase multi-host.
 
-Additional live vendor adapters remain separate work. Additional target
-renderers require separate schema evidence before they can be added to the
-verified matrix.
+Additional live vendor adapters remain separate work. Executable client-config
+renderers would require their own implementation and schema evidence before
+they could be added to the verified matrix.
+
+## Native Claude Code CLI boundary
+
+`ClaudeRuntimeAdapter` implements Claude Code's noninteractive text print
+surface: the prompt arrives on stdin and the final text arrives on stdout under
+`-p --input-format text --output-format text --no-session-persistence
+--safe-mode --no-chrome`. The adapter:
+
+- requires an absolute operator-resolved executable and a configured version
+  label; it neither searches `PATH` nor probes or attests the version;
+- refuses ambient environment inheritance and explicit Anthropic, Claude,
+  Bedrock, Vertex, Foundry, Azure, Google, and AWS routing overrides;
+- supplies an adapter-owned minimal host-profile locator to the otherwise
+  scrubbed child (`HOME` + `USER` on POSIX, or `USERPROFILE` + `USERNAME` on
+  Windows, with the standard drive/path pair used only to derive a missing
+  Windows profile); callers cannot supply or allowlist those names, and a
+  missing host locator fails closed;
+- leaves OAuth login, refresh, account selection, and credential storage
+  entirely to Claude Code;
+- requires the caller's verified opaque workspace binding to match the
+  operator's admission list; the binding is authorization metadata, not an OS
+  sandbox or account proof;
+- maps plan requests to Claude Code `plan` mode and unattended workspace work
+  to `auto`, preserving background safety checks rather than bypassing them;
+- supports new ephemeral print sessions only and rejects interactive or resume
+  requests;
+- rejects OpenCode agent-file and `provider/model` selectors rather than
+  translating them into a different Claude contract; omission uses the
+  authenticated CLI account's default model;
+- refuses empty exit-zero output, bounds both child streams, terminates the
+  process group on timeout/cancellation, and never projects raw stderr; and
+- reports no observed runtime model or account identity because text print mode
+  supplies no independent evidence for either.
+
+An operator enables reachability with `MESHFLEET_CLAUDE_COMMAND`, may record a
+configured compatibility label with `MESHFLEET_CLAUDE_VERSION`, and admits
+comma-separated opaque workspace bindings with
+`MESHFLEET_CLAUDE_WORKSPACE_BINDINGS`. These values are private deployment
+configuration and never belong in public descriptors or receipts.
 
 ## Native Kimi CLI boundary
 

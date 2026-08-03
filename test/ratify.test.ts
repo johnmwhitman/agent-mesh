@@ -284,7 +284,7 @@ test("polarity recovery: re-cast vote wins, an agent is never double-counted", (
     const t = tallyRatification(mid)!;
     // Latest vote wins; both receipt rows exist, but each agent lands in exactly one bucket.
     assert.equal(t.status, "ratified");
-    assert.deepEqual(t.declines, []);
+    assert.deepEqual(t.declines, [] as string[]);
     assert.equal(t.approvals.length, 3);
     assert.equal(
       t.approvals.length + t.declines.length + t.pending.length,

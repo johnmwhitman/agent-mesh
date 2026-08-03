@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 import { formatVerifyExplanation, formatVerifyReport } from "../src/inspector.js";
-import type { VerifyFinding, VerifyReport } from "../src/verify.js";
+import { VERIFY_SCOPE, type VerifyFinding, type VerifyReport } from "../src/verify.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -92,6 +92,10 @@ function report(over: Partial<VerifyReport> = {}): VerifyReport {
     ok: true,
     errors: 0,
     warnings: 0,
+    // `scope` is required on VerifyReport and every real report carries it
+    // (`src/verify.ts:987`). Omitting it here built a report the producer cannot
+    // emit, and sent the formatter down its `report.scope ? ... : ""` branch.
+    scope: VERIFY_SCOPE,
     counts: { fleets: 1, agents: 2, messages: 3, receipts: 4, ratifications: 0 },
     findings: [],
     ...over,

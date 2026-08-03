@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import { buildVerifyEnvelopeV2, type VerifyEnvelopeV2 } from "../src/verify-envelope-v2.js";
 import type { VerifyReport } from "../src/verify.js";
-import { verifyLedger, verifyLedgerFile, verifyMeshData } from "../src/verify.js";
+import { VERIFY_SCOPE, verifyLedger, verifyLedgerFile, verifyMeshData } from "../src/verify.js";
 import { loadDataFromFile, type MeshData } from "../src/core.js";
 import { withLedgerAndStorage } from "../src/db.js";
 import { LifecycleStore } from "../src/attempt-lifecycle.js";
@@ -38,6 +38,10 @@ function report(): VerifyReport {
     ok: false,
     errors: 1,
     warnings: 0,
+    // `scope` is required on VerifyReport and every real report carries it
+    // (`src/verify.ts:987`). Omitting it here built a report the producer cannot
+    // emit, and sent the formatter down its `report.scope ? ... : ""` branch.
+    scope: VERIFY_SCOPE,
     counts: { fleets: 1, agents: 2, messages: 3, receipts: 4, ratifications: 5 },
     findings: [{ severity: "error", check: "receipt.orphan_message", subject: "r1", detail: "missing message" }],
   };
@@ -89,7 +93,7 @@ test("v2 envelope allocates a closed frozen scope and tuple for every build", ()
     (first.evidence_scope as { profile: string }).profile = "forged";
   });
   assert.throws(() => {
-    (first.evidence_scope.not_established as string[]).push("forged");
+    (first.evidence_scope.not_established as unknown as string[]).push("forged");
   });
   assertExactScope(second);
 });

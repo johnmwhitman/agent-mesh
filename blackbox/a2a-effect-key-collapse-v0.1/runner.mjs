@@ -52,6 +52,15 @@ const args = process.argv.slice(2);
 if (args.length === 2 && args[0] === "--raw-base64url") {
   const output = evaluateBytes(decodeBase64url(args[1]));
   process.stdout.write(JSON.stringify(output));
+} else if (args.length === 1 && args[0] === "--raw-stdin") {
+  // Same evaluation as --raw-base64url, payload on stdin instead of argv. Exists because a
+  // corpus document can exceed an OS argv limit: M51-document-too-large is an 87,383-character
+  // base64url argument, and Windows CreateProcess caps a command line at 32,767 characters, so
+  // the argv transport cannot carry it there at all (measured on the #108 CI matrix).
+  const chunks = [];
+  for await (const chunk of process.stdin) chunks.push(chunk);
+  const output = evaluateBytes(decodeBase64url(Buffer.concat(chunks).toString("utf8").trim()));
+  process.stdout.write(JSON.stringify(output));
 } else if (args.length === 0 || (args.length === 1 && args[0] === "--corpus")) {
   process.stdout.write(JSON.stringify(runCorpus()));
 } else if (args.length === 1 && args[0] === "--hash-corpus") {
