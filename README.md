@@ -2,9 +2,9 @@
 
 > **Auditable multi-agent coordination for OpenCode.** Spawn parallel agents as independent OS processes. Route work to specialists. Let agents collaborate peer-to-peer — with witnessed receipts and quorum ratification, so you can answer: *who saw this, who approved it, prove it.* The core is MIT and free.
 
-**Website**: [meshfleet.app](https://meshfleet.app) · **Source version**: 0.20.0 · **npm latest**: 0.20.0 · [CI](https://github.com/johnmwhitman/agent-mesh/actions)
+**Website**: [meshfleet.app](https://meshfleet.app) · **Source version**: 0.20.0 · [npm](https://www.npmjs.com/package/meshfleet) · [CI](https://github.com/johnmwhitman/agent-mesh/actions)
 
-*Maintained: source and npm latest are 0.20.0; the newest Git tag is v0.19.0 (2026-07-28) · issues answered within 48h · no download-count theater.*
+*Maintained: source is 0.20.0; the newest Git tag is v0.19.0 (2026-07-28); a tag is an intent to ship and [the registry](https://www.npmjs.com/package/meshfleet?activeTab=versions) is the only record of what shipped · issues answered within 48h · no download-count theater.*
 
 > **Project status — deliberately pre-1.0, actively maintained.** Releases are intentionally
 > infrequent (we cut versions when something is worth shipping, not on a calendar); the repo

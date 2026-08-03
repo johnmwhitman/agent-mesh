@@ -143,9 +143,12 @@ API freeze. Production-ready. Backward-compatible.
 - [x] **Backward compatibility matrix** — `COMPATIBILITY.md` documents the API + ledger schema guarantees per version; per-version fixture tests are a v1.0 follow-up
 - [x] **Performance benchmarks** — sub-100ms overhead per agent spawn, 10k messages per fleet
 - [x] **Single-host SQLite ledger** — resolved differently and better in 0.12.0: SQLite (better-sqlite3, WAL + `BEGIN IMMEDIATE`) became THE ledger, not a flagged option, because the JSON store provably lost concurrent writes. This provides same-host process write exclusion only; it is not multi-host readiness. Cross-machine coordination (the libSQL idea) folds into the post-1.0 cloud relay.
-- [x] **npm publish** — Source and registry latest are `0.20.0`. Publication
-  truth is verified against the registry's `dist-tags`, not inferred from a Git
-  tag or a publish command's output.
+- [x] **npm publish** — Publication truth is verified against the registry's
+  `dist-tags`, not inferred from a Git tag or a publish command's output; the
+  registry is the only record of what shipped. Any version number written in
+  prose is a dated measurement, not a standing fact — re-run
+  `npm view meshfleet dist-tags.latest` rather than trusting a document that
+  cannot see the registry.
 - [x] **Auth token for MCP** — DONE (2026-07-16). Optional `MESHFLEET_AUTH_TOKEN` (legacy `AGENT_MESH_AUTH_TOKEN`): when set, the SSE listener requires `Authorization: Bearer <token>` (or `?token=` for EventSource) on every endpoint except `/healthz`; constant-time comparison; unset keeps the historical open local-trust default. The stdio MCP transport stays process-local (auth is the OS process boundary there by design).
 
 ## v0.13 (released / historical)
