@@ -33,8 +33,8 @@
     },
     {
       "path": "evidence/acceptance-20260727.json",
-      "bytes": 4340,
-      "sha256": "7af681718aeab64b5ac4beec657f26be3d2ff78ddba8f24a8ebf5f7074891120"
+      "bytes": 4254,
+      "sha256": "d0f3dbf33ad834047349ebb55bd3fcab0b2fea666b567abb04ac6e983fe38eab"
     },
     {
       "path": "fuzz-differential.mjs",

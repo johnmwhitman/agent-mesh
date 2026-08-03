@@ -21,6 +21,32 @@ const EXPLICIT_FALLBACK = /\bfall(?:ing)?\s+back\b|\bfallback\b/i;
 const NO_CREDENTIALS = /(?:no claude code credentials found|claude code credentials are unavailable or expired)/i;
 const PROVIDER_DIAGNOSTIC = /(?:ProviderModelNotFoundError|ProviderAuthError|AuthenticationError|RateLimitError|APIError|API\s+429\s+for\s+|invalid authentication credentials|insufficient balance)/i;
 
+/**
+ * Does this failure text carry a signal that the PROVIDER refused, rather than that the work went
+ * wrong?
+ *
+ * Reuses the two patterns above verbatim — no second copy, no widened set. A parallel matcher here
+ * would be a weaker second oracle for the same question, and the two would drift the first time
+ * one of them was tuned.
+ *
+ * Measured 2026-08-01 against the real outage detail (grok returning `API 429 for ...` plus
+ * `Forbidden: You have run out of credits`): true. Against `Spawn failed with exit code 1`, a
+ * malformed Kimi frame, an empty-stdout failure and a timeout: false. That is the discrimination
+ * this is for — a provider refusing is worth trying elsewhere, a prompt that breaks the work is
+ * not, and spending another subscription's quota to re-learn the same bug is the amplification a
+ * caller cannot see.
+ *
+ * 🔴 It is a SIGNAL, not a proof, and it is deliberately not widened to close these gaps:
+ *   - the credits sentence ALONE does not match; the observed detail matched on its `API 429 for`
+ *     line, and a future refusal phrased without one would read as a work failure.
+ *   - `Kimi process failed to start` does not match, so an unusable Kimi binary does not fail over.
+ * Both are stated rather than patched, because the failure of a broad pattern is to fire on real
+ * work failures — and a false positive here spends real money on a hop that cannot help.
+ */
+export function hasProviderRefusalSignal(text: string): boolean {
+  return PROVIDER_DIAGNOSTIC.test(text) || NO_CREDENTIALS.test(text);
+}
+
 interface DiagnosticAttribution {
   model?: string;
   provider?: string;

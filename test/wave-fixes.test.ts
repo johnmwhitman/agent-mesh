@@ -11,6 +11,7 @@ import { checkLedgerOpen } from "../src/doctor.js";
 import { runDemo } from "../src/demo.js";
 import { getDbPathOverride, setDbPath, closeDb } from "../src/db.js";
 import type { Ratification } from "../src/core.js";
+import { VERIFY_SCOPE } from "../src/verify.js";
 
 // Post-merge review fixes (cdx findings F4/F6/F8 + doctor readonly).
 
@@ -34,6 +35,9 @@ test("councils JSON derives votes via the canonical tally — a re-cast voter la
 test("--explain --json carries per-finding explanation text", () => {
   const report = {
     ok: false, errors: 1, warnings: 0,
+    // `scope` is required on VerifyReport and every real report carries it
+    // (`src/verify.ts:987`); omitting it built a report the producer cannot emit.
+    scope: VERIFY_SCOPE,
     counts: { fleets: 0, agents: 0, messages: 0, receipts: 1, ratifications: 0 },
     findings: [{ severity: "error" as const, check: "receipt.orphan_message", subject: "k", detail: "d" }],
   };

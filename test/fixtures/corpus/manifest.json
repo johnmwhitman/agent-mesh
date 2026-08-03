@@ -801,6 +801,44 @@
       ]
     },
     {
+      "id": "capability-fleet-mismatch",
+      "primary": "capability.fleet_mismatch",
+      "classification": "anomaly",
+      "lie": "a capability places its agent in a fleet this ledger holds, while that agent's own row names a different held fleet — nothing is absent, the two records simply disagree",
+      "ops": [
+        {
+          "op": "set",
+          "path": "fleets|f2",
+          "value": {
+            "id": "f2",
+            "status": "complete",
+            "created_at": 1700000000000,
+            "completed_at": 1700000009000
+          }
+        },
+        {
+          "op": "set",
+          "path": "capabilities|a2",
+          "value": {
+            "agent_id": "a2",
+            "fleet_id": "f2",
+            "role": "x",
+            "skills": [
+              "y"
+            ]
+          }
+        }
+      ],
+      "expected_ok": true,
+      "expected_findings": [
+        {
+          "severity": "warning",
+          "check": "capability.fleet_mismatch",
+          "subject": "a2"
+        }
+      ]
+    },
+    {
       "id": "capability-key-mismatch",
       "primary": "capability.key_mismatch",
       "classification": "anomaly",
@@ -1166,6 +1204,36 @@
           "severity": "error",
           "check": "message.vacuous_ack",
           "subject": "m1"
+        }
+      ]
+    },
+    {
+      "id": "message-unknown-recipient",
+      "primary": "message.unknown_recipient",
+      "classification": "anomaly",
+      "lie": "a message is addressed to an agent absent from this ledger, inside a fleet the ledger holds",
+      "ops": [
+        {
+          "op": "set",
+          "path": "messages|m3",
+          "value": {
+            "id": "m3",
+            "from_agent_id": "a1",
+            "to_agent_id": "a-ghost",
+            "fleet_id": "f1",
+            "type": "handoff",
+            "payload": "hand this to the reviewer",
+            "timestamp": 1700000000400,
+            "acknowledged": false
+          }
+        }
+      ],
+      "expected_ok": true,
+      "expected_findings": [
+        {
+          "severity": "warning",
+          "check": "message.unknown_recipient",
+          "subject": "m3"
         }
       ]
     },

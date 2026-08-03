@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,7 +11,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 
 const repoRoot = join(fileURLToPath(new URL(".", import.meta.url)), "..");
 
-test("packaged meshfleet executable completes an MCP stdio handshake", async () => {
+test("packaged meshfleet executable supports standard and audit MCP stdio contracts", async () => {
   const tempProject = mkdtempSync(join(tmpdir(), "meshfleet-mcp-project-"));
   writeFileSync(
     join(tempProject, "package.json"),
@@ -81,6 +81,46 @@ test("packaged meshfleet executable completes an MCP stdio handshake", async () 
       }
     } finally {
       await client.close();
+    }
+
+    const auditRoot = join(tempProject, "audit-isolation");
+    mkdirSync(auditRoot);
+    const auditTransport = new StdioClientTransport({
+      command: "npx",
+      args: ["--no-install", "meshfleet"],
+      cwd: tempProject,
+      stderr: "pipe",
+      env: {
+        ...(process.env as Record<string, string>),
+        MESHFLEET_ACCESS_PROFILE: "audit",
+        MESHFLEET_ISOLATION_ROOT: auditRoot,
+        MESHFLEET_DB_FILE: join(auditRoot, "ledger.db"),
+        MESHFLEET_DATA_FILE: join(auditRoot, "ledger.json"),
+        MESHFLEET_EVENT_LOG_FILE: join(auditRoot, "events.jsonl"),
+        npm_config_offline: "true",
+      },
+    });
+    const auditClient = new Client({ name: "meshfleet-packaged-audit-test", version: "1.0.0" });
+    try {
+      await auditClient.connect(auditTransport);
+      const { tools } = await auditClient.listTools();
+      assert.deepEqual(
+        tools.map((tool) => tool.name).sort(),
+        ["compile_route_candidates", "ping", "plan_speculative_backlog", "recommend_route"],
+      );
+      const denied = await auditClient.callTool({
+        name: "register_capability",
+        arguments: {
+          agent_id: "packaged-audit-agent",
+          fleet_id: "packaged-audit-fleet",
+          role: "auditor",
+          skills: ["review"],
+        },
+      });
+      assert.equal((denied as { isError?: boolean }).isError, true);
+      assert.deepEqual(readdirSync(auditRoot), []);
+    } finally {
+      await auditClient.close();
     }
   } finally {
     rmSync(tempProject, { recursive: true, force: true });

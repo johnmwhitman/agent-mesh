@@ -9,6 +9,7 @@ import {
 import { randomUUID } from "crypto";
 import { createRequire } from "module";
 import { resolveEnv } from "./env.js";
+import { requireAuditIsolationEnvironment } from "./audit-access-profile.js";
 
 // Single source of truth for the advertised version — package.json.
 // (The literal here drifted to 0.7.0 while releases moved to 0.11.x.)
@@ -37,8 +38,10 @@ import {
   sendMessage,
   sendMessages,
   setFleetTimeout,
+  defaultDataFile,
+  DEFAULT_EVENT_LOG,
 } from "./core.js";
-import { readLedger, resolveDbFile, withLedger } from "./db.js";
+import { defaultDbFile, readLedger, resolveDbFile, withLedger } from "./db.js";
 import { migrateJsonToSqlite } from "./migrate.js";
 import { checkRateLimit, getHealth, ping } from "./health.js";
 import {
@@ -88,8 +91,10 @@ import {
   requireStringArray,
   requireEnum,
 } from "./tool-args.js";
-import { buildFailureDetail } from "./spawn-attempt.js";
+import { buildFailureDetail, projectSuccessDiagnostics } from "./spawn-attempt.js";
 import { getDefaultRuntimeAdapter, requireRuntimeAdapter, availableRuntimeIds } from "./runtime/registry.js";
+import type { RuntimeAdapter } from "./runtime/types.js";
+import { decideFailover } from "./failover.js";
 import { defaultLifecycleMode, LifecycleExecutionCoordinator, repairLifecycleOutbox } from "./lifecycle-execution.js";
 import { getDiscussionStore, primeDiscussionSweepIndex } from "./discussion-mcp.js";
 import {
@@ -103,6 +108,27 @@ import {
 // ---------------------------------------------------------------------------
 // Server
 // ---------------------------------------------------------------------------
+
+const accessProfile = requireAuditIsolationEnvironment(process.env, {
+  dbFile: defaultDbFile(),
+  dataFile: defaultDataFile(),
+  eventLogFile: DEFAULT_EVENT_LOG,
+});
+const isAuditProfile = accessProfile.profile === "audit";
+if (accessProfile.profile === "audit") {
+  process.env.MESHFLEET_ISOLATION_ROOT = accessProfile.isolationRoot;
+  process.env.MESHFLEET_DB_FILE = accessProfile.dbFile;
+  process.env.MESHFLEET_DATA_FILE = accessProfile.dataFile;
+  process.env.MESHFLEET_EVENT_LOG_FILE = accessProfile.eventLogFile;
+}
+const AUDIT_TOOL_NAMES: ReadonlySet<string> = new Set([
+  "compile_route_candidates",
+  "ping",
+  "plan_speculative_backlog",
+  "recommend_route",
+]);
+const toolAllowedByAccessProfile = (name: string): boolean =>
+  !isAuditProfile || AUDIT_TOOL_NAMES.has(name);
 
 const server = new Server(
   { name: "agent-mesh", version: MESH_VERSION },
@@ -121,6 +147,14 @@ interface SpawnAgentInput {
   requestedModel?: string;
   /** Runtime adapter id. Absent = the process default (opencode-cli). */
   runtime?: string;
+  /** Opaque workspace binding the caller claims is verified isolation. Never a path. */
+  workspaceBinding?: string;
+  /**
+   * Runtime ids already tried for this agent, oldest first. In-memory only: it exists to stop
+   * failover from re-offering a runtime that just refused, which would spend the retry budget
+   * proving the same thing twice.
+   */
+  attemptedRuntimes?: readonly string[];
 }
 
 const runtimeAdapter = getDefaultRuntimeAdapter();
@@ -130,12 +164,20 @@ const lifecycleCoordinator = new LifecycleExecutionCoordinator(runtimeAdapter);
  * Inner spawn loop. attempt is 1-indexed (first attempt = 1).
  * On any transient failure path, decides retry vs permanent via shouldAgentRetry().
  */
-function trySpawn(input: SpawnAgentInput, agentId: string, attempt: number): void {
-  // Resolve ONCE and use the same adapter for describe/start/cancel/wait. Mixing them would give
-  // a Kimi agent opencode's timeout and opencode's cancel semantics, which is worse than not
-  // supporting selection at all: it would look like it worked.
-  const adapter = input.runtime ? requireRuntimeAdapter(input.runtime) : runtimeAdapter;
-  const spec = {
+/**
+ * The exact spec a given adapter would be started with.
+ *
+ * Extracted so failover can ask a CANDIDATE adapter `validate(spec)` about the spec it would
+ * really receive. Rebuilding an approximation here would be the classic guard that cannot see its
+ * own subject: it would answer about a spec nobody runs.
+ */
+function buildExecutionSpec(input: SpawnAgentInput, agentId: string, adapter: RuntimeAdapter) {
+  // Both branches resolve out of the SAME module-level registry, so `runtime: "opencode-cli"`
+  // yields the identical instance the default path uses. Comparing instances — not comparing the
+  // id string against a literal — is what makes "explicitly asked for the default" and "asked for
+  // nothing" the same execution, instead of two paths that drift.
+  const nonDefaultRuntime = adapter !== runtimeAdapter;
+  return {
     fleetId: input.fleetId,
     agentId,
     role: input.role,
@@ -144,7 +186,46 @@ function trySpawn(input: SpawnAgentInput, agentId: string, attempt: number): voi
     requestedModel: input.requestedModel,
     cwd: process.cwd(),
     timeoutMs: adapter.describe().defaultTimeoutMs,
+    // The default path's spec is unchanged BY CONSTRUCTION — this object literal only grows when
+    // a non-default runtime was selected — so opencode's argv and child environment stay
+    // byte-identical. That matters: `environmentPolicy` is what `opencode.ts` feeds to
+    // `resolveChildEnvironment`, so setting it unconditionally would scrub the environment
+    // opencode authenticates with.
+    //
+    // These fields are REQUESTS, not attestations. `kimi.ts` refuses an inherited environment, an
+    // absent permission request, and a resumed session; a spec without them fails validation and
+    // `start()` throws, which is how a selected Kimi agent died before this. Naming them here says
+    // what MeshFleet actually does: it spawns an unattended agent that may edit its workspace.
+    ...(nonDefaultRuntime
+      ? {
+          environmentPolicy: { mode: "scrubbed" as const },
+          session: { mode: "new" as const },
+          permissions: { mode: "unattended" as const, edit: "workspace" as const },
+          // Only the CALLER may claim isolation, and the claim is worth nothing on its own — the
+          // adapter's operator-configured admission list is the deciding key. Omitted when the
+          // caller named no binding, so the adapter refuses rather than MeshFleet inventing an
+          // isolation guarantee it does not provide.
+          ...(input.workspaceBinding
+            ? { workspace: { isolation: "verified" as const, bindingId: input.workspaceBinding } }
+            : {}),
+        }
+      : {}),
   };
+}
+
+/**
+ * Inner spawn loop. attempt is 1-indexed (first attempt = 1).
+ * On any transient failure path, decides retry vs failover vs permanent.
+ */
+function trySpawn(input: SpawnAgentInput, agentId: string, attempt: number): void {
+  // Resolve ONCE and use the same adapter for describe/start/cancel/wait. Mixing them would give
+  // a Kimi agent opencode's timeout and opencode's cancel semantics, which is worse than not
+  // supporting selection at all: it would look like it worked.
+  const adapter = input.runtime ? requireRuntimeAdapter(input.runtime) : runtimeAdapter;
+  const spec = buildExecutionSpec(input, agentId, adapter);
+  // Append BEFORE the spawn, not after it resolves. A runtime that refuses instantly is exactly
+  // the case failover exists for, and a record written only on success would omit it.
+  recordRuntimeAttempt(agentId, adapter.id);
   void adapter.start(spec).then((handle) => {
     if (handle.pid !== undefined) {
       withLedger((data) => {
@@ -165,14 +246,60 @@ function trySpawn(input: SpawnAgentInput, agentId: string, attempt: number): voi
     });
     void adapter.wait(handle).then((result) => {
       heartbeat.stop();
+      // Composed OUTSIDE the success branch on purpose: the success-carries-no-error guard
+      // forbids the raw stderr token inside that region, and it is right to — raw transcripts
+      // in Agent.error made real failures indistinguishable from normal runs. A hollow success
+      // seals as FAILED, and its detail goes through buildFailureDetail, the same bounded
+      // composer every other failure detail uses.
+      const hollowFailureDetail =
+        result.status === "success" && result.stdout.trim() === ""
+          ? buildFailureDetail(
+              result.stderr,
+              "Runtime exited successfully but produced no output. Treated as a failure: an empty result is indistinguishable from a real one to every caller, so sealing it as complete would claim work that never happened.",
+            )
+          : undefined;
       if (result.status === "success") {
+        // HOLLOW SUCCESS (2026-08-01): a runtime can exit 0 having produced no
+        // output at all — the model burned its turn on tool calls and never
+        // emitted a final answer. Exit code alone therefore does not mean the
+        // work happened. Sealing that as `complete` is the exact overclaim
+        // verify.ts already forbids: `complete` must never "claim work that
+        // never happened". It is also invisible to every caller, because
+        // `collect_results` returns an empty string that reads like a real
+        // result, and an orchestrator accepts nothing while believing it got
+        // something. `failed` is the honest seal — it is terminal (no
+        // re-execution, so an agent that edited files cannot be double-run)
+        // and every existing consumer already knows to reroute on it.
+        if (hollowFailureDetail !== undefined) {
+          markAgentFinished(
+            agentId,
+            "failed",
+            result.stdout,
+            hollowFailureDetail,
+            result.identity.agent,
+            result.identity.model,
+          );
+          return;
+        }
         markAgentFinished(
           agentId,
           "complete",
           result.stdout,
-          result.stderr || undefined,
+          // A SUCCESS has no error. This used to pass `result.stderr`, so a completed agent's
+          // `error` held the child's entire stderr transcript — tool calls, their output,
+          // duplicated warning lines and all. Measured on the live store: 753 of 763 `complete`
+          // agents carried a populated `error`, averaging 4,352 bytes, 3.28 MB in total. A
+          // consumer asking `agent.error` whether the work failed got a non-empty string for
+          // 98.7% of successes, which makes a real failure indistinguishable from a normal run.
+          //
+          // The distilled signal was being DROPPED at the same moment. `classifySpawnResult`
+          // already separates an auxiliary provider warning from the raw transcript, and
+          // `opencode.ts` carries it in `diagnostics` — which this call ignored. The transcript
+          // was kept and the diagnosis discarded: exactly backwards.
+          undefined,
           result.identity.agent,
           result.identity.model,
+          projectSuccessDiagnostics(result.diagnostics),
         );
         return;
       }
@@ -190,6 +317,77 @@ function trySpawn(input: SpawnAgentInput, agentId: string, attempt: number): voi
   }).catch((error: unknown) => {
     handleTransientFailure(input, agentId, attempt, "", "", error instanceof Error ? error.message : String(error));
   });
+}
+
+/**
+ * Append the runtime this attempt is using to the agent's durable row.
+ *
+ * This IS the hop record, and it is deliberately NOT a `Receipt`. A Receipt in this ledger is
+ * `{message_id, agent_id, action, timestamp}` keyed `${message_id}:${agent_id}:${action}`, and
+ * `verify_ledger` raises `receipt.orphan_message` for one that names no real message. Recording a
+ * spawn hop as a receipt would mean inventing a message id — either orphaning the row, which the
+ * audit is built to catch, or fabricating a message to hold it. Making the auditor quieter to fit
+ * a new writer is the failure this product exists to prevent, so the hop goes where durable agent
+ * facts already go. The same distinction the `fleet_reconciled` correction drew: an entry in the
+ * ledger is not automatically a receipt.
+ *
+ * An ordered list, not a counter: `["opencode-cli","kimi-cli"]` states which runtime ran first,
+ * which one it hopped to, and in what order — a count would say only that something happened.
+ */
+function recordRuntimeAttempt(agentId: string, runtimeId: string): void {
+  withLedger((data) => {
+    const agent = data.agents[agentId];
+    if (!agent) return;
+    const attempts = agent.runtime_attempts ?? [];
+    // Idempotent on the id that is already last: a re-entry must not inflate the history into
+    // evidence of a hop that never happened.
+    if (attempts[attempts.length - 1] === runtimeId) return;
+    agent.runtime_attempts = [...attempts, runtimeId];
+  });
+}
+
+/**
+ * The next runtime worth trying for this agent, or undefined to retry where it is.
+ *
+ * The gate is `validate()` and ONLY `validate()`. The tempting alternative is to read the failed
+ * child's stderr and decide whether it "looks like" a quota refusal — but that is provider text,
+ * unversioned and free to change, and the repo's standing scar is that three attempts to guess a
+ * classification failed where probing worked. A candidate that cannot even accept the spec is
+ * knowably useless; a candidate that can is worth an attempt whatever the previous error said.
+ *
+ * ⚠️ Order is the registry's sorted id order, which is ALPHABETICAL and therefore arbitrary. It
+ * encodes no preference, health, cost or remaining quota, because MeshFleet observes none of those
+ * — `recommend_route` exists for ranking and is advisory-only by design. With two runtimes this is
+ * a distinction without a difference; it stops being one at three, and that is the point at which
+ * ordering needs a real input rather than a better sort.
+ */
+function selectFailoverRuntime(
+  input: SpawnAgentInput,
+  agentId: string,
+  currentRuntimeId: string,
+  failureDetail: string,
+): { adapter: RuntimeAdapter; input: SpawnAgentInput } | undefined {
+  const attempted = [...(input.attemptedRuntimes ?? []), currentRuntimeId];
+  const decision = decideFailover({
+    available: availableRuntimeIds(),
+    attempted,
+    failureDetail,
+    requestedModel: input.requestedModel,
+    // The spec is built for the CANDIDATE, because the spec depends on which adapter it is for: a
+    // non-default runtime carries permission, session and environment requests the default path
+    // does not. Validating the outgoing runtime's spec against the incoming one would answer the
+    // wrong question.
+    accepts: (id) => {
+      const candidate = requireRuntimeAdapter(id);
+      const next: SpawnAgentInput = { ...input, runtime: id, attemptedRuntimes: attempted };
+      return candidate.validate(buildExecutionSpec(next, agentId, candidate)).ok;
+    },
+  });
+  if (!decision.hop) return undefined;
+  return {
+    adapter: requireRuntimeAdapter(decision.to),
+    input: { ...input, runtime: decision.to, attemptedRuntimes: attempted },
+  };
 }
 
 function handleTransientFailure(
@@ -222,6 +420,28 @@ function handleTransientFailure(
   }
   const nextAttempt = attempt + 1;
   const delayMs = computeBackoff(nextAttempt);
+  // Which runtime just refused. `input.runtime` is absent on the default path, and the hop record
+  // must name the runtime that actually ran, not the caller's silence about it.
+  const currentRuntimeId = (input.runtime ? requireRuntimeAdapter(input.runtime) : runtimeAdapter).id;
+  const failover = selectFailoverRuntime(input, agentId, currentRuntimeId, failureDetail);
+  // Failing over rather than repeating: a retry on the runtime that just refused for quota will
+  // refuse again, and the whole retry budget is spent proving it while other subscriptions sit
+  // idle. Where no other runtime can take the spec, this is exactly the old behaviour — and with
+  // only the default adapter registered, which is every deployment that configures nothing, the
+  // candidate list is empty and nothing changes at all.
+  const nextInput = failover?.input ?? input;
+  if (failover) {
+    appendEvent("agent_runtime_failover", {
+      agent_id: agentId,
+      fleet_id: input.fleetId,
+      from_runtime: currentRuntimeId,
+      to_runtime: failover.adapter.id,
+      from_attempt: attempt,
+      to_attempt: nextAttempt,
+      last_error: failureDetail,
+      timestamp: Date.now(),
+    });
+  }
   appendEvent("agent_retry_scheduled", {
     agent_id: agentId,
     from_attempt: attempt,
@@ -231,7 +451,7 @@ function handleTransientFailure(
     timestamp: Date.now(),
   });
   scheduleAgentRetry(nextAttempt, () => {
-    trySpawn(input, agentId, nextAttempt);
+    trySpawn(nextInput, agentId, nextAttempt);
   });
   void stdout;
 }
@@ -272,7 +492,15 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
                     "Runtime adapter to spawn this agent under. Omit for the default. `model` " +
                     "picks a model WITHIN a runtime; `runtime` picks the harness itself, so agents " +
                     "in one fleet can run under different CLIs and one provider outage cannot stop " +
-                    "every agent at once.",
+                    "every agent at once. Not supported in durable lifecycle mode.",
+                },
+                workspace_binding: {
+                  type: "string",
+                  description:
+                    "Opaque identifier for a workspace the caller asserts is verified isolation. " +
+                    "Never a path. Some runtimes refuse to edit files without one, and the claim " +
+                    "grants nothing on its own — the runtime independently admits the identifier " +
+                    "from operator configuration. Ignored when 'runtime' is omitted.",
                 },
               },
               required: ["role", "prompt"],
@@ -906,7 +1134,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
             properties: {
               objective: {
                 type: "string",
-                const: "prefer_near_reset",
+                // prefer_near_reset: post-score tie-break on measured window urgency.
+                // exhaust_before_reset: the same measured, current-window urgency as the
+                // PRIMARY key — spend the fullest pool before its rotation discards the
+                // remainder. Both are advisory projections over caller-supplied evidence;
+                // unmeasured candidates are never promoted or demoted by either.
+                enum: ["prefer_near_reset", "exhaust_before_reset"],
               },
               now_ms: {
                 type: "integer",
@@ -1214,7 +1447,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         additionalProperties: false,
       },
     },
-  ],
+  ].filter((tool) => toolAllowedByAccessProfile(tool.name)),
 }));
 
 // ---------------------------------------------------------------------------
@@ -1258,7 +1491,10 @@ const toolHandlers: Record<
 
 toolHandlers["spawn_fleet"] = async (args) => {
     const { agents } = args as {
-      agents: { role: string; prompt: string; agent?: string; model?: string; runtime?: string }[];
+      agents: {
+        role: string; prompt: string; agent?: string; model?: string;
+        runtime?: string; workspace_binding?: string;
+      }[];
     };
     // The published schema declares agents[] items with REQUIRED string role and
     // prompt, and the MCP SDK enforces neither `required` nor `type`. Without this
@@ -1303,6 +1539,13 @@ toolHandlers["spawn_fleet"] = async (args) => {
       prompt: a.prompt,
       agent: a.agent,
       model: a.model,
+      // Carrying `runtime` here is the whole point of the field. It was validated above and then
+      // dropped: nothing copied it into these specs and nothing passed it to trySpawn, so
+      // `SpawnAgentInput.runtime` had no producer and every selected agent silently ran on
+      // opencode anyway. Measured 2026-08-01 — `runtime: "kimi-cli"` pointed at a marker-writing
+      // executable returned a fleet_id and never invoked it.
+      runtime: a.runtime,
+      workspaceBinding: a.workspace_binding,
     }));
 
     let lifecycleMode;
@@ -1312,6 +1555,18 @@ toolHandlers["spawn_fleet"] = async (args) => {
       return jsonError(err instanceof Error ? err.message : String(err));
     }
     if (lifecycleMode === "durable") {
+      // Durable mode rehydrates a spec from the persisted Agent row, and that row has no runtime
+      // column — so a durable respawn would come back on the default adapter. Refuse instead:
+      // running an agent on a runtime the caller did not ask for is the defect this field exists
+      // to remove, and silently honouring it only on the first attempt would hide it better.
+      const durableRuntimeAgent = specs.find((s) => s.runtime !== undefined);
+      if (durableRuntimeAgent) {
+        return jsonError(
+          "spawn_fleet: per-agent 'runtime' is not supported in durable lifecycle mode, because a " +
+            "durable respawn rehydrates from the agent row and the row does not persist it. Use " +
+            "legacy or shadow mode, or omit 'runtime'.",
+        );
+      }
       try {
         lifecycleCoordinator.createFleet(fleetId, specs.map((s) => ({
           fleetId,
@@ -1360,6 +1615,8 @@ toolHandlers["spawn_fleet"] = async (args) => {
         prompt: s.prompt,
         agentFile: s.agent,
         requestedModel: s.model,
+        runtime: s.runtime,
+        workspaceBinding: s.workspaceBinding,
       }, s.agentId, 1);
       appendEvent("agent_spawned", { fleet_id: fleetId, agent_id: s.agentId, role: s.role, agent_file: s.agent });
       if (s.agent) autoRegisterFromAgent(s.agentId, fleetId, s.agent);
@@ -1423,6 +1680,7 @@ toolHandlers["collect_results"] = async (args) => {
         status: a.status,
         output: a.output,
         error: a.error,
+        diagnostics: a.diagnostics,
       })),
     });
 };
@@ -2192,6 +2450,9 @@ toolHandlers["get_discussion"] = async (args) => {
 
 server.setRequestHandler(CallToolRequestSchema, async (req) => {
   const { name, arguments: args } = req.params;
+  if (!toolAllowedByAccessProfile(name)) {
+    return jsonError(`Tool '${name}' is unavailable in the audit access profile`);
+  }
   const handler = toolHandlers[name];
   if (!handler) {
     throw new Error(`Unknown tool: ${name}`);
@@ -2213,7 +2474,7 @@ await server.connect(transport);
 // competing ratification sweeper.
 const isChildInstance = process.env.AGENT_MESH_CHILD === "1";
 
-if (!isChildInstance) {
+if (!isChildInstance && !isAuditProfile) {
   // Phase 2: one-shot JSON→SQLite migration. Stop-the-world, parent-only, BEFORE
   // any ledger read/write — a fresh getDb() would otherwise create an empty db
   // and strand the JSON. Fails-closed: a validation mismatch aborts startup with
@@ -2309,6 +2570,8 @@ if (!isChildInstance) {
   } catch (err) {
     console.error(`Agent Mesh v${MESH_VERSION} started (JSON persistence + P2P messaging + capability routing + premade agent discovery + timeout/resilience + SSE push) — SSE server failed to start: ${err instanceof Error ? err.message : String(err)}`);
   }
+} else if (isAuditProfile) {
+  console.error("Agent Mesh started in audit access profile — storage startup, recovery, sweepers, and SSE skipped");
 } else {
   console.error("Agent Mesh started in child mode (AGENT_MESH_CHILD=1) — recovery, sweeper, and SSE skipped");
 }

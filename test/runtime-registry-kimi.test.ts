@@ -71,8 +71,8 @@ test("the reported harness version is the operator's assertion, and unknown when
     { MESHFLEET_KIMI_COMMAND: "/nonexistent/kimi", MESHFLEET_KIMI_VERSION: undefined },
     () => createDefaultRuntimeRegistry().require("kimi-cli").describe(),
   );
-  assert.equal(descriptor.harness.version, "unknown");
-  assert.equal(descriptor.harness.versionEvidence, "configured");
+  assert.equal(descriptor.harness!.version, "unknown");
+  assert.equal(descriptor.harness!.versionEvidence, "configured");
 });
 
 test("the DEFAULT adapter is still OpenCode even when Kimi is registered", () => {

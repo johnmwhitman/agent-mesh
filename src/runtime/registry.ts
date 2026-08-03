@@ -1,5 +1,6 @@
 import { OpenCodeRuntimeAdapter } from "./opencode.js";
 import { KimiRuntimeAdapter } from "./kimi.js";
+import { ClaudeRuntimeAdapter } from "./claude.js";
 import type { RuntimeAdapter } from "./types.js";
 
 /** Registry holds every runtime an agent could be spawned under. Selection is not yet
@@ -29,7 +30,12 @@ export class RuntimeAdapterRegistry {
 
 export function createDefaultRuntimeRegistry(): RuntimeAdapterRegistry {
   const registry = new RuntimeAdapterRegistry();
-  registry.register(new OpenCodeRuntimeAdapter());
+  // The command is resolvable so an operator whose `opencode` is not on PATH can still run, and so
+  // failover can be exercised end to end against a stub instead of a real subscription. Unset is
+  // the adapter's own default, so every deployment that configures nothing is unchanged.
+  registry.register(
+    new OpenCodeRuntimeAdapter({ command: process.env.MESHFLEET_OPENCODE_COMMAND?.trim() || undefined }),
+  );
   // The Kimi adapter shipped in #67 and was registered NOWHERE, so nothing could reach it:
   // `createDefaultRuntimeRegistry().ids()` returned `["opencode-cli"]` and a grep for `kimi`
   // across src/ found no importer outside the adapter's own file. Registering it does not
@@ -42,7 +48,24 @@ export function createDefaultRuntimeRegistry(): RuntimeAdapterRegistry {
   // the same moment, and no amount of budget elsewhere helps. Per-agent runtime selection is
   // what turns a single chokepoint into something that can fail over.
   registerKimiIfConfigured(registry);
+  registerClaudeIfConfigured(registry);
   return registry;
+}
+
+/** Register Claude Code only when its private executable binding is configured. */
+function registerClaudeIfConfigured(registry: RuntimeAdapterRegistry): void {
+  const command = process.env.MESHFLEET_CLAUDE_COMMAND?.trim();
+  if (!command) return;
+  registry.register(
+    new ClaudeRuntimeAdapter({
+      command,
+      // Configured evidence only: the adapter does not run a version probe during registry setup.
+      harnessVersion: process.env.MESHFLEET_CLAUDE_VERSION?.trim() || "unknown",
+      verifiedWorkspaceBindingIds: parseAdmittedWorkspaceBindings(
+        process.env.MESHFLEET_CLAUDE_WORKSPACE_BINDINGS,
+      ),
+    }),
+  );
 }
 
 /**
@@ -77,8 +100,34 @@ function registerKimiIfConfigured(registry: RuntimeAdapterRegistry): void {
       // "configured" evidence: the adapter does not probe the binary, so this is the operator's
       // assertion. Unset means unknown, and unknown is reported rather than invented.
       harnessVersion: process.env.MESHFLEET_KIMI_VERSION?.trim() || "unknown",
+      verifiedWorkspaceBindingIds: parseAdmittedWorkspaceBindings(
+        process.env.MESHFLEET_KIMI_WORKSPACE_BINDINGS,
+      ),
     }),
   );
+}
+
+/**
+ * Workspace bindings the OPERATOR admits as verified isolation, from configuration.
+ *
+ * `kimi.ts` gates both `plan` and `unattended` on `hasAdmittedWorkspace()`, which needs the
+ * caller's `workspace.bindingId` to appear in this set. Registering the adapter without one left
+ * the set EMPTY, so every permission mode failed validation and no Kimi agent could start under
+ * any spec — measured 2026-08-01, all three modes returned an error from `validate()`.
+ *
+ * This is deliberately the second of two independent keys. The caller names a binding on the
+ * agent and claims `isolation: "verified"`; a caller can assert anything, so that claim alone
+ * grants nothing. Admission here is the actual authority, and it lives in operator configuration
+ * rather than in this repository — the same reason the command path does. Ids are opaque tokens
+ * (`kimi.ts` rejects anything with path separators, tildes, or whitespace), so nothing
+ * machine-specific reaches the public tree.
+ *
+ * Unset means the set stays empty and Kimi still refuses every spec, which is the honest default:
+ * MeshFleet has no per-agent workspace isolation of its own to attest to yet.
+ */
+function parseAdmittedWorkspaceBindings(raw: string | undefined): string[] {
+  if (!raw) return [];
+  return raw.split(",").map((id) => id.trim()).filter((id) => id.length > 0);
 }
 
 const defaultRegistry = createDefaultRuntimeRegistry();

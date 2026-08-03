@@ -1,0 +1,13 @@
+# No end-of-line translation, anywhere, ever.
+#
+# This repository is byte-attested: blackbox manifests pin sha256 digests of tracked files, the
+# two-host differential takes an external anchor over its manifest's bytes, and the digest sweep
+# verifies rows against `git show :<path>`. On a checkout with core.autocrlf=true (the
+# github-hosted windows-2022 runner's default), every text file materializes with \r\n while the
+# index holds \n — so the worktree no longer matches what the repository attests, and the
+# two-host differential failed its own anchor check on bytes git rewrote (#108, first matrix
+# run, reproduced locally by CRLF-ifying the manifest).
+#
+# `-text` disables translation for every path: what is committed is what is checked out, on
+# every platform. Editors on Windows handle \n fine; digests cannot handle \r\n.
+* -text

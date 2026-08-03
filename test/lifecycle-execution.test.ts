@@ -71,6 +71,34 @@ test("durable coordinator records pending projection before launch and settles a
   }
 });
 
+test("durable success stores bounded diagnostics separately from error", async () => {
+  const temp = withTempDb();
+  try {
+    const runtime = new ControlledRuntime();
+    const coordinator = new LifecycleExecutionCoordinator(runtime, { ownerId: "owner-diagnostics", retryBaseMs: 0 });
+    coordinator.createFleet("fleet-diagnostics", [{
+      fleetId: "fleet-diagnostics",
+      agentId: "agent-diagnostics",
+      role: "worker",
+      prompt: "work",
+    }]);
+    await waitUntil(() => runtime.results.length === 1, "durable runtime start");
+    runtime.results[0].resolve({
+      ...success("completed"),
+      stderr: "raw tool transcript that must not persist",
+      diagnostics: [{ severity: "warning", message: "token=warning-secret retrying" }],
+    });
+    await waitUntil(() => loadData().agents["agent-diagnostics"].status === "complete", "durable settlement");
+    const agent = loadData().agents["agent-diagnostics"];
+    assert.equal(agent.error, undefined);
+    assert.deepEqual(agent.diagnostics, [{ severity: "warning", message: "token=[redacted] retrying" }]);
+    assert.ok(!JSON.stringify(agent).includes("raw tool transcript"));
+    coordinator.stop();
+  } finally {
+    temp.cleanup();
+  }
+});
+
 test("durable retry creates a distinct attempt and persisted eligibility", async () => {
   const temp = withTempDb();
   try {

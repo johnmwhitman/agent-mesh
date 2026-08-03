@@ -11,6 +11,7 @@ import { defaultLifecycleMode, LifecycleExecutionCoordinator, projectLifecycleOu
 import { loadData, readEventLog, resolveEventLogFile } from "../src/core.js";
 import type { RuntimeAdapter, RuntimeHandle, RuntimeResult } from "../src/runtime/types.js";
 import { withTempDb } from "./helpers/with-temp-db.js";
+import { waitDeadline, waitUntil } from "./helpers/wait-until.js";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -57,45 +58,6 @@ const waitForFile = (file: string, timeoutMs = 1_000): void => {
   while (!existsSync(file)) {
     if (Date.now() >= until) throw new Error(`timed out waiting for ${file}`);
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
-  }
-};
-/**
- * Poll until `predicate` holds. Assertions on scheduled work must wait for the
- * observable condition, never for a guessed sleep: a lease-boundary recovery
- * fires on its own timer and its containment callback lands asynchronously, so
- * a fixed delay races the very effect being asserted — it passes on an idle
- * machine and fails on a loaded CI runner.
- */
-const waitUntil = async (
-  predicate: () => boolean,
-  what: string,
-  timeoutMs = 2_000,
-  // Observed state at the moment of timeout. A bare "timed out waiting for X" cannot
-  // distinguish "nothing happened" (the runner starved) from "half of it happened" (a real
-  // ordering defect) — and that distinction is the whole diagnosis. Supply this wherever the
-  // predicate is a conjunction, so the NEXT CI failure arrives already diagnosed instead of
-  // costing another session a reproduction hunt.
-  //
-  // The poll count in the message is the second discriminator, and the sharper one: this loop
-  // polls every 5ms, so a healthy 2s wait is ~400 polls. Few polls against a full elapsed
-  // budget means the event loop itself was starved (a runner problem). Many polls with the
-  // condition still false means the loop ran fine and the effect genuinely never landed (a
-  // product problem). Those two demand opposite responses, and until now the failure text
-  // supported neither.
-  observed?: () => string,
-): Promise<void> => {
-  const started = Date.now();
-  const until = started + timeoutMs;
-  let polls = 0;
-  while (!predicate()) {
-    if (Date.now() >= until) {
-      const state = observed ? ` | observed: ${observed()}` : "";
-      throw new Error(
-        `timed out after ${timeoutMs}ms waiting for ${what} (elapsed ${Date.now() - started}ms, ${polls} polls)${state}`,
-      );
-    }
-    polls += 1;
-    await new Promise((done) => setTimeout(done, 5));
   }
 };
 const waitForExit = (child: ReturnType<typeof spawn>): Promise<void> => new Promise((resolve, reject) => {
@@ -322,8 +284,7 @@ test("durable recovery wakes at a future lease boundary, contains the diagnostic
     await waitUntil(
       () => runtime.starts === 1 && contained.length === 1,
       "scheduled recovery to reclaim the expired lease and contain the dead pid",
-      2_000,
-      () => `runtime.starts=${runtime.starts} contained=[${contained.join(",")}]`,
+      { observed: () => `runtime.starts=${runtime.starts} contained=[${contained.join(",")}]` },
     );
     assert.equal(runtime.starts, 1, "scheduled recovery reclaims after expiry without restart");
     assert.deepEqual(contained, [999_999]);
@@ -403,8 +364,7 @@ test("retry wake scheduling survives post-settlement projection failure", async 
     await waitUntil(
       () => runtime.starts === 2,
       "the retry to launch a second attempt",
-      2_000,
-      () => `runtime.starts=${runtime.starts}`,
+      { observed: () => `runtime.starts=${runtime.starts}` },
     );
     assert.equal(runtime.starts, 2);
     setOutboxAfterAppendForTest(undefined);
@@ -423,7 +383,16 @@ test("durable attach schedules recovery when runtime start never resolves", asyn
     coordinator.recordMode("f", "durable");
     assert.deepEqual(coordinator.attachAgent({ fleetId: "f", agentId: "a", role: "worker", prompt: "p" }), {});
     assert.equal(runtime.starts, 1);
-    await new Promise((done) => setTimeout(done, 60));
+    await waitUntil(
+      () => new LifecycleStore().getState("a")?.work.status === "failed",
+      "durable attach recovery to persist the failed state",
+      {
+        observed: () => {
+          const state = new LifecycleStore().getState("a");
+          return `work.status=${state?.work.status ?? "missing"} runtime.starts=${runtime.starts}`;
+        },
+      },
+    );
     const state = new LifecycleStore().getState("a")!;
     assert.equal(state.work.status, "failed");
     assert.match(String(state.work.error), /manual recovery required/);
@@ -620,9 +589,17 @@ test("same coordinator replaces an expired registered handle and a stale complet
       terminatePid: (pid) => contained.push(pid),
     });
     coordinator.createFleet("f", [{ fleetId: "f", agentId: "a", role: "r", prompt: "p" }]);
+    const replacementDeadlineMs = waitDeadline();
     await waitUntil(
-      () => new LifecycleStore({ now: () => now }).getState("a")?.attempts[0]?.launch_registered_at !== null,
+      () => new LifecycleStore({ now: () => now }).getState("a")?.attempts[0]?.launch_registered_at != null,
       "the first durable handle to register",
+      {
+        deadlineMs: replacementDeadlineMs,
+        observed: () => {
+          const state = new LifecycleStore({ now: () => now }).getState("a");
+          return `launch_registered_at=${state?.attempts[0]?.launch_registered_at ?? "missing"}`;
+        },
+      },
     );
     const first = new LifecycleStore({ now: () => now }).getState("a")!.attempts[0]!;
 
@@ -632,17 +609,27 @@ test("same coordinator replaces an expired registered handle and a stale complet
     await waitUntil(
       () => runtime.starts === 2,
       "same-coordinator recovery to launch the replacement attempt",
-      2_000,
-      () => `runtime.starts=${runtime.starts} contained=[${contained.join(",")}]`,
+      {
+        deadlineMs: replacementDeadlineMs,
+        observed: () => `runtime.starts=${runtime.starts} contained=[${contained.join(",")}]`,
+      },
     );
     assert.deepEqual(contained, [], "PID-less recovery remains authorized by SQLite lease expiry");
     await waitUntil(
       () => {
         const state = new LifecycleStore({ now: () => now }).getState("a");
         const current = state?.attempts.find((attempt) => attempt.attempt_id === state.work.current_attempt_id);
-        return current?.launch_registered_at !== null;
+        return current?.launch_registered_at != null;
       },
       "the replacement durable handle to register",
+      {
+        deadlineMs: replacementDeadlineMs,
+        observed: () => {
+          const state = new LifecycleStore({ now: () => now }).getState("a");
+          const current = state?.attempts.find((attempt) => attempt.attempt_id === state.work.current_attempt_id);
+          return `current_attempt_id=${state?.work.current_attempt_id ?? "missing"} launch_registered_at=${current?.launch_registered_at ?? "missing"}`;
+        },
+      },
     );
 
     runtime.waits[0]!.resolve(success("late old result"));

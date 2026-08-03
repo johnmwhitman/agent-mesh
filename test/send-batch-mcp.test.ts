@@ -88,7 +88,7 @@ test("send_messages publishes the same nonblank identity and correlation rules i
     const { tools } = await client.listTools();
     const tool = tools.find((candidate) => candidate.name === "send_messages");
     assert.ok(tool, "send_messages must be advertised");
-    const schema = tool.inputSchema as {
+    const schema = tool.inputSchema as unknown as {
       properties: {
         messages: {
           maxItems: number;

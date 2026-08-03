@@ -15,6 +15,7 @@ import {
 } from "./core.js";
 import { LifecycleStore, type LifecycleState } from "./attempt-lifecycle.js";
 import type { RuntimeAdapter, RuntimeHandle, RuntimeResult } from "./runtime/types.js";
+import { projectSuccessDiagnostics } from "./spawn-attempt.js";
 
 export type LifecycleMode = "legacy" | "shadow" | "durable";
 export interface DurableAgentSpec {
@@ -375,10 +376,20 @@ export class LifecycleExecutionCoordinator {
     }
     const settled = withLedgerAndStorage((data, db) => {
       const store = lifecycle(db, this.now);
-      const success = result.status === "success";
+      // HOLLOW SUCCESS (2026-08-01): exit 0 with no output at all is not success.
+      // A runtime can burn its whole turn on tool calls and never emit a final
+      // answer; settling that as `succeeded` claims work that never happened, and
+      // it is invisible downstream because an empty result reads exactly like a
+      // real one. Route it through the SAME retry path as a failure — which in
+      // this durable coordinator is what a transient runtime fault already gets —
+      // so the attempt can be re-run or failed over rather than silently banked.
+      const hollow = result.status === "success" && result.stdout.trim() === "";
+      const success = result.status === "success" && !hollow;
       const output = redact(result.stdout);
+      const hollowError =
+        "Runtime exited successfully but produced no output; treated as a failed attempt rather than banking an empty result as success.";
       const outcome = success ? store.settle({ workId: agentId, attemptId, ownerId: this.ownerId, ownerEpoch: epoch, outcome: "success", result: output })
-        : store.settleWithRetry({ workId: agentId, attemptId, ownerId: this.ownerId, ownerEpoch: epoch, outcome: "failure", result: output, error: redact(result.error ?? result.stderr) });
+        : store.settleWithRetry({ workId: agentId, attemptId, ownerId: this.ownerId, ownerEpoch: epoch, outcome: "failure", result: output, error: redact(hollow ? hollowError : (result.error ?? result.stderr)) });
       if (!outcome.accepted) return undefined;
       this.projectPending(data, outcome.state, result);
       const agent = data.agents[agentId];
@@ -406,6 +417,9 @@ export class LifecycleExecutionCoordinator {
       agent.status = state.work.status === "succeeded" ? "complete" : "failed";
       agent.output = typeof state.work.result === "string" ? state.work.result : "";
       agent.error = state.work.error === undefined ? undefined : redact(state.work.error);
+      agent.diagnostics = state.work.status === "succeeded" && result
+        ? projectSuccessDiagnostics(result.diagnostics)
+        : undefined;
       if (result?.identity.agent) agent.runtime_agent = result.identity.agent;
       if (result?.identity.model) agent.runtime_model = result.identity.model;
       agent.completed_at = this.now();

@@ -114,7 +114,7 @@ test("a message stored under a key that disagrees with its own id is an error", 
         recipients: ["B"],
         acknowledged: false,
         payload: "p",
-      } as MeshData["messages"][string],
+      } as unknown as MeshData["messages"][string],
     },
   });
   assert.ok(
@@ -151,7 +151,7 @@ test("an inbox holding a message its owner was never addressed is an error", () 
         recipients: ["A"],
         acknowledged: false,
         payload: "p",
-      } as MeshData["messages"][string],
+      } as unknown as MeshData["messages"][string],
     },
     inboxes: { A: [], B: ["M"] },
   });
@@ -200,7 +200,7 @@ test("a message whose fleet_id names no fleet is a warning, matching agent.orpha
         recipients: ["B"],
         acknowledged: false,
         payload: "p",
-      } as MeshData["messages"][string],
+      } as unknown as MeshData["messages"][string],
     },
   });
   assert.ok(checks(data, "warning").includes("message.orphan_fleet"));
@@ -223,7 +223,7 @@ test("acknowledged:true over an empty recipient set is an error, not a vacuous p
         recipients: [],
         acknowledged: true,
         payload: "p",
-      } as MeshData["messages"][string],
+      } as unknown as MeshData["messages"][string],
     },
   });
   assert.ok(
@@ -244,7 +244,7 @@ test("CONTROL: acknowledged:false over an empty recipient set is not flagged", (
         recipients: [],
         acknowledged: false,
         payload: "p",
-      } as MeshData["messages"][string],
+      } as unknown as MeshData["messages"][string],
     },
   });
   assert.ok(!checks(data, "error").includes("message.vacuous_ack"));
@@ -356,7 +356,7 @@ test("a ratification whose key disagrees with the proposal in its body is an err
         opened_at: 1000,
         silence_policy: "abstain",
         status: "open",
-      } as unknown as MeshData["ratifications"][string],
+      } as unknown as NonNullable<MeshData["ratifications"]>[string],
     },
   });
   assert.ok(checks(data, "error").includes("ratification.key_mismatch"));
@@ -382,7 +382,7 @@ test("quorum 0 is an error — it makes a terminal status recompute as supported
         silence_policy: "abstain",
         status: "ratified",
         resolved_at: 3000,
-      } as unknown as MeshData["ratifications"][string],
+      } as unknown as NonNullable<MeshData["ratifications"]>[string],
     },
   });
   assert.ok(checks(data, "error").includes("ratification.invalid_quorum"));
@@ -404,8 +404,146 @@ test("CONTROL: quorum 1 over one voter is not flagged", () => {
         opened_at: 1000,
         silence_policy: "abstain",
         status: "open",
-      } as unknown as MeshData["ratifications"][string],
+      } as unknown as NonNullable<MeshData["ratifications"]>[string],
     },
   });
   assert.ok(!checks(data, "error").includes("ratification.invalid_quorum"));
+});
+
+// --- 6. a message addressed to an agent this ledger does not hold -----------
+//
+// Same class as the sealed-fleet hole above: the auditor HOLDS both records and
+// never compares them. `data.agents` and the message's recipient set sit side by
+// side, and `receipt.unknown_agent`, `capability.unknown_agent` and
+// `inbox.unknown_agent` all make exactly this comparison — the message itself was
+// the one addressable record with no such check. A message addressed to a
+// non-existent member of a fleet this ledger fully holds can never be delivered,
+// can never draw an ack, and so `acknowledged` can never derive true: it is lost,
+// silently, which is priority #1.
+//
+// 🔴 SCOPE IS DELIBERATE AND MEASURED — the two exemptions are not conservatism,
+// they are false positives observed on the operator's real ledger (72 messages,
+// 880 agents), read-only, before this check was written:
+//
+//   - SENDERS ARE NOT CHECKED. 44 of the 71 messages whose fleet the ledger holds
+//     (62%) carry a `from_agent_id` that is not an agent row: `root` (18),
+//     `orchestrator` (13), `root-codex` (10), `codex-release-lead`,
+//     `coordination-reviewer`, `overwatch-orchestrator`. External and human
+//     senders writing into a held fleet are ordinary, honest traffic. A symmetric
+//     sender check would fire on nearly two thirds of real messages, which makes
+//     "the sender must be an agent" not an invariant of honest ledgers at all.
+//   - MESSAGES WHOSE FLEET IS NOT HELD ARE SKIPPED. That is the cross-attached
+//     case `message.orphan_fleet` already reports, and its comment states the
+//     reason: a ledger may legitimately not hold a foreign fleet. Requiring the
+//     fleet to be held removes cross-attachment by construction, so what is left
+//     cannot be explained away by it. The single real instance on the operator's
+//     ledger is exactly this case and is already reported twice
+//     (`message.orphan_fleet` + `inbox.unknown_agent`); a third finding on that
+//     row would be noise, not detection.
+//
+// With both exemptions applied the predicate fires on ZERO of the operator's 72
+// live messages and ZERO of the 78 corpus fixtures.
+//
+// WARNING, not error, and the severity is the sibling checks' precedent, not a
+// hedge: all three of `receipt.unknown_agent`, `capability.unknown_agent` and
+// `inbox.unknown_agent` warn on "this ledger has not registered as an agent".
+// Inventing a stricter rule here on thinner evidence than they had would be
+// exactly the drift this repo audits for.
+
+const msgScaffold = (): Partial<MeshData> => ({
+  fleets: { F: fleet("F", "complete") },
+  agents: { a1: agent("a1", "F", "complete"), a2: agent("a2", "F", "complete") },
+});
+
+const message = (over: Record<string, unknown>) =>
+  ({
+    id: "m1",
+    from_agent_id: "a1",
+    to_agent_id: "a2",
+    fleet_id: "F",
+    type: "handoff",
+    payload: "p",
+    timestamp: 2000,
+    acknowledged: false,
+    ...over,
+  }) as unknown as MeshData["messages"][string];
+
+test("a message addressed to an agent absent from a held fleet is flagged", () => {
+  const data = mesh({
+    ...msgScaffold(),
+    messages: { m1: message({ to_agent_id: "a-ghost" }) },
+  });
+  assert.ok(
+    checks(data, "warning").includes("message.unknown_recipient"),
+    "a message addressed to a non-existent agent can never be delivered or acked — nothing else in the auditor looks at this"
+  );
+});
+
+test("a broadcast whose materialized recipient list names an absent agent is flagged", () => {
+  const data = mesh({
+    ...msgScaffold(),
+    messages: { m1: message({ to_agent_id: "*", recipients: ["a2", "a-ghost"] }) },
+  });
+  assert.ok(checks(data, "warning").includes("message.unknown_recipient"));
+});
+
+test("two absent recipients on one message produce ONE finding, naming both", () => {
+  const data = mesh({
+    ...msgScaffold(),
+    messages: { m1: message({ to_agent_id: "*", recipients: ["ghost-a", "ghost-b"] }) },
+  });
+  const hits = verifyMeshData(data).findings.filter((f) => f.check === "message.unknown_recipient");
+  assert.equal(hits.length, 1, "one message is one finding; per-recipient findings would bury a real ledger in duplicates");
+  assert.equal(hits[0].subject, "m1", "the subject is the message — that is the row an operator has to go look at");
+  assert.match(hits[0].detail, /ghost-a/);
+  assert.match(hits[0].detail, /ghost-b/, "a finding that names only the first absent recipient hides the rest");
+});
+
+test("CONTROL: an unknown SENDER is not flagged — 62% of the operator's real messages have one", () => {
+  const data = mesh({
+    ...msgScaffold(),
+    messages: { m1: message({ from_agent_id: "root", to_agent_id: "a2" }) },
+  });
+  assert.deepEqual(
+    verifyMeshData(data).findings.filter((f) => f.check === "message.unknown_recipient"),
+    [],
+    "`root`/`orchestrator` senders are ordinary honest traffic; flagging them fires on 44 of 71 real messages"
+  );
+});
+
+test("CONTROL: a message whose fleet this ledger does not hold is left to message.orphan_fleet", () => {
+  const data = mesh({
+    ...msgScaffold(),
+    messages: { m1: message({ fleet_id: "F-foreign", to_agent_id: "a-ghost" }) },
+  });
+  const found = verifyMeshData(data).findings.map((f) => f.check);
+  assert.ok(found.includes("message.orphan_fleet"), "the cross-attach case is already reported");
+  assert.ok(
+    !found.includes("message.unknown_recipient"),
+    "cross-attachment legitimately leaves parties out of this ledger — a second finding here would be noise"
+  );
+});
+
+test("CONTROL: the '*' broadcast placeholder is not an unknown agent", () => {
+  const data = mesh({
+    ...msgScaffold(),
+    messages: { m1: message({ to_agent_id: "*", recipients: ["a1", "a2"] }) },
+  });
+  assert.ok(!checks(data, "warning").includes("message.unknown_recipient"));
+});
+
+test("CONTROL: a legacy broadcast with no recipients list is not flagged", () => {
+  // schema v1 predates `recipients`, so `messageRecipients` falls back to ["*"].
+  // The same fallback the receipt checks exempt by name.
+  const data = mesh({
+    ...msgScaffold(),
+    messages: { m1: message({ to_agent_id: "*" }) },
+  });
+  assert.ok(!checks(data, "warning").includes("message.unknown_recipient"));
+});
+
+test("CONTROL: an ordinary message between two held agents is clean", () => {
+  const data = mesh({ ...msgScaffold(), messages: { m1: message({}) } });
+  assert.equal(verifyMeshData(data).ok, true);
+  assert.deepEqual(verifyMeshData(data).findings, []);
 });

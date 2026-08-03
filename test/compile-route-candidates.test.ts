@@ -5,7 +5,10 @@ import {
   compileRouteCandidates,
   ROUTE_CANDIDATE_COMPILER_VERSION,
 } from "../src/compile-route-candidates.js";
-import type { CompileRouteCandidateObservation } from "../src/compile-route-candidates.js";
+import type {
+  CompileRouteCandidateObservation,
+  CompileRouteCandidatesInput,
+} from "../src/compile-route-candidates.js";
 import { recommendRoute } from "../src/recommend-route.js";
 
 type Corpus = {
@@ -43,8 +46,12 @@ test("exports the route candidate observation contract", () => {
   assert.equal(observation.candidate_id, "lane-a");
 });
 
-function corpusInput(fixture: Corpus["cases"][number]) {
-  return { manifest: corpus.manifest, ...fixture.input };
+// `Corpus` describes the on-disk JSON loosely on purpose — the mutation test below
+// rewrites candidate and observation rows through `Record<string, unknown>`. The
+// compiler's parameter type is exact, so the crossing point is asserted once, here,
+// rather than at every call. No value the tests feed changes.
+function corpusInput(fixture: Corpus["cases"][number]): CompileRouteCandidatesInput {
+  return { manifest: corpus.manifest, ...fixture.input } as unknown as CompileRouteCandidatesInput;
 }
 
 test("route-candidate snapshot corpus deterministically projects neutral and measured evidence", () => {
@@ -108,11 +115,11 @@ test("identity observations are evidence-only and cannot replace manifest traits
   const originalInput = corpusInput(fixture);
   const identityReplaced = structuredClone(originalInput);
   identityReplaced.manifest.candidates[0] = {
-    ...(identityReplaced.manifest.candidates[0] as Record<string, unknown>),
+    ...identityReplaced.manifest.candidates[0]!,
     requested_identity: { runtime: "redacted-requested", model: "redacted-requested-model" },
   };
   identityReplaced.observations![0] = {
-    ...(identityReplaced.observations![0] as Record<string, unknown>),
+    ...identityReplaced.observations![0]!,
     observed_identity: {
       runtime: "redacted-observed",
       model: "redacted-observed-model",

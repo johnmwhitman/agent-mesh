@@ -136,7 +136,7 @@ test("storage migration: v2 logical ledger is preserved, idempotent, fail-closed
       ratifications: { m: { message_id: "m", fleet_id: "f", status: "pending", created_at: 5 } },
       templates: { t: { key: "t", body: "template" } },
     };
-    withLedger((data) => Object.assign(data, structuredClone(representative) as typeof data));
+    withLedger((data) => Object.assign(data, structuredClone(representative) as unknown as typeof data));
     closeDb();
     const raw = new Database(temp.dbFile);
     raw.exec("DROP TABLE a2a_request_mappings; DROP TABLE a2a_decision_receipts; DROP TABLE a2a_acceptance_records; DROP TABLE lifecycle_event_outbox; DROP TABLE attempt_events; DROP TABLE attempts; DROP TABLE work_items;");

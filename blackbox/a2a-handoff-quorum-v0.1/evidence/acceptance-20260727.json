@@ -16,8 +16,8 @@
   },
   "source_manifest": {
     "path": "manifest/v0.1/expected.json",
-    "bytes": 5351,
-    "sha256": "6c53807e02a44cb5cabf027b128c2bcd9bc18c4bb13c8b0975f816ae43e8ef68",
+    "bytes": 5171,
+    "sha256": "5c8e9c95d14fe5335a0df7615f2b4e950079ff6127d39195ca3d8b6e34460d39",
     "external_digest_required": true,
     "external_digest_status": "UNESTABLISHED",
     "external_anchor": {

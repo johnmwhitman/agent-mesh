@@ -250,7 +250,7 @@ test('emptiness: bookkeeping-only (meta) IS empty; any mesh row is not', () => {
     readLedger() // fresh materialization writes only meta rows
     assert.equal(isOpenLedgerEmpty(), true, 'schema + version markers alone are not ledger data')
     withLedger((d) => {
-      d.receipts['r1'] = { key: 'r1' } as never
+      d.receipts!['r1'] = { key: 'r1' } as never
     })
     assert.equal(isOpenLedgerEmpty(), false)
   } finally {
