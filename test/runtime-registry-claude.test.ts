@@ -30,7 +30,7 @@ test("CONTROL: with no Claude command configured the adapter set is unchanged", 
     Object.fromEntries(CLAUDE_ENV.map((key) => [key, undefined])),
     () => createDefaultRuntimeRegistry().ids(),
   );
-  assert.deepEqual(ids, ["opencode-cli"]);
+  assert.deepEqual(ids, ["local-demo", "opencode-cli"]);
 });
 
 test("a configured Claude command makes the adapter reachable without replacing the default", () => {
@@ -38,14 +38,14 @@ test("a configured Claude command makes the adapter reachable without replacing 
     { MESHFLEET_CLAUDE_COMMAND: "/nonexistent/claude", MESHFLEET_CLAUDE_VERSION: "2.1.220" },
     () => createDefaultRuntimeRegistry(),
   );
-  assert.deepEqual(registry.ids(), ["claude-cli", "opencode-cli"]);
+  assert.deepEqual(registry.ids(), ["claude-cli", "local-demo", "opencode-cli"]);
   assert.equal(registry.require("opencode-cli").id, "opencode-cli");
 });
 
 test("an empty Claude command is absence, not configuration", () => {
   for (const command of ["", "   "]) {
     const ids = withEnv({ MESHFLEET_CLAUDE_COMMAND: command }, () => createDefaultRuntimeRegistry().ids());
-    assert.deepEqual(ids, ["opencode-cli"]);
+    assert.deepEqual(ids, ["local-demo", "opencode-cli"]);
   }
 });
 

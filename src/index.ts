@@ -369,7 +369,11 @@ function selectFailoverRuntime(
 ): { adapter: RuntimeAdapter; input: SpawnAgentInput } | undefined {
   const attempted = [...(input.attemptedRuntimes ?? []), currentRuntimeId];
   const decision = decideFailover({
-    available: availableRuntimeIds(),
+    // Runtimes that declare themselves ineligible (local-demo) are invisible to
+    // automatic failover; they run only when a caller names them.
+    available: availableRuntimeIds().filter(
+      (id) => requireRuntimeAdapter(id).describe().failoverEligible !== false,
+    ),
     attempted,
     failureDetail,
     requestedModel: input.requestedModel,

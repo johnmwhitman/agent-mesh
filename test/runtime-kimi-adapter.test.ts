@@ -131,7 +131,7 @@ test("Kimi adapter is explicitly registerable without replacing the OpenCode def
   });
   const registry = createDefaultRuntimeRegistry();
   registry.register(runtime);
-  assert.deepEqual(registry.ids(), ["kimi-cli", "opencode-cli"]);
+  assert.deepEqual(registry.ids(), ["kimi-cli", "local-demo", "opencode-cli"]);
   assert.equal(registry.require("opencode-cli").id, "opencode-cli");
 });
 

@@ -46,7 +46,7 @@ test("CONTROL: with no Kimi configured the adapter set is unchanged", () => {
     Object.fromEntries(KIMI_ENV.map((k) => [k, undefined])),
     () => createDefaultRuntimeRegistry().ids(),
   );
-  assert.deepEqual(ids, ["opencode-cli"], "an unconfigured machine must keep the default fleet behaviour");
+  assert.deepEqual(ids, ["local-demo", "opencode-cli"], "an unconfigured machine must keep the default fleet behaviour");
 });
 
 test("a configured Kimi command makes the adapter reachable", () => {
@@ -54,13 +54,13 @@ test("a configured Kimi command makes the adapter reachable", () => {
     { MESHFLEET_KIMI_COMMAND: "/nonexistent/kimi", MESHFLEET_KIMI_VERSION: "9.9.9" },
     () => createDefaultRuntimeRegistry().ids(),
   );
-  assert.deepEqual(ids, ["kimi-cli", "opencode-cli"]);
+  assert.deepEqual(ids, ["kimi-cli", "local-demo", "opencode-cli"]);
 });
 
 test("an empty or whitespace command does NOT register — it is absence, not configuration", () => {
   for (const command of ["", "   "]) {
     const ids = withEnv({ MESHFLEET_KIMI_COMMAND: command }, () => createDefaultRuntimeRegistry().ids());
-    assert.deepEqual(ids, ["opencode-cli"], `command=${JSON.stringify(command)} must not register`);
+    assert.deepEqual(ids, ["local-demo", "opencode-cli"], `command=${JSON.stringify(command)} must not register`);
   }
 });
 
