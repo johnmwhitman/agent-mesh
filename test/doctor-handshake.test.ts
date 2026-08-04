@@ -19,30 +19,41 @@ import {
 // real server without redirecting the db path. A check that spawns the server
 // must not be able to repeat that.
 
+// The probe dir is composed with path.join, so the separator is platform-native.
+// Comparing against a hand-written "/tmp/..." prefix asserts a POSIX detail the
+// code never promised — it fails on Windows while the redirect is working fine.
+// Assert the path the implementation is actually contracted to produce.
+function assertInside(value: string | undefined, dir: string, leaf: string, what: string): void {
+  assert.equal(value, join(dir, leaf), `${what} is not the probe path`);
+}
+
 test("handshakeEnv redirects the ledger away from the live one", () => {
-  const dir = "/tmp/whatever";
+  const dir = join(tmpdir(), "whatever");
   const env = handshakeEnv({ HOME: "/Users/x", MESHFLEET_DB_FILE: "/live/agent-mesh.db" }, dir);
 
-  assert.ok(env.MESHFLEET_DB_FILE?.startsWith(dir), "db file not inside the probe dir");
+  assertInside(env.MESHFLEET_DB_FILE, dir, "probe.db", "db file");
   assert.notEqual(env.MESHFLEET_DB_FILE, "/live/agent-mesh.db");
 });
 
 test("handshakeEnv suppresses the side servers the probe does not need", () => {
-  const env = handshakeEnv({}, "/tmp/probe");
+  const env = handshakeEnv({}, join(tmpdir(), "probe"));
   // child mode is the server's own switch for "skip recovery, sweepers, SSE" —
   // without it the probe races the real server for port 13579.
   assert.equal(env.AGENT_MESH_CHILD, "1");
 });
 
 test("handshakeEnv redirects the event log too", () => {
+  const dir = join(tmpdir(), "probe");
   const env = handshakeEnv(
     { MESHFLEET_EVENT_LOG_FILE: "/live/events.jsonl", AGENT_MESH_EVENT_LOG_FILE: "/live/events.jsonl" },
-    "/tmp/probe",
+    dir,
   );
-  assert.ok(env.MESHFLEET_EVENT_LOG_FILE?.startsWith("/tmp/probe"), "event log not redirected");
-  assert.ok(
-    env.AGENT_MESH_EVENT_LOG_FILE?.startsWith("/tmp/probe"),
-    "legacy event-log env still points at the live log — resolveEnv would find it",
+  assertInside(env.MESHFLEET_EVENT_LOG_FILE, dir, "probe-events.jsonl", "event log");
+  assertInside(
+    env.AGENT_MESH_EVENT_LOG_FILE,
+    dir,
+    "probe-events.jsonl",
+    "legacy event-log env (resolveEnv would find it)",
   );
 });
 
