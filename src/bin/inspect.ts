@@ -102,6 +102,9 @@ function main(): void {
     // Lazy import keeps this dispatch a single merge-clean block (no top-of-file
     // import hunk to conflict with parallel lanes touching this file).
     void import('../doctor.js').then((d) => d.doctorMain(args.slice(1)))
+    // doctorMain is async since S2 (it spawns a handshake probe); the void+then
+    // shape already awaits it via the promise chain and sets process.exitCode
+    // before the loop drains.
     return
   }
 

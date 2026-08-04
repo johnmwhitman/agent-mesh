@@ -17,7 +17,7 @@
     "./bin/dashboard": "./dist/bin/dashboard.js"
   },
   "bin": {
-    "meshfleet": "dist/index.js",
+    "meshfleet": "dist/bin/meshfleet.js",
     "meshfleet-routeplane-catalog": "dist/bin/routeplane-catalog.js",
     "meshfleet-fleetbudget-sanitize": "dist/bin/fleetbudget-sanitize.js",
     "agent-mesh": "dist/bin/inspect.js",
