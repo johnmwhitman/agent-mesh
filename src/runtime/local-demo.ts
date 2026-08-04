@@ -1,4 +1,7 @@
-import { existsSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -19,14 +22,33 @@ import {
   type ValidationResult,
 } from "./types.js";
 
-/**
- * The compiled worker ships inside the package, next to this module. When this
- * module itself runs uncompiled (tsx tests), fall back to the .ts source — the
- * worker is deliberately type-annotation-free, so Node runs it directly.
- */
 const compiledWorker = fileURLToPath(new URL("./demo-worker.js", import.meta.url));
 const sourceWorker = fileURLToPath(new URL("./demo-worker.ts", import.meta.url));
-const WORKER_PATH = existsSync(compiledWorker) ? compiledWorker : sourceWorker;
+
+/**
+ * The published package always has the compiled worker. Uncompiled runs (tsx
+ * tests, source checkouts) fall back to the .ts source — which is deliberately
+ * type-annotation-free, i.e. already valid ESM. Node 20 still refuses it on
+ * file EXTENSION alone (CI: all three Node 20 legs, no others), so the
+ * fallback stages a content-hashed .mjs copy in tmpdir and spawns that. The
+ * hash busts the cache when the source changes; bytes are identical, so the
+ * worker's determinism contract is unaffected. Published installs never take
+ * this branch.
+ */
+function resolveWorkerPath(): string {
+  if (existsSync(compiledWorker)) return compiledWorker;
+  const source = readFileSync(sourceWorker);
+  const digest = createHash("sha256").update(source).digest("hex").slice(0, 16);
+  const stagedDir = join(tmpdir(), "meshfleet-demo-worker");
+  const staged = join(stagedDir, `demo-worker-${digest}.mjs`);
+  if (!existsSync(staged)) {
+    mkdirSync(stagedDir, { recursive: true });
+    copyFileSync(sourceWorker, staged);
+  }
+  return staged;
+}
+
+const WORKER_PATH = resolveWorkerPath();
 
 function normalized(
   raw: RawProcessResult,
