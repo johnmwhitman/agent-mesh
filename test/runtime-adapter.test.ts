@@ -149,7 +149,7 @@ async function execute(adapter: RuntimeAdapter, request = spec()) {
 
 test("runtime registry keeps OpenCode as the internal default", () => {
   const registry = createDefaultRuntimeRegistry();
-  assert.deepEqual(registry.ids(), ["opencode-cli"]);
+  assert.deepEqual(registry.ids(), ["local-demo", "opencode-cli"]);
   assert.equal(registry.require("opencode-cli").id, "opencode-cli");
   assert.throws(() => registry.require("missing"), /Unknown runtime adapter/);
   assert.throws(() => registry.register(registry.require("opencode-cli")), /already registered/);

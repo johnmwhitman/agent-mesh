@@ -99,6 +99,22 @@ For noncanonical development-only source-checkout usage (not the recommended rel
 
 Restart OpenCode. Spawn a fleet. [Wiring it into your client →](#wiring-it-into-your-client)
 
+### No worker CLI installed yet? Spawn a demo fleet anyway
+
+Every install ships a `local-demo` runtime — the current Node executable running a
+deterministic worker bundled in the package. No OpenCode, no API keys, no network. Ask
+your MCP host to spawn with it:
+
+```
+spawn_fleet with agents [{ id: "scout", prompt: "Count the receipts.", runtime: "local-demo" }]
+```
+
+The spawn, lifecycle events, receipts, and `collect_results` are all real; only the
+worker is synthetic, and it says so in its output (`"model": null`, no invented text).
+`local-demo` is never used for automatic failover — a real agent that fails is never
+silently replaced by an echo. Attach OpenCode/Claude/Kimi runtimes when you want
+model-backed agents. For the fully scripted walkthrough instead: `meshfleet demo`.
+
 ---
 
 ## Wiring it into your client

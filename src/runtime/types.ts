@@ -111,6 +111,15 @@ export interface RuntimeDescriptor {
   id: string;
   displayName: string;
   defaultTimeoutMs: number;
+  /**
+   * When false, automatic failover may never hop an agent ONTO this runtime;
+   * it runs only when a caller names it explicitly. Absent means eligible.
+   * Exists for runtimes whose output is not a substitute for the failed one —
+   * the shipped no-model local-demo worker being the canonical case: silently
+   * replacing a model-backed agent with a deterministic echo is the
+   * fabricated-output class this ledger exists to catch, not a recovery.
+   */
+  failoverEligible?: boolean;
   harness?: RuntimeHarnessDescriptor;
   /** Future adapters may describe opaque, non-machine-specific execution bindings. */
   bindings?: readonly RuntimeBindingDescriptor[];

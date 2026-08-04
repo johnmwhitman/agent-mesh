@@ -1,6 +1,7 @@
 import { OpenCodeRuntimeAdapter } from "./opencode.js";
 import { KimiRuntimeAdapter } from "./kimi.js";
 import { ClaudeRuntimeAdapter } from "./claude.js";
+import { LocalDemoRuntimeAdapter } from "./local-demo.js";
 import type { RuntimeAdapter } from "./types.js";
 
 /** Registry holds every runtime an agent could be spawned under. Selection is not yet
@@ -49,6 +50,13 @@ export function createDefaultRuntimeRegistry(): RuntimeAdapterRegistry {
   // what turns a single chokepoint into something that can fail over.
   registerKimiIfConfigured(registry);
   registerClaudeIfConfigured(registry);
+  // Unconditional, unlike Kimi/Claude, because it needs NO operator
+  // configuration to be truthful: the command is the current Node executable
+  // and the argv is a worker shipped inside this package — no machine paths,
+  // no credentials, no network. It exists so a stranger's first spawn_fleet
+  // works before any external CLI is installed; it refuses model requests
+  // rather than pretending to honor them. Default runtime is unchanged.
+  registry.register(new LocalDemoRuntimeAdapter());
   return registry;
 }
 
