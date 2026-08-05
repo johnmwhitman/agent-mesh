@@ -69,6 +69,7 @@ import {
   shouldRetry as shouldAgentRetry,
 } from "./retry.js";
 import { recordRoutingOutcome } from "./routing-feedback.js";
+import { isHollowSuccess, HOLLOW_SUCCESS_REASON } from "./hollow-result.js";
 import { recommendRoute, type RecommendRouteInput } from "./recommend-route.js";
 import {
   planSpeculativeBacklog,
@@ -251,13 +252,9 @@ function trySpawn(input: SpawnAgentInput, agentId: string, attempt: number): voi
       // in Agent.error made real failures indistinguishable from normal runs. A hollow success
       // seals as FAILED, and its detail goes through buildFailureDetail, the same bounded
       // composer every other failure detail uses.
-      const hollowFailureDetail =
-        result.status === "success" && result.stdout.trim() === ""
-          ? buildFailureDetail(
-              result.stderr,
-              "Runtime exited successfully but produced no output. Treated as a failure: an empty result is indistinguishable from a real one to every caller, so sealing it as complete would claim work that never happened.",
-            )
-          : undefined;
+      const hollowFailureDetail = isHollowSuccess(result)
+        ? buildFailureDetail(result.stderr, HOLLOW_SUCCESS_REASON)
+        : undefined;
       if (result.status === "success") {
         // HOLLOW SUCCESS (2026-08-01): a runtime can exit 0 having produced no
         // output at all — the model burned its turn on tool calls and never
