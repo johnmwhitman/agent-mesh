@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, sep } from "node:path";
 import {
   RESULT_CONTRACT_SCHEMA,
   evaluateResultContract,
@@ -147,8 +147,14 @@ test("each attempt gets its own path, and path components are sanitized", () => 
   // An agent id is caller-supplied text. What must not survive is a path SEPARATOR — a dot is
   // harmless once it can no longer be followed by one, so the assertion is about escaping the
   // directory, not about the characters that spell the attempt.
-  const traversal = resultPathFor("../../etc/passwd", "1", "/base");
-  assert.equal(dirname(traversal), "/base");
+  //
+  // The directory is a REAL temp path rather than a POSIX literal: `"/base"` is not a path on
+  // Windows, and asserting against it failed there while passing on macOS and Linux — the exact
+  // platform blind spot this repo has been bitten by before.
+  const base = tmpdir();
+  const traversal = resultPathFor("../../etc/passwd", "1", base);
+  assert.equal(dirname(traversal), base);
+  assert.equal(basename(traversal).includes(sep), false);
   assert.equal(basename(traversal).includes("/"), false);
   assert.equal(basename(traversal).includes("\\"), false);
 });
