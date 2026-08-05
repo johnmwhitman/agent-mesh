@@ -4,6 +4,31 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 
 ## [Unreleased]
 
+### Added
+
+- **The result contract — this release OBSERVES it; the next one ENFORCES it.** Every spawned
+  agent is now handed a `RESULT_PATH` (in its environment *and* inlined in its prompt, because
+  agents routinely never read environment variables) and asked to write one JSON envelope
+  declaring `done`, `refused` or `blocked` before it stops. What it declared is recorded on the
+  agent row and returned by `collect_results` as `result_contract`: `ok` | `refused` | `blocked` |
+  `artifact_missing` | `invalid` | `absent`. **Banking is unchanged in this release** — `status` is
+  still decided exactly as before — so callers can measure adoption before behaviour moves. In the
+  next release, `ok` becomes the only value that may bank `complete`, and an absent or invalid
+  envelope banks `failed`. Enforcing on day one would fail every fleet whose prompts predate the
+  contract: mass false `failed`, the same untrue ledger pointing the other way.
+- Callers wanting the stronger guarantee today should read `status === "complete" &&
+  result_contract === "ok"`. Rows written before this release carry no value and are **never
+  backfilled** — a value inferred for a run nobody observed would be a fabricated measurement.
+
+### Notes
+
+- The contract is **not** an anti-fabrication gate, and is not marketed as one. An agent can write
+  a valid `done` envelope and name a file it barely touched. What it buys is that silence, a bare
+  refusal, and a long explanation of why the work was impossible stop being indistinguishable from
+  delivered work. Output length is not part of the predicate in either direction: one of the three
+  false completions that motivated this was 14,450 characters of explaining an inability, and a
+  length floor would have banked exactly that one.
+
 ## [0.20.0] - 2026-07-29
 
 ### Changed

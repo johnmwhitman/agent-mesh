@@ -73,6 +73,12 @@ import { installCrashHandlers } from "./crash-handler.js";
 import { SweepHealth, runSweepTick } from "./sweep-health.js";
 import { summarizeCollection } from "./collection-summary.js";
 import { isHollowSuccess, HOLLOW_SUCCESS_REASON } from "./hollow-result.js";
+import {
+  readResultContract,
+  resultPathFor,
+  withResultContract,
+  type ResultContractStatus,
+} from "./result-contract.js";
 import { recommendRoute, type RecommendRouteInput } from "./recommend-route.js";
 import {
   planSpeculativeBacklog,
@@ -175,7 +181,12 @@ const lifecycleCoordinator = new LifecycleExecutionCoordinator(runtimeAdapter);
  * really receive. Rebuilding an approximation here would be the classic guard that cannot see its
  * own subject: it would answer about a spec nobody runs.
  */
-function buildExecutionSpec(input: SpawnAgentInput, agentId: string, adapter: RuntimeAdapter) {
+function buildExecutionSpec(
+  input: SpawnAgentInput,
+  agentId: string,
+  adapter: RuntimeAdapter,
+  resultPath: string,
+) {
   // Both branches resolve out of the SAME module-level registry, so `runtime: "opencode-cli"`
   // yields the identical instance the default path uses. Comparing instances — not comparing the
   // id string against a literal — is what makes "explicitly asked for the default" and "asked for
@@ -185,16 +196,23 @@ function buildExecutionSpec(input: SpawnAgentInput, agentId: string, adapter: Ru
     fleetId: input.fleetId,
     agentId,
     role: input.role,
-    prompt: input.prompt,
+    // The prompt the runtime receives, not the prompt the caller sent: the result contract is
+    // appended here so BOTH spawn paths teach it from one place. The caller's text is preserved
+    // verbatim on the Agent row, which is what `collect_results` and the ledger still show.
+    prompt: withResultContract(input.prompt, resultPath),
     requestedAgent: input.agentFile,
     requestedModel: input.requestedModel,
     cwd: process.cwd(),
     timeoutMs: adapter.describe().defaultTimeoutMs,
-    // The default path's spec is unchanged BY CONSTRUCTION — this object literal only grows when
-    // a non-default runtime was selected — so opencode's argv and child environment stay
-    // byte-identical. That matters: `environmentPolicy` is what `opencode.ts` feeds to
-    // `resolveChildEnvironment`, so setting it unconditionally would scrub the environment
-    // opencode authenticates with.
+    // The child is told the path twice — env and prompt — because agents routinely never read
+    // env, and an unread instruction is an absent one.
+    //
+    // ⚠️ This is the one field that now differs on the DEFAULT path too, and the old comment
+    // claiming a byte-identical opencode environment is no longer true of `RESULT_PATH`. It is
+    // still true of everything else: `environment` is merged, `environmentPolicy` is not set
+    // here, so the host environment opencode authenticates with is untouched. Setting the POLICY
+    // unconditionally would scrub that environment; setting one explicit variable does not.
+    environment: { RESULT_PATH: resultPath },
     //
     // These fields are REQUESTS, not attestations. `kimi.ts` refuses an inherited environment, an
     // absent permission request, and a resumed session; a spec without them fails validation and
@@ -226,7 +244,10 @@ function trySpawn(input: SpawnAgentInput, agentId: string, attempt: number): voi
   // a Kimi agent opencode's timeout and opencode's cancel semantics, which is worse than not
   // supporting selection at all: it would look like it worked.
   const adapter = input.runtime ? requireRuntimeAdapter(input.runtime) : runtimeAdapter;
-  const spec = buildExecutionSpec(input, agentId, adapter);
+  // Per ATTEMPT. Reusing one path across retries would read attempt 1's envelope and bank it as
+  // attempt 2's declaration — an outcome recorded for a run that never declared it.
+  const resultPath = resultPathFor(agentId, attempt);
+  const spec = buildExecutionSpec(input, agentId, adapter, resultPath);
   // Append BEFORE the spawn, not after it resolves. A runtime that refuses instantly is exactly
   // the case failover exists for, and a record written only on success would omit it.
   recordRuntimeAttempt(agentId, adapter.id);
@@ -258,6 +279,10 @@ function trySpawn(input: SpawnAgentInput, agentId: string, attempt: number): voi
       const hollowFailureDetail = isHollowSuccess(result)
         ? buildFailureDetail(result.stderr, HOLLOW_SUCCESS_REASON)
         : undefined;
+      // OBSERVE-ONLY THIS RELEASE. The status is read and recorded; it decides nothing. The next
+      // release makes anything but `ok` bank `failed`. Reading it here — on the same result the
+      // banking decision uses — is what makes the adoption figure honest before it is enforced.
+      const resultContract = readResultContract(resultPath, { cwd: spec.cwd });
       if (result.status === "success") {
         // HOLLOW SUCCESS (2026-08-01): a runtime can exit 0 having produced no
         // output at all — the model burned its turn on tool calls and never
@@ -278,6 +303,8 @@ function trySpawn(input: SpawnAgentInput, agentId: string, attempt: number): voi
             hollowFailureDetail,
             result.identity.agent,
             result.identity.model,
+            undefined,
+            resultContract,
           );
           return;
         }
@@ -300,6 +327,7 @@ function trySpawn(input: SpawnAgentInput, agentId: string, attempt: number): voi
           result.identity.agent,
           result.identity.model,
           projectSuccessDiagnostics(result.diagnostics),
+          resultContract,
         );
         return;
       }
@@ -312,6 +340,7 @@ function trySpawn(input: SpawnAgentInput, agentId: string, attempt: number): voi
         watchdogReason ?? result.error ?? `Spawn failed with exit code ${result.exitCode}`,
         result.identity.agent,
         result.identity.model,
+        resultContract,
       );
     });
   }).catch((error: unknown) => {
@@ -384,7 +413,12 @@ function selectFailoverRuntime(
     accepts: (id) => {
       const candidate = requireRuntimeAdapter(id);
       const next: SpawnAgentInput = { ...input, runtime: id, attemptedRuntimes: attempted };
-      return candidate.validate(buildExecutionSpec(next, agentId, candidate)).ok;
+      // A probe path, never a spawn path: `validate` inspects the spec's shape and starts
+      // nothing, so no envelope is ever read from here. Naming it distinctly keeps a probe from
+      // colliding with a real attempt's file if that ever stops being true.
+      return candidate.validate(
+        buildExecutionSpec(next, agentId, candidate, resultPathFor(agentId, "validate")),
+      ).ok;
     },
   });
   if (!decision.hop) return undefined;
@@ -402,7 +436,10 @@ function handleTransientFailure(
   stderr: string,
   errorDetail: string,
   runtimeAgent?: string,
-  runtimeModel?: string
+  runtimeModel?: string,
+  // Undefined when no attempt ever ran (the spawn itself threw). Recording `absent` there would
+  // blame an agent for a silence it had no chance to break.
+  resultContract?: ResultContractStatus,
 ): void {
   const failureDetail = buildFailureDetail(stderr, errorDetail);
   if (!shouldAgentRetry(attempt)) {
@@ -418,7 +455,9 @@ function handleTransientFailure(
       stdout,
       `Permanent failure after ${attempt} attempt(s). Last error: ${failureDetail}`,
       runtimeAgent,
-      runtimeModel
+      runtimeModel,
+      undefined,
+      resultContract,
     );
     return;
   }
@@ -547,7 +586,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "collect_results",
       description:
-        "Get all agent outputs from a fleet, with an explicit loss tally. Returns total/delivered/lost/still_running, a named lost_agents list, and a `warning` string present ONLY when agents died without reporting. Check `lost` before treating the collection as the finished work: an agent killed by a crash produces no output and its silence looks identical to 'not finished yet'.",
+        "Get all agent outputs from a fleet, with an explicit loss tally. Returns total/delivered/lost/still_running, a named lost_agents list, and a `warning` string present ONLY when agents died without reporting. Check `lost` before treating the collection as the finished work: an agent killed by a crash produces no output and its silence looks identical to 'not finished yet'. Each result also carries `result_contract` — what the agent declared about its own outcome ('ok' | 'refused' | 'blocked' | 'artifact_missing' | 'invalid' | 'absent'), absent on runs that predate the contract. This release records it without acting on it, so treat `status: 'complete'` as delivered work only when `result_contract` is 'ok'; a later release will refuse to bank complete on anything else. It is a DECLARED outcome, not a truth check.",
       inputSchema: {
         type: "object",
         properties: { fleet_id: { type: "string" } },
@@ -1695,6 +1734,10 @@ toolHandlers["collect_results"] = async (args) => {
         output: a.output,
         error: a.error,
         diagnostics: a.diagnostics,
+        // What the agent DECLARED about its own outcome. Absent on rows written before the
+        // contract existed, and never backfilled. This release records it without acting on it,
+        // so a caller wanting the stronger guarantee today asks for BOTH facts.
+        result_contract: a.result_contract,
       })),
     });
 };
@@ -2588,7 +2631,8 @@ if (!isChildInstance && !isAuditProfile) {
   // v0.11: periodic ratification deadline sweep (0 disables)
   const sweepMs = Number(resolveEnv(process.env, "MESHFLEET_RATIFY_SWEEP_MS", "AGENT_MESH_RATIFY_SWEEP_MS") ?? 60_000);
   if (Number.isFinite(sweepMs) && sweepMs > 0) {
-    // The catch below used to hold a comment and nothing else. Its intent was
+    // This sweep used to swallow its own failures: a catch holding a comment and
+    // nothing else, where runSweepTick is now called. Its intent was
     // right — a broken sweep must never take the server down — but it made a
     // PERMANENT failure invisible: ratifications would stop resolving and votes
     // stop being tallied, forever, with no signal. That is the betrayal this

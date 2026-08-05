@@ -17,6 +17,12 @@ import { LifecycleStore, type LifecycleState } from "./attempt-lifecycle.js";
 import type { RuntimeAdapter, RuntimeHandle, RuntimeResult } from "./runtime/types.js";
 import { projectSuccessDiagnostics } from "./spawn-attempt.js";
 import { isHollowSuccess, HOLLOW_SUCCESS_REASON } from "./hollow-result.js";
+import {
+  readResultContract,
+  resultPathFor,
+  withResultContract,
+  type ResultContractStatus,
+} from "./result-contract.js";
 
 export type LifecycleMode = "legacy" | "shadow" | "durable";
 export interface DurableAgentSpec {
@@ -313,11 +319,18 @@ export class LifecycleExecutionCoordinator {
     if (!state || !state.agent) return;
     const current = state.state.attempts.find((attempt) => attempt.attempt_id === state.state.work.current_attempt_id);
     if (!current || current.owner_id !== this.ownerId || current.status !== "running") return;
+    // Derived from the attempt id, never stored: `settle` recomputes the identical path from the
+    // same two facts, so a restart between launch and settle cannot lose track of which file this
+    // attempt was told to write. Per attempt, so a retry never inherits the previous declaration.
+    const resultPath = resultPathFor(agentId, current.attempt_id);
     const spec = {
       fleetId: state.agent.fleet_id,
       agentId,
       role: state.agent.role,
-      prompt: state.agent.prompt,
+      // The stored prompt stays the caller's text; the contract is appended only to what the
+      // runtime is handed, so a retry rebuilt from the durable row never double-appends it.
+      prompt: withResultContract(state.agent.prompt, resultPath),
+      environment: { RESULT_PATH: resultPath },
       requestedAgent: state.agent.agent_file,
       // Always reconstruct from the durable Agent row so retries and recovery
       // survive process restarts; never rely solely on the original in-memory spec.
@@ -375,6 +388,9 @@ export class LifecycleExecutionCoordinator {
       this.timers.delete(agentId);
       this.handles.delete(agentId);
     }
+    // Read OUTSIDE the ledger transaction: a filesystem read inside it would hold the write lock
+    // for as long as the disk takes, and the value decides nothing this release anyway.
+    const resultContract = readResultContract(resultPathFor(agentId, attemptId), { cwd: process.cwd() });
     const settled = withLedgerAndStorage((data, db) => {
       const store = lifecycle(db, this.now);
       // HOLLOW SUCCESS (2026-08-01): exit 0 with no output at all is not success.
@@ -391,7 +407,7 @@ export class LifecycleExecutionCoordinator {
       const outcome = success ? store.settle({ workId: agentId, attemptId, ownerId: this.ownerId, ownerEpoch: epoch, outcome: "success", result: output })
         : store.settleWithRetry({ workId: agentId, attemptId, ownerId: this.ownerId, ownerEpoch: epoch, outcome: "failure", result: output, error: redact(hollow ? hollowError : (result.error ?? result.stderr)) });
       if (!outcome.accepted) return undefined;
-      this.projectPending(data, outcome.state, result);
+      this.projectPending(data, outcome.state, result, resultContract);
       const agent = data.agents[agentId];
       if (agent) {
         if (outcome.state.work.status === "succeeded") queueEvent(db, "agent_completed", { fleet_id: agent.fleet_id, agent_id: agentId }, this.now());
@@ -407,7 +423,12 @@ export class LifecycleExecutionCoordinator {
     repairLifecycleOutbox(this.ownerId, this.now());
   }
 
-  private projectPending(data: MeshData, state: LifecycleState, result?: RuntimeResult): void {
+  private projectPending(
+    data: MeshData,
+    state: LifecycleState,
+    result?: RuntimeResult,
+    resultContract?: ResultContractStatus,
+  ): void {
     const agent = state.work.agent_id ? data.agents[state.work.agent_id] : undefined;
     if (!agent) return;
     const current = state.attempts.find((attempt) => attempt.attempt_id === state.work.current_attempt_id);
@@ -422,6 +443,9 @@ export class LifecycleExecutionCoordinator {
         : undefined;
       if (result?.identity.agent) agent.runtime_agent = result.identity.agent;
       if (result?.identity.model) agent.runtime_model = result.identity.model;
+      // Recorded on both terminal statuses, and only where an attempt actually ran — a projection
+      // reached during recovery, with no result to speak of, leaves the field as it found it.
+      if (resultContract !== undefined) agent.result_contract = resultContract;
       agent.completed_at = this.now();
       _checkFleetCompletion(data, agent.fleet_id);
     }
