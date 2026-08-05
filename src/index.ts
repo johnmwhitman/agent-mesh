@@ -70,6 +70,7 @@ import {
 } from "./retry.js";
 import { recordRoutingOutcome } from "./routing-feedback.js";
 import { installCrashHandlers } from "./crash-handler.js";
+import { SweepHealth, runSweepTick } from "./sweep-health.js";
 import { summarizeCollection } from "./collection-summary.js";
 import { isHollowSuccess, HOLLOW_SUCCESS_REASON } from "./hollow-result.js";
 import { recommendRoute, type RecommendRouteInput } from "./recommend-route.js";
@@ -2587,15 +2588,37 @@ if (!isChildInstance && !isAuditProfile) {
   // v0.11: periodic ratification deadline sweep (0 disables)
   const sweepMs = Number(resolveEnv(process.env, "MESHFLEET_RATIFY_SWEEP_MS", "AGENT_MESH_RATIFY_SWEEP_MS") ?? 60_000);
   if (Number.isFinite(sweepMs) && sweepMs > 0) {
+    // The catch below used to hold a comment and nothing else. Its intent was
+    // right — a broken sweep must never take the server down — but it made a
+    // PERMANENT failure invisible: ratifications would stop resolving and votes
+    // stop being tallied, forever, with no signal. That is the betrayal this
+    // repo's first law names by name ("a receipt, a VOTE… a silent one is a
+    // betrayal of the claim"). It was unobservable from the other side too:
+    // a caught exception never reaches the process-level crash handler.
+    //
+    // SweepHealth keeps the server up and removes only the silence. It is a
+    // reporter rather than a bare console.error because logging every tick
+    // would emit ~1,440 identical lines a day and teach an operator to filter
+    // the channel — reproducing the original silence by another route.
+    // The tick body lives in runSweepTick (sweep-health.ts) rather than inline
+    // here, so its FAILURE path can be watched by a test. Inline, the only way
+    // to observe it was to break a live SQLite database — which cannot be done
+    // from outside the process, because the open file descriptor keeps working
+    // after the path is overwritten. Code that cannot be watched failing is how
+    // the empty catch survived this long.
+    const sweepHealth = new SweepHealth({ label: "ratification sweep" });
     const sweeper = setInterval(() => {
-      try {
-        const { resolved } = sweepRatifications();
-        for (const [id, status] of Object.entries(resolved)) {
-          appendEvent("ratification_resolved", { message_id: id, status, via: "sweep" });
-        }
-      } catch {
-        // sweep must never take the server down
-      }
+      runSweepTick({
+        sweep: () => {
+          const { resolved } = sweepRatifications();
+          for (const [id, status] of Object.entries(resolved)) {
+            appendEvent("ratification_resolved", { message_id: id, status, via: "sweep" });
+          }
+        },
+        health: sweepHealth,
+        warn: (message) => console.error(`Agent Mesh v${MESH_VERSION} — ${message}`),
+        emit: (event, payload) => appendEvent(event, { sweep: "ratification", ...payload }),
+      });
     }, sweepMs);
     sweeper.unref();
   }
