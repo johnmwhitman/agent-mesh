@@ -12,6 +12,7 @@ import { withLedger, withLedgerAndStorage, readLedger } from "./db.js";
 import { mapLegacyMessage, projectLegacyMessage } from "./a2a/legacy-map.js";
 import { A2A_MESSAGE_TYPES, type A2AMessageType } from "./a2a/types.js";
 import type { RuntimeDiagnostic } from "./runtime/types.js";
+import type { ResultContractStatus } from "./result-contract.js";
 
 // ---------------------------------------------------------------------------
 // Data Models
@@ -51,6 +52,18 @@ export interface Agent {
    * what a spawn hop actually is.
    */
   runtime_attempts?: string[];
+  /**
+   * What the agent DECLARED about its own outcome, via the result contract (`result-contract.ts`).
+   *
+   * Forward-only: absent on every row written before the contract existed, and never backfilled.
+   * A value inferred for a run nobody observed would be a fabricated measurement — the exact
+   * thing this field was added to stop.
+   *
+   * This release RECORDS it and nothing more; `status` is decided as it always was. The next
+   * release makes `ok` the only value that may bank `complete`. Until then a caller wanting the
+   * stronger guarantee reads `status === "complete" && result_contract === "ok"`.
+   */
+  result_contract?: ResultContractStatus;
 }
 
 export interface Fleet {
@@ -731,6 +744,7 @@ export function markAgentFinished(
   runtimeAgent?: string,
   runtimeModel?: string,
   diagnostics?: readonly RuntimeDiagnostic[],
+  resultContract?: ResultContractStatus,
 ): void {
   // ONE transaction: mark the agent AND decide+set fleet completion from the same
   // snapshot (was two RMW cycles — two finishers could both read "not all done").
@@ -745,6 +759,10 @@ export function markAgentFinished(
       : undefined;
     if (runtimeAgent !== undefined) agent.runtime_agent = runtimeAgent;
     if (runtimeModel !== undefined) agent.runtime_model = runtimeModel;
+    // Recorded on BOTH terminal statuses, unlike diagnostics. A refusal that also failed for an
+    // unrelated reason is still a refusal, and an adoption figure computed only over successes
+    // would measure the population that was never the problem.
+    if (resultContract !== undefined) agent.result_contract = resultContract;
     agent.completed_at = Date.now();
     _checkFleetCompletion(data, agent.fleet_id);
   });
