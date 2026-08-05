@@ -69,6 +69,7 @@ import {
   shouldRetry as shouldAgentRetry,
 } from "./retry.js";
 import { recordRoutingOutcome } from "./routing-feedback.js";
+import { summarizeCollection } from "./collection-summary.js";
 import { isHollowSuccess, HOLLOW_SUCCESS_REASON } from "./hollow-result.js";
 import { recommendRoute, type RecommendRouteInput } from "./recommend-route.js";
 import {
@@ -543,7 +544,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     },
     {
       name: "collect_results",
-      description: "Get all agent outputs from a fleet.",
+      description:
+        "Get all agent outputs from a fleet, with an explicit loss tally. Returns total/delivered/lost/still_running, a named lost_agents list, and a `warning` string present ONLY when agents died without reporting. Check `lost` before treating the collection as the finished work: an agent killed by a crash produces no output and its silence looks identical to 'not finished yet'.",
       inputSchema: {
         type: "object",
         properties: { fleet_id: { type: "string" } },
@@ -1674,8 +1676,17 @@ toolHandlers["collect_results"] = async (args) => {
     const agents = Object.values(data.agents).filter(
       (a) => a.fleet_id === fleet_id
     );
+    // Agent loss must be LOUD here. A crashed agent reports nothing, and its
+    // silence is indistinguishable from "not finished yet" — on 2026-08-04 a
+    // server crash killed 2 of 7 agents (including the operator's
+    // highest-priority job) and this response said nothing: the dead entries
+    // were simply present with an empty output, and a human found out by
+    // counting. The summary goes FIRST in the object so it cannot be scrolled
+    // past, and `warning` appears only when something was actually lost.
+    const summary = summarizeCollection(agents);
     return jsonResult({
       fleet_id,
+      ...summary,
       results: agents.map((a) => ({
         role: a.role,
         status: a.status,
