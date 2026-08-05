@@ -69,6 +69,7 @@ import {
   shouldRetry as shouldAgentRetry,
 } from "./retry.js";
 import { recordRoutingOutcome } from "./routing-feedback.js";
+import { installCrashHandlers } from "./crash-handler.js";
 import { summarizeCollection } from "./collection-summary.js";
 import { isHollowSuccess, HOLLOW_SUCCESS_REASON } from "./hollow-result.js";
 import { recommendRoute, type RecommendRouteInput } from "./recommend-route.js";
@@ -2485,6 +2486,30 @@ await server.connect(transport);
 // must not bind the SSE port the parent already holds, and must not run a
 // competing ratification sweeper.
 const isChildInstance = process.env.AGENT_MESH_CHILD === "1";
+
+// Crash handling goes on EVERY instance — parent, child, and audit profile
+// alike. A child that dies silently strands work exactly as a parent does, and
+// the one thing this product must never do is lose someone's work without a
+// fingerprint. Registered here, before the startup work below, so a throw
+// during migration or recovery is already covered.
+//
+// The journal sits beside the ledger, so it follows MESHFLEET_DB_FILE and an
+// isolated run cannot append to the operator's real one.
+installCrashHandlers({
+  journalPath: `${resolveDbFile()}.crash.jsonl`,
+  snapshotInFlight: () => {
+    // Memory-only, best effort: after an uncaught exception the heap may be
+    // untrustworthy, so this reads what is already loaded and never queries.
+    try {
+      const data = readLedger();
+      return Object.values(data.agents)
+        .filter((a) => a.status === "running" || a.status === "pending")
+        .map((a) => ({ agent_id: a.id, fleet_id: a.fleet_id, pid: a.pid }));
+    } catch {
+      return [];
+    }
+  },
+});
 
 if (!isChildInstance && !isAuditProfile) {
   // Phase 2: one-shot JSON→SQLite migration. Stop-the-world, parent-only, BEFORE
