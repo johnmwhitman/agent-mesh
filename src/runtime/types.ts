@@ -98,6 +98,38 @@ export interface RuntimeResult {
   error?: string;
   diagnostics: RuntimeDiagnostic[];
   identity: RuntimeIdentity;
+  /**
+   * What the runtime actually DID this turn, as opposed to what it said.
+   *
+   * Optional because only adapters with a structured output channel can supply
+   * it; absent means "this runtime cannot tell us", never "nothing happened".
+   * Consumers must branch on presence and fall back to the byte-level checks —
+   * an absent trace must never be read as a clean one.
+   */
+  trace?: RuntimeTrace;
+}
+
+/**
+ * Structural evidence about a runtime turn, independent of its prose.
+ *
+ * Exists because every text-level signal we had could be produced by an agent
+ * that did no work: intent text has bytes, and a fabricated "I ran the control
+ * search" reads exactly like a real one. Tool invocations cannot be faked into
+ * this record — they are counted by the runtime, not claimed by the model.
+ */
+export interface RuntimeTrace {
+  /** Tool invocations the runtime made. `0` on an audit means nothing was read. */
+  toolCalls: number;
+  /** Distinct tool names observed, first-seen order. Operator-facing detail. */
+  toolNames: readonly string[];
+  /**
+   * Why the final step ended. `"tool-calls"` means the turn ended with a tool
+   * loop still open — the agent intended to continue and never did, which is
+   * the shape behind the recorded false completions.
+   */
+  finishReason?: string;
+  /** `step_finish` events seen. `0` means the turn never closed cleanly. */
+  steps: number;
 }
 
 export interface RuntimeHandle {

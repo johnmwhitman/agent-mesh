@@ -1,5 +1,7 @@
 import { agentTimeoutMs, buildRunArgs } from "../spawn-config.js";
 import { classifySpawnResult } from "../spawn-result.js";
+import { parseOpenCodeEvents } from "./opencode-events.js";
+import { noToolCallNotice } from "../hollow-result.js";
 import {
   cancelProcessExecution,
   startProcessExecution,
@@ -102,9 +104,21 @@ export class OpenCodeRuntimeAdapter implements RuntimeAdapter {
         timeoutMs: spec.timeoutMs,
         terminationGraceMs: this.terminationGraceMs,
         normalizeClose: (raw) => {
+          // The child now speaks NDJSON (`--format json`). Convert it back to
+          // prose BEFORE classification so every downstream consumer — the
+          // emptiness check, the ledger, `collect_results` — sees the same
+          // assistant text it always saw, while the structural facts travel
+          // alongside it on `trace`.
+          //
+          // A stream that does not parse yields `parsed: false`, and we fall
+          // back to the raw bytes and today's exact behaviour. Degrading to the
+          // OLD guard is safe; degrading to a confident empty parse would not
+          // be, which is why the parser refuses to invent one.
+          const events = parseOpenCodeEvents(raw.stdout);
+          const stdout = events.parsed ? events.text : raw.stdout;
           const classified = classifySpawnResult({
             exitCode: raw.exitCode,
-            stdout: raw.stdout,
+            stdout,
             stderr: raw.stderr,
             requestedAgent: spec.requestedAgent,
             requestedModel: spec.requestedModel,
@@ -112,11 +126,47 @@ export class OpenCodeRuntimeAdapter implements RuntimeAdapter {
           return {
             status: classified.success ? "success" : "failure",
             stdout: classified.stdout,
+            trace: events.parsed
+              ? {
+                  toolCalls: events.toolCalls,
+                  toolNames: events.toolNames,
+                  finishReason: events.finishReason,
+                  steps: events.steps,
+                }
+              : undefined,
             stderr: classified.stderr,
             exitCode: raw.exitCode,
             signal: raw.signal,
             error: classified.error,
-            diagnostics: diagnosticsFor(classified),
+            // The zero-tool-call notice rides the diagnostics channel as a
+            // WARNING rather than an error, and that choice is the point: an
+            // agent that read nothing has not necessarily failed (a one-shot
+            // summary needs no tools), but a caller who is about to believe its
+            // findings must be told it observed nothing. Attached here, in the
+            // adapter, so BOTH the inline path (index.ts) and the durable
+            // lifecycle path inherit it — a notice wired into only one of them
+            // is a guard with a hole in whichever path was missed.
+            diagnostics: [
+              ...diagnosticsFor(classified),
+              ...(classified.success && events.parsed && events.toolCalls === 0
+                ? [
+                    {
+                      severity: "warning" as const,
+                      code: "NO_TOOL_CALLS",
+                      message:
+                        noToolCallNotice({
+                          status: "success",
+                          trace: {
+                            toolCalls: events.toolCalls,
+                            toolNames: events.toolNames,
+                            finishReason: events.finishReason,
+                            steps: events.steps,
+                          },
+                        }) ?? "",
+                    },
+                  ]
+                : []),
+            ],
             identity: {
               adapterId: this.id,
               agent: classified.runtime_agent,

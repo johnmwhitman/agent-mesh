@@ -578,6 +578,8 @@ test("OpenCode adapter default argv selects the requested model while mismatch r
     "openai/gpt-5",
     "--agent",
     "oracle",
+    "--format",
+    "json",
     "review",
   ]);
 });
@@ -597,7 +599,7 @@ test("OpenCode adapter default argv omits --model when no model is requested", a
     requestedAgent: "oracle",
   }));
 
-  assert.deepEqual(observedArgs, ["run", "--agent", "oracle", "review"]);
+  assert.deepEqual(observedArgs, ["run", "--agent", "oracle", "--format", "json", "review"]);
   assert.equal(observedArgs?.includes("--model"), false);
 });
 
