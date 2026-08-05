@@ -58,6 +58,13 @@ export function buildRunArgs(input: RunArgsInput): string[] {
   const runArgs: string[] = ["run"];
   if (input.requestedModel !== undefined) runArgs.push("--model", input.requestedModel);
   if (input.agentFile) runArgs.push("--agent", input.agentFile);
+  // Structured events, not prose. This is the channel that makes a turn's shape
+  // observable — how many tools it invoked and why it ended — so a hollow
+  // success can be caught by what the agent DID rather than by sniffing what it
+  // said. The adapter converts the stream back into prose for `stdout`, so every
+  // downstream consumer sees exactly what it saw before (measured 2026-08-05:
+  // `--format json` emits NDJSON `step_start` / `text` / `step_finish`).
+  runArgs.push("--format", "json");
   runArgs.push(input.prompt);
   return runArgs;
 }
