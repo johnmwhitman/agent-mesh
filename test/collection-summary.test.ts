@@ -3,18 +3,18 @@ import assert from "node:assert/strict";
 
 import { summarizeCollection } from "../src/collection-summary.js";
 
-// Reconstructed from the real incident: fleet 1e6b5186, 7 agents, the server
-// crashed mid-run, safety-engineer and systems-designer were killed, the other
-// five finished. collect_results returned all seven and said nothing about the
-// two that were gone. The operator found out by counting.
+// The shape of a real reported incident, with neutral roles: a 7-agent fleet
+// where the server died mid-run, two agents were killed, and the other five
+// finished normally. collect_results returned all seven and said nothing about
+// the two that were gone — the loss was found by counting.
 const CRASHED_FLEET = [
-  { role: "safety-engineer", status: "interrupted", output: "" },
-  { role: "tools-engineer", status: "complete", output: "the deliverable" },
-  { role: "art-director", status: "complete", output: "the deliverable" },
-  { role: "qa-lead", status: "complete", output: "the deliverable" },
-  { role: "release-engineer", status: "complete", output: "the deliverable" },
-  { role: "systems-designer", status: "interrupted", output: "" },
-  { role: "community-copy", status: "complete", output: "the deliverable" },
+  { role: "critical-role", status: "interrupted", output: "" },
+  { role: "role-b", status: "complete", output: "the deliverable" },
+  { role: "role-c", status: "complete", output: "the deliverable" },
+  { role: "role-d", status: "complete", output: "the deliverable" },
+  { role: "role-e", status: "complete", output: "the deliverable" },
+  { role: "second-role", status: "interrupted", output: "" },
+  { role: "role-f", status: "complete", output: "the deliverable" },
 ];
 
 test("the real incident: loss is counted, named, and warned about", () => {
@@ -25,12 +25,12 @@ test("the real incident: loss is counted, named, and warned about", () => {
   assert.equal(s.still_running, 0);
 
   const lostRoles = s.lost_agents.map((a) => a.role).sort();
-  assert.deepEqual(lostRoles, ["safety-engineer", "systems-designer"]);
+  assert.deepEqual(lostRoles, ["critical-role", "second-role"]);
 
-  // The highest-priority job was the one that went quiet. It must be NAMED,
-  // not merely reflected in a count the caller has to compute.
+  // In the reported incident the lost agent was the caller's highest-priority
+  // job. It must be NAMED, not merely reflected in a count they have to compute.
   assert.ok(s.warning, "a fleet that lost agents must carry a warning");
-  assert.match(s.warning!, /safety-engineer/);
+  assert.match(s.warning!, /critical-role/);
   assert.match(s.warning!, /2 of 7/);
 });
 

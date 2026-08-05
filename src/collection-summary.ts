@@ -1,12 +1,12 @@
 /**
  * Make agent loss impossible to miss when collecting a fleet's results.
  *
- * THE INCIDENT (2026-08-04, reported by an internal operator running a 7-agent
- * fleet): the server crashed mid-fleet. Two agents died — one of them the
- * highest-priority job they had. The five survivors ran on and finished
- * normally. `collect_results` returned all seven entries, the two dead ones
- * carrying `status: "interrupted"` and an empty output, and **nothing else said
- * anything had gone wrong**. The loss surfaced only because a human counted.
+ * THE INCIDENT (2026-08-04, reported by a user): the server died partway
+ * through a 7-agent fleet. Two agents died with it — one of them the caller's
+ * highest-priority job. The five survivors ran on and finished normally.
+ * `collect_results` returned all seven entries, the two dead ones carrying
+ * `status: "interrupted"` and an empty output, and **nothing else said anything
+ * had gone wrong**. The loss surfaced only because a human counted.
  *
  * That is the failure this module exists to prevent. Quoting the fleet-command
  * discipline: *a crashed agent reports nothing, and its silence looks identical
