@@ -247,3 +247,22 @@ test('register_capability refuses wrong-typed OPTIONAL fields instead of persist
     assert.match(textOf(model), /'model' must be a non-empty string/i)
   })
 })
+
+test('spawn_fleet and attach_agent refuse a non-boolean expects_artifact instead of guessing', async () => {
+  await withServer(async (client) => {
+    const spawn = await client.callTool({
+      name: 'spawn_fleet',
+      arguments: { agents: [{ role: 'r', prompt: 'p', expects_artifact: 'yes' }] } as Record<string, unknown>,
+    })
+    assert.match(
+      textOf(spawn),
+      /'agents\[0\]\.expects_artifact' must be a boolean/,
+      '"yes" is truthy — guessing would demand artifacts the caller never declared'
+    )
+    const attach = await client.callTool({
+      name: 'attach_agent',
+      arguments: { fleet_id: 'f', role: 'r', prompt: 'p', expects_artifact: 1 } as Record<string, unknown>,
+    })
+    assert.match(textOf(attach), /'expects_artifact' must be a boolean/)
+  })
+})
