@@ -159,3 +159,91 @@ test('get_inbox refuses a non-numeric since instead of reporting an empty inbox'
       'NaN comparison returns [] with success — and this is the documented polling fallback for SSE')
   })
 })
+
+test('fleet_status refuses a missing fleet_id instead of reporting a lookup miss', async () => {
+  await withServer(async (client) => {
+    const res = await client.callTool({ name: 'fleet_status', arguments: {} })
+    assert.match(
+      textOf(res),
+      /'fleet_id' is required/,
+      'a contract violation must be named, not shrugged into `fleet: undefined`'
+    )
+  })
+})
+
+test('route_work refuses a non-string description instead of escaping as a protocol fault', async () => {
+  await withServer(async (client) => {
+    for (const description of [undefined, 5, null]) {
+      const res = await client.callTool({
+        name: 'route_work',
+        arguments: { ...(description === undefined ? {} : { description }) } as Record<string, unknown>,
+      })
+      assert.match(
+        textOf(res),
+        /'description' is required/,
+        `description=${JSON.stringify(description)} used to reach tokenize().toLowerCase() and ` +
+          'throw past the dispatch loop, which has no try/catch'
+      )
+    }
+    const res = await client.callTool({
+      name: 'route_work',
+      arguments: { description: 'build a thing', top_n: 'three' } as Record<string, unknown>,
+    })
+    assert.match(textOf(res), /'top_n' must be a finite number/i)
+  })
+})
+
+test('subscribe_inbox and spawn_from_template refuse wrong-typed ids instead of faking "not found"', async () => {
+  await withServer(async (client) => {
+    const sub = await client.callTool({ name: 'subscribe_inbox', arguments: {} })
+    assert.match(textOf(sub), /'agent_id' is required/)
+    const tpl = await client.callTool({
+      name: 'spawn_from_template',
+      arguments: { name: 42 } as Record<string, unknown>,
+    })
+    assert.match(
+      textOf(tpl),
+      /'name' is required/,
+      'a number coerces into the template key, always misses, and reads as absence'
+    )
+  })
+})
+
+test('save_fleet_template refuses a non-string agent selector and persists NOTHING', async () => {
+  await withServer(async (client) => {
+    const res = await client.callTool({
+      name: 'save_fleet_template',
+      arguments: {
+        name: 'bad-selector',
+        agents: [{ role: 'r', prompt: 'p', agent: 5 }],
+      } as Record<string, unknown>,
+    })
+    assert.match(
+      textOf(res),
+      /invalid 'agent' runtime selector/,
+      'a truthy non-string selector used to be written into the template verbatim'
+    )
+    // The write-path claim: the refusal must also mean the row never landed.
+    const listed = await client.callTool({ name: 'list_fleet_templates', arguments: {} })
+    assert.doesNotMatch(textOf(listed), /bad-selector/, 'the refused template must not persist')
+  })
+})
+
+test('register_capability refuses wrong-typed OPTIONAL fields instead of persisting them verbatim', async () => {
+  await withServer(async (client) => {
+    const cw = await client.callTool({
+      name: 'register_capability',
+      arguments: { agent_id: 'a', fleet_id: 'f', role: 'r', skills: ['s'], context_window: 'big' } as Record<string, unknown>,
+    })
+    assert.match(
+      textOf(cw),
+      /'context_window' must be a finite number/i,
+      'a string context_window wrote into a numeric field the router ranks by'
+    )
+    const model = await client.callTool({
+      name: 'register_capability',
+      arguments: { agent_id: 'a', fleet_id: 'f', role: 'r', skills: ['s'], model: 7 } as Record<string, unknown>,
+    })
+    assert.match(textOf(model), /'model' must be a non-empty string/i)
+  })
+})

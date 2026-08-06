@@ -1676,6 +1676,11 @@ toolHandlers["fleet_status"] = async (args) => {
       return { content: [{ type: "text", text: JSON.stringify({ error: "Read rate limit exceeded. Slow down." }) }], isError: true };
     }
     const { fleet_id } = args as { fleet_id: string };
+    // A wrong-typed fleet_id never threw here — it just missed the lookup and
+    // returned `fleet: undefined`, indistinguishable from "no such fleet".
+    // A contract violation must be NAMED, not shrugged into a lookup miss.
+    const invalidFleetStatus = requireString("fleet_status", "fleet_id", fleet_id);
+    if (invalidFleetStatus) return jsonError(invalidFleetStatus);
     const data = readLedger();
     const fleet = data.fleets[fleet_id];
     const agents = Object.values(data.agents).filter(
@@ -2162,6 +2167,15 @@ toolHandlers["register_capability"] = async (args) => {
       model?: string;
       context_window?: number;
     };
+    // The optional fields were the residual hole: registerCapability validates
+    // the required ids but persisted `model` and `context_window` verbatim, so
+    // `context_window: "big"` wrote a string into a numeric field of a row the
+    // router later ranks by. Optional means omittable, never any-typed.
+    const invalidCapability = firstError(
+      optionalNonBlankString("register_capability", "model", model),
+      optionalNumber("register_capability", "context_window", context_window)
+    );
+    if (invalidCapability) return jsonError(invalidCapability);
     // Siblings (set_fleet_timeout, open_ratification, ...) return a jsonError
     // envelope rather than letting a throw escape as a protocol-level error.
     // registerCapability now rejects malformed ids, so this handler needs the
@@ -2184,6 +2198,14 @@ toolHandlers["register_capability"] = async (args) => {
 
 toolHandlers["route_work"] = async (args) => {
     const { description, top_n } = args as { description: string; top_n?: number };
+    // The dispatch loop has no try/catch: a non-string description reached
+    // tokenize()'s toLowerCase() and escaped as a protocol-level fault instead
+    // of a readable tool error.
+    const invalidRouteWork = firstError(
+      requireString("route_work", "description", description),
+      optionalNumber("route_work", "top_n", top_n)
+    );
+    if (invalidRouteWork) return jsonError(invalidRouteWork);
     return jsonResult({ matches: routeWork(description, top_n ?? 1) });
 };
 
@@ -2327,6 +2349,11 @@ toolHandlers["get_health"] = async (args) => {
 
 toolHandlers["subscribe_inbox"] = async (args) => {
     const { agent_id } = args as { agent_id: string };
+    // Pre-check, a wrong-typed agent_id stringified into the lookup key and
+    // returned a legitimate-looking "not found" — graceful by luck, not by
+    // contract. Name the violation instead.
+    const invalidSubscribe = requireString("subscribe_inbox", "agent_id", agent_id);
+    if (invalidSubscribe) return jsonError(invalidSubscribe);
     const data = readLedger();
     if (!data.agents[agent_id]) {
       return jsonError(`Agent "${agent_id}" not found`);
@@ -2380,6 +2407,10 @@ toolHandlers["list_fleet_templates"] = async (args) => {
 
 toolHandlers["spawn_from_template"] = async (args) => {
     const { name: tplName } = args as { name: string };
+    // A wrong-typed name coerced into the template key, always missed, and
+    // read as "not found" — a contract violation reported as absence.
+    const invalidSpawnTpl = requireString("spawn_from_template", "name", tplName);
+    if (invalidSpawnTpl) return jsonError(invalidSpawnTpl);
     const spec = spawnFromTemplateFn(tplName);
     if (!spec) {
       return jsonError(`Template "${tplName}" not found`);
