@@ -11,6 +11,7 @@ import {
   _registerAgent,
   appendEventOnce,
   getFleetTimeoutMs,
+  readAppendedEventIds,
   loadData,
   type Agent,
   type FleetTimedOutAgent,
@@ -124,6 +125,14 @@ function persistMode(db: Database.Database, fleetId: string, mode: LifecycleMode
 export function projectLifecycleOutbox(ownerId: string = randomUUID(), now: number = Date.now()): number {
   void ownerId;
   let projected = 0;
+  // ONE read of the event log for the whole drain, not one per row. The dedupe
+  // below used to re-read the entire file inside the write-lock-holding
+  // transaction for every candidate — O(rows × log size), measured at 10.2 ms
+  // per row on a real 18 MB log. Correctness is unchanged: the only thing this
+  // dedupe protects against is a previous projector that appended and then died
+  // before marking the row, and that append predates this drain, so a snapshot
+  // taken here sees it. See readAppendedEventIds for the concurrency argument.
+  const seen = readAppendedEventIds();
   while (true) {
     const row = withLedgerAndStorage((_data, db) => {
       // Keep selection, event-id dedupe/append, and the durable acknowledgement
@@ -132,7 +141,7 @@ export function projectLifecycleOutbox(ownerId: string = randomUUID(), now: numb
       const candidate = db.prepare("SELECT seq, event_id, event, payload FROM lifecycle_event_outbox WHERE projected_at IS NULL ORDER BY seq LIMIT 1")
         .get() as { seq: number; event_id: string; event: string; payload: string } | undefined;
       if (!candidate) return undefined;
-      appendEventOnce(candidate.event_id, candidate.event, JSON.parse(candidate.payload) as Record<string, unknown>);
+      appendEventOnce(candidate.event_id, candidate.event, JSON.parse(candidate.payload) as Record<string, unknown>, seen);
       outboxAfterAppendForTest?.();
       outboxBeforeCommitForTest?.();
       db.prepare("UPDATE lifecycle_event_outbox SET projected_at = ? WHERE event_id = ? AND projected_at IS NULL")

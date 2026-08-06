@@ -535,7 +535,55 @@ export function appendEvent(
  * Outbox projection helper. The event id is additive to the historical NDJSON
  * shape, so existing inspector and MCP consumers retain their required keys.
  */
-export function appendEventOnce(eventId: string, event: string, data: Record<string, unknown> = {}): void {
+/**
+ * Every `event_id` already present in the event log.
+ *
+ * Exists so a drain can pay the log read ONCE instead of once per row. The
+ * dedupe this serves guards exactly one window: a projector that appended an
+ * event and then died before marking the outbox row projected. Such an append
+ * necessarily happened BEFORE the current drain started, so a snapshot taken at
+ * drain start sees it. A CONCURRENT projector cannot open the window either —
+ * `projectLifecycleOutbox` appends and marks inside one `BEGIN IMMEDIATE`
+ * transaction, so a competing projector is blocked, and once it commits, its
+ * row is no longer selectable as unprojected.
+ */
+export function readAppendedEventIds(): Set<string> {
+  const file = resolveEventLogFile();
+  const seen = new Set<string>();
+  if (!existsSync(file)) return seen;
+  for (const match of readFileSync(file, "utf-8").matchAll(/"event_id":"([^"]+)"/g)) {
+    seen.add(match[1] as string);
+  }
+  return seen;
+}
+
+/**
+ * Append unless this `event_id` has already been written.
+ *
+ * 🔴 PASS `seen` FROM A DRAIN. Without it this reads the ENTIRE event log on
+ * every call, and its only caller invokes it once per outbox row from inside the
+ * transaction that holds the ledger write lock — so the cost was
+ * O(rows × log size) of lock-held time. Measured on a real 18 MB log: 10.2 ms
+ * per row, i.e. ~2 seconds of held write lock for a 200-row drain, growing
+ * linearly with a file nothing rotates. Worse, past Node's max string length the
+ * read THROWS, and the caller's catch turns that into permanently deferred
+ * projection announced by a single stderr line.
+ *
+ * With a snapshot supplied the whole drain pays one read. The set is updated on
+ * append so later rows in the same drain still dedupe correctly.
+ */
+export function appendEventOnce(
+  eventId: string,
+  event: string,
+  data: Record<string, unknown> = {},
+  seen?: Set<string>,
+): void {
+  if (seen) {
+    if (seen.has(eventId)) return;
+    appendEvent(event, { ...data, event_id: eventId });
+    seen.add(eventId);
+    return;
+  }
   const marker = `\"event_id\":\"${eventId}\"`;
   const file = resolveEventLogFile();
   if (existsSync(file) && readFileSync(file, "utf-8").includes(marker)) return;
