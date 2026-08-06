@@ -539,6 +539,52 @@ and sidecars remain unchanged.
 
 ---
 
+## What this proves about your agents — and what it doesn't
+
+The section above is about the *ledger* lying. This one is about the *agents* lying,
+which no coordination record can rule out. Meshfleet records fleet coordination in a
+local, unsigned SQLite ledger: a structured, queryable history of who was spawned, who
+messaged whom, who voted, and what each agent declared about its own outcome. It is not
+a cryptographic logging system, it does not provide third-party attestation, and it
+cannot make an LLM's claims true.
+
+| The ledger CAN tell you | The ledger CANNOT tell you |
+| :--- | :--- |
+| Whether internal coordination rules (quorum thresholds, vote sets, receipt keys) hold within the recorded history. | Whether an agent's reported findings, exit codes, or test passes are true. |
+| The recorded sequence and timeline of coordination events. | Whether rows were rewritten out-of-band by a process with local write access (see the `undetectable` bucket above). |
+| Which agents participated, voted, acked, and what outcome each one declared. | Proof of execution or truthfulness to a third party — there are no signatures in this core. |
+
+**Operating principle: a lead, not a receipt.** Fleet output is a lead, never a
+receipt — nothing belongs in a report until you re-run it yourself. An orchestrator
+sits between autonomous execution and your decisions, so it must say where its
+responsibility ends: Meshfleet enforces protocol rules and surfaces candidate
+artifacts; verifying the work stays with your tooling and your review.
+
+### Known limits, and where each one stands
+
+- **Completion status is declared, not proven.** Agents have been observed banking
+  `complete` on an explanation of failure. The result contract (shipped) has every
+  spawn declare `done` / `refused` / `blocked` in a result envelope, recorded as
+  `result_contract` on the agent row and returned by `collect_results`. This release
+  records it without acting on it, so read `status === "complete" &&
+  result_contract === "ok"` for the stronger guarantee; a following release makes
+  `ok` the only value that banks `complete`. A valid envelope is still a
+  *declaration* — it is not a fabrication, effort, or quality check.
+- **Fabricated agent metrics.** An agent can report synthetic test counts or invented
+  "VERIFIED" claims, and the ledger records that it *said* so. Open, and only
+  partially detectable; result-envelope enforcement does not solve it.
+- **Agent loss during crashes.** `collect_results` reports loss explicitly (named
+  `lost_agents`, a `warning` that appears only when something was lost). A crashing
+  server leaves a durable journal line, and the next healthy start consumes it:
+  interrupted rows carry a `stopped_reason` (`server_crash` | `process_lost`) when
+  reconciliation can honestly attribute one. All shipped.
+- **Internal rule enforcement.** Operational: the auditor re-derives its rules from
+  source on every run, and a ledger asserting more than its own records support — a
+  ratification without its votes, a receipt without its message — fails verification
+  (the `caught` bucket above).
+
+---
+
 ## How it compares
 
 | Tool | Best for | Tradeoffs |
