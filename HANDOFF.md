@@ -26,6 +26,18 @@ currently refuses that selector. The shipped Claude Code adapter is
 fixture-verified and disabled unless configured. Runtime and model labels are
 evidence, not account, entitlement, billing, availability, or identity proof.
 
+**What `complete` means, and what it will mean.** An agent is now handed a `RESULT_PATH` and
+asked to write one JSON envelope declaring `done`, `refused` or `blocked` before it stops. What it
+declared is recorded on the agent row and returned by `collect_results` as `result_contract`
+(`ok` | `refused` | `blocked` | `artifact_missing` | `invalid` | `absent`). **This release records
+that value and nothing more** — `status` is banked exactly as it was before — so callers can
+measure adoption before behaviour moves. A following release makes `ok` the only value that may
+bank `complete`, with an absent or invalid envelope banking `failed`. Callers wanting the stronger
+guarantee today should read `status === "complete" && result_contract === "ok"`. Rows written
+before this release carry no value and are never backfilled. The contract is a **declared**
+outcome plus optional path existence: it is not a fabrication, effort, or quality check, and it is
+not evidence that the work is correct.
+
 Runtime failover is implemented for bounded provider-refusal cases. The complete
 end-to-end proof is fixture-scoped: deterministic stub runtimes show one refusal,
 one eligible alternate launch, persisted runtime attempts, and one failover event.
