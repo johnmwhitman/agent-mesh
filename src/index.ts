@@ -70,6 +70,7 @@ import {
 } from "./retry.js";
 import { recordRoutingOutcome } from "./routing-feedback.js";
 import { installCrashHandlers } from "./crash-handler.js";
+import { readCrashJournal, retireCrashJournal } from "./boot-reconciler.js";
 import { SweepHealth, runSweepTick } from "./sweep-health.js";
 import { summarizeCollection } from "./collection-summary.js";
 import { isHollowSuccess, HOLLOW_SUCCESS_REASON } from "./hollow-result.js";
@@ -1738,6 +1739,9 @@ toolHandlers["collect_results"] = async (args) => {
         // contract existed, and never backfilled. This release records it without acting on it,
         // so a caller wanting the stronger guarantee today asks for BOTH facts.
         result_contract: a.result_contract,
+        // Why an interrupted row stopped, when boot reconciliation could attribute it
+        // ('server_crash' | 'process_lost'). Absent when nothing could honestly say.
+        stopped_reason: a.stopped_reason,
       })),
     });
 };
@@ -2538,9 +2542,12 @@ const isChildInstance = process.env.AGENT_MESH_CHILD === "1";
 // during migration or recovery is already covered.
 //
 // The journal sits beside the ledger, so it follows MESHFLEET_DB_FILE and an
-// isolated run cannot append to the operator's real one.
+// isolated run cannot append to the operator's real one. One constant serves
+// both the writer (crash handler) and the reader (boot reconciler below) so
+// the two paths cannot drift apart.
+const crashJournalPath = `${resolveDbFile()}.crash.jsonl`;
 installCrashHandlers({
-  journalPath: `${resolveDbFile()}.crash.jsonl`,
+  journalPath: crashJournalPath,
   snapshotInFlight: () => {
     // Memory-only, best effort: after an uncaught exception the heap may be
     // untrustworthy, so this reads what is already loaded and never queries.
@@ -2590,9 +2597,39 @@ if (!isChildInstance && !isAuditProfile) {
   // 2026-07-03 — only agents with a missing/dead pid are flipped.
   repairLifecycleOutbox();
   lifecycleCoordinator.recover();
-  const recoveredCount = recoverInterruptedAgents();
-  if (recoveredCount > 0) {
-    console.error(`Agent Mesh v${MESH_VERSION} — recovered ${recoveredCount} interrupted agent(s) from previous run`);
+  // Boot reconciler (r10): the crash journal is the reconciler's input,
+  // consumed here in a healthy process — never in the crash path itself.
+  // An unreadable journal must not stop startup, but it must be SAID and the
+  // file must stay in place; recovery then proceeds without attribution and
+  // flips carry `process_lost`, which is what the sweep actually knows.
+  let crashJournal = { records: [] as ReturnType<typeof readCrashJournal>["records"], namedAgentIds: new Set<string>(), malformedLines: 0 };
+  try {
+    crashJournal = readCrashJournal(crashJournalPath);
+  } catch (err) {
+    console.error(
+      `Agent Mesh v${MESH_VERSION} — crash journal at ${crashJournalPath} is unreadable (${err instanceof Error ? err.message : String(err)}); left in place, recovery proceeds without crash attribution`
+    );
+  }
+  const recovery = recoverInterruptedAgents({ crashNamedAgentIds: crashJournal.namedAgentIds });
+  if (crashJournal.records.length > 0 || crashJournal.malformedLines > 0) {
+    // Retire only AFTER the marks above are durably applied. Re-application
+    // after a failed rename is idempotent, so nothing is lost either way.
+    const retiredTo = retireCrashJournal(crashJournalPath, Date.now());
+    appendEvent("crash_journal_consumed", {
+      records: crashJournal.records.length,
+      named_agents: crashJournal.namedAgentIds.size,
+      malformed_lines: crashJournal.malformedLines,
+      recovered: recovery.recovered,
+      provenance_applied: recovery.provenance_applied,
+      fleets_marked: recovery.fleets_marked,
+      retired: retiredTo !== undefined,
+    });
+    console.error(
+      `Agent Mesh v${MESH_VERSION} — consumed crash journal: ${crashJournal.records.length} crash record(s) naming ${crashJournal.namedAgentIds.size} agent(s); ${recovery.provenance_applied} prior interrupted row(s) attributed, ${recovery.fleets_marked} fleet(s) marked, ${crashJournal.malformedLines} malformed line(s); ${retiredTo ? `journal retired to ${retiredTo}` : "journal retire FAILED — left in place, next boot re-applies (idempotent)"}`
+    );
+  }
+  if (recovery.recovered > 0) {
+    console.error(`Agent Mesh v${MESH_VERSION} — recovered ${recovery.recovered} interrupted agent(s) from previous run`);
   }
   // Close fleets written before the completion lattice existed, which no normal
   // write path can ever revisit. LOUD, because this rewrites stored statuses in

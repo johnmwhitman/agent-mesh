@@ -1,8 +1,8 @@
 # MeshFleet public handoff
 
 **Source version:** `0.20.0` · **MCP surface:** **36 MCP tools** ·
-**clean local baseline:** **1568/1568** tests, plus typecheck and build, measured on
-`92130b7` plus this change, in a clean worktree
+**clean local baseline:** **1579/1579** tests, plus typecheck and build, measured on
+`24689a8` plus this change, in a clean worktree
 
 Base `01f0fa0` passed 1416/1416; the parity snapshot that introduced this document
 read 1422/1422 with its six contract guards. The current figure supersedes both.
@@ -37,6 +37,17 @@ guarantee today should read `status === "complete" && result_contract === "ok"`.
 before this release carry no value and are never backfilled. The contract is a **declared**
 outcome plus optional path existence: it is not a fabrication, effort, or quality check, and it is
 not evidence that the work is correct.
+
+**What a crash leaves behind.** A crashing server writes one journal line naming its in-flight
+agents (never SQLite — the native binding is a prime suspect in any crash). The next healthy
+parent start consumes that journal: rows it flips or finds `interrupted` gain a nullable
+`stopped_reason` — `server_crash` when a journal record names the agent, `process_lost` when the
+liveness sweep found a dead process and no record explains why. It is a FIELD, not a new status:
+exhaustive status switches are untouched. An `abandoned` fleet whose every interrupted member is
+`server_crash` carries the same provenance. Rows older than the field keep a null reason — honest
+ignorance, never backfilled — and the applied journal is retired by rename, never deleted. A
+journal-named agent still running with a live pid is left alone: in the incident that motivated
+the crash handler, five of seven agents survived and delivered.
 
 Runtime failover is implemented for bounded provider-refusal cases. The complete
 end-to-end proof is fixture-scoped: deterministic stub runtimes show one refusal,

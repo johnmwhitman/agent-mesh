@@ -64,7 +64,21 @@ export interface Agent {
    * stronger guarantee reads `status === "complete" && result_contract === "ok"`.
    */
   result_contract?: ResultContractStatus;
+  /**
+   * Why a terminal `interrupted` row stopped, when boot-time reconciliation could attribute it.
+   *
+   * A nullable FIELD, deliberately not a new status enum value: a new status breaks every
+   * consumer's exhaustive switch, a new optional field is ignorable. `server_crash` means an
+   * unapplied crash-journal record named this agent as in-flight when the server died;
+   * `process_lost` means the startup liveness sweep found the row `running` with a missing or
+   * dead pid and no crash record naming it. Absent on rows written before this field existed
+   * and on rows no reconciliation ever attributed — honest ignorance, never invented history.
+   */
+  stopped_reason?: StoppedReason;
 }
+
+/** Provenance a boot-time reconciliation may attach to an `interrupted` row. */
+export type StoppedReason = "server_crash" | "process_lost";
 
 export interface Fleet {
   id: string;
@@ -83,6 +97,16 @@ export interface Fleet {
   created_at: number;
   completed_at?: number;
   timeout_ms?: number;
+  /**
+   * Fleet-level crash provenance: set when the fleet is `abandoned` and every one of its
+   * `interrupted` members carries `stopped_reason: "server_crash"` — i.e. the whole fleet was
+   * crash-stopped together. Members that completed before the crash do not block it (survivors
+   * delivering is the normal crash shape here). A mix of `server_crash` and `process_lost`
+   * members leaves this unset: attributing the whole fleet to a crash some members' evidence
+   * does not support would be invented history. `process_lost` is never a fleet-level value —
+   * only the journal proves a shared cause. Same nullable-field rule as `Agent.stopped_reason`.
+   */
+  stopped_reason?: "server_crash";
 }
 
 /**
@@ -788,14 +812,47 @@ export function isPidAlive(pid: number): boolean {
  * `opencode run` loads the user's MCP config including agent-mesh — marked
  * the parent's healthy running agents as interrupted within seconds
  * (field data: 31/52 agents on the 2026-07-02 ledger).
+ *
+ * Since the boot reconciler: `crashNamedAgentIds` (agent ids named in-flight by
+ * unapplied crash-journal records, see `boot-reconciler.ts`) attributes WHY a
+ * row stopped. A flipped row named there gets `stopped_reason: "server_crash"`;
+ * a flipped row the journal does not name gets `"process_lost"` — the sweep
+ * knows the process is gone but not that a crash took it. Rows ALREADY
+ * `interrupted` with no reason that the journal names are attributed too: that
+ * is consuming real evidence that arrived late (a pre-reconciler boot flipped
+ * the row before this code existed), not backfilling from nothing. An existing
+ * reason is never overwritten. A journal-named agent that is still `running`
+ * with a LIVE pid is left completely alone — in the incident that motivated the
+ * crash handler, five of seven agents survived the crash and delivered.
  */
-export function recoverInterruptedAgents(): number {
+export interface CrashRecoveryOutcome {
+  /** `running` → `interrupted` flips performed by this call. */
+  recovered: number;
+  /** Already-`interrupted` rows that gained `stopped_reason` from journal evidence. */
+  provenance_applied: number;
+  /** `abandoned` fleets marked with fleet-level `stopped_reason: "server_crash"`. */
+  fleets_marked: number;
+}
+
+export function recoverInterruptedAgents(options?: {
+  crashNamedAgentIds?: ReadonlySet<string>;
+}): CrashRecoveryOutcome {
   // Startup-only, parent-only (CHILD guard). isPidAlive is a read-only syscall so
   // it stays in the mutator; the recovery events are hoisted OUT of the txn.
+  const crashNamed = options?.crashNamedAgentIds;
   const recovered: Agent[] = [];
+  const provenanced: Agent[] = [];
   const transitions: FleetTransition[] = [];
+  let fleetsMarked = 0;
   withLedgerAndStorage((data, db) => {
     for (const agent of Object.values(data.agents)) {
+      if (agent.status === "interrupted") {
+        if (crashNamed?.has(agent.id) && agent.stopped_reason === undefined) {
+          agent.stopped_reason = "server_crash";
+          provenanced.push(agent);
+        }
+        continue;
+      }
       if (agent.status === "running") {
         const mode = db.prepare("SELECT lifecycle_mode FROM fleets WHERE id = ?").get(agent.fleet_id) as { lifecycle_mode?: string | null } | undefined;
         // Durable ownership is lease-based; PID liveness is intentionally
@@ -804,6 +861,7 @@ export function recoverInterruptedAgents(): number {
         if (agent.pid !== undefined && isPidAlive(agent.pid)) continue;
         agent.status = "interrupted";
         agent.completed_at = Date.now();
+        agent.stopped_reason = crashNamed?.has(agent.id) ? "server_crash" : "process_lost";
         // This string is written into the evidence ledger, so it must name only
         // mechanisms that actually exist. It previously said "use retry or respawn
         // to recover" — there is no retry or respawn tool, and nothing anywhere
@@ -822,9 +880,26 @@ export function recoverInterruptedAgents(): number {
     // it flipped agents to a terminal state that fleet completion did not
     // recognise, and nothing ever looked at the fleet again. Every crash left a
     // permanently-`running` fleet behind.
-    for (const fleetId of new Set(recovered.map((a) => a.fleet_id))) {
+    for (const fleetId of new Set([...recovered, ...provenanced].map((a) => a.fleet_id))) {
       const from = _checkFleetCompletion(data, fleetId);
       if (from) transitions.push({ fleet_id: fleetId, from, to: data.fleets[fleetId].status });
+      // Fleet-level provenance (r10): an abandoned fleet whose every interrupted
+      // member the journal attributes to the crash carries the same provenance.
+      // Completed members do not block it — survivors delivering is the normal
+      // crash shape. A server_crash/process_lost mix leaves the fleet unset.
+      const fleet = data.fleets[fleetId];
+      if (fleet && fleet.status === "abandoned" && fleet.stopped_reason === undefined) {
+        const interruptedMembers = Object.values(data.agents).filter(
+          (a) => a.fleet_id === fleetId && a.status === "interrupted"
+        );
+        if (
+          interruptedMembers.length > 0 &&
+          interruptedMembers.every((a) => a.stopped_reason === "server_crash")
+        ) {
+          fleet.stopped_reason = "server_crash";
+          fleetsMarked++;
+        }
+      }
     }
   });
   emitFleetTransitions(transitions, "crash_recovery");
@@ -834,9 +909,21 @@ export function recoverInterruptedAgents(): number {
       fleet_id: agent.fleet_id,
       started_at: agent.started_at,
       recovered_at: agent.completed_at,
+      stopped_reason: agent.stopped_reason,
     });
   }
-  return recovered.length;
+  for (const agent of provenanced) {
+    appendEvent("agent_crash_provenance_applied", {
+      agent_id: agent.id,
+      fleet_id: agent.fleet_id,
+      stopped_reason: agent.stopped_reason,
+    });
+  }
+  return {
+    recovered: recovered.length,
+    provenance_applied: provenanced.length,
+    fleets_marked: fleetsMarked,
+  };
 }
 
 // ---------------------------------------------------------------------------
