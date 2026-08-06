@@ -71,6 +71,13 @@ function terminate(child: ChildProcess | undefined, signal: NodeJS.Signals): boo
   return false;
 }
 
+/**
+ * The variable a spawned agent's nested MeshFleet reads to know it is a CHILD and must not run
+ * parent-only startup work. Exported so the writer (every runtime adapter, via
+ * `resolveChildEnvironment`) and the reader (server startup) name it once and cannot drift apart.
+ */
+export const CHILD_MARKER_ENV = "AGENT_MESH_CHILD";
+
 /** Build a deliberately small child environment without leaking ambient values by default. */
 export function resolveChildEnvironment(
   host: NodeJS.ProcessEnv,
@@ -88,9 +95,27 @@ export function resolveChildEnvironment(
       if (value !== undefined) inherited[name] = value;
     }
   }
-  // Baseline is adapter-owned (for example AGENT_MESH_CHILD), so explicit
-  // caller data cannot accidentally remove it.
-  return { ...inherited, ...explicit, ...baseline };
+  // Baseline is adapter-owned, so explicit caller data cannot accidentally
+  // remove it.
+  //
+  // The CHILD MARKER goes last and is not adapter-owned, because leaving it to
+  // each adapter is a defect this codebase has already shipped: only the
+  // OpenCode adapter set it, so a fleet configured onto the Claude, Kimi,
+  // local-process, or local-demo adapter spawned a child whose nested MeshFleet
+  // booted as a FULL PARENT on the operator's ledger — running startup
+  // recovery, the abandoned-fleet reconciler, crash-journal retirement, and a
+  // second competing ratification sweeper. That is not hypothetical: a second
+  // instance on one ledger marked 31 of 52 of the parent's healthy running
+  // agents `interrupted` on the 2026-07-02 ledger, which is why the liveness
+  // probe in `recoverInterruptedAgents` exists at all — and the probe does not
+  // cover an agent inside its retry backoff (still `running`, dead pid) or one
+  // whose adapter reported no pid.
+  //
+  // Every adapter that spawns an agent child already funnels through this
+  // function, so stamping it here makes the marker structurally unforgettable
+  // rather than a line each new adapter must remember. It is written LAST so
+  // neither caller data nor an adapter baseline can suppress it.
+  return { ...inherited, ...explicit, ...baseline, [CHILD_MARKER_ENV]: "1" };
 }
 
 function appendBounded(
