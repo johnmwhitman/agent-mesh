@@ -104,6 +104,7 @@ import {
 } from "./tool-args.js";
 import { buildFailureDetail, projectSuccessDiagnostics } from "./spawn-attempt.js";
 import { getDefaultRuntimeAdapter, requireRuntimeAdapter, availableRuntimeIds } from "./runtime/registry.js";
+import { CHILD_MARKER_ENV } from "./runtime/process.js";
 import type { RuntimeAdapter } from "./runtime/types.js";
 import { decideFailover } from "./failover.js";
 import { defaultLifecycleMode, LifecycleExecutionCoordinator, repairLifecycleOutbox } from "./lifecycle-execution.js";
@@ -2589,12 +2590,15 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
 const transport = new StdioServerTransport();
 await server.connect(transport);
 
-// A nested instance booted by a spawned agent's own opencode session
-// (spawn env sets AGENT_MESH_CHILD=1). It shares the parent's ledger, so it
-// must not run startup recovery (it would flip the parent's live agents),
-// must not bind the SSE port the parent already holds, and must not run a
-// competing ratification sweeper.
-const isChildInstance = process.env.AGENT_MESH_CHILD === "1";
+// A nested instance booted by a spawned agent's own session. It shares the
+// parent's ledger, so it must not run startup recovery (it would flip the
+// parent's live agents), must not bind the SSE port the parent already holds,
+// and must not run a competing ratification sweeper.
+//
+// The marker is stamped by `resolveChildEnvironment`, which every runtime
+// adapter funnels through, and the name is imported rather than retyped so the
+// writer and this reader cannot drift apart.
+const isChildInstance = process.env[CHILD_MARKER_ENV] === "1";
 
 // Crash handling goes on EVERY instance — parent, child, and audit profile
 // alike. A child that dies silently strands work exactly as a parent does, and
