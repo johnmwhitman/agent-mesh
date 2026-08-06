@@ -66,11 +66,22 @@ function validateAgents(agents: TemplateAgent[]): void {
     throw new Error("Template must have 32 or fewer agents");
   }
   for (const a of agents) {
-    if (!a.role || a.role.trim().length === 0) {
-      throw new Error("Each template agent must have a non-empty role");
+    // Explicit typeof checks, not truthiness: a truthy non-string role used to
+    // reach .trim() and escape as "a.role.trim is not a function" — an
+    // accidental rejection with a garbage message, not a stated contract.
+    if (typeof a.role !== "string" || a.role.trim().length === 0) {
+      throw new Error("Each template agent must have a non-empty string role");
     }
-    if (!a.prompt || a.prompt.trim().length === 0) {
-      throw new Error(`Template agent "${a.role}" must have a non-empty prompt`);
+    if (typeof a.prompt !== "string" || a.prompt.trim().length === 0) {
+      throw new Error(`Template agent "${a.role}" must have a non-empty string prompt`);
+    }
+    // This one is a WRITE path: a truthy non-string `agent` was persisted
+    // verbatim into the saved template and only failed later, at spawn time,
+    // far from the caller who sent it.
+    if (a.agent !== undefined && (typeof a.agent !== "string" || a.agent.trim().length === 0)) {
+      throw new Error(
+        `Template agent "${a.role}" has an invalid 'agent' runtime selector: must be a non-empty string when provided`
+      );
     }
   }
 }
