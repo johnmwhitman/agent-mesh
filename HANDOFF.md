@@ -1,8 +1,8 @@
 # MeshFleet public handoff
 
 **Source version:** `0.20.0` · **MCP surface:** **36 MCP tools** ·
-**clean local baseline:** **1588/1588** tests, plus typecheck and build, measured on
-`1d760f9` plus this change, in a clean worktree
+**clean local baseline:** **1589/1589** tests, plus typecheck and build, measured on
+`2c2b82d` plus this change, in a clean worktree
 
 Base `01f0fa0` passed 1416/1416; the parity snapshot that introduced this document
 read 1422/1422 with its six contract guards. The current figure supersedes both.
