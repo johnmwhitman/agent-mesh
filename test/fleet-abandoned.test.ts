@@ -235,7 +235,7 @@ test("recoverInterruptedAgents terminalizes the fleet it just interrupted", () =
   data.inboxes[agentId] = [];
   saveData(data);
 
-  const recovered = recoverInterruptedAgents();
+  const recovered = recoverInterruptedAgents().recovered;
 
   assert.equal(recovered, 1);
   assert.equal(

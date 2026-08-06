@@ -24,7 +24,7 @@ test('recovery: transitions running agents to interrupted', () => {
     messages: {}, inboxes: {}, capabilities: {},
   })
   try {
-    const count = recoverInterruptedAgents()
+    const count = recoverInterruptedAgents().recovered
     assert.equal(count, 1, 'one agent recovered')
     const data = loadData()
     assert.equal(data.agents.a1.status, 'interrupted', 'status flipped')
@@ -46,7 +46,7 @@ test('recovery: leaves complete/failed/interrupted agents alone', () => {
     messages: {}, inboxes: {}, capabilities: {},
   })
   try {
-    const count = recoverInterruptedAgents()
+    const count = recoverInterruptedAgents().recovered
     assert.equal(count, 0, 'no agents recovered')
   } finally {
     ledger.cleanup()
@@ -63,7 +63,7 @@ test('recovery: idempotent within same ledger state', () => {
   })
   try {
     recoverInterruptedAgents()
-    const second = recoverInterruptedAgents()
+    const second = recoverInterruptedAgents().recovered
     assert.equal(second, 0, 'second call finds nothing to recover')
   } finally {
     ledger.cleanup()
@@ -92,7 +92,7 @@ test('recovery: liveness probe — running agent with a LIVE pid is left alone',
     messages: {}, inboxes: {}, capabilities: {},
   })
   try {
-    const count = recoverInterruptedAgents()
+    const count = recoverInterruptedAgents().recovered
     assert.equal(count, 2, 'only dead-pid and pid-less agents recovered')
     const data = loadData()
     assert.equal(data.agents.alive.status, 'running', 'live agent untouched')
@@ -115,7 +115,7 @@ test('recovery: returns count of recovered agents', () => {
     messages: {}, inboxes: {}, capabilities: {},
   })
   try {
-    const count = recoverInterruptedAgents()
+    const count = recoverInterruptedAgents().recovered
     assert.equal(count, 3, 'three running agents recovered')
   } finally {
     ledger.cleanup()
