@@ -10,6 +10,7 @@ import {
   _createFleet,
   _registerAgent,
   appendEventOnce,
+  loadData,
   type Agent,
   type MeshData,
 } from "./core.js";
@@ -32,6 +33,8 @@ export interface DurableAgentSpec {
   prompt: string;
   agentFile?: string;
   requestedModel?: string;
+  /** Caller-declared: the envelope must name at least one produced file (see Agent.expects_artifact). */
+  expectsArtifact?: boolean;
 }
 export interface LifecycleExecutionCoordinatorOptions {
   ownerId?: string;
@@ -188,6 +191,7 @@ export class LifecycleExecutionCoordinator {
           prompt: spec.prompt,
           agent_file: spec.agentFile,
           requested_model: spec.requestedModel,
+          expects_artifact: spec.expectsArtifact,
           status: "pending",
         });
         const initial = store.createWork({ workId: spec.agentId, fleetId, agentId: spec.agentId, maxAttempts: this.maxAttempts, retryBaseMs: this.retryBaseMs });
@@ -215,6 +219,7 @@ export class LifecycleExecutionCoordinator {
         prompt: spec.prompt,
         agent_file: spec.agentFile,
         requested_model: spec.requestedModel,
+        expects_artifact: spec.expectsArtifact,
         status: "pending",
       });
       const store = lifecycle(db, this.now);
@@ -329,7 +334,9 @@ export class LifecycleExecutionCoordinator {
       role: state.agent.role,
       // The stored prompt stays the caller's text; the contract is appended only to what the
       // runtime is handed, so a retry rebuilt from the durable row never double-appends it.
-      prompt: withResultContract(state.agent.prompt, resultPath),
+      // The artifact expectation rides the durable row for the same reason the model does:
+      // a retry must be taught the same contract the first attempt was.
+      prompt: withResultContract(state.agent.prompt, resultPath, state.agent.expects_artifact === true),
       environment: { RESULT_PATH: resultPath },
       requestedAgent: state.agent.agent_file,
       // Always reconstruct from the durable Agent row so retries and recovery
@@ -390,7 +397,10 @@ export class LifecycleExecutionCoordinator {
     }
     // Read OUTSIDE the ledger transaction: a filesystem read inside it would hold the write lock
     // for as long as the disk takes, and the value decides nothing this release anyway.
-    const resultContract = readResultContract(resultPathFor(agentId, attemptId), { cwd: process.cwd() });
+    // The expectation is read from the durable row — the same source a retry's teaching used —
+    // so the ladder judges the envelope against what the agent was actually told.
+    const expectsArtifact = loadData().agents[agentId]?.expects_artifact === true;
+    const resultContract = readResultContract(resultPathFor(agentId, attemptId), { cwd: process.cwd(), expectsArtifact });
     const settled = withLedgerAndStorage((data, db) => {
       const store = lifecycle(db, this.now);
       // HOLLOW SUCCESS (2026-08-01): exit 0 with no output at all is not success.

@@ -190,7 +190,7 @@ export function resultPathFor(agentId: string, attempt: string | number, dir: st
  * States the consequence in the release that will enforce it, not the one that observes: a
  * preamble that says "this is currently ignored" teaches agents to ignore it.
  */
-export function resultContractPreamble(resultPath: string): string {
+export function resultContractPreamble(resultPath: string, expectsArtifact = false): string {
   return [
     "",
     "---",
@@ -198,12 +198,18 @@ export function resultContractPreamble(resultPath: string): string {
     resultPath,
     `It must be a single JSON object: {"schema":"${RESULT_CONTRACT_SCHEMA}","outcome":"done"|"refused"|"blocked","summary":"<one line>"}`,
     'Add "reason":"<why>" when the outcome is refused or blocked. Add "artifacts":["<path>",...] for files you produced.',
+    // Only when the CALLER declared the expectation. Teaching it unconditionally would train
+    // agents that produce no files to invent paths, which the existence check then fails —
+    // manufacturing artifact_missing out of honest no-artifact work.
+    ...(expectsArtifact
+      ? ['This task REQUIRES artifacts: a "done" envelope that names no produced files is recorded as artifact_missing.']
+      : []),
     "If you could not do the work, set outcome to refused or blocked with a real reason — do NOT claim done.",
     "A missing or invalid file means the run is banked as failed, not complete. Stdout is not the receipt.",
   ].join("\n");
 }
 
 /** The prompt actually handed to the runtime. Kept in one place so both spawn paths agree. */
-export function withResultContract(prompt: string, resultPath: string): string {
-  return `${prompt}\n${resultContractPreamble(resultPath)}\n`;
+export function withResultContract(prompt: string, resultPath: string, expectsArtifact = false): string {
+  return `${prompt}\n${resultContractPreamble(resultPath, expectsArtifact)}\n`;
 }

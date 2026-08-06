@@ -65,6 +65,14 @@ export interface Agent {
    */
   result_contract?: ResultContractStatus;
   /**
+   * Caller-declared expectation that this agent's result envelope must name at least one
+   * produced file. Consumed by the result-contract ladder at settle: a valid `done` envelope
+   * with no artifacts is recorded `artifact_missing` instead of `ok`. Persisted on the row so a
+   * durable retry rebuilt from it keeps the expectation. Existence-checked only — never a
+   * content, effort, or quality claim.
+   */
+  expects_artifact?: boolean;
+  /**
    * Why a terminal `interrupted` row stopped, when boot-time reconciliation could attribute it.
    *
    * A nullable FIELD, deliberately not a new status enum value: a new status breaks every

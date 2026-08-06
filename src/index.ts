@@ -160,6 +160,8 @@ interface SpawnAgentInput {
   runtime?: string;
   /** Opaque workspace binding the caller claims is verified isolation. Never a path. */
   workspaceBinding?: string;
+  /** Caller-declared: the result envelope must name at least one produced file. */
+  expectsArtifact?: boolean;
   /**
    * Runtime ids already tried for this agent, oldest first. In-memory only: it exists to stop
    * failover from re-offering a runtime that just refused, which would spend the retry budget
@@ -200,7 +202,7 @@ function buildExecutionSpec(
     // The prompt the runtime receives, not the prompt the caller sent: the result contract is
     // appended here so BOTH spawn paths teach it from one place. The caller's text is preserved
     // verbatim on the Agent row, which is what `collect_results` and the ledger still show.
-    prompt: withResultContract(input.prompt, resultPath),
+    prompt: withResultContract(input.prompt, resultPath, input.expectsArtifact === true),
     requestedAgent: input.agentFile,
     requestedModel: input.requestedModel,
     cwd: process.cwd(),
@@ -283,7 +285,7 @@ function trySpawn(input: SpawnAgentInput, agentId: string, attempt: number): voi
       // OBSERVE-ONLY THIS RELEASE. The status is read and recorded; it decides nothing. The next
       // release makes anything but `ok` bank `failed`. Reading it here — on the same result the
       // banking decision uses — is what makes the adoption figure honest before it is enforced.
-      const resultContract = readResultContract(resultPath, { cwd: spec.cwd });
+      const resultContract = readResultContract(resultPath, { cwd: spec.cwd, expectsArtifact: input.expectsArtifact === true });
       if (result.status === "success") {
         // HOLLOW SUCCESS (2026-08-01): a runtime can exit 0 having produced no
         // output at all — the model burned its turn on tool calls and never
@@ -545,6 +547,15 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
                     "Never a path. Some runtimes refuse to edit files without one, and the claim " +
                     "grants nothing on its own — the runtime independently admits the identifier " +
                     "from operator configuration. Ignored when 'runtime' is omitted.",
+                },
+                expects_artifact: {
+                  type: "boolean",
+                  description:
+                    "Declare that this agent's result envelope must name at least one produced " +
+                    "file: a 'done' declaration with no artifacts is recorded as " +
+                    "result_contract 'artifact_missing' instead of 'ok', and the agent is told " +
+                    "so in its prompt. Named paths are existence-checked only — this is a " +
+                    "declared-output check, never a content or quality guarantee.",
                 },
               },
               required: ["role", "prompt"],
@@ -1321,6 +1332,15 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
             description:
               "Optional OpenCode model selector as provider/model (e.g. 'opencode-go/minimax-m3').",
           },
+          expects_artifact: {
+            type: "boolean",
+            description:
+              "Declare that this agent's result envelope must name at least one produced file: " +
+              "a 'done' declaration with no artifacts is recorded as result_contract " +
+              "'artifact_missing' instead of 'ok', and the agent is told so in its prompt. " +
+              "Named paths are existence-checked only — a declared-output check, never a " +
+              "content or quality guarantee.",
+          },
         },
         required: ["fleet_id", "role", "prompt"],
       },
@@ -1538,7 +1558,7 @@ toolHandlers["spawn_fleet"] = async (args) => {
     const { agents } = args as {
       agents: {
         role: string; prompt: string; agent?: string; model?: string;
-        runtime?: string; workspace_binding?: string;
+        runtime?: string; workspace_binding?: string; expects_artifact?: boolean;
       }[];
     };
     // The published schema declares agents[] items with REQUIRED string role and
@@ -1574,6 +1594,7 @@ toolHandlers["spawn_fleet"] = async (args) => {
           ? null
           : requireString("spawn_fleet", `agents[${i}].agent`, a.agent),
         optionalModelSelector("spawn_fleet", `agents[${i}].model`, a?.model),
+        optionalBoolean("spawn_fleet", `agents[${i}].expects_artifact`, a?.expects_artifact),
       ]),
     );
     if (badAgent) return jsonError(badAgent);
@@ -1591,6 +1612,7 @@ toolHandlers["spawn_fleet"] = async (args) => {
       // executable returned a fleet_id and never invoked it.
       runtime: a.runtime,
       workspaceBinding: a.workspace_binding,
+      expectsArtifact: a.expects_artifact,
     }));
 
     let lifecycleMode;
@@ -1620,6 +1642,7 @@ toolHandlers["spawn_fleet"] = async (args) => {
           prompt: s.prompt,
           agentFile: s.agent,
           requestedModel: s.model,
+          expectsArtifact: s.expectsArtifact,
         })));
       } catch (err) {
         // Durable mode is fail-closed: do not fall back to legacy spawning.
@@ -1643,6 +1666,7 @@ toolHandlers["spawn_fleet"] = async (args) => {
           prompt: s.prompt,
           agent_file: s.agent,
           requested_model: s.model,
+          expects_artifact: s.expectsArtifact,
           status: "running",
           started_at: Date.now(),
         });
@@ -1662,6 +1686,7 @@ toolHandlers["spawn_fleet"] = async (args) => {
         requestedModel: s.model,
         runtime: s.runtime,
         workspaceBinding: s.workspaceBinding,
+        expectsArtifact: s.expectsArtifact,
       }, s.agentId, 1);
       appendEvent("agent_spawned", { fleet_id: fleetId, agent_id: s.agentId, role: s.role, agent_file: s.agent });
       if (s.agent) autoRegisterFromAgent(s.agentId, fleetId, s.agent);
@@ -2235,12 +2260,13 @@ toolHandlers["list_agents"] = async (args) => {
 };
 
 toolHandlers["attach_agent"] = async (args) => {
-    const { fleet_id, role, prompt, agent, model } = args as {
+    const { fleet_id, role, prompt, agent, model, expects_artifact } = args as {
       fleet_id: string;
       role: string;
       prompt: string;
       agent?: string;
       model?: string;
+      expects_artifact?: boolean;
     };
     // Same unenforced-contract hole as spawn_fleet, and attach_agent also spawns.
     // It is additionally the ONLY in-place path that reopens an `abandoned` fleet,
@@ -2252,6 +2278,7 @@ toolHandlers["attach_agent"] = async (args) => {
       requireString("attach_agent", "prompt", prompt),
       agent === undefined ? null : requireString("attach_agent", "agent", agent),
       optionalModelSelector("attach_agent", "model", model),
+      optionalBoolean("attach_agent", "expects_artifact", expects_artifact),
     );
     if (badAttach) return jsonError(badAttach);
     const agentId = randomUUID();
@@ -2269,6 +2296,7 @@ toolHandlers["attach_agent"] = async (args) => {
         prompt,
         agentFile: agent,
         requestedModel: model,
+        expectsArtifact: expects_artifact,
       });
       if (check.error) return jsonError(check.error);
       if (agent) autoRegisterFromAgent(agentId, fleet_id, agent);
@@ -2305,6 +2333,7 @@ toolHandlers["attach_agent"] = async (args) => {
         prompt,
         agent_file: agent,
         requested_model: model,
+        expects_artifact,
         status: "running",
         started_at: Date.now(),
       });
@@ -2327,6 +2356,7 @@ toolHandlers["attach_agent"] = async (args) => {
       prompt,
       agentFile: agent,
       requestedModel: model,
+      expectsArtifact: expects_artifact,
     }, agentId, 1);
     if (agent) autoRegisterFromAgent(agentId, fleet_id, agent);
 
