@@ -665,6 +665,26 @@ const CHECK_EXPLANATIONS: Record<string, CheckExplanation> = {
     benign: "rarely benign: the write path sets status and completed_at in one statement and refuses an agent that already has one. A ledger hand-edited to 'reopen' an agent without clearing its completion time produces this",
     investigate: "agent-mesh inspect --export | jq '.agents[] | select(.completed_at != null and (.status == \"running\" or .status == \"pending\"))'",
   },
+  "agent.stopped_reason_while_live": {
+    what: "an agent is recorded pending or running while carrying a stopped_reason — the same row claims it has not finished and that it is known why it stopped",
+    benign: "rarely benign: both writers set the reason in the same statement that writes a terminal status. Note the reverse is NOT flagged — a complete or failed row may legitimately still carry a reason from an earlier interrupted life, because nothing clears it",
+    investigate: "agent-mesh inspect --export | jq '.agents[] | select(.stopped_reason != null and (.status == \"running\" or .status == \"pending\"))'",
+  },
+  "agent.result_contract_while_live": {
+    what: "an agent is recorded pending or running while carrying a result_contract — a declared settle outcome on a row whose own status says it has not settled",
+    benign: "rarely benign: the value is recorded only in a terminal branch, alongside completed_at. A ledger edited to requeue a settled agent without clearing its declaration produces this",
+    investigate: "agent-mesh inspect --export | jq '.agents[] | select(.result_contract != null and (.status == \"running\" or .status == \"pending\"))'",
+  },
+  "agent.runtime_attempt_duplicated": {
+    what: "an agent's runtime_attempts repeats the same runtime in ADJACENT positions, asserting a failover hop to the runtime it was already using",
+    benign: "not benign by any known write path: recordRuntimeAttempt collapses a repeated last entry precisely so a re-entry cannot inflate the history into evidence of a hop that never happened. Non-adjacent repeats (A, B, A) are legitimate hop-backs and are not flagged",
+    investigate: "agent-mesh inspect --export | jq '.agents[] | select(.runtime_attempts != null) | select([.runtime_attempts, .runtime_attempts[1:]] | transpose | map(select(.[0] == .[1])) | length > 0)'",
+  },
+  "fleet.crash_provenance_unsupported": {
+    what: "an abandoned fleet carries stopped_reason but none of its agents holds an interrupted row attributing that crash — the fleet asserts a shared cause its own records do not support",
+    benign: "rarely benign: the writer sets the fleet field only when every interrupted member already carries server_crash, and nothing removes members or clears their reason. A mixed fleet, or a reopened fleet that kept the field, is deliberately NOT flagged — both are honestly reachable",
+    investigate: "agent-mesh inspect --export | jq '.fleets[] | select(.status == \"abandoned\" and .stopped_reason != null)'",
+  },
   "agent.requested_model_unobserved": {
     what: "an agent is recorded `complete` while carrying a persisted `requested_model` but no observed `runtime_model` — the selection's claim that this agent ran under that model is unsupported by the ledger's own records",
     benign: "an aborted run that completed through a non-standard path and never landed a parseable OpenCode runtime banner. A hand-edited ledger that injected `complete` without writing the banner produces this too",
