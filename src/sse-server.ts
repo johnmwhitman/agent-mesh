@@ -30,6 +30,11 @@ import {
   shutdownServer as shutdownSubscribers,
   type Subscriber,
 } from "./realtime.js";
+import {
+  addEventSubscriber,
+  removeEventSubscriber,
+  shutdownEventStream,
+} from "./event-stream.js";
 import { resolveEnv } from "./env.js";
 
 // ---------------------------------------------------------------------------
@@ -49,6 +54,9 @@ let heartbeatTimer: NodeJS.Timeout | null = null;
 const activeStreams = new Set<ServerResponse>();
 /** Per-stream: who it serves + the credential it was admitted with, for re-auth on token change. */
 const streamCredentials = new Map<ServerResponse, { agentId: string; credential: string | undefined }>();
+
+/** Credentials for fleet-wide event stream connections (no agentId). */
+const eventStreamCredentials = new Map<ServerResponse, { fleetId: string | undefined; credential: string | undefined }>();
 
 export function ssePort(): number {
   const v = Number(process.env.MESHFLEET_SSE_PORT);
@@ -130,10 +138,20 @@ export function enforceStreamAuth(): void {
       } catch {
         // already broken; the close handler still cleans up
       }
-      // end() fires the close handler's cleanup, but don't rely on event
-      // timing for revocation — drop the subscription now.
       removeSubscriber(agentId, res);
       streamCredentials.delete(res);
+      activeStreams.delete(res);
+    }
+  }
+  for (const [res, { credential }] of eventStreamCredentials) {
+    if (!credentialAuthorized(credential)) {
+      try {
+        res.end();
+      } catch {
+        // already broken; the close handler still cleans up
+      }
+      removeEventSubscriber(res);
+      eventStreamCredentials.delete(res);
       activeStreams.delete(res);
     }
   }
@@ -155,6 +173,22 @@ function handleSseConnection(agentId: string, res: ServerResponse, credential: s
     removeSubscriber(agentId, res);
     activeStreams.delete(res);
     streamCredentials.delete(res);
+  };
+
+  res.on("close", cleanup);
+  res.on("error", cleanup);
+}
+
+function handleEventStreamConnection(fleetId: string | undefined, res: ServerResponse, credential: string | undefined): void {
+  setSseHeaders(res);
+  addEventSubscriber(res, fleetId);
+  activeStreams.add(res);
+  eventStreamCredentials.set(res, { fleetId, credential });
+
+  const cleanup = () => {
+    removeEventSubscriber(res);
+    activeStreams.delete(res);
+    eventStreamCredentials.delete(res);
   };
 
   res.on("close", cleanup);
@@ -207,6 +241,17 @@ export function startSseServer(): Promise<{ host: string; port: number }> {
       const credential = providedToken(req, url);
       if (!credentialAuthorized(credential)) {
         handle401(res);
+        return;
+      }
+
+      if (url.pathname === "/events/stream" || url.pathname === "/events/stream/") {
+        if (req.method !== "GET") {
+          res.writeHead(405, { "Content-Type": "text/plain" });
+          res.end("method not allowed");
+          return;
+        }
+        const fleetId = url.searchParams.get("fleet_id") ?? undefined;
+        handleEventStreamConnection(fleetId, res, credential);
         return;
       }
 
@@ -264,7 +309,9 @@ export function stopSseServer(): Promise<void> {
     }
     activeStreams.clear();
     streamCredentials.clear();
+    eventStreamCredentials.clear();
     shutdownSubscribers();
+    shutdownEventStream();
     if (httpServer) {
       const server = httpServer;
       httpServer = null;
@@ -283,4 +330,11 @@ export function subscribeInboxUrl(agentId: string, baseUrl?: string): string {
   const port = ssePort();
   const host = baseUrl ?? "127.0.0.1";
   return `http://${host}:${port}/inbox/${agentId}/stream`;
+}
+
+export function subscribeEventsUrl(fleetId?: string, baseUrl?: string): string {
+  const port = ssePort();
+  const host = baseUrl ?? "127.0.0.1";
+  const base = `http://${host}:${port}/events/stream`;
+  return fleetId ? `${base}?fleet_id=${encodeURIComponent(fleetId)}` : base;
 }

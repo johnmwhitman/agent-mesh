@@ -13,6 +13,7 @@ import { mapLegacyMessage, projectLegacyMessage } from "./a2a/legacy-map.js";
 import { A2A_MESSAGE_TYPES, type A2AMessageType } from "./a2a/types.js";
 import type { RuntimeDiagnostic } from "./runtime/types.js";
 import type { ResultContractStatus } from "./result-contract.js";
+import { notifyEventSubscribers } from "./event-stream.js";
 
 // ---------------------------------------------------------------------------
 // Data Models
@@ -527,8 +528,10 @@ export function appendEvent(
   const file = resolveEventLogFile();
   const dir = dirname(file);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  const entry = JSON.stringify({ event, timestamp: Date.now(), ...data }) + "\n";
+  const record = { event, timestamp: Date.now(), ...data };
+  const entry = JSON.stringify(record) + "\n";
   appendFileSync(file, entry, "utf-8");
+  notifyEventSubscribers(event, record);
 }
 
 /**

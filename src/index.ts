@@ -61,7 +61,7 @@ import { verifyLedger, verifyLedgerFile } from "./verify.js";
 import { buildVerifyEnvelopeV2 } from "./verify-envelope-v2.js";
 import { buildVerifyEnvelopeV3 } from "./verify-envelope-v3.js";
 import { notifySubscribers } from "./realtime.js";
-import { isSseServerRunning, startSseServer, stopSseServer, subscribeInboxUrl } from "./sse-server.js";
+import { isSseServerRunning, startSseServer, stopSseServer, subscribeInboxUrl, subscribeEventsUrl } from "./sse-server.js";
 import { createHeartbeat } from "./heartbeat.js";
 import {
   computeBackoff,
@@ -1367,6 +1367,20 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       },
     },
     {
+      name: "subscribe_events",
+      description:
+        "Subscribe to the unified fleet-wide event stream via Server-Sent Events (SSE). Returns a stream URL that emits every ledger event (messages, receipts, ratifications, spawns, completions, discussions, heartbeats) as it is appended. Optional fleet_id filter narrows to events carrying that fleet_id. If the operator set MESHFLEET_AUTH_TOKEN, requests to the stream must carry it (Authorization: Bearer, or ?token=).",
+      inputSchema: {
+        type: "object",
+        properties: {
+          fleet_id: {
+            type: "string",
+            description: "Optional fleet ID to filter events. Omit to receive all events.",
+          },
+        },
+      },
+    },
+    {
       name: "get_health",
       description:
         "Health report: ledger size, fleet/agent/message counts, uptime, last event. Use for monitoring and alerting.",
@@ -2380,22 +2394,12 @@ toolHandlers["get_health"] = async (args) => {
 
 toolHandlers["subscribe_inbox"] = async (args) => {
     const { agent_id } = args as { agent_id: string };
-    // Pre-check, a wrong-typed agent_id stringified into the lookup key and
-    // returned a legitimate-looking "not found" — graceful by luck, not by
-    // contract. Name the violation instead.
     const invalidSubscribe = requireString("subscribe_inbox", "agent_id", agent_id);
     if (invalidSubscribe) return jsonError(invalidSubscribe);
     const data = readLedger();
     if (!data.agents[agent_id]) {
       return jsonError(`Agent "${agent_id}" not found`);
     }
-    // Do not hand back a stream URL this process cannot serve. startSseServer()
-    // failure is caught and logged to stderr only, so when the port is already
-    // taken — by another meshfleet instance, or anything else — this tool used
-    // to return a normal-looking stream_url and the client would connect to a
-    // stranger's server (or nothing) and wait forever for events that could
-    // never arrive, while the messages sat correctly in the durable inbox.
-    // Observed live: a squatter on the port produced 0 events, indefinitely.
     if (!isSseServerRunning()) {
       return jsonError(
         `subscribe_inbox: this server has no live SSE endpoint, so it cannot push to you — ` +
@@ -2408,13 +2412,36 @@ toolHandlers["subscribe_inbox"] = async (args) => {
     return jsonResult({
       agent_id,
       stream_url: streamUrl,
-      // Honest about scope: this process pushes only what IT writes. A sibling
-      // instance sharing the same ledger has its own in-memory subscriber
-      // registry and cannot reach this stream, so get_inbox remains the only
-      // complete view.
       served_by_this_process_only: true,
       instructions:
         "Open an HTTP GET to the stream_url. Each event is SSE-formatted: `event: <type>\\ndata: <json>\\n\\n`. Push covers messages written by THIS server process; poll get_inbox for the complete, durable view — it is the source of truth and SSE is advisory only.",
+    });
+};
+
+toolHandlers["subscribe_events"] = async (args) => {
+    const { fleet_id } = args as { fleet_id?: string };
+    if (fleet_id !== undefined) {
+      const invalid = optionalNonBlankString("subscribe_events", "fleet_id", fleet_id);
+      if (invalid) return jsonError(invalid);
+    }
+    if (!isSseServerRunning()) {
+      return jsonError(
+        `subscribe_events: this server has no live SSE endpoint — ` +
+          `the listener failed to start (most often the port is already in use by another ` +
+          `meshfleet instance). Use the NDJSON event log or poll get_health for observability.`
+      );
+    }
+    const streamUrl = subscribeEventsUrl(fleet_id);
+    return jsonResult({
+      stream_url: streamUrl,
+      fleet_id: fleet_id ?? null,
+      served_by_this_process_only: true,
+      instructions:
+        "Open an HTTP GET to the stream_url. Each event is SSE-formatted: `event: <kind>\\ndata: <json>\\n\\n`. " +
+        "The data object matches the NDJSON event log shape. " +
+        (fleet_id ? `Only events carrying fleet_id=\"${fleet_id}\" are emitted. ` : "All ledger events are emitted. ") +
+        "Heartbeat comment frames `:hb\\n\\n` are sent every 30s. " +
+        "Push covers events written by THIS server process; the NDJSON event log is the durable source of truth.",
     });
 };
 

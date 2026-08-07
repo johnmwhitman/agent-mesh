@@ -255,7 +255,7 @@ evidence, authenticated provenance, or external time.
 
 ---
 
-## 36 MCP tools
+## 37 MCP tools
 
 **Fleets**
 
@@ -277,6 +277,7 @@ evidence, authenticated provenance, or external time.
 | `send_messages` | Batched sends, one atomic transaction per batch (up to 1000 messages; larger batches are rejected) |
 | `get_inbox` / `ack_message` | Poll and acknowledge; every ack writes a per-recipient receipt |
 | `subscribe_inbox` | Push delivery over SSE instead of polling (optional auth token) |
+| `subscribe_events` | Unified fleet-wide SSE event stream; optional `fleet_id` filter; emits every ledger event kind as it appends (optional auth token) |
 | `receipt` / `get_receipts` | Write and query the witnessed-delivery ledger: who saw what, when |
 | `verify_ledger` | Audit the whole ledger's internal consistency — errors mean it asserts something its own records don't support |
 | `verify_ledger_v2` | Versioned unsigned-snapshot consistency envelope around the unchanged verifier report from a dedicated read-only file snapshot; the handler performs no ledger writes |
@@ -314,7 +315,7 @@ evidence, authenticated provenance, or external time.
 
 See [docs/discussions.md](docs/discussions.md) for the full quickstart, tool reference, and terminal-state precedence.
 
-That's 36. We counted twice this time.
+That's 37. We counted twice this time.
 
 RoutePlane catalog discovery is a separate package library and CLI, not an MCP
 tool: it fetches RoutePlane's fixed loopback model catalog and projects
