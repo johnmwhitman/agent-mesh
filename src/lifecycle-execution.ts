@@ -258,10 +258,10 @@ export class LifecycleExecutionCoordinator {
         if (!agent) continue;
         if (state.work.status === "pending") {
           const current = state.attempts.find((attempt) => attempt.attempt_id === state.work.current_attempt_id);
-          queueEvent(db, "agent_retry_scheduled", { agent_id: agent.id, from_attempt: state.attempts.length - 1, to_attempt: state.attempts.length, delay_ms: Math.max(0, (current?.eligible_at ?? this.now()) - this.now()), last_error: "lease expired", timestamp: this.now() }, this.now());
+          queueEvent(db, "agent_retry_scheduled", { fleet_id: agent.fleet_id, agent_id: agent.id, from_attempt: state.attempts.length - 1, to_attempt: state.attempts.length, delay_ms: Math.max(0, (current?.eligible_at ?? this.now()) - this.now()), last_error: "lease expired", timestamp: this.now() }, this.now());
         } else if (state.work.status === "failed") {
           const quarantined = String(state.work.error ?? "").includes("launch intent expired before durable handle registration");
-          queueEvent(db, quarantined ? "agent_launch_quarantined" : "agent_failed_permanent", { agent_id: agent.id, attempts: state.attempts.length, last_error: agent.error, timestamp: this.now() }, this.now());
+          queueEvent(db, quarantined ? "agent_launch_quarantined" : "agent_failed_permanent", { fleet_id: agent.fleet_id, agent_id: agent.id, attempts: state.attempts.length, last_error: agent.error, timestamp: this.now() }, this.now());
         }
       }
       return states;
@@ -421,8 +421,8 @@ export class LifecycleExecutionCoordinator {
       const agent = data.agents[agentId];
       if (agent) {
         if (outcome.state.work.status === "succeeded") queueEvent(db, "agent_completed", { fleet_id: agent.fleet_id, agent_id: agentId }, this.now());
-        if (outcome.state.work.status === "failed") queueEvent(db, "agent_failed_permanent", { agent_id: agentId, attempts: outcome.state.attempts.length, last_error: agent.error, timestamp: this.now() }, this.now());
-        if (outcome.state.work.status === "pending") queueEvent(db, "agent_retry_scheduled", { agent_id: agentId, from_attempt: outcome.state.attempts.length - 1, to_attempt: outcome.state.attempts.length, delay_ms: Math.max(0, (outcome.state.attempts.at(-1)?.eligible_at ?? this.now()) - this.now()), last_error: agent.error, timestamp: this.now() }, this.now());
+        if (outcome.state.work.status === "failed") queueEvent(db, "agent_failed_permanent", { fleet_id: agent.fleet_id, agent_id: agentId, attempts: outcome.state.attempts.length, last_error: agent.error, timestamp: this.now() }, this.now());
+        if (outcome.state.work.status === "pending") queueEvent(db, "agent_retry_scheduled", { fleet_id: agent.fleet_id, agent_id: agentId, from_attempt: outcome.state.attempts.length - 1, to_attempt: outcome.state.attempts.length, delay_ms: Math.max(0, (outcome.state.attempts.at(-1)?.eligible_at ?? this.now()) - this.now()), last_error: agent.error, timestamp: this.now() }, this.now());
       }
       return outcome.state;
     });
