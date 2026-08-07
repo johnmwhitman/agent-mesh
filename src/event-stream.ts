@@ -33,6 +33,19 @@ let maxConnections = MAX_EVENT_STREAM_CONNECTIONS_DEFAULT;
 /** All active event-stream subscribers. */
 const subscribers = new Set<EventStreamSubscriber>();
 
+function configuredMaxConnections(): number {
+  const value = process.env.MESHFLEET_MAX_EVENT_STREAM_CONNECTIONS;
+  if (value !== undefined && /^[1-9]\d*$/.test(value)) {
+    const parsed = Number(value);
+    if (Number.isSafeInteger(parsed)) return parsed;
+  }
+  return maxConnections;
+}
+
+export function getMaxEventStreamConnections(): number {
+  return configuredMaxConnections();
+}
+
 export function setMaxEventStreamConnections(n: number): void {
   maxConnections = n;
 }
@@ -55,7 +68,7 @@ export function getEventStreamSubscriberCount(fleet_id?: string): number {
  * Returns false (and closes res) when the global cap is reached.
  */
 export function addEventSubscriber(res: ServerResponse, fleet_id?: string): boolean {
-  if (subscribers.size >= maxConnections) {
+  if (subscribers.size >= configuredMaxConnections()) {
     try {
       res.end();
     } catch {

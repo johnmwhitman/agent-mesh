@@ -5,6 +5,7 @@ import {
   removeEventSubscriber,
   notifyEventSubscribers,
   getEventStreamSubscriberCount,
+  getMaxEventStreamConnections,
   shutdownEventStream,
   setMaxEventStreamConnections,
   MAX_EVENT_STREAM_CONNECTIONS_DEFAULT,
@@ -64,6 +65,19 @@ test("addEventSubscriber: enforces max connections", () => {
   assert.equal(getEventStreamSubscriberCount(), 2);
   assert.ok(r3.closed);
   setMaxEventStreamConnections(MAX_EVENT_STREAM_CONNECTIONS_DEFAULT);
+  clear();
+});
+
+test("getMaxEventStreamConnections: accepts positive integer env override only", () => {
+  clear();
+  process.env.MESHFLEET_MAX_EVENT_STREAM_CONNECTIONS = "7";
+  assert.equal(getMaxEventStreamConnections(), 7);
+
+  process.env.MESHFLEET_MAX_EVENT_STREAM_CONNECTIONS = "0";
+  assert.equal(getMaxEventStreamConnections(), MAX_EVENT_STREAM_CONNECTIONS_DEFAULT);
+  process.env.MESHFLEET_MAX_EVENT_STREAM_CONNECTIONS = "not-a-number";
+  assert.equal(getMaxEventStreamConnections(), MAX_EVENT_STREAM_CONNECTIONS_DEFAULT);
+  delete process.env.MESHFLEET_MAX_EVENT_STREAM_CONNECTIONS;
   clear();
 });
 
@@ -135,6 +149,20 @@ test("notifyEventSubscribers: fleet_id filter — subscriber only gets matching 
   assert.equal(all.writes.length, 2);
   assert.equal(filtered.writes.length, 1);
   assert.equal(other.writes.length, 1);
+  clear();
+});
+
+test("notifyEventSubscribers: failure and retry events reach their fleet filter", () => {
+  clear();
+  const filtered = makeFakeRes();
+  addEventSubscriber(filtered, "fleet-A");
+
+  notifyEventSubscribers("agent_failed_permanent", { fleet_id: "fleet-A", agent_id: "a1" });
+  notifyEventSubscribers("agent_retry_scheduled", { fleet_id: "fleet-A", agent_id: "a1" });
+
+  assert.equal(filtered.writes.length, 2);
+  assert.match(filtered.writes[0], /event: agent_failed_permanent/);
+  assert.match(filtered.writes[1], /event: agent_retry_scheduled/);
   clear();
 });
 
