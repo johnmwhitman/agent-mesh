@@ -32,6 +32,8 @@ import {
 } from "./realtime.js";
 import {
   addEventSubscriber,
+  getEventStreamSubscriberCount,
+  getMaxEventStreamConnections,
   removeEventSubscriber,
   shutdownEventStream,
 } from "./event-stream.js";
@@ -180,6 +182,11 @@ function handleSseConnection(agentId: string, res: ServerResponse, credential: s
 }
 
 function handleEventStreamConnection(fleetId: string | undefined, res: ServerResponse, credential: string | undefined): void {
+  if (getEventStreamSubscriberCount() >= getMaxEventStreamConnections()) {
+    res.writeHead(503, { "Content-Type": "text/plain" });
+    res.end("event stream connection limit reached");
+    return;
+  }
   setSseHeaders(res);
   addEventSubscriber(res, fleetId);
   activeStreams.add(res);
@@ -250,7 +257,7 @@ export function startSseServer(): Promise<{ host: string; port: number }> {
           res.end("method not allowed");
           return;
         }
-        const fleetId = url.searchParams.get("fleet_id") ?? undefined;
+        const fleetId = url.searchParams.get("fleet_id") || undefined;
         handleEventStreamConnection(fleetId, res, credential);
         return;
       }

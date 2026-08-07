@@ -1,7 +1,12 @@
 import { test, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { startSseServer, stopSseServer, enforceStreamAuth } from "../src/sse-server.js";
-import { getEventStreamSubscriberCount, notifyEventSubscribers, shutdownEventStream } from "../src/event-stream.js";
+import {
+  getEventStreamSubscriberCount,
+  notifyEventSubscribers,
+  setMaxEventStreamConnections,
+  shutdownEventStream,
+} from "../src/event-stream.js";
 
 const PORT = 47_119;
 let base: string;
@@ -89,6 +94,29 @@ test("/events/stream: ?fleet_id filter registers with fleet filter", async () =>
     assert.equal(getEventStreamSubscriberCount("fleet-Y"), 0);
   } finally {
     s.close();
+  }
+});
+
+test("/events/stream: blank fleet_id is treated as no filter", async () => {
+  const s = await openStream("/events/stream?fleet_id=");
+  try {
+    await waitFor(() => getEventStreamSubscriberCount("fleet-X") === 1);
+  } finally {
+    s.close();
+  }
+});
+
+test("/events/stream: connection cap returns 503 before SSE headers", async () => {
+  setMaxEventStreamConnections(1);
+  const first = await openStream("/events/stream");
+  try {
+    const second = await fetch(`${base}/events/stream`);
+    assert.equal(second.status, 503);
+    assert.equal(second.headers.get("content-type"), "text/plain");
+    assert.equal(await second.text(), "event stream connection limit reached");
+  } finally {
+    first.close();
+    setMaxEventStreamConnections(20);
   }
 });
 
