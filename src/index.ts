@@ -449,6 +449,7 @@ function handleTransientFailure(
   if (!shouldAgentRetry(attempt)) {
     appendEvent("agent_failed_permanent", {
       agent_id: agentId,
+      fleet_id: input.fleetId,
       attempts: attempt,
       last_error: failureDetail,
       timestamp: Date.now(),
@@ -491,6 +492,7 @@ function handleTransientFailure(
   }
   appendEvent("agent_retry_scheduled", {
     agent_id: agentId,
+    fleet_id: input.fleetId,
     from_attempt: attempt,
     to_attempt: nextAttempt,
     delay_ms: delayMs,
@@ -1369,7 +1371,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "subscribe_events",
       description:
-        "Subscribe to the unified fleet-wide event stream via Server-Sent Events (SSE). Returns a stream URL that emits every ledger event (messages, receipts, ratifications, spawns, completions, discussions, heartbeats) as it is appended. Optional fleet_id filter narrows to events carrying that fleet_id. If the operator set MESHFLEET_AUTH_TOKEN, requests to the stream must carry it (Authorization: Bearer, or ?token=).",
+        "Subscribe to the unified fleet-wide event stream via Server-Sent Events (SSE). Returns a stream URL that emits every ledger event (messages, receipts, ratifications, spawns, completions, discussions) as it is appended. Keep-alive :hb comment frames are sent every 30s. Optional fleet_id filter narrows to events carrying that fleet_id. If the operator set MESHFLEET_AUTH_TOKEN, requests to the stream must carry it (Authorization: Bearer, or ?token=).",
       inputSchema: {
         type: "object",
         properties: {
