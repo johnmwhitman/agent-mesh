@@ -12,9 +12,30 @@
  */
 
 import { listFleets, loadData, readEventLog } from '../core.js'
+import { fileURLToPath } from 'node:url'
+import { resolve } from 'node:path'
+import {
+  EventRingBuffer,
+  startDashboardUpdates,
+  type DashboardEvent,
+  type DashboardUpdates,
+} from '../dashboard-sse.js'
+
+export {
+  EventRingBuffer,
+  parseSseFrames,
+  startDashboardUpdates,
+} from '../dashboard-sse.js'
+export type {
+  DashboardEvent,
+  DashboardUpdates,
+  DashboardUpdatesOptions,
+  ParsedSseFrames,
+  SseFrame,
+} from '../dashboard-sse.js'
 
 const REFRESH_DEFAULT_MS = 1000
-const EVENT_LIMIT = 20
+const EVENT_LIMIT_DEFAULT = 50
 const AGENT_LIMIT = 10
 
 function clearScreen(): void {
@@ -37,10 +58,9 @@ function fmtDuration(ms: number): string {
   return `${m}m${s % 60}s`
 }
 
-function render(): void {
+function render(events: readonly DashboardEvent[]): void {
   const data = loadData()
   const fleets = listFleets()
-  const events = readEventLog(EVENT_LIMIT).reverse()
 
   const agents = Object.values(data.agents)
     .sort((a, b) => (b.started_at ?? 0) - (a.started_at ?? 0))
@@ -94,7 +114,7 @@ function render(): void {
   }
   lines.push('')
 
-  lines.push(`Recent Events (last ${EVENT_LIMIT})`)
+  lines.push(`Recent Events (last ${events.length})`)
   if (events.length === 0) {
     lines.push('  (none)')
   } else {
@@ -119,24 +139,37 @@ function render(): void {
   process.stdout.write(lines.join('\n') + '\n')
 }
 
+function parsePositiveArg(args: readonly string[], name: string, fallback: number): number {
+  const index = args.indexOf(name)
+  const value = Number(args[index + 1])
+  return index >= 0 && Number.isInteger(value) && value > 0 ? value : fallback
+}
+
+function filteredEvents(limit: number, fleetId: string | undefined): DashboardEvent[] {
+  return readEventLog(limit).filter((event) => !fleetId || event.fleet_id === fleetId)
+}
+
 function main(): void {
   const args = process.argv.slice(2)
   const once = args.includes('--once')
+  const fleetIdIndex = args.indexOf('--fleet')
+  const fleetId = fleetIdIndex >= 0 ? args[fleetIdIndex + 1] : undefined
+  const eventLimit = parsePositiveArg(args, '--events', EVENT_LIMIT_DEFAULT)
+  const pollOnly = args.includes('--poll-only')
+  const events = new EventRingBuffer(eventLimit)
+  events.replace(filteredEvents(eventLimit, fleetId))
 
-  let interval = REFRESH_DEFAULT_MS
-  const intervalIdx = args.indexOf('--interval')
-  if (intervalIdx >= 0) {
-    const val = parseInt(args[intervalIdx + 1] ?? '', 10)
-    if (Number.isFinite(val) && val > 0) interval = val
-  }
+  const interval = parsePositiveArg(args, '--interval', REFRESH_DEFAULT_MS)
 
   if (once) {
-    render()
+    render(events.values().reverse())
     return
   }
 
   hideCursor()
+  let updates: DashboardUpdates | undefined
   const cleanup = (): void => {
+    updates?.close()
     showCursor()
     process.stdout.write('\n')
     process.exit(0)
@@ -144,9 +177,10 @@ function main(): void {
   process.on('SIGINT', cleanup)
   process.on('SIGTERM', cleanup)
 
-  const tick = (): void => {
+  const refresh = (): void => {
     try {
-      render()
+      events.replace(filteredEvents(eventLimit, fleetId))
+      render(events.values().reverse())
     } catch (err) {
       showCursor()
       process.stderr.write(`\nDashboard error: ${err instanceof Error ? err.message : String(err)}\n`)
@@ -154,8 +188,27 @@ function main(): void {
     }
   }
 
-  tick()
-  setInterval(tick, interval)
+  refresh()
+  if (!pollOnly) {
+    updates = startDashboardUpdates({
+      fleetId,
+      interval,
+      poll: refresh,
+      onEvent: (event) => {
+        events.push(event)
+        render(events.values().reverse())
+      },
+    })
+  } else {
+    updates = startDashboardUpdates({
+      fleetId,
+      interval,
+      port: 0,
+      poll: refresh,
+      onEvent: () => undefined,
+      connect: false,
+    })
+  }
 }
 
-main()
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main()
