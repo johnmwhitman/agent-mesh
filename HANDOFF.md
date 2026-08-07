@@ -1,7 +1,7 @@
 # MeshFleet public handoff
 
 **Source version:** `0.20.0` · **MCP surface:** **37 MCP tools** ·
-**clean local baseline:** **1594/1594** tests, plus typecheck and build, measured on
+**clean local baseline:** **1615/1615** tests, plus typecheck and build, measured on
 `1ec5f60` plus this change, in a clean worktree
 
 Base `01f0fa0` passed 1416/1416; the parity snapshot that introduced this document
