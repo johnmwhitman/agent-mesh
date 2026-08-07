@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { EventRingBuffer, parseSseFrames, startDashboardUpdates } from "../src/bin/dashboard.js";
+import { EventRingBuffer, filterDashboardEvent, parseSseFrames, startDashboardUpdates } from "../src/bin/dashboard.js";
 
 test("SSE frame parser returns complete JSON events and retains partial frames", () => {
   const parsed = parseSseFrames(
@@ -59,4 +59,9 @@ test("dashboard --once remains a one-render exit path", async () => {
   assert.match(output, /Meshfleet Dashboard/);
   assert.match(output, /Recent Agents/);
   assert.match(output, /Recent Events/);
+});
+
+test("dashboard fleet filter ignores events from other fleets", () => {
+  assert.equal(filterDashboardEvent({ fleet_id: "f2", event: "message_sent" }, "f1"), false);
+  assert.equal(filterDashboardEvent({ fleet_id: "f1", event: "message_sent" }, "f1"), true);
 });

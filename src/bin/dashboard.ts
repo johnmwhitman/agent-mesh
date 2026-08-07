@@ -8,7 +8,7 @@
  *   npx agent-mesh dashboard --once   # one-shot, exit immediately
  *
  * Reads the same JSON ledger as the MCP server. No IPC, no daemon — just
- * polls the ledger + event log on the configured interval. Ctrl+C to exit.
+ * follows the event stream with ledger polling as a fallback. Ctrl+C to exit.
  */
 
 import { listFleets, loadData, readEventLog } from '../core.js'
@@ -23,6 +23,7 @@ import {
 
 export {
   EventRingBuffer,
+  filterDashboardEvent,
   parseSseFrames,
   startDashboardUpdates,
 } from '../dashboard-sse.js'

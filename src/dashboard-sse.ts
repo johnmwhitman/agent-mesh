@@ -8,6 +8,11 @@ export interface SseFrame {
   data: DashboardEvent
 }
 
+export function filterDashboardEvent(event: DashboardEvent, fleetId: string | undefined): boolean {
+  if (fleetId === undefined) return true
+  return event.fleet_id === fleetId
+}
+
 export interface ParsedSseFrames {
   frames: SseFrame[]
   remainder: string
@@ -114,7 +119,10 @@ export function startDashboardUpdates(options: DashboardUpdatesOptions): Dashboa
       response.on('data', (chunk: string) => {
         const parsed = parseSseFrames(buffer + chunk)
         buffer = parsed.remainder
-        for (const frame of parsed.frames) options.onEvent({ ...frame.data, event: frame.event })
+        for (const frame of parsed.frames) {
+          const event = { ...frame.data, event: frame.event }
+          if (filterDashboardEvent(event, options.fleetId)) options.onEvent(event)
+        }
       })
       response.on('close', unavailable)
       response.on('error', unavailable)
