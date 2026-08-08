@@ -1,7 +1,7 @@
 import { test, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 
-import { startSseServer, stopSseServer, enforceStreamAuth } from "../src/sse-server.js";
+import { startSseServer, stopSseServer, enforceStreamAuth, formatHostForUrl } from "../src/sse-server.js";
 import { getSubscriberCount } from "../src/realtime.js";
 
 // Real-server integration tests for the optional SSE auth token
@@ -154,4 +154,22 @@ test("rotating the token ends streams authenticated with the old token; current-
   } finally {
     stale.close();
   }
+});
+
+test("non-loopback host refuses startup without a non-empty token", async () => {
+  await stopSseServer();
+  process.env.MESHFLEET_SSE_HOST = "0.0.0.0";
+  delete process.env.MESHFLEET_AUTH_TOKEN;
+  delete process.env.MESHFLEET_SSE_TOKEN;
+  delete process.env.AGENT_MESH_AUTH_TOKEN;
+  await assert.rejects(
+    startSseServer(),
+    /refusing SSE\/A2A startup.*non-loopback host.*auth token/i,
+  );
+  delete process.env.MESHFLEET_SSE_HOST;
+});
+
+test("IPv6 hosts are bracketed in advertised URLs", () => {
+  assert.equal(formatHostForUrl("::1"), "[::1]");
+  assert.equal(formatHostForUrl("127.0.0.1"), "127.0.0.1");
 });

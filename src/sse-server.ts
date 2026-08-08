@@ -77,6 +77,18 @@ export function sseHost(): string {
   return process.env.MESHFLEET_SSE_HOST ?? DEFAULT_HOST;
 }
 
+export function formatHostForUrl(host: string): string {
+  const unbracketed = host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host;
+  return unbracketed.includes(":") ? `[${unbracketed}]` : unbracketed;
+}
+
+function isLoopbackHost(host: string): boolean {
+  const normalized = host.trim().toLowerCase().replace(/^\[|\]$/g, "");
+  if (normalized === "localhost" || normalized === "::1") return true;
+  const octets = normalized.split(".").map(Number);
+  return octets.length === 4 && octets.every((octet) => Number.isInteger(octet) && octet >= 0 && octet <= 255) && octets[0] === 127;
+}
+
 export function isSseServerRunning(): boolean {
   return httpServer !== null && httpServer.listening;
 }
@@ -108,8 +120,9 @@ function parseInboxPath(pathname: string): string | null {
  */
 function authToken(): string | undefined {
   const sseToken = process.env.MESHFLEET_SSE_TOKEN;
-  if (sseToken !== undefined && sseToken !== "") return sseToken;
-  return resolveEnv(process.env, "MESHFLEET_AUTH_TOKEN", "AGENT_MESH_AUTH_TOKEN");
+  if (sseToken?.trim()) return sseToken;
+  const configured = resolveEnv(process.env, "MESHFLEET_AUTH_TOKEN", "AGENT_MESH_AUTH_TOKEN");
+  return configured?.trim() ? configured : undefined;
 }
 
 /** Constant-time comparison over digests, so length differences leak nothing. */
@@ -234,10 +247,15 @@ export function startSseServer(options: SseServerOptions = {}): Promise<{ host: 
     }
     const port = ssePort();
     const host = sseHost();
+    if (!isLoopbackHost(host) && authToken() === undefined) {
+      reject(new Error("refusing SSE/A2A startup on non-loopback host without an auth token"));
+      return;
+    }
+    const baseUrl = `http://${formatHostForUrl(host)}:${port}`;
 
     const a2aHandler = options.a2a
       ? createA2AHttpHandler({
-        baseUrl: `http://${host}:${port}`,
+        baseUrl,
         submitTask: options.a2a.submitTask,
         getTaskStatus: options.a2a.getTaskStatus,
       })
@@ -255,7 +273,7 @@ export function startSseServer(options: SseServerOptions = {}): Promise<{ host: 
       }
       res.setHeader("Access-Control-Allow-Origin", "*");
 
-      const url = new URL(req.url ?? "/", `http://${host}:${port}`);
+      const url = new URL(req.url ?? "/", baseUrl);
 
       if (url.pathname === "/healthz" || url.pathname === "/healthz/") {
         handleHealthz(res);
@@ -358,12 +376,12 @@ export function stopSseServer(): Promise<void> {
 export function subscribeInboxUrl(agentId: string, baseUrl?: string): string {
   const port = ssePort();
   const host = baseUrl ?? "127.0.0.1";
-  return `http://${host}:${port}/inbox/${agentId}/stream`;
+  return `http://${formatHostForUrl(host)}:${port}/inbox/${agentId}/stream`;
 }
 
 export function subscribeEventsUrl(fleetId?: string, baseUrl?: string): string {
   const port = ssePort();
   const host = baseUrl ?? "127.0.0.1";
-  const base = `http://${host}:${port}/events/stream`;
+  const base = `http://${formatHostForUrl(host)}:${port}/events/stream`;
   return fleetId ? `${base}?fleet_id=${encodeURIComponent(fleetId)}` : base;
 }
