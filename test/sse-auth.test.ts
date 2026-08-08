@@ -102,6 +102,13 @@ test("legacy AGENT_MESH_AUTH_TOKEN is honored", async () => {
   assert.equal(await head("/inbox/a1/stream", { Authorization: "Bearer legacy-secret" }), 200);
 });
 
+test("whitespace current auth token falls back to the legacy token", async () => {
+  process.env.MESHFLEET_AUTH_TOKEN = "   ";
+  process.env.AGENT_MESH_AUTH_TOKEN = "legacy-secret";
+  assert.equal(await head("/inbox/a1/stream"), 401);
+  assert.equal(await head("/inbox/a1/stream", { Authorization: "Bearer legacy-secret" }), 200);
+});
+
 test("bearer scheme is case-insensitive per RFC 7235", async () => {
   process.env.MESHFLEET_AUTH_TOKEN = "s3cret";
   assert.equal(await head("/inbox/a1/stream", { Authorization: "bearer s3cret" }), 200);
