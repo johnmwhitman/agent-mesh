@@ -596,7 +596,10 @@ artifacts; verifying the work stays with your tooling and your review.
   `lost_agents`, a `warning` that appears only when something was lost). A crashing
   server leaves a durable journal line, and the next healthy start consumes it:
   interrupted rows carry a `stopped_reason` (`server_crash` | `process_lost`) when
-  reconciliation can honestly attribute one. All shipped.
+  reconciliation can honestly attribute one. A failed row with a valid result contract
+  and output or declared artifacts is instead listed in `degraded_agents`: the result was
+  reported, but runtime status was not clean. This is delivery evidence, not proof of
+  execution or truth. All shipped.
 - **Internal rule enforcement.** Operational: the auditor re-derives its rules from
   source on every run, and a ledger asserting more than its own records support — a
   ratification without its votes, a receipt without its message — fails verification
