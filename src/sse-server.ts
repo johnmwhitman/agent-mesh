@@ -38,6 +38,7 @@ import {
   shutdownEventStream,
 } from "./event-stream.js";
 import { resolveEnv } from "./env.js";
+import { createA2AHttpHandler, type A2ATaskStatus } from "./a2a/http.js";
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -59,6 +60,13 @@ const streamCredentials = new Map<ServerResponse, { agentId: string; credential:
 
 /** Credentials for fleet-wide event stream connections (no agentId). */
 const eventStreamCredentials = new Map<ServerResponse, { fleetId: string | undefined; credential: string | undefined }>();
+
+export interface SseServerOptions {
+  readonly a2a?: {
+    readonly submitTask: (input: { readonly text: string; readonly metadata?: Record<string, unknown> }) => Promise<{ readonly fleetId: string; readonly agentId: string }>;
+    readonly getTaskStatus: (fleetId: string, agentId: string) => A2ATaskStatus | undefined;
+  };
+}
 
 export function ssePort(): number {
   const v = Number(process.env.MESHFLEET_SSE_PORT);
@@ -216,7 +224,7 @@ function handle404(res: ServerResponse): void {
 // Start / stop
 // ---------------------------------------------------------------------------
 
-export function startSseServer(): Promise<{ host: string; port: number }> {
+export function startSseServer(options: SseServerOptions = {}): Promise<{ host: string; port: number }> {
   return new Promise((resolve, reject) => {
     if (httpServer) {
       reject(new Error("SSE server already running"));
@@ -225,12 +233,19 @@ export function startSseServer(): Promise<{ host: string; port: number }> {
     const port = ssePort();
     const host = sseHost();
 
+    const a2aHandler = options.a2a
+      ? createA2AHttpHandler({
+        baseUrl: `http://${host}:${port}`,
+        submitTask: options.a2a.submitTask,
+        getTaskStatus: options.a2a.getTaskStatus,
+      })
+      : undefined;
     const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       // CORS preflight — permissive for local dev
       if (req.method === "OPTIONS") {
         res.writeHead(204, {
           "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "GET, OPTIONS",
+          "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
           "Access-Control-Allow-Headers": "Content-Type, Authorization",
         });
         res.end();
@@ -248,6 +263,11 @@ export function startSseServer(): Promise<{ host: string; port: number }> {
       const credential = providedToken(req, url);
       if (!credentialAuthorized(credential)) {
         handle401(res);
+        return;
+      }
+
+      if (a2aHandler && (url.pathname.startsWith("/a2a/") || url.pathname.startsWith("/.well-known/agent-card.json"))) {
+        a2aHandler(req, res);
         return;
       }
 

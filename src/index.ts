@@ -14,6 +14,10 @@ import { requireAuditIsolationEnvironment } from "./audit-access-profile.js";
 // Single source of truth for the advertised version — package.json.
 // (The literal here drifted to 0.7.0 while releases moved to 0.11.x.)
 const MESH_VERSION: string = createRequire(import.meta.url)("../package.json").version;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
 import {
   appendEvent,
   ackMessage,
@@ -62,6 +66,7 @@ import { buildVerifyEnvelopeV2 } from "./verify-envelope-v2.js";
 import { buildVerifyEnvelopeV3 } from "./verify-envelope-v3.js";
 import { notifySubscribers } from "./realtime.js";
 import { isSseServerRunning, startSseServer, stopSseServer, subscribeInboxUrl, subscribeEventsUrl } from "./sse-server.js";
+import type { A2ATaskStatus } from "./a2a/http.js";
 import { createHeartbeat } from "./heartbeat.js";
 import {
   computeBackoff,
@@ -2814,7 +2819,37 @@ if (!isChildInstance && !isAuditProfile) {
 
   // Start the SSE HTTP server for real-time inbox push (v0.7.0)
   try {
-    const { host, port } = await startSseServer();
+    const { host, port } = await startSseServer({
+      a2a: {
+        submitTask: async ({ text }) => {
+          const result = await toolHandlers.spawn_fleet({
+            agents: [{ role: "a2a-local-task", prompt: text }],
+          });
+          const first = result.content[0];
+          if (!first || first.type !== "text") throw new Error("A2A task submission returned no result");
+          const payload: unknown = JSON.parse(first.text);
+          if (!isRecord(payload) || typeof payload.fleet_id !== "string" || !Array.isArray(payload.agent_ids) || typeof payload.agent_ids[0] !== "string") {
+            throw new Error(isRecord(payload) && typeof payload.error === "string" ? payload.error : "A2A task submission failed");
+          }
+          return { fleetId: payload.fleet_id, agentId: payload.agent_ids[0] };
+        },
+        getTaskStatus: (fleetId, agentId): A2ATaskStatus | undefined => {
+          const data = readLedger();
+          const fleet = data.fleets[fleetId];
+          const agent = data.agents[agentId];
+          if (!fleet || !agent || agent.fleet_id !== fleetId) return undefined;
+          return {
+            fleetId,
+            agentId,
+            fleetStatus: fleet.status,
+            agentStatus: agent.status,
+            ...(agent.result_contract !== undefined ? { resultContract: agent.result_contract } : {}),
+            ...(agent.output !== undefined ? { output: agent.output } : {}),
+            ...(agent.error !== undefined ? { error: agent.error } : {}),
+          };
+        },
+      },
+    });
     console.error(`Agent Mesh v${MESH_VERSION} started (JSON persistence + P2P messaging + capability routing + premade agent discovery + timeout/resilience + SSE push on ${host}:${port})`);
   } catch (err) {
     console.error(`Agent Mesh v${MESH_VERSION} started (JSON persistence + P2P messaging + capability routing + premade agent discovery + timeout/resilience + SSE push) — SSE server failed to start: ${err instanceof Error ? err.message : String(err)}`);
