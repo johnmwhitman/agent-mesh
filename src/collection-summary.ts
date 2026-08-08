@@ -24,6 +24,9 @@ export interface CollectableAgent {
   role?: string
   status?: string
   output?: string
+  error?: string
+  result_contract?: string
+  artifacts?: readonly string[]
 }
 
 export interface LostAgent {
@@ -31,6 +34,13 @@ export interface LostAgent {
   status: string
   /** Why the caller should care, in the caller's terms — not ours. */
   meaning: string
+}
+
+export interface DegradedAgent {
+  role: string
+  status: string
+  result_contract: string
+  error?: string
 }
 
 export interface CollectionSummary {
@@ -42,6 +52,7 @@ export interface CollectionSummary {
   /** Not terminal yet. Distinguished from lost so silence is never ambiguous. */
   still_running: number
   lost_agents: LostAgent[]
+  degraded_agents: DegradedAgent[]
   /** Present ONLY when something was lost. Absence is a real all-clear. */
   warning?: string
 }
@@ -70,6 +81,7 @@ function meaningOf(status: string): string {
 
 export function summarizeCollection(agents: readonly CollectableAgent[]): CollectionSummary {
   const lost_agents: LostAgent[] = []
+  const degraded_agents: DegradedAgent[] = []
   let delivered = 0
   let still_running = 0
 
@@ -77,6 +89,21 @@ export function summarizeCollection(agents: readonly CollectableAgent[]): Collec
     const status = agent.status ?? 'unknown'
     if (NON_TERMINAL.has(status)) {
       still_running++
+      continue
+    }
+    const result_contract = agent.result_contract
+    const reportedAfterFailure =
+      status === 'failed' &&
+      result_contract === 'ok' &&
+      (agent.output?.trim() !== '' || (agent.artifacts?.length ?? 0) > 0)
+    if (reportedAfterFailure) {
+      degraded_agents.push({
+        role: agent.role ?? '(unnamed)',
+        status,
+        result_contract,
+        ...(agent.error !== undefined ? { error: agent.error } : {}),
+      })
+      delivered++
       continue
     }
     if (TERMINAL_WITHOUT_RESULT.has(status)) {
@@ -92,6 +119,7 @@ export function summarizeCollection(agents: readonly CollectableAgent[]): Collec
     lost: lost_agents.length,
     still_running,
     lost_agents,
+    degraded_agents,
   }
 
   if (lost_agents.length > 0) {
