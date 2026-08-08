@@ -107,6 +107,8 @@ function parseInboxPath(pathname: string): string | null {
  * a restart. Unset = open access (the historical local-trust default).
  */
 function authToken(): string | undefined {
+  const sseToken = process.env.MESHFLEET_SSE_TOKEN;
+  if (sseToken !== undefined && sseToken !== "") return sseToken;
   return resolveEnv(process.env, "MESHFLEET_AUTH_TOKEN", "AGENT_MESH_AUTH_TOKEN");
 }
 

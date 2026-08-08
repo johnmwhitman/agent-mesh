@@ -114,3 +114,45 @@ test("configured token protects card and task routes", async () => {
     await close(running.server);
   }
 });
+
+test("task input rejects extra non-text parts before spawning", async () => {
+  let submissions = 0;
+  const handler = createA2AHttpHandler({
+    baseUrl: "http://127.0.0.1",
+    submitTask: async () => { submissions++; return { fleetId: "fleet-1", agentId: "agent-1" }; },
+    getTaskStatus: () => ({ fleetId: "fleet-1", agentId: "agent-1", fleetStatus: "running", agentStatus: "running" }),
+  });
+  const server = createServer(handler);
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  try {
+    const response = await fetch(`http://127.0.0.1:${address.port}/a2a/tasks`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message: { role: "user", parts: [{ kind: "text", text: "hello" }, { kind: "image", url: "x" }] } }),
+    });
+    assert.equal(response.status, 400);
+    assert.equal(submissions, 0);
+  } finally {
+    await close(server);
+  }
+});
+
+test("completed agent without ok result contract never projects completed", async () => {
+  const running = await serve({ fleetId: "fleet-1", agentId: "agent-1", fleetStatus: "complete", agentStatus: "complete", resultContract: "refused", error: "declined" });
+  try {
+    const submitted = await fetch(`${running.base}/a2a/tasks`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message: { role: "user", parts: [{ kind: "text", text: "hello" }] } }),
+    });
+    const task = await submitted.json() as { task_id: string };
+    const projected = await fetch(`${running.base}/a2a/tasks/${task.task_id}`);
+    const body = await projected.json() as { status: string; result_contract: string };
+    assert.equal(body.status, "refused");
+    assert.equal(body.result_contract, "refused");
+  } finally {
+    await close(running.server);
+  }
+});
