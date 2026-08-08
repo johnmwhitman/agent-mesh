@@ -3,6 +3,8 @@ import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
 const DEFAULT_MAX_BODY_BYTES = 128 * 1024;
+const BODY_IDLE_TIMEOUT_MS = 5_000;
+const BODY_TOTAL_TIMEOUT_MS = 30_000;
 const A2A_PROTOCOL_VERSION = "0.1";
 
 export type A2AResultContract = "ok" | "refused" | "blocked" | "artifact_missing" | "invalid" | "absent";
@@ -78,8 +80,8 @@ export function createA2AHttpHandler(options: A2AHttpOptions): (req: IncomingMes
 
 function agentCard(baseUrl: string): Record<string, unknown> {
   return {
-    name: "MeshFleet local task adapter",
-    description: "Process-local A2A compatibility adapter on the loopback HTTP server.",
+    name: "MeshFleet local-only non-interoperable task adapter",
+    description: "Process-local compatibility projection for MeshFleet; not Google A2A interoperability and not a public service.",
     url: baseUrl,
     version: "0.20.0",
     protocolVersion: A2A_PROTOCOL_VERSION,
@@ -98,35 +100,35 @@ async function submit(
   submitTask: A2AHttpOptions["submitTask"],
   maxBodyBytes: number,
 ): Promise<void> {
-  const length = Number(req.headers["content-length"] ?? 0);
-  if (Number.isFinite(length) && length > maxBodyBytes) {
-    respond(res, 400, { error: "request body too large" });
-    req.resume();
-    return;
-  }
-  const contentType = req.headers["content-type"]?.split(";", 1)[0]?.trim().toLowerCase();
-  if (contentType !== "application/json") {
-    respond(res, 400, { error: "content-type must be application/json" });
-    req.resume();
-    return;
-  }
-  const raw = await readBody(req, maxBodyBytes);
-  if (!raw.ok) {
-    respond(res, 400, { error: raw.error });
-    return;
-  }
-  const parsed = parseTaskInput(raw.body);
-  if (!parsed.ok) {
-    respond(res, 400, { error: parsed.error });
-    return;
-  }
   try {
+    const length = Number(req.headers["content-length"] ?? 0);
+    if (Number.isFinite(length) && length > maxBodyBytes) {
+      respond(res, 400, { error: "request body too large" });
+      req.resume();
+      return;
+    }
+    const contentType = req.headers["content-type"]?.split(";", 1)[0]?.trim().toLowerCase();
+    if (contentType !== "application/json") {
+      respond(res, 400, { error: "content-type must be application/json" });
+      req.resume();
+      return;
+    }
+    const raw = await readBody(req, maxBodyBytes);
+    if (!raw.ok) {
+      respond(res, 400, { error: raw.error });
+      return;
+    }
+    const parsed = parseTaskInput(raw.body);
+    if (!parsed.ok) {
+      respond(res, 400, { error: parsed.error });
+      return;
+    }
     const linked = await submitTask({ text: parsed.value.message.parts[0].text, ...(parsed.value.metadata ? { metadata: parsed.value.metadata } : {}) });
     const taskId = randomUUID();
     tasks.set(taskId, { fleetId: linked.fleetId, agentId: linked.agentId });
     respond(res, 202, { task_id: taskId, fleet_id: linked.fleetId, agent_id: linked.agentId, status: "working", scope: "process-local" });
-  } catch (error) {
-    respond(res, 500, { error: error instanceof Error ? error.message : "task submission failed" });
+  } catch {
+    if (!res.destroyed && !res.writableEnded) respond(res, 500, { error: "task submission failed" });
   }
 }
 
@@ -137,8 +139,8 @@ function parseTaskInput(raw: string): { readonly ok: true; readonly value: TaskI
   } catch {
     return { ok: false, error: "body must be valid JSON" };
   }
-  if (!isRecord(value) || !isRecord(value.message) || value.message.role !== "user" || !Array.isArray(value.message.parts) || value.message.parts.length === 0) {
-    return { ok: false, error: "message must contain role user and text parts" };
+  if (!isRecord(value) || !isRecord(value.message) || value.message.role !== "user" || !Array.isArray(value.message.parts) || value.message.parts.length !== 1) {
+    return { ok: false, error: "message must contain exactly one text part" };
   }
   const parts = value.message.parts;
   const textParts: { readonly kind: "text"; readonly text: string }[] = [];
@@ -183,12 +185,39 @@ function authorized(req: IncomingMessage, url: URL, expected: string | undefined
 async function readBody(req: IncomingMessage, maxBytes: number): Promise<{ readonly ok: true; readonly body: string } | { readonly ok: false; readonly error: string }> {
   const chunks: Buffer[] = [];
   let total = 0;
-  for await (const chunk of req) {
-    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-    total += bytes.byteLength;
-    if (total > maxBytes) return { ok: false, error: "request body too large" };
-    chunks.push(bytes);
+  let timedOut = false;
+  let idleTimer: NodeJS.Timeout | undefined;
+  const abortRequest = () => {
+    timedOut = true;
+    req.resume();
+    req.destroy();
+  };
+  const resetIdleTimer = () => {
+    if (idleTimer) clearTimeout(idleTimer);
+    idleTimer = setTimeout(abortRequest, BODY_IDLE_TIMEOUT_MS);
+  };
+  const totalTimer = setTimeout(abortRequest, BODY_TOTAL_TIMEOUT_MS);
+  resetIdleTimer();
+  try {
+    for await (const chunk of req) {
+      const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      total += bytes.byteLength;
+      if (total > maxBytes) {
+        req.resume();
+        req.destroy();
+        return { ok: false, error: "request body too large" };
+      }
+      chunks.push(bytes);
+      resetIdleTimer();
+    }
+  } catch {
+    if (timedOut) return { ok: false, error: "request body timeout" };
+    return { ok: false, error: "request body could not be read" };
+  } finally {
+    clearTimeout(totalTimer);
+    if (idleTimer) clearTimeout(idleTimer);
   }
+  if (timedOut) return { ok: false, error: "request body timeout" };
   return { ok: true, body: Buffer.concat(chunks).toString("utf8") };
 }
 
