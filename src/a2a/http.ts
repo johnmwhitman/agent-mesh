@@ -80,8 +80,8 @@ export function createA2AHttpHandler(options: A2AHttpOptions): (req: IncomingMes
 
 function agentCard(baseUrl: string): Record<string, unknown> {
   return {
-    name: "MeshFleet local-only non-interoperable task adapter",
-    description: "Process-local compatibility projection for MeshFleet; not Google A2A interoperability and not a public service.",
+    name: "MeshFleet local compatibility projection (not public Google A2A interoperability)",
+    description: "Process-local compatibility projection for MeshFleet protocol vocabulary only; this is NOT public Google A2A interoperability and is not a public service.",
     url: baseUrl,
     version: "0.20.0",
     protocolVersion: A2A_PROTOCOL_VERSION,
@@ -104,13 +104,13 @@ async function submit(
     const length = Number(req.headers["content-length"] ?? 0);
     if (Number.isFinite(length) && length > maxBodyBytes) {
       respond(res, 400, { error: "request body too large" });
-      req.resume();
+      discardRequest(req);
       return;
     }
     const contentType = req.headers["content-type"]?.split(";", 1)[0]?.trim().toLowerCase();
     if (contentType !== "application/json") {
       respond(res, 400, { error: "content-type must be application/json" });
-      req.resume();
+      discardRequest(req);
       return;
     }
     const raw = await readBody(req, maxBodyBytes);
@@ -157,9 +157,9 @@ function projectTask(taskId: string, record: TaskRecord, status: A2ATaskStatus):
   const agentTerminal = status.agentStatus === "complete" || status.agentStatus === "failed" || status.agentStatus === "interrupted";
   const terminal = fleetTerminal && agentTerminal;
   const taskStatus = terminal ? terminalStatus(status) : "working";
-  const result = status.output === undefined && status.error === undefined && status.artifacts === undefined
+  const result = status.output === undefined && status.error === undefined
     ? undefined
-    : { ...(status.output !== undefined ? { text: status.output } : {}), ...(status.error !== undefined ? { error: status.error } : {}), ...(status.artifacts !== undefined ? { artifacts: status.artifacts } : {}) };
+    : { ...(status.output !== undefined ? { text: status.output } : {}), ...(status.error !== undefined ? { error: "task failed" } : {}) };
   return { task_id: taskId, fleet_id: record.fleetId, agent_id: record.agentId, status: taskStatus, scope: "process-local", result_contract: status.resultContract ?? "absent", ...(result ? { result } : {}) };
 }
 
@@ -191,7 +191,7 @@ async function readBody(req: IncomingMessage, maxBytes: number): Promise<{ reado
   let idleTimer: NodeJS.Timeout | undefined;
   const abortRequest = () => {
     timedOut = true;
-    req.resume();
+    discardRequest(req);
     req.destroy();
   };
   const resetIdleTimer = () => {
@@ -205,8 +205,7 @@ async function readBody(req: IncomingMessage, maxBytes: number): Promise<{ reado
       const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
       total += bytes.byteLength;
       if (total > maxBytes) {
-        req.resume();
-        req.destroy();
+        discardRequest(req);
         return { ok: false, error: "request body too large" };
       }
       chunks.push(bytes);
@@ -221,6 +220,11 @@ async function readBody(req: IncomingMessage, maxBytes: number): Promise<{ reado
   }
   if (timedOut) return { ok: false, error: "request body timeout" };
   return { ok: true, body: Buffer.concat(chunks).toString("utf8") };
+}
+
+function discardRequest(req: IncomingMessage): void {
+  req.once("error", () => {});
+  req.resume();
 }
 
 function respond(res: ServerResponse, status: number, body: Record<string, unknown>, extraHeaders: Record<string, string> = {}): void {

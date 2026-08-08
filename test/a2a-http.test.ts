@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createServer, type Server } from "node:http";
+import { createServer, request as httpRequest, type Server } from "node:http";
 import { createA2AHttpHandler, type A2ATaskStatus } from "../src/a2a/http.js";
 
 type RunningServer = { server: Server; base: string };
@@ -29,8 +29,8 @@ test("Agent Card advertises only local, non-streaming capabilities", async () =>
     assert.equal(response.status, 200);
     const card = await response.json() as Record<string, unknown>;
     assert.equal(card.protocolVersion, "0.1");
-    assert.equal(card.name, "MeshFleet local-only non-interoperable task adapter");
-    assert.match(String(card.description), /not Google A2A/i);
+    assert.match(String(card.name), /not public Google A2A interoperability/i);
+    assert.match(String(card.description), /NOT public Google A2A interoperability/i);
     assert.deepEqual(card.capabilities, { streaming: false, pushNotifications: false, stateTransitionHistory: false });
     assert.equal(card.url, "http://127.0.0.1");
     assert.ok(Array.isArray(card.skills));
@@ -185,6 +185,67 @@ test("task submission failure returns a stable generic error", async () => {
     assert.deepEqual(await response.json(), { error: "task submission failed" });
   } finally {
     await close(server);
+  }
+});
+
+test("streamed oversized bodies receive a bounded error without a connection reset", async () => {
+  const handler = createA2AHttpHandler({
+    baseUrl: "http://127.0.0.1",
+    maxBodyBytes: 8,
+    submitTask: async () => ({ fleetId: "fleet-1", agentId: "agent-1" }),
+    getTaskStatus: () => undefined,
+  });
+  const server = createServer(handler);
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  try {
+    const response = await new Promise<{ statusCode: number; body: string }>((resolve, reject) => {
+      const request = httpRequest({
+        hostname: "127.0.0.1",
+        port: address.port,
+        path: "/a2a/tasks",
+        method: "POST",
+        headers: { "content-type": "application/json" },
+      }, (response) => {
+        const chunks: Buffer[] = [];
+        response.on("data", (chunk: Buffer) => chunks.push(chunk));
+        response.on("end", () => resolve({ statusCode: response.statusCode ?? 0, body: Buffer.concat(chunks).toString("utf8") }));
+      });
+      request.on("error", reject);
+      request.write("123456789");
+      request.end();
+    });
+    assert.equal(response.statusCode, 400);
+    assert.deepEqual(JSON.parse(response.body), { error: "request body too large" });
+  } finally {
+    await close(server);
+  }
+});
+
+test("status projection does not expose internal errors or artifact paths", async () => {
+  const running = await serve({
+    fleetId: "fleet-1",
+    agentId: "agent-1",
+    fleetStatus: "failed",
+    agentStatus: "failed",
+    resultContract: "invalid",
+    output: "safe output",
+    error: "provider secret /private/workspace/secret.txt",
+    artifacts: ["/private/workspace/output.json"],
+  });
+  try {
+    const submitted = await fetch(`${running.base}/a2a/tasks`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message: { role: "user", parts: [{ kind: "text", text: "hello" }] } }),
+    });
+    const task = await submitted.json() as { task_id: string };
+    const projected = await fetch(`${running.base}/a2a/tasks/${task.task_id}`);
+    const body = await projected.json() as { result?: Record<string, unknown> };
+    assert.deepEqual(body.result, { text: "safe output", error: "task failed" });
+  } finally {
+    await close(running.server);
   }
 });
 
