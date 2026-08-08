@@ -153,7 +153,9 @@ function parseTaskInput(raw: string): { readonly ok: true; readonly value: TaskI
 }
 
 function projectTask(taskId: string, record: TaskRecord, status: A2ATaskStatus): Record<string, unknown> {
-  const terminal = status.agentStatus === "complete" || status.agentStatus === "failed" || status.agentStatus === "interrupted";
+  const fleetTerminal = status.fleetStatus === "complete" || status.fleetStatus === "failed" || status.fleetStatus === "abandoned";
+  const agentTerminal = status.agentStatus === "complete" || status.agentStatus === "failed" || status.agentStatus === "interrupted";
+  const terminal = fleetTerminal && agentTerminal;
   const taskStatus = terminal ? terminalStatus(status) : "working";
   const result = status.output === undefined && status.error === undefined && status.artifacts === undefined
     ? undefined

@@ -205,3 +205,20 @@ test("completed agent without ok result contract never projects completed", asyn
     await close(running.server);
   }
 });
+
+test("completed agent in a running fleet remains working", async () => {
+  const running = await serve({ fleetId: "fleet-1", agentId: "agent-1", fleetStatus: "running", agentStatus: "complete", resultContract: "ok", output: "answer" });
+  try {
+    const submitted = await fetch(`${running.base}/a2a/tasks`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message: { role: "user", parts: [{ kind: "text", text: "hello" }] } }),
+    });
+    const task = await submitted.json() as { task_id: string };
+    const projected = await fetch(`${running.base}/a2a/tasks/${task.task_id}`);
+    const body = await projected.json() as { status: string };
+    assert.equal(body.status, "working");
+  } finally {
+    await close(running.server);
+  }
+});
