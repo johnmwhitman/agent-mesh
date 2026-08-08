@@ -201,6 +201,24 @@ compatibility, and clients can use `get_inbox` polling.
 
 If any block above doesn't work in your client, [open an issue](https://github.com/johnmwhitman/agent-mesh/issues) — config rot is a bug.
 
+### Local A2A compatibility surface
+
+The local parent process also exposes a loopback-only A2A compatibility adapter
+for dashboard and integration dogfooding:
+
+```text
+GET  /.well-known/agent-card.json
+POST /a2a/tasks
+GET  /a2a/tasks/:task_id
+```
+
+The Agent Card advertises only local task submission and status. Task IDs map to
+fleets and agents in process memory, so they disappear when the process exits.
+The adapter is protected by `MESHFLEET_SSE_TOKEN` (with the existing SSE auth
+aliases), remains bound to loopback, and does not claim public A2A ingress,
+remote relay, signed identity, durable cross-process task state, or push
+notifications. MCP stdio remains the primary control surface.
+
 ---
 
 ## The CLI

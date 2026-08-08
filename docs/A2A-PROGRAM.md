@@ -50,6 +50,27 @@ verified boundaries:
   offline evidence path. Slice 4D has offline delivery-trace reference evidence,
   and Slice 4E has an offline two-host coordinator witness only.
 
+### Local-only A2A compatibility adapter (implemented)
+
+The server now exposes a deliberately narrow loopback adapter alongside its MCP
+stdio surface:
+
+- `GET /.well-known/agent-card.json` advertises only local task submission and
+  status skills; streaming, push notifications, and state-transition history
+  are explicitly false.
+- `POST /a2a/tasks` accepts one bounded text task and delegates exactly one
+  local agent through the existing `spawn_fleet` lifecycle boundary.
+- `GET /a2a/tasks/:task_id` projects the process-local task mapping and the
+  current fleet/agent/result-contract state.
+
+The adapter uses the listener's loopback boundary and bearer/query-token auth
+(`MESHFLEET_SSE_TOKEN`, with the existing compatibility aliases). Task IDs are
+process-local and disappear on restart. This is a compatibility and dogfood
+surface, not canonical public ingress: it does not provide remote relay,
+authenticated principals, signed identity, durable task acceptance, push
+notifications, or multi-host coordination. The public-ingress statements below
+remain unchanged.
+
 ## Slice 4C-1 bounded evidence-alpha
 
 Slice 4C-1 is specified by the local admission profile and ADR 0007. A bounded
