@@ -574,10 +574,23 @@ function configuredDefaultFleetTimeoutMs(): number {
     : DEFAULT_FLEET_TIMEOUT_MS;
 }
 
+/**
+ * Older releases persisted any positive timeout even though Node clamps delays
+ * above MAX_FLEET_TIMEOUT_MS to 1ms. Preserve an absent override's normal
+ * default, but make every present historical value safe before it reaches a
+ * runtime or scheduler. MAX is the least surprising fallback: it cannot turn a
+ * previously long/unvalidated deadline into an immediate failure.
+ */
+function effectiveFleetTimeoutMs(timeoutMs: unknown): number {
+  if (timeoutMs === undefined) return configuredDefaultFleetTimeoutMs();
+  return Number.isInteger(timeoutMs) && (timeoutMs as number) >= 1 && (timeoutMs as number) <= MAX_FLEET_TIMEOUT_MS
+    ? timeoutMs as number
+    : MAX_FLEET_TIMEOUT_MS;
+}
+
 export function getFleetTimeoutMs(fleetId: string): number {
   const fleet = loadData().fleets[fleetId];
-  if (fleet?.timeout_ms !== undefined) return fleet.timeout_ms;
-  return configuredDefaultFleetTimeoutMs();
+  return effectiveFleetTimeoutMs(fleet?.timeout_ms);
 }
 
 export function setFleetTimeout(fleetId: string, timeoutMs: number): void {
@@ -596,6 +609,28 @@ export interface FleetTimedOutAgent {
   fleet_id: string;
   pid?: number;
   reason: string;
+  /** A mode-specific owner already attempted handle/PID containment. */
+  cancellation_attempted?: true;
+}
+
+export interface NormalizedFleetTimeout {
+  fleet_id: string;
+  timeout_ms: number;
+}
+
+/** One-shot upgrade migration for unsafe overrides written by older releases. */
+export function normalizePersistedFleetTimeouts(): NormalizedFleetTimeout[] {
+  return withLedger((data) => {
+    const normalized: NormalizedFleetTimeout[] = [];
+    for (const fleet of Object.values(data.fleets)) {
+      if (fleet.timeout_ms === undefined) continue;
+      const timeoutMs = effectiveFleetTimeoutMs(fleet.timeout_ms);
+      if (fleet.timeout_ms === timeoutMs) continue;
+      fleet.timeout_ms = timeoutMs;
+      normalized.push({ fleet_id: fleet.id, timeout_ms: timeoutMs });
+    }
+    return normalized;
+  });
 }
 
 /** Earliest active per-agent deadline in a fleet, or undefined when none is running. */
@@ -603,7 +638,7 @@ export function nextFleetTimeoutDeadline(fleetId: string): number | undefined {
   const data = loadData();
   const fleet = data.fleets[fleetId];
   if (!fleet || SEALED_FLEET_STATUSES.has(fleet.status)) return undefined;
-  const timeoutMs = fleet.timeout_ms ?? configuredDefaultFleetTimeoutMs();
+  const timeoutMs = effectiveFleetTimeoutMs(fleet.timeout_ms);
   const deadlines = Object.values(data.agents)
     .filter((agent) => agent.fleet_id === fleetId && agent.status === "running" && agent.started_at !== undefined)
     .map((agent) => agent.started_at! + timeoutMs);
@@ -627,7 +662,7 @@ export function expireFleetTimeoutAgents(
     expired.length = 0;
     const fleet = data.fleets[fleetId];
     if (!fleet || SEALED_FLEET_STATUSES.has(fleet.status)) return;
-    const timeoutMs = fleet.timeout_ms ?? configuredDefaultFleetTimeoutMs();
+    const timeoutMs = effectiveFleetTimeoutMs(fleet.timeout_ms);
     for (const agent of Object.values(data.agents)) {
       if (
         agent.fleet_id !== fleetId ||

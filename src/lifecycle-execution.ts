@@ -214,6 +214,7 @@ export class LifecycleExecutionCoordinator {
           fleet_id: fleetId,
           pid: agent.pid,
           reason,
+          cancellation_attempted: true,
         });
         queueEvent(db, "agent_fleet_timeout", {
           agent_id: agent.id,
@@ -317,6 +318,15 @@ export class LifecycleExecutionCoordinator {
     // reclaim is recoverable, reclaiming without containing is not.
     const at = this.now();
     const frozen = (): number => at;
+    // A fleet deadline that elapsed while this process was down outranks lease
+    // recovery. If recoverExpired() runs first it creates a retry and resets the
+    // projected start state, erasing the outage interval before timeout can see
+    // it. Terminalize all elapsed durable work against the same frozen clock
+    // before reclaiming any lease.
+    const durableFleetIds = withLedgerAndStorage((data, db) => Object.values(data.fleets)
+      .filter((fleet) => fleet.status === "running" && modeFor(db, fleet.id) === "durable")
+      .map((fleet) => fleet.id));
+    for (const fleetId of durableFleetIds) this.expireFleetTimeout(fleetId, at);
     const expiredPids = withLedgerAndStorage((_data, db) => lifecycle(db, frozen).expiredRuntimePids());
     for (const { pid } of expiredPids) this.terminatePid(pid);
     const recovered = withLedgerAndStorage((data, db) => {

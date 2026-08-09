@@ -3,6 +3,8 @@ export interface ExpiredFleetAgent {
   fleet_id: string;
   pid?: number;
   reason: string;
+  /** A mode-specific owner already attempted handle/PID containment. */
+  cancellation_attempted?: true;
 }
 
 export interface FleetTimeoutEnforcerOptions {
@@ -64,14 +66,16 @@ export class FleetTimeoutEnforcer {
       return;
     }
     for (const agent of expired) {
-      try {
-        const cancellation = this.cancelAgent(agent);
-        if (cancellation && typeof (cancellation as Promise<unknown>).catch === "function") {
-          void (cancellation as Promise<unknown>).catch((error) => this.onError(error));
+      if (!agent.cancellation_attempted) {
+        try {
+          const cancellation = this.cancelAgent(agent);
+          if (cancellation && typeof (cancellation as Promise<unknown>).catch === "function") {
+            void (cancellation as Promise<unknown>).catch((error) => this.onError(error));
+          }
+        } catch (error) {
+          // Ledger terminalization already won. Runtime cancellation is best effort.
+          this.onError(error);
         }
-      } catch (error) {
-        // Ledger terminalization already won. Runtime cancellation is best effort.
-        this.onError(error);
       }
       try {
         const observed = this.onExpired?.(agent, at);

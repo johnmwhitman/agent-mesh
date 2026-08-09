@@ -29,6 +29,7 @@ import {
   listFleets,
   markAgentFinished,
   nextFleetTimeoutDeadline,
+  normalizePersistedFleetTimeouts,
   MAX_FLEET_TIMEOUT_MS,
   MAX_BATCH_MESSAGES,
   MAX_PAYLOAD_BYTES,
@@ -2735,6 +2736,12 @@ if (!isChildInstance && !isAuditProfile) {
   // v0.7.x: recover any agents left in 'running' state from a previous
   // crashed process so fleet_status reflects reality. Liveness-probed since
   // 2026-07-03 — only agents with a missing/dead pid are flipped.
+  const normalizedFleetTimeouts = normalizePersistedFleetTimeouts();
+  if (normalizedFleetTimeouts.length > 0) {
+    console.error(
+      `Agent Mesh v${MESH_VERSION} — normalized ${normalizedFleetTimeouts.length} unsafe persisted fleet timeout override(s) to ${MAX_FLEET_TIMEOUT_MS}ms before recovery`,
+    );
+  }
   repairLifecycleOutbox();
   lifecycleCoordinator.recover();
   // Boot reconciler (r10): the crash journal is the reconciler's input,

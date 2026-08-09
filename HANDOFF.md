@@ -1,8 +1,12 @@
 # MeshFleet public handoff
 
 **Source version:** `0.20.0` · **MCP surface:** **36 MCP tools** ·
-**clean local baseline:** **1608/1608** tests, plus typecheck and build, measured on
-`29aaeb9` plus this change, in a clean worktree
+**current suite contract:** **1611/1611** collected tests, plus typecheck and build
+
+The last completed exact-head proof before the three timeout upgrade/recovery guards
+was GitHub Actions run `31306664134` at `c88a5f6` (9/9 jobs, 1608/1608 collected).
+The 1611-test head remains a merge gate until its own exact 9/9 matrix completes;
+this paragraph must be replaced with that run and SHA before merge.
 
 Base `01f0fa0` passed 1416/1416; the parity snapshot that introduced this document
 read 1422/1422 with its six contract guards. The current figure supersedes both.

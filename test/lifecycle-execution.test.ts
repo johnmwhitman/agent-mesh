@@ -138,6 +138,57 @@ test("durable fleet timeout contains a recorded PID after local handles are lost
   }
 });
 
+test("durable recovery expires an offline fleet deadline before reclaiming its lease", async () => {
+  const temp = withTempDb();
+  try {
+    let now = 1_000;
+    const firstRuntime = new ControlledRuntime();
+    const first = new LifecycleExecutionCoordinator(firstRuntime, {
+      ownerId: "owner-offline-first",
+      now: () => now,
+      leaseMs: 50,
+      retryBaseMs: 0,
+    });
+    first.createFleet("fleet-offline-timeout", [{
+      fleetId: "fleet-offline-timeout",
+      agentId: "agent-offline-timeout",
+      role: "worker",
+      prompt: "work",
+    }]);
+    await waitUntil(() => firstRuntime.starts.length === 1, "offline timeout runtime start");
+    setFleetTimeout("fleet-offline-timeout", 50);
+    first.stop();
+    firstRuntime.cancellations.length = 0;
+
+    now = 1_100;
+    const contained: number[] = [];
+    const recoveredRuntime = new ControlledRuntime();
+    const recovered = new LifecycleExecutionCoordinator(recoveredRuntime, {
+      ownerId: "owner-offline-second",
+      now: () => now,
+      leaseMs: 50,
+      retryBaseMs: 0,
+      terminatePid: (pid) => { contained.push(pid); },
+    });
+    recovered.recover();
+
+    assert.equal(new LifecycleStore().getState("agent-offline-timeout")?.work.status, "cancelled");
+    assert.equal(loadData().agents["agent-offline-timeout"].status, "failed");
+    assert.match(loadData().agents["agent-offline-timeout"].error ?? "", /fleet timeout.*50ms/i);
+    assert.equal(loadData().fleets["fleet-offline-timeout"].status, "failed");
+    assert.equal(recoveredRuntime.starts.length, 0, "an elapsed deadline must not spend retry budget");
+    assert.deepEqual(contained, [10_001], "offline runtime containment has exactly one owner");
+    assert.equal(
+      readEventLog().some((event) => event.event === "agent_retry_scheduled"),
+      false,
+      "deadline expiry wins before lease recovery can schedule a retry",
+    );
+    recovered.stop();
+  } finally {
+    temp.cleanup();
+  }
+});
+
 test("durable runtime timeout settles as the configured fleet timeout without retry", async () => {
   const temp = withTempDb();
   try {

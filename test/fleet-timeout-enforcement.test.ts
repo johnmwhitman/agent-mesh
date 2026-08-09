@@ -3,7 +3,11 @@ import assert from "node:assert/strict";
 
 import {
   expireFleetTimeoutAgents,
+  getFleetTimeoutMs,
   loadData,
+  MAX_FLEET_TIMEOUT_MS,
+  nextFleetTimeoutDeadline,
+  normalizePersistedFleetTimeouts,
   saveData,
   setFleetTimeout,
 } from "../src/core.js";
@@ -57,6 +61,36 @@ test("fleet timeout expires only agents whose own deadline passed", () => {
   }
 });
 
+test("an oversized timeout persisted by an older release is migrated before scheduling", () => {
+  const temp = withTempDb({
+    fleets: {
+      legacy: {
+        id: "legacy", status: "running", created_at: 1_000,
+        timeout_ms: MAX_FLEET_TIMEOUT_MS + 1,
+      },
+    },
+    agents: {
+      worker: {
+        id: "worker", fleet_id: "legacy", role: "worker", prompt: "work",
+        status: "running", started_at: 1_000,
+      },
+    },
+  });
+  try {
+    assert.equal(getFleetTimeoutMs("legacy"), MAX_FLEET_TIMEOUT_MS);
+    assert.equal(nextFleetTimeoutDeadline("legacy"), 1_000 + MAX_FLEET_TIMEOUT_MS);
+    assert.deepEqual(expireFleetTimeoutAgents("legacy", MAX_FLEET_TIMEOUT_MS), []);
+
+    assert.deepEqual(normalizePersistedFleetTimeouts(), [{
+      fleet_id: "legacy",
+      timeout_ms: MAX_FLEET_TIMEOUT_MS,
+    }]);
+    assert.equal(loadData().fleets.legacy.timeout_ms, MAX_FLEET_TIMEOUT_MS);
+  } finally {
+    temp.cleanup();
+  }
+});
+
 test("timeout enforcer re-arms changed deadlines and cancels only newly expired agents", () => {
   let now = 100;
   let deadline: number | undefined = 200;
@@ -91,6 +125,24 @@ test("timeout enforcer re-arms changed deadlines and cancels only newly expired 
   scheduled[1]!.callback();
   assert.deepEqual(cancelled, ["target-agent"]);
   assert.equal(scheduled.length, 2, "no timer remains after the last active agent expires");
+});
+
+test("timeout enforcer does not duplicate cancellation already owned by durable mode", () => {
+  const genericCancellations: string[] = [];
+  const enforcer = new FleetTimeoutEnforcer({
+    nextDeadline: () => undefined,
+    expire: () => [{
+      agent_id: "durable-agent",
+      fleet_id: "durable-fleet",
+      pid: 10_001,
+      reason: "Fleet timeout",
+      cancellation_attempted: true,
+    }],
+    cancelAgent: (agent) => { genericCancellations.push(agent.agent_id); },
+  });
+
+  enforcer.refresh("durable-fleet");
+  assert.deepEqual(genericCancellations, []);
 });
 
 test("timeout enforcer retries after transient ledger failures instead of losing the deadline", () => {
