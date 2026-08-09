@@ -1,4 +1,5 @@
 /** Provider-neutral execution contracts. Requested model is an execution selection input, not runtime identity or attestation. */
+import type { ResultContractStatus } from "../result-contract.js";
 
 export type RuntimeEvidenceLevel = "none" | "reported" | "observed" | "attested";
 export type RuntimeStatus = "success" | "failure" | "cancelled" | "timeout";
@@ -98,6 +99,8 @@ export interface RuntimeResult {
   error?: string;
   diagnostics: RuntimeDiagnostic[];
   identity: RuntimeIdentity;
+  /** Runtime-observed declaration when the adapter owns a non-file result contract. */
+  resultContract?: ResultContractStatus;
   /**
    * What the runtime actually DID this turn, as opposed to what it said.
    *

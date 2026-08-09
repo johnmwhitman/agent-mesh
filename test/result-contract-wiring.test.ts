@@ -1,6 +1,6 @@
 /**
- * The wiring proof: every spawned agent is TAUGHT the contract, and what it declares is RECORDED
- * — while this release still banks status exactly as it did before.
+ * The durable agentic-runtime wiring proof: each spawn is TAUGHT the file contract, and what it
+ * declares is RECORDED — while this release still banks status exactly as it did before.
  *
  * Both halves matter. Teaching without recording gives an adoption figure nobody can read;
  * recording without teaching measures a contract no agent was ever shown. And the observe-only
@@ -62,7 +62,7 @@ async function runAgent(
   return { agent: loadData().agents[agentId], spec: runtime.starts[0] };
 }
 
-test("every spawn is taught the contract: RESULT_PATH in the environment AND in the prompt", async () => {
+test("every durable agentic spawn is taught the file contract in environment and prompt", async () => {
   const temp = withTempDb();
   try {
     const { agent, spec } = await runAgent("owner-taught", () => {});

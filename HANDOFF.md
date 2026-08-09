@@ -1,13 +1,13 @@
 # MeshFleet public handoff
 
 **Source version:** `0.20.0` · **MCP surface:** **36 MCP tools** ·
-**current suite contract:** **1617/1617** tests collected, plus typecheck and build
+**current suite contract:** **1627/1627** tests collected, plus typecheck and build
 
-The exact cross-platform proof is GitHub Actions run `31315444631` at `e14bd8f`
-(9/9 jobs across Node 20/22/24 on Ubuntu, macOS, and Windows; 1617/1617
-collected, plus typecheck, build, and CLI smoke). This documentation-only
-amendment records that completed proof; no runtime or test bytes differ from
-the tested revision.
+The latest completed cross-platform proof is GitHub Actions run `31315444631`
+at `e14bd8f` (9/9 jobs across Node 20/22/24 on Ubuntu, macOS, and Windows;
+1617/1617 collected, plus typecheck, build, and CLI smoke). It proves that prior
+revision, not the newer runtime and test bytes that establish the 1626-test
+contract; those require their own fresh 9/9 run before merge.
 
 Base `01f0fa0` passed 1416/1416; the parity snapshot that introduced this document
 read 1422/1422 with its six contract guards. The current figure supersedes both.
@@ -27,13 +27,16 @@ lifecycle, messaging and receipts, ratification, capability routing, health,
 discussions, templates, advisory route projection, and read-only ledger
 verification. The default worker runtime is OpenCode. A caller may select another
 operator-registered runtime per agent in legacy lifecycle mode; durable mode
-currently refuses that selector. The shipped Claude Code adapter is
-fixture-verified and disabled unless configured. Runtime and model labels are
+currently refuses that selector. The shipped Claude Code and direct MiniMax
+adapters are fixture-verified and disabled unless configured; MiniMax is an
+explicit-only text lane with no workspace authority. Runtime and model labels are
 evidence, not account, entitlement, billing, availability, or identity proof.
 
-**What `complete` means, and what it will mean.** An agent is now handed a `RESULT_PATH` and
-asked to write one JSON envelope declaring `done`, `refused` or `blocked` before it stops. What it
-declared is recorded on the agent row and returned by `collect_results` as `result_contract`
+**What `complete` means, and what it will mean.** An agentic runtime is handed a `RESULT_PATH`
+and asked to write one JSON envelope declaring `done`, `refused` or `blocked` before it stops.
+A restricted text runtime receives the same outcome contract as a structured final-text envelope,
+with no impossible file instruction. What the runtime declared is recorded on the agent row and
+returned by `collect_results` as `result_contract`
 (`ok` | `refused` | `blocked` | `artifact_missing` | `invalid` | `absent`). **This release records
 that value and nothing more** — `status` is banked exactly as it was before — so callers can
 measure adoption before behaviour moves. A following release makes `ok` the only value that may
@@ -68,7 +71,7 @@ only. Failover's unit-level spec and registry tests run on every platform.
 
 ## Platform-skipped tests (what does not run on Windows)
 
-The suite collects the same total everywhere, but **20 tests skip on
+The suite collects the same total everywhere, but **21 tests skip on
 `windows-2022`**, consistent across Node 20, 22, and 24. Every skip is a
 deliberate `process.platform === "win32"` (or equivalent) predicate, not flake.
 This repository's own rule is that a test that does not run is indistinguishable
@@ -81,6 +84,7 @@ silently:
 | 7 | local process adapter signal semantics (SIGTERM escalation, process-group termination, cancellation races) | Windows `TerminateProcess` cannot deliver a catchable SIGTERM |
 | 2 | Kimi adapter descendant process-group kill | Windows does not expose process-group signal semantics |
 | 5 | **runtime failover end-to-end** (refusal → hop → receipts, plus three negative controls) | the backup-runtime leg cannot be stubbed: the Kimi adapter scrubs its child environment by design, so the `process.execPath`+`NODE_OPTIONS` stub that serves the default runtime has no channel to the Kimi child |
+| 1 | MiniMax `spawn_fleet` wiring | POSIX shell/chmod fixture; adapter behavior is covered cross-platform with `process.execPath` |
 | 3 | doctor checks (two unwritable-directory cases, one PATH probe) | POSIX permission semantics / platform predicate |
 
 The signal-semantics rows are structural platform differences and are expected to

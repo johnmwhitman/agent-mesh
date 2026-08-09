@@ -537,7 +537,8 @@ export class LifecycleExecutionCoordinator {
     // The expectation is read from the durable row — the same source a retry's teaching used —
     // so the ladder judges the envelope against what the agent was actually told.
     const expectsArtifact = loadData().agents[agentId]?.expects_artifact === true;
-    const resultContract = readResultContract(resultPathFor(agentId, attemptId), { cwd: process.cwd(), expectsArtifact });
+    const resultContract = result.resultContract ??
+      readResultContract(resultPathFor(agentId, attemptId), { cwd: process.cwd(), expectsArtifact });
     const settled = withLedgerAndStorage((data, db) => {
       const store = lifecycle(db, this.now);
       // HOLLOW SUCCESS (2026-08-01): exit 0 with no output at all is not success.

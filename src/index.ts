@@ -82,6 +82,7 @@ import {
   readResultContract,
   resultPathFor,
   withResultContract,
+  withTextResultContract,
   type ResultContractStatus,
 } from "./result-contract.js";
 import { recommendRoute, type RecommendRouteInput } from "./recommend-route.js";
@@ -243,6 +244,7 @@ function buildExecutionSpec(
   // id string against a literal — is what makes "explicitly asked for the default" and "asked for
   // nothing" the same execution, instead of two paths that drift.
   const nonDefaultRuntime = adapter !== runtimeAdapter;
+  const restrictedRuntime = nonDefaultRuntime && adapter.describe().permissions?.mode === "restricted";
   return {
     fleetId: input.fleetId,
     agentId,
@@ -250,7 +252,9 @@ function buildExecutionSpec(
     // The prompt the runtime receives, not the prompt the caller sent: the result contract is
     // appended here so BOTH spawn paths teach it from one place. The caller's text is preserved
     // verbatim on the Agent row, which is what `collect_results` and the ledger still show.
-    prompt: withResultContract(input.prompt, resultPath, input.expectsArtifact === true),
+    prompt: restrictedRuntime
+      ? withTextResultContract(input.prompt)
+      : withResultContract(input.prompt, resultPath, input.expectsArtifact === true),
     requestedAgent: input.agentFile,
     requestedModel: input.requestedModel,
     cwd: process.cwd(),
@@ -263,22 +267,24 @@ function buildExecutionSpec(
     // still true of everything else: `environment` is merged, `environmentPolicy` is not set
     // here, so the host environment opencode authenticates with is untouched. Setting the POLICY
     // unconditionally would scrub that environment; setting one explicit variable does not.
-    environment: { RESULT_PATH: resultPath },
+    ...(restrictedRuntime ? {} : { environment: { RESULT_PATH: resultPath } }),
     //
-    // These fields are REQUESTS, not attestations. `kimi.ts` refuses an inherited environment, an
-    // absent permission request, and a resumed session; a spec without them fails validation and
-    // `start()` throws, which is how a selected Kimi agent died before this. Naming them here says
-    // what MeshFleet actually does: it spawns an unattended agent that may edit its workspace.
+    // These fields are REQUESTS, not attestations. Every selected runtime receives a scrubbed,
+    // new, unattended spec. A restricted text runtime receives edits forbidden; an agentic
+    // runtime receives workspace-only edits and must independently admit any claimed binding.
     ...(nonDefaultRuntime
       ? {
           environmentPolicy: { mode: "scrubbed" as const },
           session: { mode: "new" as const },
-          permissions: { mode: "unattended" as const, edit: "workspace" as const },
+          permissions: {
+            mode: "unattended" as const,
+            edit: restrictedRuntime ? "forbidden" as const : "workspace" as const,
+          },
           // Only the CALLER may claim isolation, and the claim is worth nothing on its own — the
           // adapter's operator-configured admission list is the deciding key. Omitted when the
           // caller named no binding, so the adapter refuses rather than MeshFleet inventing an
           // isolation guarantee it does not provide.
-          ...(input.workspaceBinding
+          ...(!restrictedRuntime && input.workspaceBinding
             ? { workspace: { isolation: "verified" as const, bindingId: input.workspaceBinding } }
             : {}),
         }
@@ -389,7 +395,8 @@ function settleLegacyNonTimeout(
   // OBSERVE-ONLY THIS RELEASE. The status is read and recorded; it decides nothing. The next
   // release makes anything but `ok` bank `failed`. Reading it here — on the same result the
   // banking decision uses — is what makes the adoption figure honest before it is enforced.
-  const resultContract = readResultContract(resultPath, { cwd: spec.cwd, expectsArtifact: input.expectsArtifact === true });
+  const resultContract = result.resultContract ??
+    readResultContract(resultPath, { cwd: spec.cwd, expectsArtifact: input.expectsArtifact === true });
   if (result.status === "success") {
     // HOLLOW SUCCESS (2026-08-01): a runtime can exit 0 having produced no
     // output at all — the model burned its turn on tool calls and never
@@ -637,7 +644,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
                   type: "string",
                   description:
                     "Runtime adapter to spawn this agent under. Omit for the default. `model` " +
-                    "picks a model WITHIN a runtime; `runtime` picks the harness itself, so agents " +
+                    "is adapter-specific (the default OpenCode runtime accepts it); `runtime` " +
+                    "picks the harness itself, so agents " +
                     "in one fleet can run under different CLIs and one provider outage cannot stop " +
                     "every agent at once. Not supported in durable lifecycle mode.",
                 },
@@ -655,7 +663,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
                     "Declare that this agent's result envelope must name at least one produced " +
                     "file: a 'done' declaration with no artifacts is recorded as " +
                     "result_contract 'artifact_missing' instead of 'ok', and the agent is told " +
-                    "so in its prompt. Named paths are existence-checked only — this is a " +
+                    "so in its prompt. Restricted text runtimes refuse this request. Named " +
+                    "paths are existence-checked only — this is a " +
                     "declared-output check, never a content or quality guarantee.",
                 },
               },
@@ -1699,6 +1708,22 @@ toolHandlers["spawn_fleet"] = async (args) => {
       ]),
     );
     if (badAgent) return jsonError(badAgent);
+    const incompatibleRestricted = agents.find((agent) => {
+      if (!agent.runtime) return false;
+      const descriptor = requireRuntimeAdapter(agent.runtime).describe();
+      return descriptor.permissions?.mode === "restricted" && (
+        agent.agent !== undefined ||
+        agent.model !== undefined ||
+        agent.workspace_binding !== undefined ||
+        agent.expects_artifact === true
+      );
+    });
+    if (incompatibleRestricted) {
+      return jsonError(
+        `spawn_fleet: runtime '${incompatibleRestricted.runtime}' is text-only; omit agent, ` +
+          "model, workspace_binding, and expects_artifact",
+      );
+    }
     const fleetId = randomUUID();
     const specs = agents.map((a) => ({
       agentId: randomUUID(),

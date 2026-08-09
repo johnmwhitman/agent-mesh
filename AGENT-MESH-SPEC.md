@@ -24,8 +24,9 @@ through the packaged stdio server, invoke coordination tools, and share a local
 SQLite ledger. Outbound work launches independent processes through a
 provider-neutral runtime adapter contract. OpenCode remains the default.
 Callers may choose an operator-registered runtime per agent in legacy lifecycle
-mode; durable mode refuses that selector. Kimi and Claude Code are shipped as
-fixture-verified, non-default adapters with explicit configuration gates.
+mode; durable mode refuses that selector. Kimi, Claude Code, and a direct
+text-only MiniMax lane are shipped as fixture-verified, non-default adapters
+with explicit configuration gates; MiniMax is never an automatic failover target.
 
 ```text
 MCP client
