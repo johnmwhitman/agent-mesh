@@ -152,6 +152,16 @@ test('set_fleet_timeout refuses 0, which would fail every agent instantly', asyn
   })
 })
 
+test('set_fleet_timeout refuses values Node would clamp to a 1ms timer', async () => {
+  await withServer(async (client) => {
+    const res = await client.callTool({
+      name: 'set_fleet_timeout',
+      arguments: { fleet_id: 'f', timeout_ms: 2_147_483_648 },
+    })
+    assert.match(textOf(res), /must be <= 2147483647/)
+  })
+})
+
 test('get_inbox refuses a non-numeric since instead of reporting an empty inbox', async () => {
   await withServer(async (client) => {
     const res = await client.callTool({ name: 'get_inbox', arguments: { agent_id: 'a', since: 'abc' } as Record<string, unknown> })

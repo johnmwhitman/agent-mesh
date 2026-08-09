@@ -7,6 +7,7 @@ import { spawn } from "node:child_process";
 import { LocalProcessRuntimeAdapter } from "../src/runtime/local-process.js";
 import { OpenCodeRuntimeAdapter } from "../src/runtime/opencode.js";
 import {
+  containRecordedProcess,
   RUNTIME_CHILD_STDIO,
   startProcessExecution,
   waitForProcessExecution,
@@ -153,6 +154,26 @@ test("runtime registry keeps OpenCode as the internal default", () => {
   assert.equal(registry.require("opencode-cli").id, "opencode-cli");
   assert.throws(() => registry.require("missing"), /Unknown runtime adapter/);
   assert.throws(() => registry.register(registry.require("opencode-cli")), /already registered/);
+});
+
+test("recorded PID containment targets the detached process group and escalates", { skip: POSIX_SIGNALS_ONLY }, () => {
+  const signals: Array<[number, NodeJS.Signals]> = [];
+  let escalation: (() => void) | undefined;
+  const accepted = containRecordedProcess(4321, {
+    kill: (pid, signal) => { signals.push([pid, signal]); },
+    schedule: (callback, delayMs) => {
+      assert.equal(delayMs, TERMINATION_GRACE_MS);
+      escalation = callback;
+      return {};
+    },
+    graceMs: TERMINATION_GRACE_MS,
+  });
+
+  assert.equal(accepted, true);
+  assert.deepEqual(signals, [[-4321, "SIGTERM"]]);
+  assert.ok(escalation);
+  escalation();
+  assert.deepEqual(signals, [[-4321, "SIGTERM"], [-4321, "SIGKILL"]]);
 });
 
 // Split from the signal case below so the portable half keeps running on Windows.

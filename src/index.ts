@@ -23,10 +23,13 @@ import {
   _createFleet,
   _registerAgent,
   discoverPremadeAgents,
+  expireFleetTimeoutAgents,
   getFleetTimeoutMs,
   getInbox,
   listFleets,
   markAgentFinished,
+  nextFleetTimeoutDeadline,
+  MAX_FLEET_TIMEOUT_MS,
   MAX_BATCH_MESSAGES,
   MAX_PAYLOAD_BYTES,
   MESSAGE_TYPES,
@@ -104,10 +107,11 @@ import {
 } from "./tool-args.js";
 import { buildFailureDetail, projectSuccessDiagnostics } from "./spawn-attempt.js";
 import { getDefaultRuntimeAdapter, requireRuntimeAdapter, availableRuntimeIds } from "./runtime/registry.js";
-import { CHILD_MARKER_ENV } from "./runtime/process.js";
-import type { RuntimeAdapter } from "./runtime/types.js";
+import { CHILD_MARKER_ENV, containRecordedProcess } from "./runtime/process.js";
+import type { RuntimeAdapter, RuntimeHandle } from "./runtime/types.js";
 import { decideFailover } from "./failover.js";
 import { defaultLifecycleMode, LifecycleExecutionCoordinator, repairLifecycleOutbox } from "./lifecycle-execution.js";
+import { FleetTimeoutEnforcer, type ExpiredFleetAgent } from "./fleet-timeout.js";
 import { getDiscussionStore, primeDiscussionSweepIndex } from "./discussion-mcp.js";
 import {
   DiscussionError,
@@ -172,7 +176,43 @@ interface SpawnAgentInput {
 }
 
 const runtimeAdapter = getDefaultRuntimeAdapter();
-const lifecycleCoordinator = new LifecycleExecutionCoordinator(runtimeAdapter);
+interface ActiveLegacyRun {
+  fleetId: string;
+  adapter: RuntimeAdapter;
+  handle: RuntimeHandle;
+}
+const activeLegacyRuns = new Map<string, ActiveLegacyRun>();
+let fleetTimeoutEnforcer: FleetTimeoutEnforcer;
+function reportFleetTimeoutError(error: unknown): void {
+  console.error(`Agent Mesh v${MESH_VERSION} — fleet timeout enforcement failed (non-fatal): ${error instanceof Error ? error.message : String(error)}`);
+}
+const lifecycleCoordinator = new LifecycleExecutionCoordinator(runtimeAdapter, {
+  onAgentStateChange: (fleetId) => fleetTimeoutEnforcer?.refresh(fleetId),
+});
+fleetTimeoutEnforcer = new FleetTimeoutEnforcer({
+  nextDeadline: nextFleetTimeoutDeadline,
+  expire: (fleetId, now) => lifecycleCoordinator.modeForFleet(fleetId) === "durable"
+    ? lifecycleCoordinator.expireFleetTimeout(fleetId, now)
+    : expireFleetTimeoutAgents(fleetId, now),
+  cancelAgent: (agent: ExpiredFleetAgent) => {
+    const active = activeLegacyRuns.get(agent.agent_id);
+    if (active) {
+      if (active.fleetId !== agent.fleet_id) return;
+      return active.adapter.cancel(active.handle, agent.reason);
+    }
+    if (agent.pid !== undefined) containRecordedProcess(agent.pid);
+  },
+  onExpired: (agent, timedOutAt) => {
+    if (lifecycleCoordinator.modeForFleet(agent.fleet_id) === "durable") return;
+    appendEvent("agent_fleet_timeout", {
+      agent_id: agent.agent_id,
+      fleet_id: agent.fleet_id,
+      reason: agent.reason,
+      timed_out_at: timedOutAt,
+    });
+  },
+  onError: reportFleetTimeoutError,
+});
 
 /**
  * Inner spawn loop. attempt is 1-indexed (first attempt = 1).
@@ -207,7 +247,7 @@ function buildExecutionSpec(
     requestedAgent: input.agentFile,
     requestedModel: input.requestedModel,
     cwd: process.cwd(),
-    timeoutMs: adapter.describe().defaultTimeoutMs,
+    timeoutMs: getFleetTimeoutMs(input.fleetId),
     // The child is told the path twice — env and prompt — because agents routinely never read
     // env, and an unread instruction is an absent one.
     //
@@ -244,6 +284,9 @@ function buildExecutionSpec(
  * On any transient failure path, decides retry vs failover vs permanent.
  */
 function trySpawn(input: SpawnAgentInput, agentId: string, attempt: number): void {
+  // A fleet timeout (or any other terminal writer) may win while a retry timer
+  // or an asynchronous runtime start is pending. Never resurrect that row.
+  if (readLedger().agents[agentId]?.status !== "running") return;
   // Resolve ONCE and use the same adapter for describe/start/cancel/wait. Mixing them would give
   // a Kimi agent opencode's timeout and opencode's cancel semantics, which is worse than not
   // supporting selection at all: it would look like it worked.
@@ -256,6 +299,13 @@ function trySpawn(input: SpawnAgentInput, agentId: string, attempt: number): voi
   // the case failover exists for, and a record written only on success would omit it.
   recordRuntimeAttempt(agentId, adapter.id);
   void adapter.start(spec).then((handle) => {
+    if (readLedger().agents[agentId]?.status !== "running") {
+      void adapter.cancel(handle, "agent became terminal before runtime start completed");
+      void adapter.wait(handle).catch(() => {});
+      return;
+    }
+    activeLegacyRuns.set(agentId, { fleetId: input.fleetId, adapter, handle });
+    fleetTimeoutEnforcer.refresh(input.fleetId);
     if (handle.pid !== undefined) {
       withLedger((data) => {
         const agent = data.agents[agentId];
@@ -275,6 +325,8 @@ function trySpawn(input: SpawnAgentInput, agentId: string, attempt: number): voi
     });
     void adapter.wait(handle).then((result) => {
       heartbeat.stop();
+      if (result.status === "timeout") fleetTimeoutEnforcer.refresh(input.fleetId);
+      if (readLedger().agents[agentId]?.status !== "running") return;
       // Composed OUTSIDE the success branch on purpose: the success-carries-no-error guard
       // forbids the raw stderr token inside that region, and it is right to — raw transcripts
       // in Agent.error made real failures indistinguishable from normal runs. A hollow success
@@ -346,6 +398,10 @@ function trySpawn(input: SpawnAgentInput, agentId: string, attempt: number): voi
         result.identity.model,
         resultContract,
       );
+    }).finally(() => {
+      const active = activeLegacyRuns.get(agentId);
+      if (active?.handle.id === handle.id) activeLegacyRuns.delete(agentId);
+      fleetTimeoutEnforcer.refresh(input.fleetId);
     });
   }).catch((error: unknown) => {
     handleTransientFailure(input, agentId, attempt, "", "", error instanceof Error ? error.message : String(error));
@@ -445,6 +501,7 @@ function handleTransientFailure(
   // blame an agent for a silence it had no chance to break.
   resultContract?: ResultContractStatus,
 ): void {
+  if (readLedger().agents[agentId]?.status !== "running") return;
   const failureDetail = buildFailureDetail(stderr, errorDetail);
   if (!shouldAgentRetry(attempt)) {
     appendEvent("agent_failed_permanent", {
@@ -591,7 +648,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         type: "object",
         properties: {
           fleet_id: { type: "string" },
-          timeout_ms: { type: "number" },
+          timeout_ms: { type: "integer", minimum: 1, maximum: MAX_FLEET_TIMEOUT_MS },
         },
         required: ["fleet_id", "timeout_ms"],
       },
@@ -1729,12 +1786,30 @@ toolHandlers["set_fleet_timeout"] = async (args) => {
     // which stores a timeout that fails every agent the instant it starts.
     const badTimeout = firstError(
       requireString("set_fleet_timeout", "fleet_id", fleet_id),
-      requireNumber("set_fleet_timeout", "timeout_ms", timeout_ms, { min: 1, integer: true }),
+      requireNumber("set_fleet_timeout", "timeout_ms", timeout_ms, {
+        min: 1,
+        max: MAX_FLEET_TIMEOUT_MS,
+        integer: true,
+      }),
     );
     if (badTimeout) return jsonError(badTimeout);
     try {
       setFleetTimeout(fleet_id, timeout_ms);
-      appendEvent("fleet_timeout_set", { fleet_id, timeout_ms });
+      for (const active of activeLegacyRuns.values()) {
+        if (active.fleetId === fleet_id) active.handle.updateTimeout?.(timeout_ms);
+      }
+      lifecycleCoordinator.updateFleetRuntimeTimeout(fleet_id, timeout_ms);
+      try {
+        appendEvent("fleet_timeout_set", { fleet_id, timeout_ms });
+      } catch (error) {
+        // The ledger setting and runtime ceilings already changed. A repairable
+        // event-log projection failure must not suppress actual enforcement.
+        reportFleetTimeoutError(error);
+      }
+      // The fleet id exists only after spawn_fleet returns, so overrides are
+      // normally set while agents are already running. Persisting the number
+      // without re-arming those handles is not enforcement.
+      fleetTimeoutEnforcer.refresh(fleet_id);
       return jsonResult({ ok: true, timeout_ms: getFleetTimeoutMs(fleet_id) });
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : String(err));
@@ -2705,6 +2780,11 @@ if (!isChildInstance && !isAuditProfile) {
   const reconciledCount = reconcileAbandonedFleets();
   if (reconciledCount > 0) {
     console.error(`Agent Mesh v${MESH_VERSION} — reconciled ${reconciledCount} fleet(s) whose agents had all finished but which were still recorded as running (see fleet_reconciled events)`);
+  }
+  // Re-arm persisted running fleets after recovery. A server restart loses
+  // JavaScript timers, but it must not erase their durable deadlines.
+  for (const fleet of listFleets()) {
+    if (fleet.status === "running") fleetTimeoutEnforcer.refresh(fleet.id);
   }
 
   // D3: prime the Discussions sweep index — scan the ledger for discussion

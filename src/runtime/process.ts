@@ -38,6 +38,7 @@ export interface ProcessLaunch {
 interface ProcessRuntimeHandle extends RuntimeHandle {
   completion: Promise<RuntimeResult>;
   cancel(reason: string): CancelResult;
+  updateTimeout(timeoutMs: number): void;
 }
 
 function asProcessHandle(handle: RuntimeHandle): ProcessRuntimeHandle {
@@ -69,6 +70,37 @@ function terminate(child: ChildProcess | undefined, signal: NodeJS.Signals): boo
     try { return child.kill(signal); } catch { /* exited between checks */ }
   }
   return false;
+}
+
+export interface RecordedProcessContainmentOptions {
+  kill?: (pid: number, signal: NodeJS.Signals) => void;
+  schedule?: (callback: () => void, delayMs: number) => unknown;
+  graceMs?: number;
+  platform?: NodeJS.Platform;
+}
+
+/**
+ * Best-effort containment when a server restart preserved only a detached
+ * runtime pid in SQLite. POSIX children are process-group leaders, so the
+ * negative pid contains descendants just like the live-handle path.
+ */
+export function containRecordedProcess(
+  pid: number,
+  options: RecordedProcessContainmentOptions = {},
+): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  const kill = options.kill ?? process.kill.bind(process);
+  const schedule = options.schedule ?? setTimeout;
+  const target = (options.platform ?? process.platform) === "win32" ? pid : -pid;
+  try {
+    kill(target, "SIGTERM");
+  } catch {
+    return false;
+  }
+  schedule(() => {
+    try { kill(target, "SIGKILL"); } catch { /* already exited */ }
+  }, options.graceMs ?? DEFAULT_TERMINATION_GRACE_MS);
+  return true;
 }
 
 /**
@@ -139,6 +171,7 @@ export function startProcessExecution(
   launch: ProcessLaunch,
   spawnProcess: SpawnProcess = spawn,
 ): RuntimeHandle {
+  const startedAt = Date.now();
   let child: ChildProcess | undefined;
   const stdoutChunks: Buffer[] = [];
   const stderrChunks: Buffer[] = [];
@@ -264,6 +297,18 @@ export function startProcessExecution(
     settleAfterClose(exitCode, signal);
   }
 
+  const armTimeout = (timeoutMs: number): void => {
+    if (timeout !== undefined) clearTimeout(timeout);
+    if (settled || terminalRequest) return;
+    const remaining = Math.max(0, timeoutMs - (Date.now() - startedAt));
+    timeout = setTimeout(() => {
+      if (settled || terminalRequest) return;
+      terminalRequest = { status: "timeout" };
+      requestProcessTermination();
+    }, remaining);
+    timeout.unref?.();
+  };
+
   try {
     child = spawnProcess(launch.command, launch.args, {
       cwd: launch.cwd,
@@ -285,12 +330,7 @@ export function startProcessExecution(
     child.on("error", onError);
     child.on("close", onClose);
     if (spec.input) child.stdin?.end(spec.input.bytes);
-    timeout = setTimeout(() => {
-      if (settled || terminalRequest) return;
-      terminalRequest = { status: "timeout" };
-      requestProcessTermination();
-    }, launch.timeoutMs);
-    timeout.unref?.();
+    armTimeout(launch.timeoutMs);
   } else {
     queueMicrotask(() => {
       if (terminalRequest?.status === "cancelled") {
@@ -304,8 +344,9 @@ export function startProcessExecution(
   const handle: ProcessRuntimeHandle = {
     id: randomUUID(),
     pid: child?.pid,
-    startedAt: Date.now(),
+    startedAt,
     isAlive: () => !settled && child !== undefined && child.exitCode === null && child.signalCode === null,
+    updateTimeout: armTimeout,
     completion,
     cancel: (reason: string): CancelResult => {
       if (settled) return { accepted: false, reason: "already settled" };

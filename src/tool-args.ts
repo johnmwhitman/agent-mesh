@@ -80,7 +80,7 @@ export function requireNumber(
   tool: string,
   field: string,
   v: unknown,
-  opts: { min?: number; integer?: boolean } = {}
+  opts: { min?: number; max?: number; integer?: boolean } = {}
 ): string | null {
   if (typeof v !== "number" || !Number.isFinite(v)) {
     return `${tool}: '${field}' is required and must be a finite number, got ${got(v)}`;
@@ -90,6 +90,9 @@ export function requireNumber(
   }
   if (opts.min !== undefined && v < opts.min) {
     return `${tool}: '${field}' must be >= ${opts.min}, got ${v}`;
+  }
+  if (opts.max !== undefined && v > opts.max) {
+    return `${tool}: '${field}' must be <= ${opts.max}, got ${v}`;
   }
   return null;
 }

@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { LifecycleExecutionCoordinator } from "../src/lifecycle-execution.js";
 import { LifecycleStore } from "../src/attempt-lifecycle.js";
-import { loadData, readEventLog } from "../src/core.js";
+import { loadData, readEventLog, setFleetTimeout } from "../src/core.js";
 import type { ExecutionSpec, RuntimeAdapter, RuntimeHandle, RuntimeResult } from "../src/runtime/types.js";
 import { withTempDb } from "./helpers/with-temp-db.js";
 
@@ -16,16 +16,20 @@ class ControlledRuntime implements RuntimeAdapter {
   readonly id = "controlled";
   readonly results: Array<ReturnType<typeof deferred<RuntimeResult>>> = [];
   readonly starts: ExecutionSpec[] = [];
+  readonly cancellations: string[] = [];
   describe() { return { id: this.id, displayName: "Controlled", defaultTimeoutMs: 1_000 }; }
   validate() { return { ok: true, errors: [] }; }
   async start(spec: ExecutionSpec): Promise<RuntimeHandle> {
     this.starts.push(spec);
     const result = deferred<RuntimeResult>();
     this.results.push(result);
-    return { id: `handle-${this.results.length}`, startedAt: Date.now(), isAlive: () => true };
+    return { id: `handle-${this.results.length}`, pid: 10_000 + this.results.length, startedAt: Date.now(), isAlive: () => true };
   }
   wait(): Promise<RuntimeResult> { return this.results.at(-1)!.promise; }
-  async cancel() { return { accepted: true }; }
+  async cancel(handle: RuntimeHandle, reason: string) {
+    this.cancellations.push(`${handle.id}:${reason}`);
+    return { accepted: true };
+  }
 }
 
 function success(stdout = "ok"): RuntimeResult {
@@ -34,6 +38,10 @@ function success(stdout = "ok"): RuntimeResult {
 
 function failure(error = "transient"): RuntimeResult {
   return { status: "failure", stdout: "", stderr: error, exitCode: 1, error, diagnostics: [], identity: { adapterId: "controlled", evidence: "none" } };
+}
+
+function timeout(): RuntimeResult {
+  return { status: "timeout", stdout: "", stderr: "", exitCode: null, diagnostics: [], identity: { adapterId: "controlled", evidence: "none" } };
 }
 
 async function waitUntil(
@@ -65,6 +73,95 @@ test("durable coordinator records pending projection before launch and settles a
     assert.equal(data.agents["agent-1"].status, "complete");
     assert.equal(data.fleets["fleet-1"].status, "complete");
     assert.ok(readEventLog().some((event) => event.event === "fleet_created"));
+    coordinator.stop();
+  } finally {
+    temp.cleanup();
+  }
+});
+
+test("durable fleet timeout cancels lifecycle authority and its owned runtime handle", async () => {
+  const temp = withTempDb();
+  try {
+    let now = 1_000;
+    const runtime = new ControlledRuntime();
+    const coordinator = new LifecycleExecutionCoordinator(runtime, {
+      ownerId: "owner-timeout",
+      now: () => now,
+    });
+    coordinator.createFleet("fleet-timeout", [{
+      fleetId: "fleet-timeout", agentId: "agent-timeout", role: "worker", prompt: "work",
+    }]);
+    await waitUntil(() => runtime.starts.length === 1, "durable timeout runtime start");
+    setFleetTimeout("fleet-timeout", 100);
+
+    now = 1_100;
+    const expired = coordinator.expireFleetTimeout("fleet-timeout", now);
+    assert.deepEqual(expired.map((agent) => agent.agent_id), ["agent-timeout"]);
+    assert.equal(new LifecycleStore().getState("agent-timeout")?.work.status, "cancelled");
+    assert.equal(loadData().agents["agent-timeout"].status, "failed");
+    assert.match(loadData().agents["agent-timeout"].error ?? "", /fleet timeout.*100ms/i);
+    assert.equal(loadData().fleets["fleet-timeout"].status, "failed");
+    assert.deepEqual(runtime.cancellations, ["handle-1:Fleet timeout exceeded after 100ms"]);
+    coordinator.stop();
+  } finally {
+    temp.cleanup();
+  }
+});
+
+test("durable fleet timeout contains a recorded PID after local handles are lost", async () => {
+  const temp = withTempDb();
+  try {
+    let now = 1_000;
+    const contained: number[] = [];
+    const runtime = new ControlledRuntime();
+    const coordinator = new LifecycleExecutionCoordinator(runtime, {
+      ownerId: "owner-timeout-restart",
+      now: () => now,
+      terminatePid: (pid) => { contained.push(pid); },
+    });
+    coordinator.createFleet("fleet-timeout-restart", [{
+      fleetId: "fleet-timeout-restart", agentId: "agent-timeout-restart", role: "worker", prompt: "work",
+    }]);
+    await waitUntil(() => runtime.starts.length === 1, "durable restart timeout runtime start");
+    setFleetTimeout("fleet-timeout-restart", 100);
+
+    coordinator.stop();
+    runtime.cancellations.length = 0;
+    now = 1_100;
+    const expired = coordinator.expireFleetTimeout("fleet-timeout-restart", now);
+
+    assert.deepEqual(expired.map((agent) => agent.agent_id), ["agent-timeout-restart"]);
+    assert.deepEqual(contained, [10_001]);
+    assert.deepEqual(runtime.cancellations, []);
+  } finally {
+    temp.cleanup();
+  }
+});
+
+test("durable runtime timeout settles as the configured fleet timeout without retry", async () => {
+  const temp = withTempDb();
+  try {
+    let now = 1_000;
+    const runtime = new ControlledRuntime();
+    const coordinator = new LifecycleExecutionCoordinator(runtime, {
+      ownerId: "owner-runtime-timeout",
+      now: () => now,
+      retryBaseMs: 0,
+    });
+    coordinator.createFleet("fleet-runtime-timeout", [{
+      fleetId: "fleet-runtime-timeout", agentId: "agent-runtime-timeout", role: "worker", prompt: "work",
+    }]);
+    await waitUntil(() => runtime.results.length === 1, "durable runtime timeout start");
+    setFleetTimeout("fleet-runtime-timeout", 100);
+
+    now = 1_100;
+    runtime.results[0].resolve(timeout());
+    await waitUntil(() => loadData().agents["agent-runtime-timeout"].status !== "running", "durable runtime timeout settlement");
+
+    assert.equal(loadData().agents["agent-runtime-timeout"].status, "failed");
+    assert.match(loadData().agents["agent-runtime-timeout"].error ?? "", /fleet timeout.*100ms/i);
+    assert.equal(loadData().fleets["fleet-runtime-timeout"].status, "failed");
+    assert.equal(runtime.starts.length, 1, "fleet timeout must not spend retry budget");
     coordinator.stop();
   } finally {
     temp.cleanup();

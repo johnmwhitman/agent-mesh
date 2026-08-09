@@ -564,20 +564,89 @@ export function readEventLog(limit = 1000): Array<Record<string, unknown>> {
 // ---------------------------------------------------------------------------
 
 const DEFAULT_FLEET_TIMEOUT_MS = 30 * 60 * 1000;
+/** Largest delay Node schedules without clamping it to 1ms. */
+export const MAX_FLEET_TIMEOUT_MS = 2_147_483_647;
+
+function configuredDefaultFleetTimeoutMs(): number {
+  const envVal = Number(resolveEnv(process.env, "MESHFLEET_AGENT_TIMEOUT_MS", "AGENT_MESH_AGENT_TIMEOUT_MS"));
+  return Number.isInteger(envVal) && envVal > 0 && envVal <= MAX_FLEET_TIMEOUT_MS
+    ? envVal
+    : DEFAULT_FLEET_TIMEOUT_MS;
+}
 
 export function getFleetTimeoutMs(fleetId: string): number {
   const fleet = loadData().fleets[fleetId];
   if (fleet?.timeout_ms !== undefined) return fleet.timeout_ms;
-  const envVal = Number(resolveEnv(process.env, "MESHFLEET_AGENT_TIMEOUT_MS", "AGENT_MESH_AGENT_TIMEOUT_MS"));
-  return Number.isFinite(envVal) && envVal > 0 ? envVal : DEFAULT_FLEET_TIMEOUT_MS;
+  return configuredDefaultFleetTimeoutMs();
 }
 
 export function setFleetTimeout(fleetId: string, timeoutMs: number): void {
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > MAX_FLEET_TIMEOUT_MS) {
+    throw new Error(`Fleet timeout must be an integer between 1 and ${MAX_FLEET_TIMEOUT_MS}ms`);
+  }
   withLedger((data) => {
     const fleet = data.fleets[fleetId];
     if (!fleet) throw new Error(`Fleet ${fleetId} not found`);
     fleet.timeout_ms = timeoutMs;
   });
+}
+
+export interface FleetTimedOutAgent {
+  agent_id: string;
+  fleet_id: string;
+  pid?: number;
+  reason: string;
+}
+
+/** Earliest active per-agent deadline in a fleet, or undefined when none is running. */
+export function nextFleetTimeoutDeadline(fleetId: string): number | undefined {
+  const data = loadData();
+  const fleet = data.fleets[fleetId];
+  if (!fleet || SEALED_FLEET_STATUSES.has(fleet.status)) return undefined;
+  const timeoutMs = fleet.timeout_ms ?? configuredDefaultFleetTimeoutMs();
+  const deadlines = Object.values(data.agents)
+    .filter((agent) => agent.fleet_id === fleetId && agent.status === "running" && agent.started_at !== undefined)
+    .map((agent) => agent.started_at! + timeoutMs);
+  return deadlines.length > 0 ? Math.min(...deadlines) : undefined;
+}
+
+/**
+ * Atomically fail only the running agents whose own fleet timeout elapsed.
+ *
+ * Cancellation is deliberately not performed inside the ledger transaction.
+ * The caller owns runtime handles and uses the returned ids after the durable
+ * terminal state is committed; a rejected or hung provider cancellation must
+ * never keep the evidence ledger claiming that expired work is still running.
+ */
+export function expireFleetTimeoutAgents(
+  fleetId: string,
+  now: number = Date.now(),
+): FleetTimedOutAgent[] {
+  const expired: FleetTimedOutAgent[] = [];
+  withLedger((data) => {
+    expired.length = 0;
+    const fleet = data.fleets[fleetId];
+    if (!fleet || SEALED_FLEET_STATUSES.has(fleet.status)) return;
+    const timeoutMs = fleet.timeout_ms ?? configuredDefaultFleetTimeoutMs();
+    for (const agent of Object.values(data.agents)) {
+      if (
+        agent.fleet_id !== fleetId ||
+        agent.status !== "running" ||
+        agent.started_at === undefined ||
+        agent.started_at + timeoutMs > now
+      ) continue;
+      const reason = `Fleet timeout exceeded after ${timeoutMs}ms`;
+      agent.status = "failed";
+      agent.error = reason;
+      agent.completed_at = now;
+      expired.push({ agent_id: agent.id, fleet_id: fleetId, pid: agent.pid, reason });
+    }
+    if (expired.length > 0) {
+      const from = _checkFleetCompletion(data, fleetId);
+      if (from) data.fleets[fleetId].completed_at = now;
+    }
+  });
+  return expired;
 }
 
 export interface FleetSummary {

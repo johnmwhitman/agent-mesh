@@ -10,12 +10,15 @@ import {
   _createFleet,
   _registerAgent,
   appendEventOnce,
+  getFleetTimeoutMs,
   loadData,
   type Agent,
+  type FleetTimedOutAgent,
   type MeshData,
 } from "./core.js";
 import { LifecycleStore, type LifecycleState } from "./attempt-lifecycle.js";
 import type { RuntimeAdapter, RuntimeHandle, RuntimeResult } from "./runtime/types.js";
+import { containRecordedProcess } from "./runtime/process.js";
 import { projectSuccessDiagnostics } from "./spawn-attempt.js";
 import { isHollowSuccess, HOLLOW_SUCCESS_REASON } from "./hollow-result.js";
 import {
@@ -46,6 +49,8 @@ export interface LifecycleExecutionCoordinatorOptions {
   terminatePid?: (pid: number) => void;
   /** Test-only seam for the crash window after durable intent commits. */
   beforeRuntimeStart?: () => void;
+  /** Notify the process-level deadline scheduler after a durable agent changes state. */
+  onAgentStateChange?: (fleetId: string) => void;
 }
 
 interface TrackedRuntimeHandle {
@@ -155,6 +160,7 @@ export class LifecycleExecutionCoordinator {
   private readonly retryBaseMs: number;
   private readonly terminatePid: (pid: number) => void;
   private readonly beforeRuntimeStart?: () => void;
+  private readonly onAgentStateChange?: (fleetId: string) => void;
   private readonly handles = new Map<string, TrackedRuntimeHandle>();
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
   private recoveryTimer: ReturnType<typeof setTimeout> | undefined;
@@ -166,8 +172,9 @@ export class LifecycleExecutionCoordinator {
     this.leaseMs = options.leaseMs ?? DEFAULT_LEASE_MS;
     this.maxAttempts = options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
     this.retryBaseMs = options.retryBaseMs ?? DEFAULT_RETRY_BASE_MS;
-    this.terminatePid = options.terminatePid ?? ((pid) => { try { process.kill(pid, "SIGTERM"); } catch { /* diagnostic containment only */ } });
+    this.terminatePid = options.terminatePid ?? ((pid) => { containRecordedProcess(pid); });
     this.beforeRuntimeStart = options.beforeRuntimeStart;
+    this.onAgentStateChange = options.onAgentStateChange;
   }
 
   modeForFleet(fleetId: string): LifecycleMode {
@@ -176,6 +183,68 @@ export class LifecycleExecutionCoordinator {
 
   recordMode(fleetId: string, mode: LifecycleMode): void {
     withLedgerAndStorage((_data, db) => persistMode(db, fleetId, mode));
+  }
+
+  /**
+   * Terminalize elapsed durable work through LifecycleStore before cancelling
+   * this coordinator's matching runtime handles. This keeps attempt authority,
+   * public agent projection, and the fleet aggregate in one SQLite transaction.
+   */
+  expireFleetTimeout(fleetId: string, now: number = this.now()): FleetTimedOutAgent[] {
+    const timeoutMs = getFleetTimeoutMs(fleetId);
+    const expired = withLedgerAndStorage((data, db): FleetTimedOutAgent[] => {
+      if (modeFor(db, fleetId) !== "durable") return [];
+      const store = lifecycle(db, () => now);
+      const timedOut: FleetTimedOutAgent[] = [];
+      for (const agent of Object.values(data.agents)) {
+        if (
+          agent.fleet_id !== fleetId ||
+          agent.status !== "running" ||
+          agent.started_at === undefined ||
+          agent.started_at + timeoutMs > now
+        ) continue;
+        const cancelled = store.cancel(agent.id);
+        if (!cancelled.accepted) continue;
+        this.projectPending(data, cancelled.state);
+        const reason = `Fleet timeout exceeded after ${timeoutMs}ms`;
+        const projected = data.agents[agent.id];
+        if (projected) projected.error = reason;
+        timedOut.push({
+          agent_id: agent.id,
+          fleet_id: fleetId,
+          pid: agent.pid,
+          reason,
+        });
+        queueEvent(db, "agent_fleet_timeout", {
+          agent_id: agent.id,
+          fleet_id: fleetId,
+          reason,
+          timed_out_at: now,
+        }, now);
+      }
+      return timedOut;
+    });
+    for (const agent of expired) {
+      const dueTimer = this.timers.get(`due:${agent.agent_id}`);
+      if (dueTimer) clearTimeout(dueTimer);
+      this.timers.delete(`due:${agent.agent_id}`);
+      const tracked = this.handles.get(agent.agent_id);
+      if (tracked) {
+        this.releaseLocalHandle(agent.agent_id, tracked.attemptId, tracked.ownerEpoch, agent.reason);
+      } else if (agent.pid !== undefined) {
+        this.terminatePid(agent.pid);
+      }
+    }
+    if (expired.length > 0) repairLifecycleOutbox(this.ownerId, now);
+    return expired;
+  }
+
+  /** Re-arm runtime-owned hard ceilings for this coordinator's live handles. */
+  updateFleetRuntimeTimeout(fleetId: string, timeoutMs: number): void {
+    const data = loadData();
+    for (const [agentId, tracked] of this.handles) {
+      if (data.agents[agentId]?.fleet_id === fleetId) tracked.handle.updateTimeout?.(timeoutMs);
+    }
   }
 
   createFleet(fleetId: string, specs: DurableAgentSpec[]): void {
@@ -343,7 +412,7 @@ export class LifecycleExecutionCoordinator {
       // survive process restarts; never rely solely on the original in-memory spec.
       requestedModel: state.agent.requested_model,
       cwd: process.cwd(),
-      timeoutMs: this.runtime.describe().defaultTimeoutMs,
+      timeoutMs: getFleetTimeoutMs(state.agent.fleet_id),
     };
     this.beforeRuntimeStart?.();
     void this.runtime.start(spec).then((handle) => {
@@ -365,6 +434,7 @@ export class LifecycleExecutionCoordinator {
       if (!launched) { void this.runtime.cancel(handle, "lease lost before launch observation"); return; }
       this.handles.set(agentId, { handle, attemptId: current.attempt_id, ownerEpoch: current.owner_epoch });
       this.startRenewal(agentId, current.attempt_id, current.owner_epoch, handle);
+      this.onAgentStateChange?.(state.agent.fleet_id);
       void this.runtime.wait(handle)
         .then((result) => this.settle(agentId, current.attempt_id, current.owner_epoch, result))
         .catch((error: unknown) => this.settle(agentId, current.attempt_id, current.owner_epoch, {
@@ -388,6 +458,11 @@ export class LifecycleExecutionCoordinator {
 
   private settle(agentId: string, attemptId: string, epoch: number, result: RuntimeResult): void {
     if (this.stopped) return;
+    if (result.status === "timeout") {
+      const fleetId = loadData().agents[agentId]?.fleet_id;
+      if (fleetId) this.expireFleetTimeout(fleetId, this.now());
+      if (loadData().agents[agentId]?.status !== "running") return;
+    }
     const tracked = this.handles.get(agentId);
     if (tracked?.attemptId === attemptId && tracked.ownerEpoch === epoch) {
       const timer = this.timers.get(agentId);
@@ -427,6 +502,8 @@ export class LifecycleExecutionCoordinator {
       return outcome.state;
     });
     if (!settled) return; // stale completion is a no-op, including projections.
+    const settledFleetId = loadData().agents[agentId]?.fleet_id;
+    if (settledFleetId) this.onAgentStateChange?.(settledFleetId);
     const next = settled.attempts.find((attempt) => attempt.attempt_id === settled.work.current_attempt_id);
     if (next?.status === "pending") this.scheduleDue(agentId, next.eligible_at);
     this.scheduleRecoveryWake();

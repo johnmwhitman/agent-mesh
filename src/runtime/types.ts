@@ -137,6 +137,8 @@ export interface RuntimeHandle {
   readonly pid?: number;
   readonly startedAt: number;
   isAlive(): boolean;
+  /** Re-arm this live execution's elapsed-time ceiling when supported. */
+  updateTimeout?(timeoutMs: number): void;
 }
 
 export interface RuntimeDescriptor {
