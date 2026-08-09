@@ -684,6 +684,34 @@ export function expireFleetTimeoutAgents(
   return expired;
 }
 
+/**
+ * Terminalize a legacy attempt whose runtime already reported that its armed
+ * ceiling fired. This deliberately does not re-read the fleet override: an
+ * extension requested while the timed-out process is shutting down cannot
+ * revoke the terminal result or turn it into a retry.
+ */
+export function failRunningAgentForFleetRuntimeTimeout(
+  agentId: string,
+  fleetId: string,
+  reason: string,
+  now: number = Date.now(),
+): boolean {
+  return withLedger((data) => {
+    const agent = data.agents[agentId];
+    if (
+      !agent ||
+      agent.fleet_id !== fleetId ||
+      agent.status !== "running" ||
+      agent.completed_at !== undefined
+    ) return false;
+    agent.status = "failed";
+    agent.error = reason;
+    agent.completed_at = now;
+    _checkFleetCompletion(data, fleetId);
+    return true;
+  });
+}
+
 export interface FleetSummary {
   id: string;
   status: Fleet["status"];

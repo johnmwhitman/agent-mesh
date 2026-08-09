@@ -1,3 +1,5 @@
+import { appendEvent, failRunningAgentForFleetRuntimeTimeout } from "./core.js";
+
 export interface ExpiredFleetAgent {
   agent_id: string;
   fleet_id: string;
@@ -5,6 +7,71 @@ export interface ExpiredFleetAgent {
   reason: string;
   /** A mode-specific owner already attempted handle/PID containment. */
   cancellation_attempted?: true;
+}
+
+export interface ActiveLegacyTimeoutIdentity {
+  fleetId: string;
+  handleId: string;
+  attempt: number;
+}
+
+/** Own the timeout-vs-normal wait-result branch so timeout can never fall through to retry. */
+export function routeLegacyRuntimeResult(
+  status: string,
+  handlers: { onTimeout: () => void; onNonTimeout: () => void },
+): void {
+  if (status === "timeout") {
+    handlers.onTimeout();
+    return;
+  }
+  handlers.onNonTimeout();
+}
+
+/**
+ * Settle a timeout result only when it still belongs to the active legacy
+ * attempt. Handle identity is checked before the ledger transition so a stale
+ * callback cannot fail a replacement attempt that reused the same agent row.
+ */
+export function terminalizeLegacyRuntimeTimeout(options: {
+  agentId: string;
+  fleetId: string;
+  handleId: string;
+  attempt: number;
+  active?: ActiveLegacyTimeoutIdentity;
+  now?: number;
+  appendTimeoutEvent?: typeof appendEvent;
+  onEventError?: (error: unknown) => void;
+}): boolean {
+  const { active } = options;
+  if (
+    !active ||
+    active.fleetId !== options.fleetId ||
+    active.handleId !== options.handleId ||
+    active.attempt !== options.attempt
+  ) return false;
+  const now = options.now ?? Date.now();
+  const reason = "Fleet runtime timeout elapsed";
+  const transitioned = failRunningAgentForFleetRuntimeTimeout(
+    options.agentId,
+    options.fleetId,
+    reason,
+    now,
+  );
+  if (transitioned) {
+    try {
+      (options.appendTimeoutEvent ?? appendEvent)("agent_fleet_timeout", {
+        agent_id: options.agentId,
+        fleet_id: options.fleetId,
+        reason,
+        timed_out_at: now,
+      });
+    } catch (error) {
+      // Ledger truth already won. Event-log projection follows the same
+      // non-fatal policy as scheduled timeout observation.
+      options.onEventError?.(error);
+    }
+  }
+  return transitioned;
 }
 
 export interface FleetTimeoutEnforcerOptions {

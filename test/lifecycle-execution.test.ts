@@ -17,14 +17,17 @@ class ControlledRuntime implements RuntimeAdapter {
   readonly results: Array<ReturnType<typeof deferred<RuntimeResult>>> = [];
   readonly starts: ExecutionSpec[] = [];
   readonly cancellations: string[] = [];
-  constructor(private readonly now: () => number = Date.now) {}
+  constructor(
+    private readonly now: () => number = Date.now,
+    private readonly pidBase = 10_000,
+  ) {}
   describe() { return { id: this.id, displayName: "Controlled", defaultTimeoutMs: 1_000 }; }
   validate() { return { ok: true, errors: [] }; }
   async start(spec: ExecutionSpec): Promise<RuntimeHandle> {
     this.starts.push(spec);
     const result = deferred<RuntimeResult>();
     this.results.push(result);
-    return { id: `handle-${this.results.length}`, pid: 10_000 + this.results.length, startedAt: this.now(), isAlive: () => true };
+    return { id: `handle-${this.results.length}`, pid: this.pidBase + this.results.length, startedAt: this.now(), isAlive: () => true };
   }
   wait(): Promise<RuntimeResult> { return this.results.at(-1)!.promise; }
   async cancel(handle: RuntimeHandle, reason: string) {
@@ -117,10 +120,12 @@ test("durable fleet timeout cancels lifecycle authority and its owned runtime ha
   const temp = withTempDb();
   try {
     let now = 1_000;
+    const contained: number[] = [];
     const runtime = new ControlledRuntime(() => now);
     const coordinator = new LifecycleExecutionCoordinator(runtime, {
       ownerId: "owner-timeout",
       now: () => now,
+      terminatePid: (pid) => { contained.push(pid); },
     });
     coordinator.createFleet("fleet-timeout", [{
       fleetId: "fleet-timeout", agentId: "agent-timeout", role: "worker", prompt: "work",
@@ -136,7 +141,63 @@ test("durable fleet timeout cancels lifecycle authority and its owned runtime ha
     assert.match(loadData().agents["agent-timeout"].error ?? "", /fleet timeout.*100ms/i);
     assert.equal(loadData().fleets["fleet-timeout"].status, "failed");
     assert.deepEqual(runtime.cancellations, ["handle-1:Fleet timeout exceeded after 100ms"]);
+    assert.deepEqual(contained, [], "an exact owned handle must not also take the PID fallback");
     coordinator.stop();
+  } finally {
+    temp.cleanup();
+  }
+});
+
+test("durable fleet timeout contains the current PID when its local handle is stale", async () => {
+  const temp = withTempDb();
+  try {
+    let now = 1_000;
+    const containedByStaleOwner: number[] = [];
+    const staleRuntime = new ControlledRuntime(() => now, 10_000);
+    const staleOwner = new LifecycleExecutionCoordinator(staleRuntime, {
+      ownerId: "owner-stale-handle",
+      now: () => now,
+      leaseMs: 10_000,
+      retryBaseMs: 0,
+      maxAttempts: 2,
+      terminatePid: (pid) => { containedByStaleOwner.push(pid); },
+    });
+    staleOwner.createFleet("fleet-stale-handle", [{
+      fleetId: "fleet-stale-handle",
+      agentId: "agent-stale-handle",
+      role: "worker",
+      prompt: "work",
+    }]);
+    await waitUntil(() => staleRuntime.results.length === 1, "stale durable handle start");
+
+    now = 11_001;
+    const replacementRuntime = new ControlledRuntime(() => now, 20_001);
+    const replacementOwner = new LifecycleExecutionCoordinator(replacementRuntime, {
+      ownerId: "owner-current-handle",
+      now: () => now,
+      leaseMs: 10_000,
+      retryBaseMs: 0,
+      maxAttempts: 2,
+      terminatePid: () => {},
+    });
+    replacementOwner.recover();
+    await waitUntil(() => replacementRuntime.results.length === 1, "replacement durable handle start");
+    assert.equal(loadData().agents["agent-stale-handle"].pid, 20_002);
+    setFleetTimeout("fleet-stale-handle", 100);
+
+    now = 11_101;
+    const expired = staleOwner.expireFleetTimeout("fleet-stale-handle", now);
+    assert.deepEqual(expired.map((agent) => agent.agent_id), ["agent-stale-handle"]);
+    assert.equal(new LifecycleStore().getState("agent-stale-handle")?.work.status, "cancelled");
+    assert.equal(loadData().agents["agent-stale-handle"].status, "failed");
+    assert.deepEqual(containedByStaleOwner, [20_002], "the current attempt PID remains authoritative");
+    assert.deepEqual(
+      staleRuntime.cancellations,
+      ["handle-1:stale durable handle after fleet timeout"],
+      "the stale local handle is cleaned without suppressing current containment",
+    );
+    replacementOwner.stop();
+    staleOwner.stop();
   } finally {
     temp.cleanup();
   }

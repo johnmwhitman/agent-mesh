@@ -109,10 +109,15 @@ import {
 import { buildFailureDetail, projectSuccessDiagnostics } from "./spawn-attempt.js";
 import { getDefaultRuntimeAdapter, requireRuntimeAdapter, availableRuntimeIds } from "./runtime/registry.js";
 import { CHILD_MARKER_ENV, containRecordedProcess } from "./runtime/process.js";
-import type { RuntimeAdapter, RuntimeHandle } from "./runtime/types.js";
+import type { ExecutionSpec, RuntimeAdapter, RuntimeHandle, RuntimeResult } from "./runtime/types.js";
 import { decideFailover } from "./failover.js";
 import { defaultLifecycleMode, LifecycleExecutionCoordinator, repairLifecycleOutbox } from "./lifecycle-execution.js";
-import { FleetTimeoutEnforcer, type ExpiredFleetAgent } from "./fleet-timeout.js";
+import {
+  FleetTimeoutEnforcer,
+  routeLegacyRuntimeResult,
+  terminalizeLegacyRuntimeTimeout,
+  type ExpiredFleetAgent,
+} from "./fleet-timeout.js";
 import { getDiscussionStore, primeDiscussionSweepIndex } from "./discussion-mcp.js";
 import {
   DiscussionError,
@@ -181,6 +186,7 @@ interface ActiveLegacyRun {
   fleetId: string;
   adapter: RuntimeAdapter;
   handle: RuntimeHandle;
+  attempt: number;
 }
 const activeLegacyRuns = new Map<string, ActiveLegacyRun>();
 let fleetTimeoutEnforcer: FleetTimeoutEnforcer;
@@ -305,7 +311,7 @@ function trySpawn(input: SpawnAgentInput, agentId: string, attempt: number): voi
       void adapter.wait(handle).catch(() => {});
       return;
     }
-    activeLegacyRuns.set(agentId, { fleetId: input.fleetId, adapter, handle });
+    activeLegacyRuns.set(agentId, { fleetId: input.fleetId, adapter, handle, attempt });
     fleetTimeoutEnforcer.refresh(input.fleetId);
     if (handle.pid !== undefined) {
       withLedger((data) => {
@@ -326,79 +332,32 @@ function trySpawn(input: SpawnAgentInput, agentId: string, attempt: number): voi
     });
     void adapter.wait(handle).then((result) => {
       heartbeat.stop();
-      if (result.status === "timeout") fleetTimeoutEnforcer.refresh(input.fleetId);
-      if (readLedger().agents[agentId]?.status !== "running") return;
-      // Composed OUTSIDE the success branch on purpose: the success-carries-no-error guard
-      // forbids the raw stderr token inside that region, and it is right to — raw transcripts
-      // in Agent.error made real failures indistinguishable from normal runs. A hollow success
-      // seals as FAILED, and its detail goes through buildFailureDetail, the same bounded
-      // composer every other failure detail uses.
-      const hollowFailureDetail = isHollowSuccess(result)
-        ? buildFailureDetail(result.stderr, HOLLOW_SUCCESS_REASON)
-        : undefined;
-      // OBSERVE-ONLY THIS RELEASE. The status is read and recorded; it decides nothing. The next
-      // release makes anything but `ok` bank `failed`. Reading it here — on the same result the
-      // banking decision uses — is what makes the adoption figure honest before it is enforced.
-      const resultContract = readResultContract(resultPath, { cwd: spec.cwd, expectsArtifact: input.expectsArtifact === true });
-      if (result.status === "success") {
-        // HOLLOW SUCCESS (2026-08-01): a runtime can exit 0 having produced no
-        // output at all — the model burned its turn on tool calls and never
-        // emitted a final answer. Exit code alone therefore does not mean the
-        // work happened. Sealing that as `complete` is the exact overclaim
-        // verify.ts already forbids: `complete` must never "claim work that
-        // never happened". It is also invisible to every caller, because
-        // `collect_results` returns an empty string that reads like a real
-        // result, and an orchestrator accepts nothing while believing it got
-        // something. `failed` is the honest seal — it is terminal (no
-        // re-execution, so an agent that edited files cannot be double-run)
-        // and every existing consumer already knows to reroute on it.
-        if (hollowFailureDetail !== undefined) {
-          markAgentFinished(
+      routeLegacyRuntimeResult(result.status, {
+        onTimeout: () => {
+          const active = activeLegacyRuns.get(agentId);
+          terminalizeLegacyRuntimeTimeout({
             agentId,
-            "failed",
-            result.stdout,
-            hollowFailureDetail,
-            result.identity.agent,
-            result.identity.model,
-            undefined,
-            resultContract,
-          );
-          return;
-        }
-        markAgentFinished(
+            fleetId: input.fleetId,
+            handleId: handle.id,
+            attempt,
+            active: active ? {
+              fleetId: active.fleetId,
+              handleId: active.handle.id,
+              attempt: active.attempt,
+            } : undefined,
+            onEventError: reportFleetTimeoutError,
+          });
+        },
+        onNonTimeout: () => settleLegacyNonTimeout(
+          input,
           agentId,
-          "complete",
-          result.stdout,
-          // A SUCCESS has no error. This used to pass `result.stderr`, so a completed agent's
-          // `error` held the child's entire stderr transcript — tool calls, their output,
-          // duplicated warning lines and all. Measured on the live store: 753 of 763 `complete`
-          // agents carried a populated `error`, averaging 4,352 bytes, 3.28 MB in total. A
-          // consumer asking `agent.error` whether the work failed got a non-empty string for
-          // 98.7% of successes, which makes a real failure indistinguishable from a normal run.
-          //
-          // The distilled signal was being DROPPED at the same moment. `classifySpawnResult`
-          // already separates an auxiliary provider warning from the raw transcript, and
-          // `opencode.ts` carries it in `diagnostics` — which this call ignored. The transcript
-          // was kept and the diagnosis discarded: exactly backwards.
-          undefined,
-          result.identity.agent,
-          result.identity.model,
-          projectSuccessDiagnostics(result.diagnostics),
-          resultContract,
-        );
-        return;
-      }
-      handleTransientFailure(
-        input,
-        agentId,
-        attempt,
-        result.stdout,
-        result.stderr,
-        watchdogReason ?? result.error ?? `Spawn failed with exit code ${result.exitCode}`,
-        result.identity.agent,
-        result.identity.model,
-        resultContract,
-      );
+          attempt,
+          resultPath,
+          spec,
+          result,
+          watchdogReason,
+        ),
+      });
     }).finally(() => {
       const active = activeLegacyRuns.get(agentId);
       if (active?.handle.id === handle.id) activeLegacyRuns.delete(agentId);
@@ -407,6 +366,89 @@ function trySpawn(input: SpawnAgentInput, agentId: string, attempt: number): voi
   }).catch((error: unknown) => {
     handleTransientFailure(input, agentId, attempt, "", "", error instanceof Error ? error.message : String(error));
   });
+}
+
+function settleLegacyNonTimeout(
+  input: SpawnAgentInput,
+  agentId: string,
+  attempt: number,
+  resultPath: string,
+  spec: ExecutionSpec,
+  result: RuntimeResult,
+  watchdogReason?: string,
+): void {
+  if (readLedger().agents[agentId]?.status !== "running") return;
+  // Composed OUTSIDE the success branch on purpose: the success-carries-no-error guard
+  // forbids the raw stderr token inside that region, and it is right to — raw transcripts
+  // in Agent.error made real failures indistinguishable from normal runs. A hollow success
+  // seals as FAILED, and its detail goes through buildFailureDetail, the same bounded
+  // composer every other failure detail uses.
+  const hollowFailureDetail = isHollowSuccess(result)
+    ? buildFailureDetail(result.stderr, HOLLOW_SUCCESS_REASON)
+    : undefined;
+  // OBSERVE-ONLY THIS RELEASE. The status is read and recorded; it decides nothing. The next
+  // release makes anything but `ok` bank `failed`. Reading it here — on the same result the
+  // banking decision uses — is what makes the adoption figure honest before it is enforced.
+  const resultContract = readResultContract(resultPath, { cwd: spec.cwd, expectsArtifact: input.expectsArtifact === true });
+  if (result.status === "success") {
+    // HOLLOW SUCCESS (2026-08-01): a runtime can exit 0 having produced no
+    // output at all — the model burned its turn on tool calls and never
+    // emitted a final answer. Exit code alone therefore does not mean the
+    // work happened. Sealing that as `complete` is the exact overclaim
+    // verify.ts already forbids: `complete` must never "claim work that
+    // never happened". It is also invisible to every caller, because
+    // `collect_results` returns an empty string that reads like a real
+    // result, and an orchestrator accepts nothing while believing it got
+    // something. `failed` is the honest seal — it is terminal (no
+    // re-execution, so an agent that edited files cannot be double-run)
+    // and every existing consumer already knows to reroute on it.
+    if (hollowFailureDetail !== undefined) {
+      markAgentFinished(
+        agentId,
+        "failed",
+        result.stdout,
+        hollowFailureDetail,
+        result.identity.agent,
+        result.identity.model,
+        undefined,
+        resultContract,
+      );
+      return;
+    }
+    markAgentFinished(
+      agentId,
+      "complete",
+      result.stdout,
+      // A SUCCESS has no error. This used to pass `result.stderr`, so a completed agent's
+      // `error` held the child's entire stderr transcript — tool calls, their output,
+      // duplicated warning lines and all. Measured on the live store: 753 of 763 `complete`
+      // agents carried a populated `error`, averaging 4,352 bytes, 3.28 MB in total. A
+      // consumer asking `agent.error` whether the work failed got a non-empty string for
+      // 98.7% of successes, which makes a real failure indistinguishable from a normal run.
+      //
+      // The distilled signal was being DROPPED at the same moment. `classifySpawnResult`
+      // already separates an auxiliary provider warning from the raw transcript, and
+      // `opencode.ts` carries it in `diagnostics` — which this call ignored. The transcript
+      // was kept and the diagnosis discarded: exactly backwards.
+      undefined,
+      result.identity.agent,
+      result.identity.model,
+      projectSuccessDiagnostics(result.diagnostics),
+      resultContract,
+    );
+    return;
+  }
+  handleTransientFailure(
+    input,
+    agentId,
+    attempt,
+    result.stdout,
+    result.stderr,
+    watchdogReason ?? result.error ?? `Spawn failed with exit code ${result.exitCode}`,
+    result.identity.agent,
+    result.identity.model,
+    resultContract,
+  );
 }
 
 /**

@@ -59,6 +59,12 @@ interface TrackedRuntimeHandle {
   ownerEpoch: number;
 }
 
+interface DurableTimedOutAgent extends FleetTimedOutAgent {
+  attemptId: string;
+  ownerEpoch: number;
+  runtimePid?: number;
+}
+
 const DEFAULT_LEASE_MS = 30_000;
 const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_RETRY_BASE_MS = 1_000;
@@ -192,10 +198,10 @@ export class LifecycleExecutionCoordinator {
    */
   expireFleetTimeout(fleetId: string, now: number = this.now()): FleetTimedOutAgent[] {
     const timeoutMs = getFleetTimeoutMs(fleetId);
-    const expired = withLedgerAndStorage((data, db): FleetTimedOutAgent[] => {
+    const expired = withLedgerAndStorage((data, db): DurableTimedOutAgent[] => {
       if (modeFor(db, fleetId) !== "durable") return [];
       const store = lifecycle(db, () => now);
-      const timedOut: FleetTimedOutAgent[] = [];
+      const timedOut: DurableTimedOutAgent[] = [];
       for (const agent of Object.values(data.agents)) {
         if (
           agent.fleet_id !== fleetId ||
@@ -203,6 +209,15 @@ export class LifecycleExecutionCoordinator {
           agent.started_at === undefined ||
           agent.started_at + timeoutMs > now
         ) continue;
+        const state = store.getState(agent.id);
+        const attemptId = state?.work.current_attempt_id;
+        const current = attemptId
+          ? state?.attempts.find((attempt) => attempt.attempt_id === attemptId)
+          : undefined;
+        if (!current) continue;
+        const runtimeRow = db.prepare("SELECT runtime_pid FROM attempts WHERE attempt_id = ?")
+          .get(current.attempt_id) as { runtime_pid: number | null } | undefined;
+        const runtimePid = runtimeRow?.runtime_pid ?? undefined;
         const cancelled = store.cancel(agent.id);
         if (!cancelled.accepted) continue;
         this.projectPending(data, cancelled.state);
@@ -212,9 +227,12 @@ export class LifecycleExecutionCoordinator {
         timedOut.push({
           agent_id: agent.id,
           fleet_id: fleetId,
-          pid: agent.pid,
+          pid: runtimePid,
           reason,
           cancellation_attempted: true,
+          attemptId: current.attempt_id,
+          ownerEpoch: current.owner_epoch,
+          runtimePid,
         });
         queueEvent(db, "agent_fleet_timeout", {
           agent_id: agent.id,
@@ -230,10 +248,22 @@ export class LifecycleExecutionCoordinator {
       if (dueTimer) clearTimeout(dueTimer);
       this.timers.delete(`due:${agent.agent_id}`);
       const tracked = this.handles.get(agent.agent_id);
-      if (tracked) {
-        this.releaseLocalHandle(agent.agent_id, tracked.attemptId, tracked.ownerEpoch, agent.reason);
-      } else if (agent.pid !== undefined) {
-        this.terminatePid(agent.pid);
+      const exactLocalOwner = tracked
+        && tracked.attemptId === agent.attemptId
+        && tracked.ownerEpoch === agent.ownerEpoch;
+      if (exactLocalOwner) {
+        this.releaseLocalHandle(agent.agent_id, agent.attemptId, agent.ownerEpoch, agent.reason);
+        if (agent.runtimePid !== undefined && tracked.handle.pid !== agent.runtimePid) {
+          this.terminatePid(agent.runtimePid);
+        }
+      } else {
+        if (tracked) {
+          this.forgetLocalHandle(agent.agent_id, tracked.attemptId, tracked.ownerEpoch);
+          if (agent.runtimePid === undefined || tracked.handle.pid !== agent.runtimePid) {
+            void this.runtime.cancel(tracked.handle, "stale durable handle after fleet timeout");
+          }
+        }
+        if (agent.runtimePid !== undefined) this.terminatePid(agent.runtimePid);
       }
     }
     if (expired.length > 0) repairLifecycleOutbox(this.ownerId, now);
@@ -631,13 +661,23 @@ export class LifecycleExecutionCoordinator {
     this.timers.set(`due:${agentId}`, timer);
   }
 
-  private releaseLocalHandle(agentId: string, attemptId: string, ownerEpoch: number, reason: string): void {
+  private forgetLocalHandle(
+    agentId: string,
+    attemptId: string,
+    ownerEpoch: number,
+  ): TrackedRuntimeHandle | undefined {
     const tracked = this.handles.get(agentId);
-    if (!tracked || tracked.attemptId !== attemptId || tracked.ownerEpoch !== ownerEpoch) return;
+    if (!tracked || tracked.attemptId !== attemptId || tracked.ownerEpoch !== ownerEpoch) return undefined;
     const timer = this.timers.get(agentId);
     if (timer) clearInterval(timer);
     this.timers.delete(agentId);
     this.handles.delete(agentId);
+    return tracked;
+  }
+
+  private releaseLocalHandle(agentId: string, attemptId: string, ownerEpoch: number, reason: string): void {
+    const tracked = this.forgetLocalHandle(agentId, attemptId, ownerEpoch);
+    if (!tracked) return;
     void this.runtime.cancel(tracked.handle, reason);
   }
 
