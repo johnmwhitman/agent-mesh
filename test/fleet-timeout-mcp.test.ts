@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,24 +11,41 @@ const repoRoot = join(fileURLToPath(new URL(".", import.meta.url)), "..");
 const textOf = (result: unknown): string =>
   (result as { content: Array<{ text: string }> }).content[0]!.text;
 
+async function waitUntil(predicate: () => boolean, what: string, timeoutMs = 10_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw new Error(`timed out waiting for ${what}`);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
 test("set_fleet_timeout re-arms an already-running real MCP child", async () => {
   const dir = mkdtempSync(join(tmpdir(), "meshfleet-timeout-mcp-"));
-  const bin = join(dir, "bin");
-  mkdirSync(bin);
-  const opencode = join(bin, "opencode");
-  writeFileSync(opencode, "#!/usr/bin/env node\nsetInterval(() => {}, 1000);\n", { mode: 0o755 });
-  chmodSync(opencode, 0o755);
+  const invoked = join(dir, "runtime-invoked");
+  const sleeper = join(dir, "runtime-sleeper.cjs");
+  // NODE_OPTIONS reaches both the Node-hosted server and its runtime child.
+  // No-op for index.ts; for the child, record real invocation and block before
+  // Node tries to resolve buildRunArgs()'s synthetic `run` script. This uses a
+  // genuine executable on Windows without shell:true or a non-portable shim.
+  writeFileSync(sleeper, [
+    'if (!process.argv[1] || !process.argv[1].endsWith("index.ts")) {',
+    `  require("node:fs").writeFileSync(${JSON.stringify(invoked)}, "invoked");`,
+    "  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);",
+    "}",
+    "",
+  ].join("\n"));
 
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: ["--import", "tsx", join(repoRoot, "src", "index.ts")],
     env: {
       ...(process.env as Record<string, string>),
-      PATH: `${bin}:${process.env.PATH ?? ""}`,
       MESHFLEET_DB_FILE: join(dir, "ledger.db"),
       MESHFLEET_DATA_FILE: join(dir, "ledger.json"),
       MESHFLEET_EVENT_LOG_FILE: join(dir, "events.ndjson"),
-      MESHFLEET_AGENT_TIMEOUT_MS: "50",
+      MESHFLEET_AGENT_TIMEOUT_MS: "500",
+      MESHFLEET_OPENCODE_COMMAND: process.execPath,
+      NODE_OPTIONS: `--require ${sleeper}`,
       MESHFLEET_RATIFY_SWEEP_MS: "0",
       MESHFLEET_SSE_PORT: "13941",
       AGENT_MESH_CHILD: "1",
@@ -42,12 +59,13 @@ test("set_fleet_timeout re-arms an already-running real MCP child", async () => 
       name: "spawn_fleet",
       arguments: { agents: [{ role: "sleeper", prompt: "wait" }] },
     }))) as { fleet_id: string; agent_ids: string[] };
+    await waitUntil(() => existsSync(invoked), "runtime child invocation");
     await client.callTool({
       name: "set_fleet_timeout",
-      arguments: { fleet_id: spawned.fleet_id, timeout_ms: 500 },
+      arguments: { fleet_id: spawned.fleet_id, timeout_ms: 1_500 },
     });
 
-    await new Promise((resolve) => setTimeout(resolve, 150));
+    await new Promise((resolve) => setTimeout(resolve, 700));
     const extended = JSON.parse(textOf(await client.callTool({
       name: "fleet_status",
       arguments: { fleet_id: spawned.fleet_id },
