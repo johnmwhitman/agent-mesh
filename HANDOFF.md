@@ -1,12 +1,12 @@
 # MeshFleet public handoff
 
 **Source version:** `0.20.0` · **MCP surface:** **36 MCP tools** ·
-**current suite contract:** **1636/1636** tests collected, plus typecheck and build
+**current suite contract:** **1640/1640** tests collected, plus typecheck and build
 
 The latest completed cross-platform proof is GitHub Actions run `31315444631`
 at `e14bd8f` (9/9 jobs across Node 20/22/24 on Ubuntu, macOS, and Windows;
 1617/1617 collected, plus typecheck, build, and CLI smoke). It proves that prior
-revision, not the newer runtime and test bytes that establish the 1636-test
+revision, not the newer runtime and test bytes that establish the 1640-test
 contract; those require their own fresh 9/9 run before merge.
 
 Base `01f0fa0` passed 1416/1416; the parity snapshot that introduced this document

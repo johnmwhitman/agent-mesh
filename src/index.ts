@@ -74,7 +74,7 @@ import {
 } from "./retry.js";
 import { recordRoutingOutcome } from "./routing-feedback.js";
 import { installCrashHandlers } from "./crash-handler.js";
-import { readCrashJournal, retireCrashJournal } from "./boot-reconciler.js";
+import { readCrashJournal, recoverCrashDeclarations, retireCrashJournal } from "./boot-reconciler.js";
 import { SweepHealth, runSweepTick } from "./sweep-health.js";
 import { summarizeCollection } from "./collection-summary.js";
 import { isHollowSuccess, HOLLOW_SUCCESS_REASON } from "./hollow-result.js";
@@ -2825,6 +2825,11 @@ if (!isChildInstance && !isAuditProfile) {
     );
   }
   const recovery = recoverInterruptedAgents({ crashNamedAgentIds: crashJournal.namedAgentIds });
+  // Declarations the crash prevented settle from recording — refused/blocked envelopes that
+  // exist on disk for journal-named interrupted rows. Runs after attribution (it reads the
+  // rows attribution just settled) and strictly BEFORE retirement, which is the barrier that
+  // says every mark this journal can drive has been applied.
+  const declarations = recoverCrashDeclarations(crashJournal.namedAgentIds);
   if (crashJournal.records.length > 0 || crashJournal.malformedLines > 0) {
     // Retire only AFTER the marks above are durably applied. Re-application
     // after a failed rename is idempotent, so nothing is lost either way.
@@ -2836,10 +2841,11 @@ if (!isChildInstance && !isAuditProfile) {
       recovered: recovery.recovered,
       provenance_applied: recovery.provenance_applied,
       fleets_marked: recovery.fleets_marked,
+      declarations_recovered: declarations.recovered,
       retired: retiredTo !== undefined,
     });
     console.error(
-      `Agent Mesh v${MESH_VERSION} — consumed crash journal: ${crashJournal.records.length} crash record(s) naming ${crashJournal.namedAgentIds.size} agent(s); ${recovery.provenance_applied} prior interrupted row(s) attributed, ${recovery.fleets_marked} fleet(s) marked, ${crashJournal.malformedLines} malformed line(s); ${retiredTo ? `journal retired to ${retiredTo}` : "journal retire FAILED — left in place, next boot re-applies (idempotent)"}`
+      `Agent Mesh v${MESH_VERSION} — consumed crash journal: ${crashJournal.records.length} crash record(s) naming ${crashJournal.namedAgentIds.size} agent(s); ${recovery.provenance_applied} prior interrupted row(s) attributed, ${recovery.fleets_marked} fleet(s) marked, ${declarations.recovered} stranded declaration(s) recovered, ${crashJournal.malformedLines} malformed line(s); ${retiredTo ? `journal retired to ${retiredTo}` : "journal retire FAILED — left in place, next boot re-applies (idempotent)"}`
     );
   }
   if (recovery.recovered > 0) {
