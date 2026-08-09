@@ -71,13 +71,20 @@ test('addSubscriber: enforces max connections per agent', () => {
   const r1 = makeFakeRes()
   const r2 = makeFakeRes()
   const r3 = makeFakeRes()
-  addSubscriber('agent-1', r1 as any)
-  addSubscriber('agent-1', r2 as any)
-  // 3rd should be rejected
-  addSubscriber('agent-1', r3 as any)
+  assert.equal(addSubscriber('agent-1', r1 as any).accepted, true)
+  assert.equal(addSubscriber('agent-1', r2 as any).accepted, true)
+  // 3rd is over the cap and must be REFUSED — observably.
+  const refused = addSubscriber('agent-1', r3 as any)
   assert.equal(getSubscriberCount('agent-1'), 2)
-  // 3rd should have been closed with an error
-  assert.ok(r3.closed)
+  assert.equal(refused.accepted, false)
+  assert.equal(refused.reason, 'per_agent_connection_cap')
+  // NOTE: this used to assert `r3.closed` — that addSubscriber itself end()ed the
+  // response. It no longer does, deliberately: the caller had already written a
+  // 200 and an `:ok` frame by then, so a refused client saw a successful
+  // handshake followed by an unexplained close. Closing is now the caller's job
+  // so it can send a real 429 first, and that behaviour is covered end-to-end
+  // over HTTP in sse-auth.test.ts ("over-cap stream is refused with 429").
+  assert.equal(r3.closed, false, 'the registry no longer closes it; the caller answers first')
   setMaxConnectionsPerAgent(MAX_CONNECTIONS_PER_AGENT_DEFAULT)
   clear()
 })
@@ -178,19 +185,27 @@ test('notifySubscribers: keeps subscriber when write succeeds', () => {
   clear()
 })
 
-test('notifySubscribers: removes subscriber when write fails', () => {
+test('notifySubscribers: removes a subscriber whose write THROWS (the stream is gone)', () => {
   clear()
-  const bad = {
+  // This test's premise was wrong and it pinned a real defect. Its fake used
+  // `write() { return false }` and called that "write fails" — but a `false`
+  // return is BACKPRESSURE: the payload is accepted and queued, and the stream
+  // will drain. Evicting on it disconnected merely-slow consumers mid-burst and
+  // dropped every remaining event, silently. Only a THROW means the stream is
+  // actually gone, which is what this now covers; the backpressure case is
+  // asserted in push-channel-loss.test.ts.
+  const gone = {
     writes: [],
     closed: false,
-    write() { return false }, // write fails
+    write() { throw new Error('EPIPE') },
     end() { this.closed = true },
   }
-  addSubscriber('agent-1', bad as any)
+  addSubscriber('agent-1', gone as any)
   notifySubscribers('agent-1', [
     { type: 'message', message_id: 'm1', from_agent_id: 'a', payload: 'p', timestamp: 1 },
   ])
   assert.equal(getSubscriberCount('agent-1'), 0)
+  assert.ok(gone.closed, 'a genuinely dead stream is closed')
   clear()
 })
 

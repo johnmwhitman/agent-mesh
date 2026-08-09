@@ -135,3 +135,31 @@ test("rotating the token ends streams authenticated with the old token; current-
     stale.close();
   }
 });
+
+test("over-cap stream is refused with 429 BEFORE any SSE handshake", async () => {
+  // Replaces the coverage that moved out of realtime.test.ts when addSubscriber
+  // stopped closing the response itself. The requirement is unchanged — an
+  // over-cap connection must not be left hanging — but it is now met properly:
+  // the client gets a status code that explains the refusal instead of a 200
+  // and an `:ok` frame followed by an unexplained close, which an EventSource
+  // would reconnect into forever.
+  const { setMaxConnectionsPerAgent, MAX_CONNECTIONS_PER_AGENT_DEFAULT } =
+    await import("../src/realtime.js");
+  const open: AbortController[] = [];
+  try {
+    setMaxConnectionsPerAgent(1);
+    // Hold one live stream so the agent is at its cap.
+    const ctl = new AbortController();
+    open.push(ctl);
+    const first = await fetch(`${base}/inbox/cap-agent/stream`, { signal: ctl.signal });
+    assert.equal(first.status, 200, "the first stream is accepted normally");
+
+    const refused = await fetch(`${base}/inbox/cap-agent/stream`);
+    assert.equal(refused.status, 429, "the second must be refused with a status, not a silent close");
+    const body = await refused.text();
+    assert.match(body, /too many concurrent inbox streams/i, "and told why");
+  } finally {
+    for (const c of open) c.abort();
+    setMaxConnectionsPerAgent(MAX_CONNECTIONS_PER_AGENT_DEFAULT);
+  }
+});

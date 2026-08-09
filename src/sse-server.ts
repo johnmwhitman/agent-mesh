@@ -28,7 +28,6 @@ import {
   addSubscriber,
   removeSubscriber,
   shutdownServer as shutdownSubscribers,
-  type Subscriber,
 } from "./realtime.js";
 import { resolveEnv } from "./env.js";
 
@@ -145,9 +144,18 @@ function handle401(res: ServerResponse): void {
 }
 
 function handleSseConnection(agentId: string, res: ServerResponse, credential: string | undefined): void {
+  // Ask BEFORE writing headers. The old order sent a 200 and an `:ok` SSE frame
+  // first, so a connection refused by the per-agent cap looked to the client like
+  // a successful subscribe followed by an unexplained drop — and it was then
+  // registered in activeStreams/streamCredentials anyway, because the rejection
+  // was unobservable. A refused client now gets a status code that says so.
+  const subscribed = addSubscriber(agentId, res);
+  if (!subscribed.accepted) {
+    res.writeHead(429, { "Content-Type": "text/plain", "Retry-After": "5" });
+    res.end(`too many concurrent inbox streams for this agent (limit ${subscribed.limit})`);
+    return;
+  }
   setSseHeaders(res);
-  const sub: Subscriber = { agent_id: agentId, res, connected_at: Date.now() };
-  addSubscriber(agentId, res);
   activeStreams.add(res);
   streamCredentials.set(res, { agentId, credential });
 

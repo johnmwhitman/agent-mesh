@@ -132,10 +132,16 @@ export function getHealth(): HealthReport {
   }
 
   const hasCorruptLedger = ledgerBytes < 0
+  // An unreadable event log degrades health rather than passing as healthy. It is
+  // not `error` — the SQLite ledger is the authoritative store and still works —
+  // but a caller cannot verify what was emitted while it is unreadable, and this
+  // surface exists to say so. Recording the sentinel without letting it decide
+  // anything would leave `status: 'ok'` over a log nobody can read.
+  const hasUnreadableEventLog = eventsBytes < 0
 
   let status: 'ok' | 'degraded' | 'error' = 'ok'
   if (hasCorruptLedger) status = 'error'
-  else if (hasStuckFleet) status = 'degraded'
+  else if (hasStuckFleet || hasUnreadableEventLog) status = 'degraded'
 
   return {
     status,
@@ -205,7 +211,14 @@ function readStorageStats(): StorageStats {
       }
     }
   } catch {
-    // skip
+    // An UNREADABLE event log is not an EMPTY one. This catch used to leave the
+    // initialized zeros in place, so `get_health` reported `events: 0` for a log
+    // that was corrupt or permission-denied — indistinguishable from a healthy
+    // fresh install, on the one surface an operator consults to find out whether
+    // anything is wrong. Mirrors the sentinel the ledger branch above already
+    // uses (`ledgerBytes = -1`), so a reader can tell "cannot read" from "none".
+    out.eventsBytes = -1
+    out.eventCount = -1
   }
 
   return out
