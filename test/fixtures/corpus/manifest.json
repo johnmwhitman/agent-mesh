@@ -1208,36 +1208,6 @@
       ]
     },
     {
-      "id": "message-unknown-recipient",
-      "primary": "message.unknown_recipient",
-      "classification": "anomaly",
-      "lie": "a message is addressed to an agent absent from this ledger, inside a fleet the ledger holds",
-      "ops": [
-        {
-          "op": "set",
-          "path": "messages|m3",
-          "value": {
-            "id": "m3",
-            "from_agent_id": "a1",
-            "to_agent_id": "a-ghost",
-            "fleet_id": "f1",
-            "type": "handoff",
-            "payload": "hand this to the reviewer",
-            "timestamp": 1700000000400,
-            "acknowledged": false
-          }
-        }
-      ],
-      "expected_ok": true,
-      "expected_findings": [
-        {
-          "severity": "warning",
-          "check": "message.unknown_recipient",
-          "subject": "m3"
-        }
-      ]
-    },
-    {
       "id": "inbox-non-recipient",
       "primary": "inbox.non_recipient",
       "classification": "caught",
@@ -1440,6 +1410,156 @@
           "severity": "error",
           "check": "agent.requested_model_mismatch",
           "subject": "a2"
+        }
+      ]
+    },
+    {
+      "id": "message-unknown-recipient",
+      "primary": "message.unknown_recipient",
+      "classification": "anomaly",
+      "lie": "a message is addressed to an agent absent from this ledger, inside a fleet the ledger holds",
+      "ops": [
+        {
+          "op": "set",
+          "path": "messages|m3",
+          "value": {
+            "id": "m3",
+            "from_agent_id": "a1",
+            "to_agent_id": "a-ghost",
+            "fleet_id": "f1",
+            "type": "handoff",
+            "payload": "hand this to the reviewer",
+            "timestamp": 1700000000400,
+            "acknowledged": false
+          }
+        }
+      ],
+      "expected_ok": true,
+      "expected_findings": [
+        {
+          "severity": "warning",
+          "check": "message.unknown_recipient",
+          "subject": "m3"
+        }
+      ]
+    },
+    {
+      "id": "agent-stopped-reason-while-live",
+      "primary": "agent.stopped_reason_while_live",
+      "classification": "caught",
+      "lie": "an agent row claims it has not finished and, in the same breath, that it is known why it stopped — a settle-only attribution on a live row",
+      "ops": [
+        {
+          "op": "set",
+          "path": "agents|a3|status",
+          "value": "running"
+        },
+        {
+          "op": "delete",
+          "path": "agents|a3|completed_at"
+        },
+        {
+          "op": "set",
+          "path": "agents|a3|stopped_reason",
+          "value": "server_crash"
+        }
+      ],
+      "expected_ok": false,
+      "expected_findings": [
+        {
+          "severity": "error",
+          "check": "agent.stopped_reason_while_live",
+          "subject": "a3"
+        },
+        {
+          "severity": "error",
+          "check": "fleet.sealed_with_live_agents",
+          "subject": "f1"
+        }
+      ]
+    },
+    {
+      "id": "agent-result-contract-while-live",
+      "primary": "agent.result_contract_while_live",
+      "classification": "caught",
+      "lie": "an agent row carries a declared settle outcome while its own status says it has not settled — the value callers are told to trust as the stronger signal, on a run that has not produced one",
+      "ops": [
+        {
+          "op": "set",
+          "path": "agents|a3|status",
+          "value": "running"
+        },
+        {
+          "op": "delete",
+          "path": "agents|a3|completed_at"
+        },
+        {
+          "op": "set",
+          "path": "agents|a3|result_contract",
+          "value": "ok"
+        }
+      ],
+      "expected_ok": false,
+      "expected_findings": [
+        {
+          "severity": "error",
+          "check": "agent.result_contract_while_live",
+          "subject": "a3"
+        },
+        {
+          "severity": "error",
+          "check": "fleet.sealed_with_live_agents",
+          "subject": "f1"
+        }
+      ]
+    },
+    {
+      "id": "agent-runtime-attempt-duplicated",
+      "primary": "agent.runtime_attempt_duplicated",
+      "classification": "caught",
+      "lie": "an agent's runtime history repeats the same runtime in adjacent positions, asserting a failover hop to the runtime it was already using — evidence the writer's own idempotence collapses, so no spawn path could have produced it",
+      "ops": [
+        {
+          "op": "set",
+          "path": "agents|a3|runtime_attempts",
+          "value": [
+            "opencode-cli",
+            "opencode-cli"
+          ]
+        }
+      ],
+      "expected_ok": false,
+      "expected_findings": [
+        {
+          "severity": "error",
+          "check": "agent.runtime_attempt_duplicated",
+          "subject": "a3"
+        }
+      ]
+    },
+    {
+      "id": "fleet-crash-provenance-unsupported",
+      "primary": "fleet.crash_provenance_unsupported",
+      "classification": "caught",
+      "lie": "a fleet blames a server crash for its abandonment while not one of its own agents holds an interrupted row attributing that crash — a shared external cause asserted over records that do not support it",
+      "ops": [
+        {
+          "op": "set",
+          "path": "fleets|f1|status",
+          "value": "abandoned"
+        },
+        {
+          "op": "set",
+          "path": "fleets|f1|stopped_reason",
+          "value": "server_crash"
+        }
+      ],
+      "expected_ok": false,
+      "expected_findings": [
+        {
+          "severity": "error",
+          "check": "fleet.crash_provenance_unsupported",
+          "subject": "f1"
         }
       ]
     },
