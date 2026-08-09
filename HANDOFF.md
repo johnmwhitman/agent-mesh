@@ -1,7 +1,7 @@
 # MeshFleet public handoff
 
 **Source version:** `0.20.0` · **MCP surface:** **36 MCP tools** ·
-**current suite contract:** **1611/1611** collected tests, plus typecheck and build
+**current suite contract:** **1611/1611** tests collected, plus typecheck and build
 
 The last completed exact-head proof before the three timeout upgrade/recovery guards
 was GitHub Actions run `31306664134` at `c88a5f6` (9/9 jobs, 1608/1608 collected).
