@@ -146,7 +146,11 @@ test("spawn_fleet delivers through an explicitly selected MiniMax subscription r
     assert.equal(agent.runtime_model, undefined);
     assert.equal(agent.result_contract, "ok", "the model-declared text envelope is the receipt");
     assert.equal(existsSync(marker), true, "the selected wrapper itself must have executed");
-    assert.match(stdout, /"id":6/, "the public tool must answer the compatible caller");
+    assert.match(
+      await waitForResponse(() => stdout, 6),
+      /"id":6/,
+      "the public tool must answer the compatible caller",
+    );
     const deliveredPrompt = readFileSync(capturedPrompt, "utf8");
     assert.match(deliveredPrompt, /mf\.agent\.text-result\/v1/);
     assert.doesNotMatch(deliveredPrompt, /RESULT_PATH|write ONE JSON file/);
@@ -166,7 +170,11 @@ test("spawn_fleet delivers through an explicitly selected MiniMax subscription r
     assert.equal(blocked.status, "complete", "this release observes declared blocking without changing banking");
     assert.equal(blocked.result_contract, "blocked");
     assert.equal(blocked.output, "fixture could not continue\n\nReason: required input was missing");
-    assert.match(stdout, /"id":7/, "the blocked delivery must still answer the caller");
+    assert.match(
+      await waitForResponse(() => stdout, 7),
+      /"id":7/,
+      "the blocked delivery must still answer the caller",
+    );
   } finally {
     server.kill();
     await new Promise<void>((resolve) => {
