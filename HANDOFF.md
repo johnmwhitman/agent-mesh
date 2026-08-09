@@ -3,10 +3,10 @@
 **Source version:** `0.20.0` · **MCP surface:** **36 MCP tools** ·
 **current suite contract:** **1611/1611** tests collected, plus typecheck and build
 
-The last completed exact-head proof before the three timeout upgrade/recovery guards
-was GitHub Actions run `31306664134` at `c88a5f6` (9/9 jobs, 1608/1608 collected).
-The 1611-test head remains a merge gate until its own exact 9/9 matrix completes;
-this paragraph must be replaced with that run and SHA before merge.
+The exact cross-platform proof is GitHub Actions run `31307989128` at `5e65ab6`
+(9/9 jobs across Node 20/22/24 on Ubuntu, macOS, and Windows; 1611/1611
+collected, plus typecheck, build, and CLI smoke). This sentence is the only change
+after that tested revision; its exact diff was reviewed after the matrix and before merge.
 
 Base `01f0fa0` passed 1416/1416; the parity snapshot that introduced this document
 read 1422/1422 with its six contract guards. The current figure supersedes both.
