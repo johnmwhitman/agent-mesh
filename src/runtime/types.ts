@@ -135,8 +135,11 @@ export interface RuntimeTrace {
 export interface RuntimeHandle {
   readonly id: string;
   readonly pid?: number;
+  /** Same-host Unix epoch milliseconds captured when runtime execution began. */
   readonly startedAt: number;
   isAlive(): boolean;
+  /** Re-arm this live execution's elapsed-time ceiling when supported. */
+  updateTimeout?(timeoutMs: number): void;
 }
 
 export interface RuntimeDescriptor {

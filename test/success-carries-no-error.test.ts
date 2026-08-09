@@ -116,9 +116,15 @@ test("a completed ledger row keeps warnings separate from Agent.error", () => {
 test("GUARD: the success call site passes the diagnostic, never raw stderr", () => {
   // The direct tests above exercise the production helper. This narrow guard pins its use at the
   // settlement boundary without importing index.ts, whose top-level side effect starts a server.
+  const settlementStart = indexSource.indexOf("function settleLegacyNonTimeout(");
+  const successStart = indexSource.indexOf('if (result.status === "success")', settlementStart);
+  const failureStart = indexSource.indexOf("handleTransientFailure(", successStart);
+  assert.ok(settlementStart >= 0, "CONTROL: failed to locate legacy non-timeout settlement");
+  assert.ok(successStart > settlementStart, "CONTROL: failed to locate the success branch");
+  assert.ok(failureStart > successStart, "CONTROL: failed to locate the failure boundary after success");
   const raw = indexSource.slice(
-    indexSource.indexOf('if (result.status === "success")'),
-    indexSource.indexOf("handleTransientFailure("),
+    successStart,
+    failureStart,
   );
   // Strip comments FIRST. The branch carries a long explanatory comment that names
   // `result.stderr` in prose, and without this the negative assertion below failed on the

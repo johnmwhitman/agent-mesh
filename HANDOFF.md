@@ -1,8 +1,13 @@
 # MeshFleet public handoff
 
 **Source version:** `0.20.0` · **MCP surface:** **36 MCP tools** ·
-**clean local baseline:** **1599/1599** tests, plus typecheck and build, measured on
-`29aaeb9` plus this change, in a clean worktree
+**current suite contract:** **1617/1617** tests collected, plus typecheck and build
+
+The exact cross-platform proof is GitHub Actions run `31315444631` at `e14bd8f`
+(9/9 jobs across Node 20/22/24 on Ubuntu, macOS, and Windows; 1617/1617
+collected, plus typecheck, build, and CLI smoke). This documentation-only
+amendment records that completed proof; no runtime or test bytes differ from
+the tested revision.
 
 Base `01f0fa0` passed 1416/1416; the parity snapshot that introduced this document
 read 1422/1422 with its six contract guards. The current figure supersedes both.
