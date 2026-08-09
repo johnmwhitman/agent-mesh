@@ -3,11 +3,11 @@
 **Source version:** `0.20.0` · **MCP surface:** **36 MCP tools** ·
 **current suite contract:** **1617/1617** tests collected, plus typecheck and build
 
-The predecessor suite's exact cross-platform proof is GitHub Actions run `31307989128`
-at `5e65ab6` (9/9 jobs across Node 20/22/24 on Ubuntu, macOS, and Windows;
-1611/1611 collected, plus typecheck, build, and CLI smoke). The current 1617-test
-revision adds six timeout race guards and remains merge-blocked pending
-its own 9/9 matrix; the predecessor run is not evidence for those additions.
+The exact cross-platform proof is GitHub Actions run `31315444631` at `e14bd8f`
+(9/9 jobs across Node 20/22/24 on Ubuntu, macOS, and Windows; 1617/1617
+collected, plus typecheck, build, and CLI smoke). This documentation-only
+amendment records that completed proof; no runtime or test bytes differ from
+the tested revision.
 
 Base `01f0fa0` passed 1416/1416; the parity snapshot that introduced this document
 read 1422/1422 with its six contract guards. The current figure supersedes both.
