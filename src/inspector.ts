@@ -770,6 +770,162 @@ const CHECK_EXPLANATIONS: Record<string, CheckExplanation> = {
     benign: "usually exactly what it looks like: a coincidental substring in ordinary message content, not a real discussion. The filter is deliberately wide so that a genuine discussion cannot be missed by discovery",
     investigate: "agent-mesh inspect --export | jq '.messages[] | select(.payload | contains(\"discussion/v1\"))'",
   },
+  // ---------------------------------------------------------------------------
+  // deriveDiscussion pass-through findings (verify emits them as
+  // `discussion.<code>`). The codes are minted in src/discussion.ts — literal
+  // `code:` notes plus validateEnvelope's reason values — and
+  // test/inspector-explain.test.ts enumerates them from that source, so a new
+  // code without an entry here fails the completeness guard.
+  "discussion.invalid_envelope": {
+    what: "a message correlated to this discussion does not parse as a discussion/v1 envelope at all — the payload is not the JSON object the protocol requires",
+    benign: "an ordinary message that shares the discussion's correlation id without being part of it, or a client that never constructed a proper envelope",
+    investigate: "agent-mesh inspect --export | jq '.messages[] | select(.payload | contains(\"discussion/v1\"))'",
+  },
+  "discussion.payload_too_large": {
+    what: "a correlated message's payload exceeds the maximum serialized size the envelope validator accepts, so it is rejected before any of its claims are read",
+    benign: "an oversized but honestly-produced message — the sender exceeded the size budget rather than forging anything",
+    investigate: "agent-mesh inspect --export | jq '.messages[] | select((.payload | length) > 100000)'",
+  },
+  "discussion.invalid_version": {
+    what: "a message's envelope declares a $meshfleet value other than \"discussion/v1\" while its payload mentions that protocol string",
+    benign: "a message from a different or future protocol family caught by the deliberately wide discovery filter",
+    investigate: "agent-mesh inspect --export | jq '.messages[] | select(.payload | contains(\"discussion/v1\"))'",
+  },
+  "discussion.broadcast_forbidden": {
+    what: "a discussion/v1 envelope rides a broadcast message — a conversation between exactly two named agents is claimed on a message addressed to everyone",
+    benign: "none — the protocol forbids broadcast for every discussion message, and a writer that does it is not a compliant writer",
+    investigate: "agent-mesh inspect --export | jq '.messages[] | select(.payload | contains(\"discussion/v1\"))'",
+  },
+  "discussion.correlation_mismatch": {
+    what: "the discussion id inside a message's envelope disagrees with the correlation_id the message itself carries — the envelope claims membership in one conversation while the transport says another",
+    benign: "a copy between ledgers that rewrote correlation ids without rewriting the envelopes they carry",
+    investigate: "agent-mesh inspect --export | jq '.messages[] | select(.payload | contains(\"discussion/v1\"))'",
+  },
+  "discussion.invalid_kind": {
+    what: "an envelope declares a kind other than 'question' or 'result' — the only two moves the protocol defines",
+    benign: "a client using an extension or development-time kind string the validator does not admit",
+    investigate: "agent-mesh inspect --export | jq '.messages[] | select(.payload | contains(\"discussion/v1\"))'",
+  },
+  "discussion.child_policy_forbidden": {
+    what: "a non-root envelope carries a policy block — only the root (turn 1) may declare policy, so a child claiming one is rewriting the conversation's immutable terms mid-flight",
+    benign: "a client that copied the root's policy object into a reply during construction — but the aggregate is still marked invalid, because a compliant writer never produces this",
+    investigate: "agent-mesh inspect --export | jq '.messages[] | select(.payload | contains(\"policy\"))'",
+  },
+  "discussion.no_valid_root": {
+    what: "no correlated message survives root validation — nothing is simultaneously turn 1, reply_to null, typed and kinded 'question', policy-carrying, and participant-consistent — so the discussion has no starting point to derive from",
+    benign: "a partial copy that brought replies without their root, or a root rejected for one of the specific reasons reported alongside this finding",
+    investigate: "agent-mesh inspect --export | jq '.messages[] | select(.payload | contains(\"discussion/v1\"))'",
+  },
+  "discussion.duplicate_root": {
+    what: "a second message also passes full root validation for the same discussion id — two immutable starting points exist, so neither can be trusted as the conversation's terms",
+    benign: "none that leaves the discussion usable — a race or replay that minted two roots makes every derived claim ambiguous, which is why the aggregate is marked invalid",
+    investigate: "agent-mesh inspect --export | jq '.messages[] | select(.payload | contains(\"discussion/v1\"))'",
+  },
+  "discussion.root_not_question": {
+    what: "a root-shaped message (turn 1, reply_to null) is not typed and kinded 'question' — the conversation's opening move claims to be something the protocol says an opening move cannot be",
+    benign: "a client that set the message type and envelope kind inconsistently when opening; the message is excluded from root candidacy rather than repaired",
+    investigate: "agent-mesh inspect --export | jq '.messages[] | select(.payload | contains(\"discussion/v1\"))'",
+  },
+  "discussion.root_missing_policy": {
+    what: "a root-shaped message carries no policy block, so the budget, participants and deadlines every later check derives from do not exist",
+    benign: "an opening message written by hand or by a pre-policy client; it is excluded from root candidacy, never defaulted",
+    investigate: "agent-mesh inspect --export | jq '.messages[] | select(.payload | contains(\"discussion/v1\"))'",
+  },
+  "discussion.root_participant_mismatch": {
+    what: "the root's own from/to agents are not the two participants its policy block declares — the message that defines who may speak was not sent between those agents",
+    benign: "participants listed in swapped order at authoring time; the candidate is rejected rather than reordered",
+    investigate: "agent-mesh inspect --export | jq '.messages[] | select(.payload | contains(\"participants\"))'",
+  },
+  "discussion.root_close_forbidden": {
+    what: "the root envelope sets close=true — an opening question claiming to end the conversation it starts. Closing only takes effect through an authorized reply, so the flag is recorded and ignored",
+    benign: "a client mistake with no effect on derived status; this is the one root defect that does not disqualify the root",
+    investigate: "agent-mesh inspect --export | jq '.messages[] | select(.payload | contains(\"close\"))'",
+  },
+  "discussion.wrong_fleet": {
+    what: "a discussion message carries a fleet_id different from the root's — the conversation is claimed across a fleet boundary its own root does not span",
+    benign: "none — discussion membership is bounded by the root's fleet, and a crossing message invalidates the aggregate",
+    investigate: "agent-mesh inspect --export | jq '.messages[] | select(.payload | contains(\"discussion/v1\")) | {id, fleet_id}'",
+  },
+  "discussion.participant_violation": {
+    what: "a message's sender/recipient pair is not drawn from the discussion's two declared participants, or sender and recipient are the same agent — someone outside the conversation's own terms is speaking in it",
+    benign: "none — the participant set is the discussion's authorization boundary, and a violation invalidates the aggregate",
+    investigate: "agent-mesh inspect --export | jq '.messages[] | select(.payload | contains(\"discussion/v1\")) | {id, from_agent_id, to_agent_id}'",
+  },
+  "discussion.kind_type_mismatch": {
+    what: "a non-root message's envelope kind disagrees with the message's own type field — the envelope claims one kind of move while the transport row claims another",
+    benign: "none — a compliant writer sets both from the same value, so disagreement means one of them was edited",
+    investigate: "agent-mesh inspect --export | jq '.messages[] | select(.payload | contains(\"discussion/v1\")) | {id, type}'",
+  },
+  "discussion.invalid_sender": {
+    what: "a reply does not alternate speakers — its sender/recipient pair is not the exact swap of the previous message's, so the strict two-agent turn-taking the protocol requires is broken",
+    benign: "none — alternation is a hard lineage rule; a non-alternating reply invalidates the aggregate",
+    investigate: "agent-mesh inspect --export | jq '.messages[] | select(.payload | contains(\"discussion/v1\")) | {id, from_agent_id, to_agent_id}'",
+  },
+  "discussion.unmatched_receipt": {
+    what: "a receipt in the discussion.* namespace does not parse as any known lifecycle action, or is a turn-sent receipt that does not match the root attempt — a claim about the conversation's lifecycle that the lifecycle cannot place",
+    benign: "an agent that formatted an action string by hand, or a receipt copied in from a ledger whose discussion this is not",
+    investigate: "agent-mesh inspect --receipts | grep discussion",
+  },
+  "discussion.malformed_receipt_note": {
+    what: "a wake receipt's note payload fails validation — the receipt is placeable in the lifecycle but what it says about the wake attempt is not well-formed",
+    benign: "an agent that wrote an ill-formed note object; the receipt is excluded from attempt validation rather than partially trusted",
+    investigate: "agent-mesh inspect --receipts | grep wake",
+  },
+  "discussion.attempt_missing_reservation": {
+    what: "an attempt has no 'reserved' receipt as its lineage root — only started/completed/failed/deadman receipts exist, which never authorize anything on their own",
+    benign: "a partial copy between ledgers that brought an attempt's later receipts without its reservation",
+    investigate: "agent-mesh inspect --receipts | grep reserved",
+  },
+  "discussion.attempt_identity_conflict": {
+    what: "one attempt id carries internally inconsistent receipts — head, turn, agent or deadline disagree across them, or more than one completed reply or terminal state is claimed",
+    benign: "none — an attempt's identity fields must agree everywhere they appear, so conflict means forged or corrupted receipts, and the aggregate is marked invalid",
+    investigate: "agent-mesh inspect --receipts | grep reserved",
+  },
+  "discussion.late_completion": {
+    what: "an attempt's completed receipt is timestamped after its own deadline or the conversation deadline — the completion is real but arrived when the attempt no longer had authority, so it is excluded and the attempt falls back to its non-late state",
+    benign: "a slow agent or clock skew on an honest completion; the expired-attempt handling already accounts for the fallback",
+    investigate: "agent-mesh inspect --receipts | grep completed",
+  },
+  "discussion.attempt_beyond_budget": {
+    what: "a validated attempt claims a turn beyond the root policy's immutable max_turns — spending conversation budget the conversation never had",
+    benign: "an attempt reserved against a stale view of the policy; it is flagged once here and excluded from every later scan",
+    investigate: "agent-mesh inspect --receipts | grep reserved",
+  },
+  "discussion.receipt_on_invalid_head": {
+    what: "an attempt is bound to a head that is not a validated discussion message, or sits outside the continuous canonical chain of reservations from the root",
+    benign: "an attempt orphaned when deeper validation rejected its head for a reason reported alongside, or a branch abandoned after a fork",
+    investigate: "agent-mesh inspect --receipts | grep reserved",
+  },
+  "discussion.unauthorized_attempt_agent": {
+    what: "an attempt was made by an agent other than the recipient of its head message — someone who was not asked is answering",
+    benign: "an agent replaying receipts from a discussion it does legitimately participate in, against the wrong head",
+    investigate: "agent-mesh inspect --receipts | grep reserved",
+  },
+  "discussion.duplicate_turn": {
+    what: "the same turn number is claimed by more than one validated reservation — two attempts both hold the authority the budget grants exactly once",
+    benign: "none — turn reservations are the spend of a bounded budget, and a duplicate invalidates the aggregate",
+    investigate: "agent-mesh inspect --receipts | grep reserved",
+  },
+  "discussion.ordinal_discontinuity": {
+    what: "the turn sequence jumps — an attempt claims a turn without a validated failed reservation for every intervening turn, or a later turn is reserved while an earlier one never was",
+    benign: "none — every skipped turn must be accounted for by an explained failure, so an unexplained gap invalidates the aggregate and nothing advances past it",
+    investigate: "agent-mesh inspect --receipts | grep reserved",
+  },
+  "discussion.fork": {
+    what: "two or more authorized replies target the same head — the conversation's canonical walk reaches a point where the ledger asserts both branches, and it cannot advance past them",
+    benign: "none — one head admits one authorized reply, so a fork means duplicate authorization or forgery, and the aggregate is marked invalid",
+    investigate: "agent-mesh inspect --export | jq '.messages[] | select(.payload | contains(\"discussion/v1\"))'",
+  },
+  "discussion.unauthorized_reply": {
+    what: "a reply sits at a head with no validated completed wake attempt matching its reply id, turn and attempt id — an answer exists that nothing on record authorized",
+    benign: "the authorizing attempt was excluded by deeper validation for a reason reported alongside, taking this reply's authorization with it",
+    investigate: "agent-mesh inspect --receipts | grep completed",
+  },
+  "discussion.unreachable_envelope": {
+    what: "a fully valid discussion/v1 envelope never connects to the canonical chain from the root, and no specific rejection explains why — it is part of the conversation by its own claims but not by its lineage",
+    benign: "messages stranded when the canonical walk stopped early at a fork, deadman or gap reported alongside this finding",
+    investigate: "agent-mesh inspect --export | jq '.messages[] | select(.payload | contains(\"discussion/v1\"))'",
+  },
   "agent.orphan_fleet": {
     what: "an agent row references a fleet this ledger does not hold",
     benign: "agents copied in from another mesh, or old fleet rows pruned without their agents",

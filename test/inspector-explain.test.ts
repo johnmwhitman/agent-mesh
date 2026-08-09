@@ -21,6 +21,28 @@ function checkIdsFromSource(): string[] {
   // slipped past this guard exactly that way. A completeness guard that cannot
   // see part of the source is not a completeness guard.
   const ids = [...src.matchAll(/(?:\berror|\bwarning)\(\s*"([^"]+)"/g)].map((m) => m[1] as string);
+  // The literal-quote pattern above is blind to verify.ts's ONE templated
+  // emission: the discussion integrity pass-through, error(`discussion.${finding.code}`)
+  // / warning(`discussion.${finding.code}`). Those codes are minted in
+  // src/discussion.ts, two ways: literal `code: "..."` notes, and
+  // validateEnvelope's `reason: "..."` values (which become codes via
+  // `code: validation.reason ?? "invalid_envelope"`). Enumerate both from that
+  // source, the same way this guard already reads verify.ts — a guard that
+  // cannot see part of the source is not a completeness guard.
+  if (/(?:\berror|\bwarning)\(\s*`discussion\.\$\{/.test(src)) {
+    const discussionSrc = readFileSync(join(ROOT, "src", "discussion.ts"), "utf8");
+    const literalCodes = [...discussionSrc.matchAll(/\bcode: "([a-z_]+)"/g)].map((m) => m[1] as string);
+    // Only validateEnvelope's reasons become codes (`code: validation.reason`),
+    // and its rejection shape — `valid: false, reason: "..."` — is unique to it.
+    // A bare `reason:` pattern would also sweep up validateWakeReceiptNote's
+    // reasons, which land in detail TEXT under the malformed_receipt_note code
+    // and are never minted as codes: the first draft of this expansion did
+    // exactly that and demanded an explanation for an id verify cannot emit.
+    const reasonCodes = [...discussionSrc.matchAll(/valid: false, reason: "([a-z_]+)"/g)].map((m) => m[1] as string);
+    for (const code of [...literalCodes, ...reasonCodes, "invalid_envelope"]) {
+      ids.push(`discussion.${code}`);
+    }
+  }
   return [...new Set(ids)];
 }
 
@@ -29,6 +51,13 @@ test("the check-id enumeration finds the known verify checks", () => {
   assert.ok(ids.length >= 29, `expected a full check inventory, got ${ids.length}: ${ids.join(", ")}`);
   assert.ok(ids.includes("receipt.orphan_message"));
   assert.ok(ids.includes("ratification.status_mismatch"));
+  // Self-test for the templated pass-through expansion: one literal-`code:`
+  // id, one validateEnvelope reason-derived id, and the `?? "invalid_envelope"`
+  // default must all be visible, or the expansion has gone blind to one of
+  // discussion.ts's three minting paths.
+  assert.ok(ids.includes("discussion.fork"), "literal code: notes must be enumerated");
+  assert.ok(ids.includes("discussion.payload_too_large"), "validateEnvelope reason values must be enumerated");
+  assert.ok(ids.includes("discussion.invalid_envelope"), "the ?? fallback code must be enumerated");
 });
 
 test("an unknown check id falls back to a generic explanation", () => {
