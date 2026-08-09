@@ -17,15 +17,49 @@ class ControlledRuntime implements RuntimeAdapter {
   readonly results: Array<ReturnType<typeof deferred<RuntimeResult>>> = [];
   readonly starts: ExecutionSpec[] = [];
   readonly cancellations: string[] = [];
+  constructor(private readonly now: () => number = Date.now) {}
   describe() { return { id: this.id, displayName: "Controlled", defaultTimeoutMs: 1_000 }; }
   validate() { return { ok: true, errors: [] }; }
   async start(spec: ExecutionSpec): Promise<RuntimeHandle> {
     this.starts.push(spec);
     const result = deferred<RuntimeResult>();
     this.results.push(result);
-    return { id: `handle-${this.results.length}`, pid: 10_000 + this.results.length, startedAt: Date.now(), isAlive: () => true };
+    return { id: `handle-${this.results.length}`, pid: 10_000 + this.results.length, startedAt: this.now(), isAlive: () => true };
   }
   wait(): Promise<RuntimeResult> { return this.results.at(-1)!.promise; }
+  async cancel(handle: RuntimeHandle, reason: string) {
+    this.cancellations.push(`${handle.id}:${reason}`);
+    return { accepted: true };
+  }
+}
+
+class DelayedStartRuntime implements RuntimeAdapter {
+  readonly id = "delayed-start";
+  readonly startEntered = deferred<void>();
+  readonly releaseHandle = deferred<void>();
+  readonly result = deferred<RuntimeResult>();
+  readonly starts: ExecutionSpec[] = [];
+  readonly cancellations: string[] = [];
+  readonly timeoutUpdates: number[] = [];
+  handleStartedAt: number | undefined;
+
+  constructor(private readonly now: () => number) {}
+  describe() { return { id: this.id, displayName: "Delayed start", defaultTimeoutMs: 1_000 }; }
+  validate() { return { ok: true, errors: [] }; }
+  async start(spec: ExecutionSpec): Promise<RuntimeHandle> {
+    this.starts.push(spec);
+    this.handleStartedAt = this.now();
+    this.startEntered.resolve();
+    await this.releaseHandle.promise;
+    return {
+      id: "handle-delayed",
+      pid: 10_001,
+      startedAt: this.handleStartedAt,
+      isAlive: () => true,
+      updateTimeout: (timeoutMs) => { this.timeoutUpdates.push(timeoutMs); },
+    };
+  }
+  wait(): Promise<RuntimeResult> { return this.result.promise; }
   async cancel(handle: RuntimeHandle, reason: string) {
     this.cancellations.push(`${handle.id}:${reason}`);
     return { accepted: true };
@@ -83,7 +117,7 @@ test("durable fleet timeout cancels lifecycle authority and its owned runtime ha
   const temp = withTempDb();
   try {
     let now = 1_000;
-    const runtime = new ControlledRuntime();
+    const runtime = new ControlledRuntime(() => now);
     const coordinator = new LifecycleExecutionCoordinator(runtime, {
       ownerId: "owner-timeout",
       now: () => now,
@@ -113,7 +147,7 @@ test("durable fleet timeout contains a recorded PID after local handles are lost
   try {
     let now = 1_000;
     const contained: number[] = [];
-    const runtime = new ControlledRuntime();
+    const runtime = new ControlledRuntime(() => now);
     const coordinator = new LifecycleExecutionCoordinator(runtime, {
       ownerId: "owner-timeout-restart",
       now: () => now,
@@ -142,7 +176,7 @@ test("durable recovery expires an offline fleet deadline before reclaiming its l
   const temp = withTempDb();
   try {
     let now = 1_000;
-    const firstRuntime = new ControlledRuntime();
+    const firstRuntime = new ControlledRuntime(() => now);
     const first = new LifecycleExecutionCoordinator(firstRuntime, {
       ownerId: "owner-offline-first",
       now: () => now,
@@ -162,7 +196,7 @@ test("durable recovery expires an offline fleet deadline before reclaiming its l
 
     now = 1_100;
     const contained: number[] = [];
-    const recoveredRuntime = new ControlledRuntime();
+    const recoveredRuntime = new ControlledRuntime(() => now);
     const recovered = new LifecycleExecutionCoordinator(recoveredRuntime, {
       ownerId: "owner-offline-second",
       now: () => now,
@@ -193,7 +227,7 @@ test("durable runtime timeout settles as the configured fleet timeout without re
   const temp = withTempDb();
   try {
     let now = 1_000;
-    const runtime = new ControlledRuntime();
+    const runtime = new ControlledRuntime(() => now);
     const coordinator = new LifecycleExecutionCoordinator(runtime, {
       ownerId: "owner-runtime-timeout",
       now: () => now,
@@ -210,12 +244,216 @@ test("durable runtime timeout settles as the configured fleet timeout without re
     await waitUntil(() => loadData().agents["agent-runtime-timeout"].status !== "running", "durable runtime timeout settlement");
 
     assert.equal(loadData().agents["agent-runtime-timeout"].status, "failed");
-    assert.match(loadData().agents["agent-runtime-timeout"].error ?? "", /fleet timeout.*100ms/i);
+    assert.match(loadData().agents["agent-runtime-timeout"].error ?? "", /runtime timeout/i);
     assert.equal(loadData().fleets["fleet-runtime-timeout"].status, "failed");
     assert.equal(runtime.starts.length, 1, "fleet timeout must not spend retry budget");
     coordinator.stop();
   } finally {
     temp.cleanup();
+  }
+});
+
+test("durable runtime timeout uses handle start time, not later ledger observation, and never retries", async () => {
+  const temp = withTempDb();
+  const previousTimeout = process.env.MESHFLEET_AGENT_TIMEOUT_MS;
+  try {
+    process.env.MESHFLEET_AGENT_TIMEOUT_MS = "100";
+    let now = 1_000;
+    const runtime = new DelayedStartRuntime(() => now);
+    const coordinator = new LifecycleExecutionCoordinator(runtime, {
+      ownerId: "owner-delayed-timeout",
+      now: () => now,
+      retryBaseMs: 60_000,
+      maxAttempts: 2,
+    });
+    coordinator.createFleet("fleet-delayed-timeout", [{
+      fleetId: "fleet-delayed-timeout",
+      agentId: "agent-delayed-timeout",
+      role: "worker",
+      prompt: "work",
+    }]);
+    await runtime.startEntered.promise;
+    assert.equal(runtime.starts[0]?.timeoutMs, 100);
+    assert.equal(runtime.handleStartedAt, 1_000);
+    setFleetTimeout("fleet-delayed-timeout", 200);
+
+    now = 1_050;
+    runtime.releaseHandle.resolve();
+    await waitUntil(
+      () => loadData().agents["agent-delayed-timeout"].status === "running",
+      "delayed durable handle observation",
+    ).catch((error) => {
+      throw new Error(`${error instanceof Error ? error.message : String(error)}; agent=${JSON.stringify(loadData().agents["agent-delayed-timeout"])}; lifecycle=${JSON.stringify(new LifecycleStore().getState("agent-delayed-timeout"))}`);
+    });
+    assert.equal(loadData().agents["agent-delayed-timeout"].started_at, 1_000);
+    assert.deepEqual(runtime.timeoutUpdates, [200], "pending-start timeout changes re-arm the observed handle");
+
+    now = 1_200;
+    // The runtime's 200ms timer has already fired. A late extension cannot
+    // revoke that terminal request while process shutdown is still settling.
+    setFleetTimeout("fleet-delayed-timeout", 1_000);
+    runtime.result.resolve(timeout());
+    await waitUntil(
+      () => new LifecycleStore().getState("agent-delayed-timeout")?.work.status !== "running",
+      "delayed durable timeout settlement",
+    );
+
+    const state = new LifecycleStore().getState("agent-delayed-timeout")!;
+    assert.equal(state.work.status, "cancelled");
+    assert.equal(state.attempts.length, 1);
+    assert.equal(loadData().agents["agent-delayed-timeout"].status, "failed");
+    assert.match(loadData().agents["agent-delayed-timeout"].error ?? "", /runtime timeout/i);
+    assert.equal(loadData().fleets["fleet-delayed-timeout"].status, "failed");
+    assert.equal(runtime.starts.length, 1);
+    assert.equal(readEventLog().some((event) => event.event === "agent_retry_scheduled"), false);
+    coordinator.stop();
+  } finally {
+    if (previousTimeout === undefined) delete process.env.MESHFLEET_AGENT_TIMEOUT_MS;
+    else process.env.MESHFLEET_AGENT_TIMEOUT_MS = previousTimeout;
+    temp.cleanup();
+  }
+});
+
+test("stale durable runtime timeout cannot cancel a replacement attempt", async () => {
+  const temp = withTempDb();
+  try {
+    let now = 1_000;
+    const runtime = new ControlledRuntime(() => now);
+    const coordinator = new LifecycleExecutionCoordinator(runtime, {
+      ownerId: "owner-stale-timeout",
+      now: () => now,
+      leaseMs: 100,
+      retryBaseMs: 0,
+      maxAttempts: 2,
+      terminatePid: () => {},
+    });
+    coordinator.createFleet("fleet-stale-timeout", [{
+      fleetId: "fleet-stale-timeout",
+      agentId: "agent-stale-timeout",
+      role: "worker",
+      prompt: "work",
+    }]);
+    await waitUntil(() => runtime.results.length === 1, "original durable runtime start");
+
+    now = 1_101;
+    coordinator.recover();
+    await waitUntil(() => runtime.results.length === 2, "replacement durable runtime start");
+    const before = new LifecycleStore().getState("agent-stale-timeout")!;
+    assert.equal(before.work.status, "running");
+    assert.equal(before.attempts.length, 2);
+    const replacement = before.attempts.find((attempt) => attempt.attempt_id === before.work.current_attempt_id)!;
+    const leaseBeforeStaleTimeout = replacement.lease_until!;
+    const cancellationsBeforeStaleTimeout = [...runtime.cancellations];
+
+    now = 1_150;
+    runtime.results[0].resolve(timeout());
+    await new Promise((done) => setImmediate(done));
+
+    const after = new LifecycleStore().getState("agent-stale-timeout")!;
+    assert.equal(after.work.status, "running");
+    assert.equal(after.work.current_attempt_id, before.work.current_attempt_id);
+    assert.equal(after.attempts.length, 2);
+    assert.equal(loadData().agents["agent-stale-timeout"].status, "running");
+    assert.equal(runtime.starts.length, 2);
+    assert.equal(
+      readEventLog().some((event) => event.event === "agent_fleet_timeout" && event.agent_id === "agent-stale-timeout"),
+      false,
+    );
+    await waitUntil(() => {
+      const state = new LifecycleStore().getState("agent-stale-timeout")!;
+      const current = state.attempts.find((attempt) => attempt.attempt_id === state.work.current_attempt_id);
+      return (current?.lease_until ?? 0) > leaseBeforeStaleTimeout;
+    }, "replacement lease renewal after stale timeout", 500);
+    assert.deepEqual(runtime.cancellations, cancellationsBeforeStaleTimeout, "stale timeout does not cancel the replacement");
+    coordinator.stop();
+  } finally {
+    temp.cleanup();
+  }
+});
+
+test("durable runtime timeout cannot terminalize an expired lease before recovery", async () => {
+  const temp = withTempDb();
+  try {
+    let now = 1_000;
+    const expiredRuntime = new ControlledRuntime(() => now);
+    const expiredOwner = new LifecycleExecutionCoordinator(expiredRuntime, {
+      ownerId: "owner-expired-timeout",
+      now: () => now,
+      leaseMs: 100,
+      retryBaseMs: 0,
+      maxAttempts: 2,
+    });
+    expiredOwner.createFleet("fleet-expired-timeout", [{
+      fleetId: "fleet-expired-timeout",
+      agentId: "agent-expired-timeout",
+      role: "worker",
+      prompt: "work",
+    }]);
+    await waitUntil(() => expiredRuntime.results.length === 1, "expiring durable runtime start");
+
+    now = 1_100;
+    expiredRuntime.results[0].resolve(timeout());
+    await new Promise((done) => setImmediate(done));
+    assert.equal(new LifecycleStore().getState("agent-expired-timeout")?.work.status, "running");
+    assert.equal(loadData().agents["agent-expired-timeout"].status, "running");
+    assert.equal(
+      readEventLog().some((event) => event.event === "agent_fleet_timeout" && event.agent_id === "agent-expired-timeout"),
+      false,
+    );
+
+    const recoveredRuntime = new ControlledRuntime(() => now);
+    const recovered = new LifecycleExecutionCoordinator(recoveredRuntime, {
+      ownerId: "owner-expired-timeout-recovery",
+      now: () => now,
+      leaseMs: 1_000,
+      retryBaseMs: 0,
+      maxAttempts: 2,
+      terminatePid: () => {},
+    });
+    recovered.recover();
+    await waitUntil(() => recoveredRuntime.results.length === 1, "expired lease recovery runtime start");
+    const recoveredState = new LifecycleStore().getState("agent-expired-timeout")!;
+    assert.equal(recoveredState.work.status, "running");
+    assert.equal(recoveredState.attempts.length, 2);
+    assert.equal(loadData().agents["agent-expired-timeout"].status, "running");
+    assert.deepEqual(expiredRuntime.cancellations, [], "expired timeout callback only forgets its already-terminal handle");
+    expiredOwner.stop();
+    assert.deepEqual(expiredRuntime.cancellations, []);
+    recovered.stop();
+  } finally {
+    temp.cleanup();
+  }
+});
+
+test("durable runtime start anchors reject invalid or future handle timestamps", async () => {
+  for (const invalidStartedAt of [Number.NaN, 1_051]) {
+    const temp = withTempDb();
+    try {
+      let now = 1_000;
+      const runtime = new DelayedStartRuntime(() => now);
+      const coordinator = new LifecycleExecutionCoordinator(runtime, {
+        ownerId: `owner-invalid-start-${String(invalidStartedAt)}`,
+        now: () => now,
+      });
+      coordinator.createFleet("fleet-invalid-start", [{
+        fleetId: "fleet-invalid-start",
+        agentId: "agent-invalid-start",
+        role: "worker",
+        prompt: "work",
+      }]);
+      await runtime.startEntered.promise;
+      runtime.handleStartedAt = invalidStartedAt;
+      now = 1_050;
+      runtime.releaseHandle.resolve();
+      await waitUntil(
+        () => loadData().agents["agent-invalid-start"].status === "running",
+        "invalid durable start fallback",
+      );
+      assert.equal(loadData().agents["agent-invalid-start"].started_at, 1_000);
+      coordinator.stop();
+    } finally {
+      temp.cleanup();
+    }
   }
 });
 
@@ -375,7 +613,7 @@ test("reconstructed coordinator reads requestedModel from the Agent row", async 
   const temp = withTempDb();
   try {
     let now = 1_000;
-    const runtime1 = new ControlledRuntime();
+    const runtime1 = new ControlledRuntime(() => now);
     const first = new LifecycleExecutionCoordinator(runtime1, {
       ownerId: "owner-first",
       retryBaseMs: 0,
@@ -404,7 +642,7 @@ test("reconstructed coordinator reads requestedModel from the Agent row", async 
     first.stop();
     now += 31;
 
-    const runtime2 = new ControlledRuntime();
+    const runtime2 = new ControlledRuntime(() => now);
     const recovered = new LifecycleExecutionCoordinator(runtime2, {
       ownerId: "owner-second",
       retryBaseMs: 0,

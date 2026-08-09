@@ -403,6 +403,7 @@ export class LifecycleExecutionCoordinator {
     if (!state || !state.agent) return;
     const current = state.state.attempts.find((attempt) => attempt.attempt_id === state.state.work.current_attempt_id);
     if (!current || current.owner_id !== this.ownerId || current.status !== "running") return;
+    const launchIntentAt = current.launch_intent_at ?? this.now();
     // Derived from the attempt id, never stored: `settle` recomputes the identical path from the
     // same two facts, so a restart between launch and settle cannot lose track of which file this
     // attempt was told to write. Per attempt, so a retry never inherits the previous declaration.
@@ -427,21 +428,43 @@ export class LifecycleExecutionCoordinator {
     this.beforeRuntimeStart?.();
     void this.runtime.start(spec).then((handle) => {
       if (this.stopped) { void this.runtime.cancel(handle, "coordinator stopped before launch observation"); return; }
+      const observedAt = this.now();
+      const handleStartIsAdmissible = Number.isSafeInteger(handle.startedAt)
+        && handle.startedAt >= launchIntentAt
+        && handle.startedAt <= observedAt;
+      const runtimeStartedAt = handleStartIsAdmissible ? handle.startedAt : launchIntentAt;
       const launched = withLedgerAndStorage((data, db) => {
         const store = lifecycle(db, this.now);
         const renewed = store.renewLease({ workId: agentId, attemptId: current.attempt_id, ownerId: this.ownerId, ownerEpoch: current.owner_epoch, leaseMs: this.leaseMs });
         if (!renewed.accepted) return false;
-        const metadata = store.recordRuntimeMetadata({ workId: agentId, attemptId: current.attempt_id, ownerId: this.ownerId, ownerEpoch: current.owner_epoch, pid: handle.pid, metadata: { adapter_id: this.runtime.id, handle_id: handle.id, observed_at: this.now() } });
+        const metadata = store.recordRuntimeMetadata({ workId: agentId, attemptId: current.attempt_id, ownerId: this.ownerId, ownerEpoch: current.owner_epoch, pid: handle.pid, metadata: { adapter_id: this.runtime.id, handle_id: handle.id, observed_at: observedAt } });
         if (!metadata.accepted) return false;
         const agent = data.agents[agentId];
         if (!agent) return false;
         agent.status = "running";
-        agent.started_at = this.now();
+        agent.started_at = runtimeStartedAt;
         if (handle.pid !== undefined) agent.pid = handle.pid;
-        queueEvent(db, "agent_spawned", { fleet_id: agent.fleet_id, agent_id: agentId, role: agent.role, agent_file: agent.agent_file }, this.now());
+        queueEvent(db, "agent_spawned", { fleet_id: agent.fleet_id, agent_id: agentId, role: agent.role, agent_file: agent.agent_file }, observedAt);
         return true;
       });
       if (!launched) { void this.runtime.cancel(handle, "lease lost before launch observation"); return; }
+      try {
+        // set_fleet_timeout may have changed while runtime.start() was pending,
+        // before this handle was reachable through the live-handle map.
+        handle.updateTimeout?.(getFleetTimeoutMs(state.agent.fleet_id));
+      } catch (error) {
+        void this.runtime.cancel(handle, "failed to apply current fleet timeout after launch");
+        this.settle(agentId, current.attempt_id, current.owner_epoch, {
+          status: "failure",
+          stdout: "",
+          stderr: "",
+          exitCode: null,
+          error: redact(error),
+          diagnostics: [],
+          identity: { adapterId: this.runtime.id, evidence: "none" },
+        });
+        return;
+      }
       this.handles.set(agentId, { handle, attemptId: current.attempt_id, ownerEpoch: current.owner_epoch });
       this.startRenewal(agentId, current.attempt_id, current.owner_epoch, handle);
       this.onAgentStateChange?.(state.agent.fleet_id);
@@ -469,9 +492,8 @@ export class LifecycleExecutionCoordinator {
   private settle(agentId: string, attemptId: string, epoch: number, result: RuntimeResult): void {
     if (this.stopped) return;
     if (result.status === "timeout") {
-      const fleetId = loadData().agents[agentId]?.fleet_id;
-      if (fleetId) this.expireFleetTimeout(fleetId, this.now());
-      if (loadData().agents[agentId]?.status !== "running") return;
+      this.settleRuntimeTimeout(agentId, attemptId, epoch);
+      return;
     }
     const tracked = this.handles.get(agentId);
     if (tracked?.attemptId === attemptId && tracked.ownerEpoch === epoch) {
@@ -518,6 +540,58 @@ export class LifecycleExecutionCoordinator {
     if (next?.status === "pending") this.scheduleDue(agentId, next.eligible_at);
     this.scheduleRecoveryWake();
     repairLifecycleOutbox(this.ownerId, this.now());
+  }
+
+  /**
+   * A runtime timeout is direct evidence that this attempt's already-armed hard
+   * ceiling fired. Terminalize only that still-owned attempt: re-reading the
+   * fleet override here would let a late extension turn an in-flight shutdown
+   * into a retry, while expiring the whole fleet could fail unrelated agents.
+   */
+  private settleRuntimeTimeout(agentId: string, attemptId: string, epoch: number): void {
+    const now = this.now();
+    const reason = "Fleet runtime timeout elapsed";
+    const fleetId = withLedgerAndStorage((data, db) => {
+      const agent = data.agents[agentId];
+      if (!agent) return undefined;
+      const store = lifecycle(db, () => now);
+      const state = store.getState(agentId);
+      const current = state?.attempts.find((attempt) => attempt.attempt_id === state.work.current_attempt_id);
+      if (
+        !state ||
+        state.work.status !== "running" ||
+        state.work.current_attempt_id !== attemptId ||
+        state.work.owner_epoch !== epoch ||
+        !current ||
+        current.status !== "running" ||
+        current.owner_id !== this.ownerId ||
+        current.owner_epoch !== epoch ||
+        current.lease_until === null ||
+        current.lease_until <= now
+      ) return undefined;
+      const cancelled = store.cancel(agentId);
+      if (!cancelled.accepted) return undefined;
+      this.projectPending(data, cancelled.state);
+      agent.error = reason;
+      queueEvent(db, "agent_fleet_timeout", {
+        agent_id: agentId,
+        fleet_id: agent.fleet_id,
+        reason,
+        timed_out_at: now,
+      }, now);
+      return agent.fleet_id;
+    });
+    const tracked = this.handles.get(agentId);
+    if (tracked?.attemptId === attemptId && tracked.ownerEpoch === epoch) {
+      const timer = this.timers.get(agentId);
+      if (timer) clearInterval(timer);
+      this.timers.delete(agentId);
+      this.handles.delete(agentId);
+    }
+    if (!fleetId) return; // stale timeout callbacks never affect a replacement attempt.
+    this.onAgentStateChange?.(fleetId);
+    this.scheduleRecoveryWake();
+    repairLifecycleOutbox(this.ownerId, now);
   }
 
   private projectPending(

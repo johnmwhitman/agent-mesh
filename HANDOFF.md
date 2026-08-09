@@ -1,12 +1,13 @@
 # MeshFleet public handoff
 
 **Source version:** `0.20.0` · **MCP surface:** **36 MCP tools** ·
-**current suite contract:** **1611/1611** tests collected, plus typecheck and build
+**current suite contract:** **1615/1615** tests collected, plus typecheck and build
 
-The exact cross-platform proof is GitHub Actions run `31307989128` at `5e65ab6`
-(9/9 jobs across Node 20/22/24 on Ubuntu, macOS, and Windows; 1611/1611
-collected, plus typecheck, build, and CLI smoke). This sentence is the only change
-after that tested revision; its exact diff was reviewed after the matrix and before merge.
+The predecessor suite's exact cross-platform proof is GitHub Actions run `31307989128`
+at `5e65ab6` (9/9 jobs across Node 20/22/24 on Ubuntu, macOS, and Windows;
+1611/1611 collected, plus typecheck, build, and CLI smoke). The current 1615-test
+revision adds four durable-timeout race guards and remains merge-blocked pending
+its own 9/9 matrix; the predecessor run is not evidence for those additions.
 
 Base `01f0fa0` passed 1416/1416; the parity snapshot that introduced this document
 read 1422/1422 with its six contract guards. The current figure supersedes both.
