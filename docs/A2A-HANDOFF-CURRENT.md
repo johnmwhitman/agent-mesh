@@ -11,8 +11,9 @@ ADRs, current source, and executable fixtures outrank this summary.
 - The durable lifecycle kernel is implemented for single-host SQLite authority:
   fenced leases, persisted retries, recovery, cancellation, and a repairable
   event outbox. It is not multi-host coordination.
-- The runtime registry is provider-neutral. OpenCode is the default; Kimi and
-  Claude Code are configuration-gated fixture-verified adapters. Per-agent
+- The runtime registry is provider-neutral. OpenCode is the default; Kimi,
+  Claude Code, and direct text-only MiniMax are configuration-gated
+  fixture-verified adapters. MiniMax is explicit-only. Per-agent
   runtime selection is available in legacy lifecycle mode and refused in
   durable mode.
 - Slice 4C-1 is a test-only offline local-admission evaluator. Its 44 mandatory cases,

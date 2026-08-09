@@ -1,6 +1,7 @@
 /**
- * The result contract: a declared outcome an agent writes to a file, so that `complete` stops
- * being a claim MeshFleet infers from a process exiting 0.
+ * The result contract: a declared outcome an agent writes to a file, or a restricted runtime
+ * returns in a schema-bound final-text envelope, so that `complete` stops being a claim
+ * MeshFleet infers from a process exiting 0.
  *
  * WHAT THIS SOLVES. Three live agents were observed banking `complete` on 2026-08-05 having
  * delivered nothing: one whose entire output was `"I could not."`, one that spent 14,450
@@ -8,7 +9,7 @@
  * Every existing guard let all three through, because each of them looks — byte for byte — like
  * an agent that answered.
  *
- * 🔴 OUTPUT LENGTH IS NOT PART OF THE PREDICATE, AT ANY POINT. The 14,450-character refusal is
+ * 🔴 OUTPUT LENGTH IS NOT PART OF THE FILE PREDICATE. The 14,450-character refusal is
  * the reason. Length correlates with effort only in the cases that were never the problem, and a
  * length floor would bank exactly that refusal while failing a correct one-line answer. Nor is
  * any keyword scan of the prose — "I could not" is a phrase an agent that DID the work can write
@@ -20,7 +21,8 @@
  * truth of the claim needs a different oracle (a reviewer, a test, an attestation). Marketing
  * this as a truth or quality gate would be the same overclaim it exists to prevent.
  *
- * TWO RELEASES, deliberately. This release OBSERVES: every spawn is taught the contract and the
+ * TWO RELEASES, deliberately. This release OBSERVES: every runtime is taught the contract it can
+ * actually satisfy (file-based for agentic runtimes, final-text for restricted runtimes), and the
  * observed status is recorded on the agent row, but banking is unchanged. The next release
  * ENFORCES: absent or invalid becomes `failed`. Enforcing on day one would fail every fleet
  * whose prompts predate the contract — mass false `failed`, which is the same class of untrue
@@ -34,6 +36,7 @@ import { join, isAbsolute, resolve as resolvePath } from "path";
 
 /** Exact marker. A version bump is a new marker string; an unknown marker is unparseable. */
 export const RESULT_CONTRACT_SCHEMA = "mf.agent.result/v1";
+export const TEXT_RESULT_CONTRACT_SCHEMA = "mf.agent.text-result/v1";
 
 /** The environment variable naming the file. Also inlined in the prompt — agents skip env. */
 export const RESULT_PATH_ENV = "RESULT_PATH";
@@ -70,6 +73,57 @@ export type ParseResult =
   | { ok: false; reason: string };
 
 const OUTCOMES: readonly string[] = ["done", "refused", "blocked"];
+
+export type TextResultParse =
+  | { ok: true; status: "ok" | "refused" | "blocked"; output: string }
+  | { ok: false; reason: string };
+
+/** Parse a declaration from a runtime that can return text but has no filesystem authority. */
+export function parseAgentTextResultEnvelope(raw: string): TextResultParse {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return { ok: false, reason: "not JSON" };
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return { ok: false, reason: "not a single JSON object" };
+  }
+  const obj = parsed as Record<string, unknown>;
+  const allowed = new Set(["schema", "outcome", "summary", "output", "reason"]);
+  if (Object.keys(obj).some((key) => !allowed.has(key))) {
+    return { ok: false, reason: "unknown field" };
+  }
+  if (obj.schema !== TEXT_RESULT_CONTRACT_SCHEMA) {
+    return { ok: false, reason: "unknown schema marker" };
+  }
+  if (typeof obj.outcome !== "string" || !OUTCOMES.includes(obj.outcome)) {
+    return { ok: false, reason: "outcome is not one of done|refused|blocked" };
+  }
+  if (typeof obj.summary !== "string" || obj.summary.trim() === "") {
+    return { ok: false, reason: "summary is missing or empty" };
+  }
+  if (obj.outcome === "done") {
+    if (typeof obj.output !== "string" || obj.output.trim() === "") {
+      return { ok: false, reason: "done requires non-empty output" };
+    }
+    if (obj.reason !== undefined) return { ok: false, reason: "done must not carry a reason" };
+    return { ok: true, status: "ok", output: obj.output };
+  }
+  if (typeof obj.reason !== "string" || obj.reason.trim() === "") {
+    return { ok: false, reason: `${obj.outcome} requires a non-empty reason` };
+  }
+  if (obj.output !== undefined) {
+    return { ok: false, reason: `${obj.outcome} must not carry output` };
+  }
+  return {
+    ok: true,
+    status: obj.outcome as "refused" | "blocked",
+    // Restricted runtimes have no separate result file to preserve the triage explanation.
+    // Keep both fields in the useful output that reaches the ledger and collect_results.
+    output: `${obj.summary}\n\nReason: ${obj.reason}`,
+  };
+}
 
 /**
  * Parse the envelope bytes. Pure: no filesystem, no clock, no environment.
@@ -185,7 +239,7 @@ export function resultPathFor(agentId: string, attempt: string | number, dir: st
 }
 
 /**
- * Appended to every spawned prompt. Inlines the path because agents routinely never read env.
+ * Appended to every agentic runtime prompt. Inlines the path because agents routinely never read env.
  *
  * States the consequence in the release that will enforce it, not the one that observes: a
  * preamble that says "this is currently ignored" teaches agents to ignore it.
@@ -212,4 +266,19 @@ export function resultContractPreamble(resultPath: string, expectsArtifact = fal
 /** The prompt actually handed to the runtime. Kept in one place so both spawn paths agree. */
 export function withResultContract(prompt: string, resultPath: string, expectsArtifact = false): string {
   return `${prompt}\n${resultContractPreamble(resultPath, expectsArtifact)}\n`;
+}
+
+/** Teach a structured declaration to a runtime that has text output but no file authority. */
+export function withTextResultContract(prompt: string): string {
+  return [
+    prompt,
+    "",
+    "---",
+    "TEXT RESULT CONTRACT — MANDATORY.",
+    "Your entire final response must be one JSON object with no code fence or surrounding prose.",
+    `For completed work: {"schema":"${TEXT_RESULT_CONTRACT_SCHEMA}","outcome":"done","summary":"<one line>","output":"<the full useful answer>"}`,
+    `For a refusal or blocker: {"schema":"${TEXT_RESULT_CONTRACT_SCHEMA}","outcome":"refused"|"blocked","summary":"<one line>","reason":"<why>"}`,
+    "Output only the JSON object. Empty, prose-only, or malformed output is a failed run.",
+    "",
+  ].join("\n");
 }

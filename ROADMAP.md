@@ -17,8 +17,9 @@ The ranked A2A strategy is canonical in
    outbox. Logical ledger schema remains v2.
 3. **Provider-neutral runtime adapters** - the runtime SPI, OpenCode default,
    deterministic local-process proof, and per-agent runtime selection are
-   implemented. Kimi and Claude Code adapters are fixture-verified, non-default,
-   and require operator configuration; that evidence does not prove a provider
+   implemented. Kimi, Claude Code, and direct MiniMax adapters are fixture-verified,
+   non-default, and require operator configuration; MiniMax is explicit-only and
+   text-only. That evidence does not prove a provider
    account, quota, or availability.
 4. **Slice 4A portability proof** - canonical-ingress semantics are frozen in
    design, and a standalone offline Python witness agrees with the

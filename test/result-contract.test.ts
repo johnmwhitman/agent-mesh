@@ -5,12 +5,15 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, sep } from "node:path";
 import {
   RESULT_CONTRACT_SCHEMA,
+  TEXT_RESULT_CONTRACT_SCHEMA,
   evaluateResultContract,
   parseAgentResultEnvelope,
+  parseAgentTextResultEnvelope,
   readResultContract,
   resultContractPreamble,
   resultPathFor,
   withResultContract,
+  withTextResultContract,
 } from "../src/result-contract.js";
 
 const never = () => false;
@@ -169,4 +172,43 @@ test("the preamble names the exact path and marker, and states the enforcing con
   assert.ok(/failed, not complete/.test(preamble));
   const full = withResultContract("do the audit", "/tmp/mf-result.json");
   assert.ok(full.startsWith("do the audit"), "the caller's prompt is preserved verbatim, first");
+});
+
+test("restricted text runtimes declare the same outcomes without impossible file authority", () => {
+  const doneText = JSON.stringify({
+    schema: TEXT_RESULT_CONTRACT_SCHEMA,
+    outcome: "done",
+    summary: "reviewed the patch",
+    output: "No introduced defects.",
+  });
+  assert.deepEqual(parseAgentTextResultEnvelope(doneText), {
+    ok: true,
+    status: "ok",
+    output: "No introduced defects.",
+  });
+  const refused = parseAgentTextResultEnvelope(JSON.stringify({
+    schema: TEXT_RESULT_CONTRACT_SCHEMA,
+    outcome: "refused",
+    summary: "could not review",
+    reason: "input was incomplete",
+  }));
+  assert.deepEqual(refused, {
+    ok: true,
+    status: "refused",
+    output: "could not review\n\nReason: input was incomplete",
+  });
+  for (const malformed of [
+    "plain prose",
+    JSON.stringify({ schema: TEXT_RESULT_CONTRACT_SCHEMA, outcome: "done", summary: "missing output" }),
+    JSON.stringify({ schema: TEXT_RESULT_CONTRACT_SCHEMA, outcome: "blocked", summary: "no reason" }),
+    JSON.stringify({ schema: RESULT_CONTRACT_SCHEMA, outcome: "done", summary: "wrong schema", output: "x" }),
+  ]) {
+    assert.equal(parseAgentTextResultEnvelope(malformed).ok, false);
+  }
+
+  const taught = withTextResultContract("review this patch");
+  assert.ok(taught.startsWith("review this patch"));
+  assert.ok(taught.includes(TEXT_RESULT_CONTRACT_SCHEMA));
+  assert.doesNotMatch(taught, /RESULT_PATH|write ONE JSON file|\/tmp\//);
+  assert.match(taught, /output only the JSON object/i);
 });
