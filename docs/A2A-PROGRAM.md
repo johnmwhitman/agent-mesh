@@ -60,16 +60,18 @@ stdio surface:
   are explicitly false.
 - `POST /a2a/tasks` accepts one bounded text task and delegates exactly one
   local agent through the existing `spawn_fleet` lifecycle boundary.
-- `GET /a2a/tasks/:task_id` projects the process-local task mapping and the
-  current fleet/agent/result-contract state.
+- `GET /a2a/tasks/:task_id` projects the durable task state (from the local
+  SQLite ledger `local_a2a_tasks` table) and the current fleet/agent/result-contract
+  state.
 
 The adapter uses the listener's loopback boundary and bearer/query-token auth
 (`MESHFLEET_SSE_TOKEN`, with the existing compatibility aliases). Task IDs are
-process-local and disappear on restart. This is a compatibility and dogfood
-surface, not canonical public ingress: it does not provide remote relay,
-authenticated principals, signed identity, durable task acceptance, push
-notifications, or multi-host coordination. The public-ingress statements below
-remain unchanged.
+stored durably in the local SQLite ledger (`local_a2a_tasks` table) via the
+DB-backed store, so they survive process exits and restarts within the same
+ledger. This is a compatibility and dogfood surface, not canonical public
+ingress: it does not provide remote relay, authenticated principals, signed
+identity, or push notifications. Durable local task state is now provided for
+the local adapter. The public-ingress statements below remain unchanged.
 
 ## Slice 4C-1 bounded evidence-alpha
 

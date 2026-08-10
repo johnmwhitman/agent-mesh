@@ -212,12 +212,7 @@ POST /a2a/tasks
 GET  /a2a/tasks/:task_id
 ```
 
-The Agent Card advertises only local task submission and status. Task IDs map to
-fleets and agents in process memory, so they disappear when the process exits.
-The adapter is protected by `MESHFLEET_SSE_TOKEN` (with the existing SSE auth
-aliases), remains bound to loopback, and does not claim public A2A ingress,
-remote relay, signed identity, durable cross-process task state, or push
-notifications. MCP stdio remains the primary control surface.
+The Agent Card advertises only local task submission and status. Task IDs are stored durably in the local SQLite ledger (local_a2a_tasks table), so they survive process exits and restarts within the same ledger. The adapter is protected by `MESHFLEET_SSE_TOKEN` (with the existing SSE auth aliases), remains bound to loopback, and does not claim public A2A ingress, remote relay, signed identity, or push notifications. Durable local task state is now provided for the local adapter. MCP stdio remains the primary control surface.
 
 ---
 
