@@ -1,6 +1,7 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { getA2ATask, storeA2ATask } from "../db.js";
 
 const DEFAULT_MAX_BODY_BYTES = 128 * 1024;
 const BODY_IDLE_TIMEOUT_MS = 5_000;
@@ -42,7 +43,6 @@ interface TaskInput {
 }
 
 export function createA2AHttpHandler(options: A2AHttpOptions): (req: IncomingMessage, res: ServerResponse) => void {
-  const tasks = new Map<string, TaskRecord>();
   const maxBodyBytes = options.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
 
   return (req, res) => {
@@ -56,12 +56,12 @@ export function createA2AHttpHandler(options: A2AHttpOptions): (req: IncomingMes
       return;
     }
     if (req.method === "POST" && (url.pathname === "/a2a/tasks" || url.pathname === "/a2a/tasks/")) {
-      void submit(req, res, tasks, options.submitTask, maxBodyBytes);
+      void submit(req, res, options.submitTask, maxBodyBytes);
       return;
     }
     const taskId = url.pathname.match(/^\/a2a\/tasks\/([^/]+)\/?$/)?.[1];
     if (req.method === "GET" && taskId) {
-      const record = tasks.get(taskId);
+      const record = getA2ATask(taskId);
       if (!record) {
         respond(res, 404, { error: "task not found" });
         return;
@@ -81,14 +81,14 @@ export function createA2AHttpHandler(options: A2AHttpOptions): (req: IncomingMes
 function agentCard(baseUrl: string): Record<string, unknown> {
   return {
     name: "MeshFleet local compatibility projection (not public Google A2A interoperability)",
-    description: "Process-local compatibility projection for MeshFleet protocol vocabulary only; this is NOT public Google A2A interoperability and is not a public service.",
+    description: "Local compatibility projection for MeshFleet protocol vocabulary only; this is NOT public Google A2A interoperability and is not a public service.",
     url: baseUrl,
     version: "0.20.0",
     protocolVersion: A2A_PROTOCOL_VERSION,
     capabilities: { streaming: false, pushNotifications: false, stateTransitionHistory: false },
     skills: [
       { id: "local-task-submit", name: "Submit local task", description: "Submit one bounded text task to one local fleet agent." },
-      { id: "local-task-status", name: "Read local task status", description: "Read process-local task status and declared result contract." },
+      { id: "local-task-status", name: "Read local task status", description: "Read local task status and declared result contract." },
     ],
   };
 }
@@ -96,7 +96,6 @@ function agentCard(baseUrl: string): Record<string, unknown> {
 async function submit(
   req: IncomingMessage,
   res: ServerResponse,
-  tasks: Map<string, TaskRecord>,
   submitTask: A2AHttpOptions["submitTask"],
   maxBodyBytes: number,
 ): Promise<void> {
@@ -125,8 +124,8 @@ async function submit(
     }
     const linked = await submitTask({ text: parsed.value.message.parts[0].text, ...(parsed.value.metadata ? { metadata: parsed.value.metadata } : {}) });
     const taskId = randomUUID();
-    tasks.set(taskId, { fleetId: linked.fleetId, agentId: linked.agentId });
-    respond(res, 202, { task_id: taskId, fleet_id: linked.fleetId, agent_id: linked.agentId, status: "working", scope: "process-local" });
+    storeA2ATask(taskId, linked.fleetId, linked.agentId);
+    respond(res, 202, { task_id: taskId, fleet_id: linked.fleetId, agent_id: linked.agentId, status: "working", scope: "local" });
   } catch {
     if (!res.destroyed && !res.writableEnded) respond(res, 500, { error: "task submission failed" });
   }
@@ -160,7 +159,7 @@ function projectTask(taskId: string, record: TaskRecord, status: A2ATaskStatus):
   const result = status.output === undefined && status.error === undefined
     ? undefined
     : { ...(status.output !== undefined ? { text: status.output } : {}), ...(status.error !== undefined ? { error: "task failed" } : {}) };
-  return { task_id: taskId, fleet_id: record.fleetId, agent_id: record.agentId, status: taskStatus, scope: "process-local", result_contract: status.resultContract ?? "absent", ...(result ? { result } : {}) };
+  return { task_id: taskId, fleet_id: record.fleetId, agent_id: record.agentId, status: taskStatus, scope: "local", result_contract: status.resultContract ?? "absent", ...(result ? { result } : {}) };
 }
 
 function terminalStatus(status: A2ATaskStatus): "completed" | "failed" | "blocked" | "refused" | "artifact_missing" {
