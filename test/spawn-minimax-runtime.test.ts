@@ -18,6 +18,14 @@ function readAgents(dir: string): Record<string, unknown>[] {
   const Database = require("better-sqlite3") as typeof import("better-sqlite3");
   const db = new Database(path, { readonly: true });
   try {
+    // The schema is created by the server's first ledger op, which can lag
+    // the first poll: SELECT FROM agents then throws SqliteError and aborts
+    // the caller. Probe for the table first so a not-yet-written ledger
+    // reads as [] and the caller's poll loop retries next tick.
+    const exists = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='agents'")
+      .get() as { name: string } | undefined;
+    if (!exists) return [];
     const rows = db.prepare("SELECT data FROM agents").all() as Array<{ data?: string }>;
     return rows.flatMap((row) => row.data ? [JSON.parse(row.data) as Record<string, unknown>] : []);
   } finally {
@@ -136,6 +144,18 @@ test("spawn_fleet delivers through an explicitly selected MiniMax subscription r
       },
     });
 
+    // Await the response BEFORE polling the ledger. The handler commits
+    // fleet + agent rows synchronously inside withLedger before it writes
+    // the response, so the schema and the row are guaranteed to exist once
+    // we have the response in hand. Without this wait, slow CI legs see
+    // readAgents() throw "no such table: agents" on its first poll because
+    // getDb() has not yet created the schema for this ledger.
+    assert.match(
+      await waitForResponse(() => stdout, 6),
+      /"id":6/,
+      "the public tool must answer the compatible caller",
+    );
+
     const agent = await waitForTerminalAgent(dir, "return a bounded review").catch((error) => {
       throw new Error(`${String(error)}\nserver stdout=${stdout.slice(-1_000)}\nserver stderr=${stderr.slice(-1_000)}`);
     });
@@ -146,11 +166,6 @@ test("spawn_fleet delivers through an explicitly selected MiniMax subscription r
     assert.equal(agent.runtime_model, undefined);
     assert.equal(agent.result_contract, "ok", "the model-declared text envelope is the receipt");
     assert.equal(existsSync(marker), true, "the selected wrapper itself must have executed");
-    assert.match(
-      await waitForResponse(() => stdout, 6),
-      /"id":6/,
-      "the public tool must answer the compatible caller",
-    );
     const deliveredPrompt = readFileSync(capturedPrompt, "utf8");
     assert.match(deliveredPrompt, /mf\.agent\.text-result\/v1/);
     assert.doesNotMatch(deliveredPrompt, /RESULT_PATH|write ONE JSON file/);
@@ -166,15 +181,16 @@ test("spawn_fleet delivers through an explicitly selected MiniMax subscription r
         },
       },
     });
-    const blocked = await waitForTerminalAgent(dir, "BLOCKED_WORKER needs input");
-    assert.equal(blocked.status, "complete", "this release observes declared blocking without changing banking");
-    assert.equal(blocked.result_contract, "blocked");
-    assert.equal(blocked.output, "fixture could not continue\n\nReason: required input was missing");
+    // Same race-avoidance as id:6 above: wait for the response before polling.
     assert.match(
       await waitForResponse(() => stdout, 7),
       /"id":7/,
       "the blocked delivery must still answer the caller",
     );
+    const blocked = await waitForTerminalAgent(dir, "BLOCKED_WORKER needs input");
+    assert.equal(blocked.status, "complete", "this release observes declared blocking without changing banking");
+    assert.equal(blocked.result_contract, "blocked");
+    assert.equal(blocked.output, "fixture could not continue\n\nReason: required input was missing");
   } finally {
     server.kill();
     await new Promise<void>((resolve) => {
