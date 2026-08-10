@@ -19,6 +19,68 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 - Callers wanting the stronger guarantee today should read `status === "complete" &&
   result_contract === "ok"`. Rows written before this release carry no value and are **never
   backfilled** — a value inferred for a run nobody observed would be a fabricated measurement.
+- **Unified fleet-wide event stream.** New `GET /events/stream` HTTP endpoint and `subscribe_events`
+  MCP tool emit every ledger event kind as it is appended to the event log. Optional `fleet_id`
+  query parameter scopes a stream to one fleet; without it, the stream carries every fleet's
+  events. Bound to the existing SSE listener (default `127.0.0.1:13579`); optional bearer or
+  `?token=` auth via `MESHFLEET_SSE_TOKEN` with the legacy `MESHFLEET_AUTH_TOKEN` /
+  `AGENT_MESH_AUTH_TOKEN` aliases (constant-time digest comparison). Hard-capped at
+  `MESHFLEET_MAX_EVENT_STREAM_CONNECTIONS` (default 20), enforced inside the handler — over-cap
+  connections receive `503 event stream connection limit reached`, not a silent drop. New
+  `subscribeEventsUrl(fleetId?)` helper mirrors `subscribeInboxUrl`, including the IPv6 bracket
+  fix. `enforceStreamAuth` revokes streams whose token was rotated out at the same cadence the
+  inbox stream does. `appendEvent` fans the new record out to subscribers after committing the
+  NDJSON line; a subscriber disconnect drops the frame, nothing replays missed events. SSE
+  pushes only what THIS process writes, so a sibling instance sharing the ledger cannot reach
+  this instance's stream — `get_inbox` polling remains the only complete cross-instance view.
+  `agent_failed_permanent` and `agent_retry_scheduled` events now carry `fleet_id`, so
+  `fleet_id`-filtered event streams are not silently blind to lifecycle failures.
+- **Local A2A compatibility adapter.** A deliberately narrow loopback HTTP surface alongside MCP
+  stdio: `GET /.well-known/agent-card.json`, `POST /a2a/tasks`, `GET /a2a/tasks/:task_id`. The
+  Agent Card describes a "MeshFleet local compatibility projection (not public Google A2A
+  interoperability)"; streaming, push notifications, and state-transition history are
+  explicitly false. `POST /a2a/tasks` accepts exactly one bounded text part and delegates one
+  agent through the existing `spawn_fleet` lifecycle boundary; `GET /a2a/tasks/:task_id`
+  projects the current fleet, agent, and result-contract state. Bearer auth (`Authorization:
+  Bearer …`) or `?token=` query, constant-time digest comparison. **This is NOT public A2A
+  ingress, NOT remote relay, NOT signed identity, NOT multi-host.** Body bytes are capped
+  (default 128 KiB, checked against `Content-Length` first), idle and total read timeouts are
+  bounded, content-type must be `application/json`, streamed requests are closed promptly, and
+  task errors are redacted in responses — only the success shape or a fixed `error: "task
+  failed"` is returned, never the agent's raw error text. Terminal A2A task status requires the
+  fleet to be terminal AND the agent to be terminal; mid-flight tasks read `working`. The SSE
+  listener refuses to start on a non-loopback host with no auth token configured, which gates
+  both the event stream and this adapter with one check.
+- **Durable `local_a2a_tasks` SQLite table.** Task IDs persist in the same ledger as the fleets
+  they reference, so a task created in one process can be polled from another against the same
+  ledger after a restart. The schema adds one table (`task_id` → `fleet_id` + `agent_id`); the
+  predecessor `a2a_tasks` shape that never shipped in a release is dropped at open. `storeA2ATask`
+  and `getA2ATask` live next to the existing ledger helpers in `src/db.ts`. Nothing else
+  migrates; the table is scope-tagged `local` in responses so a caller cannot mistake it for a
+  public identifier.
+- **Dashboard live updates (`agent-mesh-dashboard`).** The TUI now follows the unified event
+  stream and renders new events as they arrive, with the existing interval poll kept as a
+  fallback when the SSE stream is unavailable. Same screen, same `--interval` / `--fleet` /
+  `--once` flags; new `--poll-only` and `--events <N>` flags control the SSE path and the
+  ring-buffer depth (default 50). On stream reconnect the ring buffer is re-seeded from the
+  NDJSON event log, so a missed-frame window does not silently drop what already happened.
+  Connection errors fall back to polling at the same interval — no daemon, no extra IPC, no
+  out-of-process surface.
+- **`collect_results` `degraded_agents` bucket.** A failed agent with a valid
+  `result_contract: "ok"` AND non-empty output OR declared artifacts is now reported in a new
+  named `degraded_agents` list — counted in `delivered` so the totals add up, but flagged
+  because the runtime status was not clean. **Delivered, not proven successful**: the agent
+  reported a result; whether the work was actually right is still not a ledger question. The
+  `warning` field stays reserved for genuine loss; `degraded` never triggers it. Lost,
+  still-running, and degraded are three different claims — `lost_agents` says we have nothing
+  to read, `still_running` says the work is not yet terminal, `degraded_agents` says the work
+  was reported despite the runtime failing. A caller who collapses them all into "something
+  went wrong" has flattened a distinction the new shape exists to preserve. The `collect_results`
+  tool description is updated to name both lists and the rule.
+- **Whitespace-only env values are ignored.** `resolveEnv` trims before the empty-string check,
+  so `MESHFLEET_SSE_TOKEN=" "` no longer enables auth (a token that is whitespace is not a
+  token). Same fix covers the legacy aliases. Previously a stray leading space from a paste or
+  shell quoting could silently turn "no token" into "token consisting of one space".
 
 ### Notes
 
@@ -28,6 +90,23 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
   delivered work. Output length is not part of the predicate in either direction: one of the three
   false completions that motivated this was 14,450 characters of explaining an inability, and a
   length floor would have banked exactly that one.
+- The unified event stream is the **live tail only**. A subscriber attached after an event has
+  already been appended will not see it; nothing in the registry replays missed frames. Durable
+  history lives in the NDJSON event log (`~/.config/opencode/agent-mesh.events.log`) and is
+  exposed unchanged by `agent-mesh inspect --events`. SSE pushes only what THIS process writes,
+  so a sibling instance sharing the ledger cannot reach this instance's stream; `get_inbox`
+  polling remains the only complete cross-instance view. A reconnected dashboard re-seeds its
+  ring buffer from the NDJSON log, so a missed-frame window is visible to the operator and not
+  silently lost.
+- The local A2A adapter is the **local-only compatibility projection** the public A2A program
+  documents as the Slice-0 evidence surface; it does NOT claim public A2A interoperability,
+  remote relay, multi-host, signed identity, or push notifications. The Agent Card says so in
+  plain text. MCP stdio remains the primary control surface; HTTP A2A exists to make the same
+  loopback process reachable from a dashboard and an integration dogfood test.
+- `degraded_agents` is a **delivery signal, not a quality gate**. The runtime said `failed`
+  while the agent's own envelope said `ok` with output — both declarations are in the ledger,
+  and neither proves the work was right. Re-running the agent (and reading the same declaration
+  yourself) is still the caller's job.
 
 ## [0.20.0] - 2026-07-29
 
