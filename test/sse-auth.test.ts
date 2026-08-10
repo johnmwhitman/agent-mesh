@@ -1,7 +1,7 @@
 import { test, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 
-import { startSseServer, stopSseServer, enforceStreamAuth } from "../src/sse-server.js";
+import { startSseServer, stopSseServer, enforceStreamAuth, formatHostForUrl } from "../src/sse-server.js";
 import { getSubscriberCount } from "../src/realtime.js";
 
 // Real-server integration tests for the optional SSE auth token
@@ -14,8 +14,14 @@ let base: string;
 before(async () => {
   process.env.MESHFLEET_SSE_PORT = String(PORT);
   delete process.env.MESHFLEET_AUTH_TOKEN;
+  delete process.env.MESHFLEET_SSE_TOKEN;
   delete process.env.AGENT_MESH_AUTH_TOKEN;
-  const { host, port } = await startSseServer();
+  const { host, port } = await startSseServer({
+    a2a: {
+      submitTask: async () => ({ fleetId: "fleet-1", agentId: "agent-1" }),
+      getTaskStatus: () => ({ fleetId: "fleet-1", agentId: "agent-1", fleetStatus: "running", agentStatus: "running" }),
+    },
+  });
   base = `http://${host}:${port}`;
 });
 
@@ -23,11 +29,13 @@ after(async () => {
   await stopSseServer();
   delete process.env.MESHFLEET_SSE_PORT;
   delete process.env.MESHFLEET_AUTH_TOKEN;
+  delete process.env.MESHFLEET_SSE_TOKEN;
   delete process.env.AGENT_MESH_AUTH_TOKEN;
 });
 
 beforeEach(() => {
   delete process.env.MESHFLEET_AUTH_TOKEN;
+  delete process.env.MESHFLEET_SSE_TOKEN;
   delete process.env.AGENT_MESH_AUTH_TOKEN;
 });
 
@@ -49,6 +57,18 @@ test("no token configured: the stream stays open-access (back-compat)", async ()
 test("token configured: a request with no credentials is rejected 401", async () => {
   process.env.MESHFLEET_AUTH_TOKEN = "s3cret";
   assert.equal(await head("/inbox/a1/stream"), 401);
+});
+
+test("MESHFLEET_SSE_TOKEN protects the A2A Agent Card", async () => {
+  process.env.MESHFLEET_SSE_TOKEN = "a2a-secret";
+  assert.equal(await head("/.well-known/agent-card.json"), 401);
+  assert.equal(await head("/.well-known/agent-card.json", { Authorization: "Bearer a2a-secret" }), 200);
+});
+
+test("A2A Agent Card uses the listener's bound port", async () => {
+  const response = await fetch(`${base}/.well-known/agent-card.json`);
+  const card = await response.json() as { url: string };
+  assert.equal(card.url, base);
 });
 
 test("token configured: a wrong bearer token is rejected 401", async () => {
@@ -77,6 +97,13 @@ test("healthz stays open even when a token is configured", async () => {
 });
 
 test("legacy AGENT_MESH_AUTH_TOKEN is honored", async () => {
+  process.env.AGENT_MESH_AUTH_TOKEN = "legacy-secret";
+  assert.equal(await head("/inbox/a1/stream"), 401);
+  assert.equal(await head("/inbox/a1/stream", { Authorization: "Bearer legacy-secret" }), 200);
+});
+
+test("whitespace current auth token falls back to the legacy token", async () => {
+  process.env.MESHFLEET_AUTH_TOKEN = "   ";
   process.env.AGENT_MESH_AUTH_TOKEN = "legacy-secret";
   assert.equal(await head("/inbox/a1/stream"), 401);
   assert.equal(await head("/inbox/a1/stream", { Authorization: "Bearer legacy-secret" }), 200);
@@ -134,6 +161,31 @@ test("rotating the token ends streams authenticated with the old token; current-
   } finally {
     stale.close();
   }
+});
+
+test("non-loopback host refuses startup without a non-empty token", async () => {
+  await stopSseServer();
+  process.env.MESHFLEET_SSE_HOST = "0.0.0.0";
+  delete process.env.MESHFLEET_AUTH_TOKEN;
+  delete process.env.MESHFLEET_SSE_TOKEN;
+  delete process.env.AGENT_MESH_AUTH_TOKEN;
+  await assert.rejects(
+    startSseServer(),
+    /refusing SSE\/A2A startup.*non-loopback host.*auth token/i,
+  );
+  delete process.env.MESHFLEET_SSE_HOST;
+  const { host, port } = await startSseServer({
+    a2a: {
+      submitTask: async () => ({ fleetId: "fleet-1", agentId: "agent-1" }),
+      getTaskStatus: () => ({ fleetId: "fleet-1", agentId: "agent-1", fleetStatus: "running", agentStatus: "running" }),
+    },
+  });
+  base = `http://${host}:${port}`;
+});
+
+test("IPv6 hosts are bracketed in advertised URLs", () => {
+  assert.equal(formatHostForUrl("::1"), "[::1]");
+  assert.equal(formatHostForUrl("127.0.0.1"), "127.0.0.1");
 });
 
 test("over-cap stream is refused with 429 BEFORE any SSE handshake", async () => {

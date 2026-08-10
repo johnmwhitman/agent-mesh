@@ -117,12 +117,12 @@ const PRE_D3_TOOL_NAMES = [
 
 const D3_DISCUSSION_TOOL_NAMES = ["ask_peer", "wake_agent", "reply_discussion", "get_discussion"];
 
-test("registry includes D3 plus additive routing, verifier-v2/v3, and speculative backlog tools (36 total)", () => {
+test("registry includes D3 plus additive routing, verifier-v2/v3, speculative backlog, and unified event stream tools (37 total)", () => {
   const declared = declaredToolNames(source);
   const registered = registeredHandlerNames(source);
 
-  assert.equal(declared.size, 36, `expected 36 advertised tools, got ${declared.size}: ${[...declared].sort().join(", ")}`);
-  assert.equal(registered.size, 36, `expected 36 registered handlers, got ${registered.size}: ${[...registered].sort().join(", ")}`);
+  assert.equal(declared.size, 37, `expected 37 advertised tools, got ${declared.size}: ${[...declared].sort().join(", ")}`);
+  assert.equal(registered.size, 37, `expected 37 registered handlers, got ${registered.size}: ${[...registered].sort().join(", ")}`);
   assert.ok(declared.has("recommend_route"));
   assert.ok(registered.has("recommend_route"));
   assert.ok(declared.has("compile_route_candidates"));
@@ -133,11 +133,13 @@ test("registry includes D3 plus additive routing, verifier-v2/v3, and speculativ
   assert.ok(registered.has("verify_ledger_v3"));
   assert.ok(declared.has("plan_speculative_backlog"));
   assert.ok(registered.has("plan_speculative_backlog"));
+  assert.ok(declared.has("subscribe_events"));
+  assert.ok(registered.has("subscribe_events"));
 });
 
-test("README advertises the 36-tool registry including verifier v3 and speculative backlog", () => {
-  assert.match(readme, /^## 36 MCP tools$/m, "README must advertise the 36-tool registry");
-  assert.match(readme, /^That's 36\. We counted twice this time\.$/m, "README summary must agree with the 36-tool registry");
+test("README advertises the 37-tool registry including verifier v3, speculative backlog, and unified event stream", () => {
+  assert.match(readme, /^## 37 MCP tools$/m, "README must advertise the 37-tool registry");
+  assert.match(readme, /^That's 37\. We counted twice this time\.$/m, "README summary must agree with the 37-tool registry");
   assert.match(
     readme,
     /^\| `compile_route_candidates` \| Pure offline projection of sanitized manifest\/observation snapshots; does not rank, persist, execute, authorize, wake, or contact providers \|$/m,
@@ -181,6 +183,11 @@ test("compatibility record includes the opt-in verifier-v3 and speculative backl
     compatibility,
     /v3 MCP is opt-in and, together with\s+`plan_speculative_backlog`, raises the implemented MCP tool\s+count to 36\./,
     "compatibility contract must reconcile the 36-tool registry",
+  );
+  assert.match(
+    compatibility,
+    /raises the count to 37/,
+    "compatibility contract must acknowledge the 37th tool (subscribe_events)",
   );
 });
 

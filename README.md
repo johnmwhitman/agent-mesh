@@ -201,6 +201,19 @@ compatibility, and clients can use `get_inbox` polling.
 
 If any block above doesn't work in your client, [open an issue](https://github.com/johnmwhitman/agent-mesh/issues) — config rot is a bug.
 
+### Local A2A compatibility surface
+
+The local parent process also exposes a loopback-only A2A compatibility adapter
+for dashboard and integration dogfooding:
+
+```text
+GET  /.well-known/agent-card.json
+POST /a2a/tasks
+GET  /a2a/tasks/:task_id
+```
+
+The Agent Card advertises only local task submission and status. Task IDs are stored durably in the local SQLite ledger (local_a2a_tasks table), so they survive process exits and restarts within the same ledger. The adapter is protected by `MESHFLEET_SSE_TOKEN` (with the existing SSE auth aliases), remains bound to loopback, and does not claim public A2A ingress, remote relay, signed identity, or push notifications. Durable local task state is now provided for the local adapter. MCP stdio remains the primary control surface.
+
 ---
 
 ## The CLI
@@ -255,7 +268,7 @@ evidence, authenticated provenance, or external time.
 
 ---
 
-## 36 MCP tools
+## 37 MCP tools
 
 **Fleets**
 
@@ -277,6 +290,7 @@ evidence, authenticated provenance, or external time.
 | `send_messages` | Batched sends, one atomic transaction per batch (up to 1000 messages; larger batches are rejected) |
 | `get_inbox` / `ack_message` | Poll and acknowledge; every ack writes a per-recipient receipt |
 | `subscribe_inbox` | Push delivery over SSE instead of polling (optional auth token) |
+| `subscribe_events` | Unified fleet-wide SSE event stream; optional `fleet_id` filter; emits every ledger event kind as it appends (optional auth token) |
 | `receipt` / `get_receipts` | Write and query the witnessed-delivery ledger: who saw what, when |
 | `verify_ledger` | Audit the whole ledger's internal consistency — errors mean it asserts something its own records don't support |
 | `verify_ledger_v2` | Versioned unsigned-snapshot consistency envelope around the unchanged verifier report from a dedicated read-only file snapshot; the handler performs no ledger writes |
@@ -314,7 +328,7 @@ evidence, authenticated provenance, or external time.
 
 See [docs/discussions.md](docs/discussions.md) for the full quickstart, tool reference, and terminal-state precedence.
 
-That's 36. We counted twice this time.
+That's 37. We counted twice this time.
 
 RoutePlane catalog discovery is a separate package library and CLI, not an MCP
 tool: it fetches RoutePlane's fixed loopback model catalog and projects
@@ -577,7 +591,10 @@ artifacts; verifying the work stays with your tooling and your review.
   `lost_agents`, a `warning` that appears only when something was lost). A crashing
   server leaves a durable journal line, and the next healthy start consumes it:
   interrupted rows carry a `stopped_reason` (`server_crash` | `process_lost`) when
-  reconciliation can honestly attribute one. All shipped.
+  reconciliation can honestly attribute one. A failed row with a valid result contract
+  and output or declared artifacts is instead listed in `degraded_agents`: the result was
+  reported, but runtime status was not clean. This is delivery evidence, not proof of
+  execution or truth. All shipped.
 - **Internal rule enforcement.** Operational: the auditor re-derives its rules from
   source on every run, and a ledger asserting more than its own records support — a
   ratification without its votes, a receipt without its message — fails verification

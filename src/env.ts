@@ -21,10 +21,10 @@ export function resolveEnv(
   legacy: string
 ): string | undefined {
   const cur = env[current];
-  if (cur !== undefined && cur !== "") return cur;
+  if (cur !== undefined && cur.trim() !== "") return cur;
 
   const old = env[legacy];
-  if (old !== undefined && old !== "") {
+  if (old !== undefined && old.trim() !== "") {
     if (!warnedLegacy.has(legacy)) {
       warnedLegacy.add(legacy);
       console.error(

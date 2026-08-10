@@ -14,6 +14,10 @@ import { requireAuditIsolationEnvironment } from "./audit-access-profile.js";
 // Single source of truth for the advertised version — package.json.
 // (The literal here drifted to 0.7.0 while releases moved to 0.11.x.)
 const MESH_VERSION: string = createRequire(import.meta.url)("../package.json").version;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
 import {
   appendEvent,
   ackMessage,
@@ -65,7 +69,8 @@ import { verifyLedger, verifyLedgerFile } from "./verify.js";
 import { buildVerifyEnvelopeV2 } from "./verify-envelope-v2.js";
 import { buildVerifyEnvelopeV3 } from "./verify-envelope-v3.js";
 import { notifySubscribers } from "./realtime.js";
-import { isSseServerRunning, startSseServer, stopSseServer, subscribeInboxUrl } from "./sse-server.js";
+import { isSseServerRunning, startSseServer, stopSseServer, subscribeInboxUrl, subscribeEventsUrl } from "./sse-server.js";
+import type { A2ATaskStatus } from "./a2a/http.js";
 import { createHeartbeat } from "./heartbeat.js";
 import {
   computeBackoff,
@@ -556,6 +561,7 @@ function handleTransientFailure(
   if (!shouldAgentRetry(attempt)) {
     appendEvent("agent_failed_permanent", {
       agent_id: agentId,
+      fleet_id: input.fleetId,
       attempts: attempt,
       last_error: failureDetail,
       timestamp: Date.now(),
@@ -598,6 +604,7 @@ function handleTransientFailure(
   }
   appendEvent("agent_retry_scheduled", {
     agent_id: agentId,
+    fleet_id: input.fleetId,
     from_attempt: attempt,
     to_attempt: nextAttempt,
     delay_ms: delayMs,
@@ -708,7 +715,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "collect_results",
       description:
-        "Get all agent outputs from a fleet, with an explicit loss tally. Returns total/delivered/lost/still_running, a named lost_agents list, and a `warning` string present ONLY when agents died without reporting. Check `lost` before treating the collection as the finished work: an agent killed by a crash produces no output and its silence looks identical to 'not finished yet'. Each result also carries `result_contract` — what the agent declared about its own outcome ('ok' | 'refused' | 'blocked' | 'artifact_missing' | 'invalid' | 'absent'), absent on runs that predate the contract. This release records it without acting on it, so treat `status: 'complete'` as delivered work only when `result_contract` is 'ok'; a later release will refuse to bank complete on anything else. It is a DECLARED outcome, not a truth check.",
+        "Get all agent outputs from a fleet, with an explicit loss tally. Returns total/delivered/lost/still_running, named lost_agents and degraded_agents lists, and a `warning` string present ONLY when work was actually lost. `degraded_agents` means the agent reported a valid `result_contract: 'ok'` with output or declared artifacts, but its runtime status was not clean; it is delivered, not proven successful. Check `lost` before treating the collection as finished: interrupted or failed agents without a reported result remain lost. Each result also carries `result_contract` — what the agent declared about its own outcome ('ok' | 'refused' | 'blocked' | 'artifact_missing' | 'invalid' | 'absent'), absent on runs that predate the contract. A valid envelope is a DECLARED outcome, not a truth or quality check.",
       inputSchema: {
         type: "object",
         properties: { fleet_id: { type: "string" } },
@@ -1473,6 +1480,20 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           },
         },
         required: ["agent_id"],
+      },
+    },
+    {
+      name: "subscribe_events",
+      description:
+        "Subscribe to the unified fleet-wide event stream via Server-Sent Events (SSE). Returns a stream URL that emits every ledger event (messages, receipts, ratifications, spawns, completions, discussions) as it is appended. Keep-alive :hb comment frames are sent every 30s. Optional fleet_id filter narrows to events carrying that fleet_id. If the operator set MESHFLEET_AUTH_TOKEN, requests to the stream must carry it (Authorization: Bearer, or ?token=).",
+      inputSchema: {
+        type: "object",
+        properties: {
+          fleet_id: {
+            type: "string",
+            description: "Optional fleet ID to filter events. Omit to receive all events.",
+          },
+        },
       },
     },
     {
@@ -2561,6 +2582,33 @@ toolHandlers["subscribe_inbox"] = async (args) => {
     });
 };
 
+toolHandlers["subscribe_events"] = async (args) => {
+    const { fleet_id } = args as { fleet_id?: string };
+    if (fleet_id !== undefined) {
+      const invalid = optionalNonBlankString("subscribe_events", "fleet_id", fleet_id);
+      if (invalid) return jsonError(invalid);
+    }
+    if (!isSseServerRunning()) {
+      return jsonError(
+        `subscribe_events: this server has no live SSE endpoint — ` +
+          `the listener failed to start (most often the port is already in use by another ` +
+          `meshfleet instance). Use the NDJSON event log or poll get_health for observability.`
+      );
+    }
+    const streamUrl = subscribeEventsUrl(fleet_id);
+    return jsonResult({
+      stream_url: streamUrl,
+      fleet_id: fleet_id ?? null,
+      served_by_this_process_only: true,
+      instructions:
+        "Open an HTTP GET to the stream_url. Each event is SSE-formatted: `event: <kind>\\ndata: <json>\\n\\n`. " +
+        "The data object matches the NDJSON event log shape. " +
+        (fleet_id ? `Only events carrying fleet_id=\"${fleet_id}\" are emitted. ` : "All ledger events are emitted. ") +
+        "Heartbeat comment frames `:hb\\n\\n` are sent every 30s. " +
+        "Push covers events written by THIS server process; the NDJSON event log is the durable source of truth.",
+    });
+};
+
 toolHandlers["save_fleet_template"] = async (args) => {
     const { name: tplName, description, agents } = args as {
       name: string
@@ -2931,7 +2979,37 @@ if (!isChildInstance && !isAuditProfile) {
 
   // Start the SSE HTTP server for real-time inbox push (v0.7.0)
   try {
-    const { host, port } = await startSseServer();
+    const { host, port } = await startSseServer({
+      a2a: {
+        submitTask: async ({ text }) => {
+          const result = await toolHandlers.spawn_fleet({
+            agents: [{ role: "a2a-local-task", prompt: text }],
+          });
+          const first = result.content[0];
+          if (!first || first.type !== "text") throw new Error("A2A task submission returned no result");
+          const payload: unknown = JSON.parse(first.text);
+          if (!isRecord(payload) || typeof payload.fleet_id !== "string" || !Array.isArray(payload.agent_ids) || typeof payload.agent_ids[0] !== "string") {
+            throw new Error(isRecord(payload) && typeof payload.error === "string" ? payload.error : "A2A task submission failed");
+          }
+          return { fleetId: payload.fleet_id, agentId: payload.agent_ids[0] };
+        },
+        getTaskStatus: (fleetId, agentId): A2ATaskStatus | undefined => {
+          const data = readLedger();
+          const fleet = data.fleets[fleetId];
+          const agent = data.agents[agentId];
+          if (!fleet || !agent || agent.fleet_id !== fleetId) return undefined;
+          return {
+            fleetId,
+            agentId,
+            fleetStatus: fleet.status,
+            agentStatus: agent.status,
+            ...(agent.result_contract !== undefined ? { resultContract: agent.result_contract } : {}),
+            ...(agent.output !== undefined ? { output: agent.output } : {}),
+            ...(agent.error !== undefined ? { error: agent.error } : {}),
+          };
+        },
+      },
+    });
     console.error(`Agent Mesh v${MESH_VERSION} started (JSON persistence + P2P messaging + capability routing + premade agent discovery + timeout/resilience + SSE push on ${host}:${port})`);
   } catch (err) {
     console.error(`Agent Mesh v${MESH_VERSION} started (JSON persistence + P2P messaging + capability routing + premade agent discovery + timeout/resilience + SSE push) — SSE server failed to start: ${err instanceof Error ? err.message : String(err)}`);

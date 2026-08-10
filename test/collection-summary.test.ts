@@ -84,6 +84,35 @@ test("failed agents are tallied too, so the caller gets ONE honest count", () =>
   assert.equal(byRole.b, "interrupted");
 });
 
+test("failed agent with a valid ok contract and output is delivered but degraded", () => {
+  const s = summarizeCollection([
+    { role: "reported", status: "failed", output: "declared work", result_contract: "ok" },
+  ]);
+  assert.equal(s.delivered, 1);
+  assert.equal(s.lost, 0);
+  assert.deepEqual(s.degraded_agents, [{ role: "reported", status: "failed", result_contract: "ok" }]);
+  assert.equal(s.warning, undefined);
+});
+
+test("failed agent with a valid ok contract and declared artifacts is delivered but degraded", () => {
+  const s = summarizeCollection([
+    { role: "artifact-only", status: "failed", output: "", result_contract: "ok", artifacts: ["report.md"] },
+  ]);
+  assert.equal(s.delivered, 1);
+  assert.equal(s.lost, 0);
+  assert.equal(s.degraded_agents[0]?.role, "artifact-only");
+});
+
+test("failed agent without a valid reported result remains lost", () => {
+  const s = summarizeCollection([
+    { role: "silent-failure", status: "failed", output: "", result_contract: "absent" },
+  ]);
+  assert.equal(s.delivered, 0);
+  assert.equal(s.lost, 1);
+  assert.equal(s.degraded_agents.length, 0);
+  assert.ok(s.warning);
+});
+
 test("an empty fleet is not an alarm", () => {
   const s = summarizeCollection([]);
   assert.deepEqual(

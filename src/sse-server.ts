@@ -29,7 +29,15 @@ import {
   removeSubscriber,
   shutdownServer as shutdownSubscribers,
 } from "./realtime.js";
+import {
+  addEventSubscriber,
+  getEventStreamSubscriberCount,
+  getMaxEventStreamConnections,
+  removeEventSubscriber,
+  shutdownEventStream,
+} from "./event-stream.js";
 import { resolveEnv } from "./env.js";
+import { createA2AHttpHandler, type A2ATaskStatus } from "./a2a/http.js";
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -49,6 +57,16 @@ const activeStreams = new Set<ServerResponse>();
 /** Per-stream: who it serves + the credential it was admitted with, for re-auth on token change. */
 const streamCredentials = new Map<ServerResponse, { agentId: string; credential: string | undefined }>();
 
+/** Credentials for fleet-wide event stream connections (no agentId). */
+const eventStreamCredentials = new Map<ServerResponse, { fleetId: string | undefined; credential: string | undefined }>();
+
+export interface SseServerOptions {
+  readonly a2a?: {
+    readonly submitTask: (input: { readonly text: string; readonly metadata?: Record<string, unknown> }) => Promise<{ readonly fleetId: string; readonly agentId: string }>;
+    readonly getTaskStatus: (fleetId: string, agentId: string) => A2ATaskStatus | undefined;
+  };
+}
+
 export function ssePort(): number {
   const v = Number(process.env.MESHFLEET_SSE_PORT);
   return Number.isFinite(v) && v > 0 ? v : DEFAULT_PORT;
@@ -56,6 +74,18 @@ export function ssePort(): number {
 
 export function sseHost(): string {
   return process.env.MESHFLEET_SSE_HOST ?? DEFAULT_HOST;
+}
+
+export function formatHostForUrl(host: string): string {
+  const unbracketed = host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host;
+  return unbracketed.includes(":") ? `[${unbracketed}]` : unbracketed;
+}
+
+function isLoopbackHost(host: string): boolean {
+  const normalized = host.trim().toLowerCase().replace(/^\[|\]$/g, "");
+  if (normalized === "localhost" || normalized === "::1") return true;
+  const octets = normalized.split(".").map(Number);
+  return octets.length === 4 && octets.every((octet) => Number.isInteger(octet) && octet >= 0 && octet <= 255) && octets[0] === 127;
 }
 
 export function isSseServerRunning(): boolean {
@@ -88,7 +118,10 @@ function parseInboxPath(pathname: string): string | null {
  * a restart. Unset = open access (the historical local-trust default).
  */
 function authToken(): string | undefined {
-  return resolveEnv(process.env, "MESHFLEET_AUTH_TOKEN", "AGENT_MESH_AUTH_TOKEN");
+  const sseToken = process.env.MESHFLEET_SSE_TOKEN;
+  if (sseToken?.trim()) return sseToken;
+  const configured = resolveEnv(process.env, "MESHFLEET_AUTH_TOKEN", "AGENT_MESH_AUTH_TOKEN");
+  return configured?.trim() ? configured : undefined;
 }
 
 /** Constant-time comparison over digests, so length differences leak nothing. */
@@ -129,10 +162,20 @@ export function enforceStreamAuth(): void {
       } catch {
         // already broken; the close handler still cleans up
       }
-      // end() fires the close handler's cleanup, but don't rely on event
-      // timing for revocation — drop the subscription now.
       removeSubscriber(agentId, res);
       streamCredentials.delete(res);
+      activeStreams.delete(res);
+    }
+  }
+  for (const [res, { credential }] of eventStreamCredentials) {
+    if (!credentialAuthorized(credential)) {
+      try {
+        res.end();
+      } catch {
+        // already broken; the close handler still cleans up
+      }
+      removeEventSubscriber(res);
+      eventStreamCredentials.delete(res);
       activeStreams.delete(res);
     }
   }
@@ -169,6 +212,27 @@ function handleSseConnection(agentId: string, res: ServerResponse, credential: s
   res.on("error", cleanup);
 }
 
+function handleEventStreamConnection(fleetId: string | undefined, res: ServerResponse, credential: string | undefined): void {
+  if (getEventStreamSubscriberCount() >= getMaxEventStreamConnections()) {
+    res.writeHead(503, { "Content-Type": "text/plain" });
+    res.end("event stream connection limit reached");
+    return;
+  }
+  setSseHeaders(res);
+  addEventSubscriber(res, fleetId);
+  activeStreams.add(res);
+  eventStreamCredentials.set(res, { fleetId, credential });
+
+  const cleanup = () => {
+    removeEventSubscriber(res);
+    activeStreams.delete(res);
+    eventStreamCredentials.delete(res);
+  };
+
+  res.on("close", cleanup);
+  res.on("error", cleanup);
+}
+
 function handleHealthz(res: ServerResponse): void {
   res.writeHead(200, { "Content-Type": "text/plain" });
   res.end("ok");
@@ -183,7 +247,7 @@ function handle404(res: ServerResponse): void {
 // Start / stop
 // ---------------------------------------------------------------------------
 
-export function startSseServer(): Promise<{ host: string; port: number }> {
+export function startSseServer(options: SseServerOptions = {}): Promise<{ host: string; port: number }> {
   return new Promise((resolve, reject) => {
     if (httpServer) {
       reject(new Error("SSE server already running"));
@@ -191,13 +255,25 @@ export function startSseServer(): Promise<{ host: string; port: number }> {
     }
     const port = ssePort();
     const host = sseHost();
+    if (!isLoopbackHost(host) && authToken() === undefined) {
+      reject(new Error("refusing SSE/A2A startup on non-loopback host without an auth token"));
+      return;
+    }
+    const baseUrl = `http://${formatHostForUrl(host)}:${port}`;
 
+    const a2aHandler = options.a2a
+      ? createA2AHttpHandler({
+        baseUrl,
+        submitTask: options.a2a.submitTask,
+        getTaskStatus: options.a2a.getTaskStatus,
+      })
+      : undefined;
     const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       // CORS preflight — permissive for local dev
       if (req.method === "OPTIONS") {
         res.writeHead(204, {
           "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "GET, OPTIONS",
+          "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
           "Access-Control-Allow-Headers": "Content-Type, Authorization",
         });
         res.end();
@@ -205,7 +281,7 @@ export function startSseServer(): Promise<{ host: string; port: number }> {
       }
       res.setHeader("Access-Control-Allow-Origin", "*");
 
-      const url = new URL(req.url ?? "/", `http://${host}:${port}`);
+      const url = new URL(req.url ?? "/", baseUrl);
 
       if (url.pathname === "/healthz" || url.pathname === "/healthz/") {
         handleHealthz(res);
@@ -215,6 +291,22 @@ export function startSseServer(): Promise<{ host: string; port: number }> {
       const credential = providedToken(req, url);
       if (!credentialAuthorized(credential)) {
         handle401(res);
+        return;
+      }
+
+      if (a2aHandler && (url.pathname.startsWith("/a2a/") || url.pathname.startsWith("/.well-known/agent-card.json"))) {
+        a2aHandler(req, res);
+        return;
+      }
+
+      if (url.pathname === "/events/stream" || url.pathname === "/events/stream/") {
+        if (req.method !== "GET") {
+          res.writeHead(405, { "Content-Type": "text/plain" });
+          res.end("method not allowed");
+          return;
+        }
+        const fleetId = url.searchParams.get("fleet_id") || undefined;
+        handleEventStreamConnection(fleetId, res, credential);
         return;
       }
 
@@ -272,7 +364,9 @@ export function stopSseServer(): Promise<void> {
     }
     activeStreams.clear();
     streamCredentials.clear();
+    eventStreamCredentials.clear();
     shutdownSubscribers();
+    shutdownEventStream();
     if (httpServer) {
       const server = httpServer;
       httpServer = null;
@@ -290,5 +384,12 @@ export function stopSseServer(): Promise<void> {
 export function subscribeInboxUrl(agentId: string, baseUrl?: string): string {
   const port = ssePort();
   const host = baseUrl ?? "127.0.0.1";
-  return `http://${host}:${port}/inbox/${agentId}/stream`;
+  return `http://${formatHostForUrl(host)}:${port}/inbox/${agentId}/stream`;
+}
+
+export function subscribeEventsUrl(fleetId?: string, baseUrl?: string): string {
+  const port = ssePort();
+  const host = baseUrl ?? "127.0.0.1";
+  const base = `http://${formatHostForUrl(host)}:${port}/events/stream`;
+  return fleetId ? `${base}?fleet_id=${encodeURIComponent(fleetId)}` : base;
 }

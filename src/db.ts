@@ -116,6 +116,20 @@ export function setMetaValue(key: string, value: string): void {
   db.prepare("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(key, value);
 }
 
+/** Persist the taskId -> (fleetId, agentId) mapping for the local A2A adapter. */
+export function storeA2ATask(taskId: string, fleetId: string, agentId: string): void {
+  const db = getDb();
+  db.prepare(`INSERT OR REPLACE INTO local_a2a_tasks (task_id, fleet_id, agent_id) VALUES (?, ?, ?)`).run(taskId, fleetId, agentId);
+}
+
+/** Lookup the persisted mapping; undefined if unknown in this ledger (survives process restart). */
+export function getA2ATask(taskId: string): {fleetId: string, agentId: string} | undefined {
+  const db = getDb();
+  const row = db.prepare(`SELECT fleet_id, agent_id FROM local_a2a_tasks WHERE task_id = ?`).get(taskId) as {fleet_id: string, agent_id: string} | undefined;
+  if (!row) return undefined;
+  return { fleetId: row.fleet_id, agentId: row.agent_id };
+}
+
 function ledgerHasRows(db: Database.Database): boolean {
   const tables = db
     .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name <> 'meta'")
@@ -475,6 +489,7 @@ CREATE TABLE IF NOT EXISTS capabilities  (agent_id TEXT PRIMARY KEY, data TEXT N
 CREATE TABLE IF NOT EXISTS receipts      (key TEXT PRIMARY KEY, message_id TEXT, data TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS ratifications (message_id TEXT PRIMARY KEY, fleet_id TEXT, data TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS templates     (key TEXT PRIMARY KEY, data TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS local_a2a_tasks (task_id TEXT PRIMARY KEY, fleet_id TEXT, agent_id TEXT);
 CREATE INDEX IF NOT EXISTS idx_agents_fleet        ON agents(fleet_id);
 CREATE INDEX IF NOT EXISTS idx_messages_fleet      ON messages(fleet_id);
 CREATE INDEX IF NOT EXISTS idx_receipts_message    ON receipts(message_id);
@@ -979,6 +994,7 @@ function getDb(): Database.Database {
     db.transaction(() => {
       assertAdoptable(db, file);
       db.exec(SCHEMA);
+      db.exec(`DROP TABLE IF EXISTS a2a_tasks;`);
       db.prepare("INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', ?)").run(
         String(CURRENT_SCHEMA_VERSION)
       );

@@ -203,7 +203,8 @@ At tool dispatch, the v3 handler reads the configured ledger through the same
 dedicated read-only file snapshot boundary and performs no ledger writes. It
 does not change v1 or v2 output, `VerifyReport`/`VerifyFinding`, legacy CLI
 output, or their exits. v3 MCP is opt-in and, together with
-`plan_speculative_backlog`, raises the implemented MCP tool count to 36.
+`plan_speculative_backlog`, raises the implemented MCP tool count to 36. The
+`subscribe_events` unified event stream tool raises the count to 37.
 
 ### Implemented speculative backlog projection MCP contract
 
