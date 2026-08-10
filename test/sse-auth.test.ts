@@ -174,6 +174,13 @@ test("non-loopback host refuses startup without a non-empty token", async () => 
     /refusing SSE\/A2A startup.*non-loopback host.*auth token/i,
   );
   delete process.env.MESHFLEET_SSE_HOST;
+  const { host, port } = await startSseServer({
+    a2a: {
+      submitTask: async () => ({ fleetId: "fleet-1", agentId: "agent-1" }),
+      getTaskStatus: () => ({ fleetId: "fleet-1", agentId: "agent-1", fleetStatus: "running", agentStatus: "running" }),
+    },
+  });
+  base = `http://${host}:${port}`;
 });
 
 test("IPv6 hosts are bracketed in advertised URLs", () => {
