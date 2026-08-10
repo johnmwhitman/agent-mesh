@@ -207,5 +207,4 @@ test("over-cap stream is refused with 429 BEFORE any SSE handshake", async () =>
     for (const c of open) c.abort();
     setMaxConnectionsPerAgent(MAX_CONNECTIONS_PER_AGENT_DEFAULT);
   }
->>>>>>> origin/main
 });
