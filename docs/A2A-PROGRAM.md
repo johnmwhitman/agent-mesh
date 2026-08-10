@@ -27,8 +27,9 @@ verified boundaries:
   the same inbound server shape, but live semantic conformance for each client
   is not yet claimed.
 - Worker execution uses a provider-neutral runtime registry. OpenCode is the
-  default; Kimi and Claude Code are configuration-gated fixture-verified
-  adapters. `spawn_fleet` may select a registered runtime per agent in legacy
+  default; Kimi, Claude Code, and direct text-only MiniMax are
+  configuration-gated fixture-verified adapters. MiniMax is explicit-only.
+  `spawn_fleet` may select a registered runtime per agent in legacy
   lifecycle mode, while durable mode refuses that selector.
 - SQLite provides same-host transactional write exclusion. It is not a
   multi-host lease or ownership protocol.

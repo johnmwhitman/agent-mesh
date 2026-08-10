@@ -244,6 +244,36 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
     // abandoned fleet and injects a live replacement, so `abandoned` alongside
     // a running agent is a legitimate transient state — flagging it would put a
     // hard error on the only recovery path the lattice offers.
+    // Fleet-level crash provenance with nothing in the fleet to support it.
+    // The writer sets `stopped_reason` only when the fleet is `abandoned` AND
+    // every interrupted member carries `server_crash`, so at write time at
+    // least one member did. Members are never removed (`attach_agent` only
+    // adds) and no path clears a member's reason, so a fleet asserting a shared
+    // crash cause while NO member's row records one is claiming an external
+    // event its own records do not support.
+    //
+    // Two neighbouring states are deliberately NOT flagged, because both are
+    // honestly reachable: (1) a non-`abandoned` fleet carrying the field —
+    // `attach_agent` reopens an abandoned fleet and clears `completed_at` but
+    // not `stopped_reason`, so the residue is real history, not a lie; and
+    // (2) a MIX of `server_crash` and `process_lost` members, which that same
+    // reopen-and-re-abandon path produces. Only the zero-support case has no
+    // honest producer, and a check that fires on legitimate states trains an
+    // operator to filter the channel — the failure mode this repo already
+    // learned from its sweeper.
+    if (f.status === "abandoned" && f.stopped_reason !== undefined) {
+      const supporting = fleetAgents.filter(
+        (a) => a.status === "interrupted" && a.stopped_reason === "server_crash"
+      );
+      if (supporting.length === 0) {
+        error(
+          "fleet.crash_provenance_unsupported",
+          f.id,
+          `fleet ${f.id} is recorded abandoned with stopped_reason=${f.stopped_reason}, but not one of its ${fleetAgents.length} agents carries an interrupted row attributing the crash — the fleet asserts a shared cause its own records do not support`
+        );
+      }
+    }
+
     if (SEALED_FLEET_STATUSES.has(f.status)) {
       const live = fleetAgents.filter((a) => !TERMINAL_AGENT_STATUSES.has(a.status));
       if (live.length > 0) {
@@ -341,6 +371,53 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
         a.id,
         `agent ${a.id} is recorded ${a.status} but carries completed_at=${a.completed_at} — the same row claims it is still running and that it has already finished`
       );
+    }
+
+    // Two fields that ONLY a settle can produce, on a row that says it has not
+    // settled. Same shape as `completed_while_live` above, reached through the
+    // schema that arrived after that check was written.
+    //
+    // The bound is deliberately `pending`/`running` and not "anything that is
+    // not `interrupted`". Both fields are legitimately CARRIED by rows that
+    // moved on: nothing clears `stopped_reason` when the durable projection
+    // later writes `complete`/`failed` over a previously interrupted row
+    // (`lifecycle-execution.ts` projectPending), and flagging that would put an
+    // error on an honest history. What has no honest producer at all is either
+    // field on a row that has not reached a terminal state — every writer sets
+    // them in the same statement that writes a terminal status.
+    if (!TERMINAL_AGENT_STATUSES.has(a.status)) {
+      if (a.stopped_reason !== undefined) {
+        error(
+          "agent.stopped_reason_while_live",
+          a.id,
+          `agent ${a.id} is recorded ${a.status} but carries stopped_reason=${a.stopped_reason} — the same row claims it has not finished and that it is known why it stopped`
+        );
+      }
+      if (a.result_contract !== undefined) {
+        error(
+          "agent.result_contract_while_live",
+          a.id,
+          `agent ${a.id} is recorded ${a.status} but carries result_contract=${a.result_contract} — a declared settle outcome on a row whose own status says it has not settled`
+        );
+      }
+    }
+
+    // A failover hop the writer could not have recorded. `recordRuntimeAttempt`
+    // is idempotent on the last entry precisely so "a re-entry must not inflate
+    // the history into evidence of a hop that never happened", and the field's
+    // own contract is that "a second DISTINCT entry IS the failover record".
+    // An ADJACENT duplicate is therefore structurally unproducible and
+    // manufactures exactly the evidence that guard exists to prevent.
+    // Non-adjacent repeats (A, B, A) are legitimate hop-backs and stay silent.
+    if (a.runtime_attempts !== undefined) {
+      const dupeAt = a.runtime_attempts.findIndex((id, i) => i > 0 && id === a.runtime_attempts![i - 1]);
+      if (dupeAt > 0) {
+        error(
+          "agent.runtime_attempt_duplicated",
+          a.id,
+          `agent ${a.id} records runtime_attempts ${JSON.stringify(a.runtime_attempts)} with the same runtime repeated at positions ${dupeAt - 1} and ${dupeAt} — the writer collapses a repeated last entry, so this asserts a failover hop that no spawn path could have written`
+        );
+      }
     }
 
     // Model-selected execution (task 3) — narrow, local consistency check

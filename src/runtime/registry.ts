@@ -2,6 +2,7 @@ import { OpenCodeRuntimeAdapter } from "./opencode.js";
 import { KimiRuntimeAdapter } from "./kimi.js";
 import { ClaudeRuntimeAdapter } from "./claude.js";
 import { LocalDemoRuntimeAdapter } from "./local-demo.js";
+import { MiniMaxCliRuntimeAdapter } from "./minimax.js";
 import type { RuntimeAdapter } from "./types.js";
 
 /** Registry holds every runtime an agent could be spawned under. Selection is not yet
@@ -50,6 +51,7 @@ export function createDefaultRuntimeRegistry(): RuntimeAdapterRegistry {
   // what turns a single chokepoint into something that can fail over.
   registerKimiIfConfigured(registry);
   registerClaudeIfConfigured(registry);
+  registerMiniMaxIfConfigured(registry);
   // Unconditional, unlike Kimi/Claude, because it needs NO operator
   // configuration to be truthful: the command is the current Node executable
   // and the argv is a worker shipped inside this package — no machine paths,
@@ -58,6 +60,22 @@ export function createDefaultRuntimeRegistry(): RuntimeAdapterRegistry {
   // rather than pretending to honor them. Default runtime is unchanged.
   registry.register(new LocalDemoRuntimeAdapter());
   return registry;
+}
+
+/** Register the operator-owned direct MiniMax text lane only when explicitly bound. */
+function registerMiniMaxIfConfigured(registry: RuntimeAdapterRegistry): void {
+  const command = process.env.MESHFLEET_MINIMAX_COMMAND?.trim();
+  if (!command) return;
+  const harnessVersion = process.env.MESHFLEET_MINIMAX_VERSION?.trim();
+  if (!harnessVersion) {
+    throw new Error(
+      "MESHFLEET_MINIMAX_VERSION is required when MESHFLEET_MINIMAX_COMMAND is configured",
+    );
+  }
+  registry.register(new MiniMaxCliRuntimeAdapter({
+    command,
+    harnessVersion,
+  }));
 }
 
 /** Register Claude Code only when its private executable binding is configured. */

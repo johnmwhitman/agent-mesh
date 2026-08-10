@@ -101,6 +101,7 @@ those target formats. See `docs/CONFIG-TRANSLATION.md`.
 | Local-process proof adapter | `runtime-launch-verified` | Deterministic local argv-only adapter covers process lifecycle without a provider, network, or credentials |
 | Kimi CLI native adapter | `fixture-verified` | An env-gated non-default adapter proves stdin-only prompts, scrubbed environment policy, bounded final-message JSONL, isolation-gated unattended edits, and descendant cleanup against a fake executable; no live provider execution, OAuth inspection, version attestation, account binding, or quota observation is claimed |
 | Claude Code CLI native adapter | `fixture-verified` | An env-gated non-default adapter proves stdin-only prompts, current print-mode argv, scrubbed environment policy, two-key workspace admission, safe noninteractive permission modes, hollow-success refusal, bounded output, and diagnostic redaction against a fake executable; no public account identity, credential, effective-model, quota, or attestation claim is made |
+| MiniMax subscription wrapper adapter | `fixture-verified` | An env-gated, explicit-only text adapter proves direct-route enforcement, scrubbed environment with fixed profile/interpreter locators, wrapper-owned credential discovery, hollow-success refusal, bounded output, cancellation, and diagnostic redaction; it has no workspace authority and makes no account, credential, effective-model, quota, or availability claim |
 | Multi-host coordinator | `deferred` | No shared remote ownership authority exists |
 
 Runtime failover is a separate execution concern. `src/failover.ts`,
@@ -155,15 +156,18 @@ operator evidence and are not part of this public compatibility contract.
 Each `spawn_fleet` agent may name a registered runtime adapter. Unknown ids are
 refused before any fleet or agent row is written. Omitting the field preserves
 the OpenCode default. A selected non-default adapter receives an explicit
-scrubbed environment, new-session request, unattended workspace-edit request,
-and the caller's optional opaque `workspace_binding`; the adapter remains the
-authority that accepts or rejects that spec. Durable lifecycle mode refuses
+scrubbed environment, new-session request, and unattended permission request.
+Agentic adapters receive workspace-only edit intent plus the caller's optional
+opaque `workspace_binding`; restricted text adapters receive edits forbidden
+and no workspace authority. The adapter remains the authority that accepts or
+rejects that spec. Durable lifecycle mode refuses
 per-agent runtime selection because its persisted agent row does not yet retain
 the runtime id.
 
 Registration is operator configuration, not public machine state. The Kimi and
-Claude Code adapters require absolute command paths and optional configured
-version labels. Their workspace-binding admission lists live in environment
+Claude Code adapters require absolute command paths and accept configured version
+labels; MiniMax requires both an absolute command and a configured version label.
+Agentic adapters' workspace-binding admission lists live in environment
 configuration and contain opaque identifiers, never paths or account names.
 Neither registration nor selection proves login, availability, entitlement,
 quota, spend authority, effective model, or provider identity.
@@ -302,6 +306,35 @@ The private Operator must verify the exact executable and configured version
 map an opaque runtime/workspace binding to an authenticated installation, and
 observe quota windows. None of those machine/account facts belong in public
 Core descriptors or receipts.
+
+## Native MiniMax subscription wrapper boundary
+
+`MiniMaxCliRuntimeAdapter` is a narrower capacity lane for an operator-owned
+text wrapper. It is registered only when both `MESHFLEET_MINIMAX_COMMAND` and
+`MESHFLEET_MINIMAX_VERSION` are set; the command must be absolute and the
+version is configured compatibility evidence, not an executable attestation.
+It is explicit-only: automatic failover never substitutes it for an agentic
+runtime. The adapter:
+
+- requires an absolute operator-resolved command and configured version label;
+- sends one bounded prompt on stdin behind a fixed short argv instruction and
+  accepts a schema-bound `done`, `refused`, or `blocked` final-text declaration;
+- refuses agent/model selectors, workspace bindings, file edits, input bytes,
+  resumed sessions, and caller-controlled routing or credential environment;
+- admits only fixed host-profile locators needed for wrapper-owned credential
+  discovery plus the host executable search path needed by script interpreters;
+  credentials themselves never cross the runtime spec;
+- forces the wrapper's direct MiniMax route and disables ambient portfolio
+  memory injection, so the disclosed context is exactly the task prompt;
+- normalizes empty, nonzero, oversized, timed-out, and cancelled execution as
+  failure without exposing raw stderr; malformed or prose-only final text also
+  fails rather than being upgraded into a declaration; and
+- reports identity evidence as `none`: registration and successful text prove
+  neither the account, effective model, entitlement, quota, nor future availability.
+
+This is text completion, not workspace implementation. A caller that needs
+filesystem or shell work must select a runtime that truthfully advertises and
+admits those capabilities.
 
 # Minimum interoperable implementation
 

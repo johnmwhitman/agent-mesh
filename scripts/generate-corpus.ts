@@ -259,6 +259,40 @@ const V: Vector[] = [
       { op: "set", path: "agents|a2|runtime_model", value: "openai/gpt-5" },
     ] },
 
+  // Restored to the generator 2026-08-06. This vector existed in the committed manifest but in
+  // NEITHER generator, so a regeneration silently dropped it and its check went unpinned — found
+  // exactly that way. A fixture the generator cannot reproduce is a fixture one `npx tsx
+  // scripts/generate-corpus.ts` away from disappearing.
+  { id: "message-unknown-recipient", primary: "message.unknown_recipient", classification: "anomaly",
+    lie: "a message is addressed to an agent absent from this ledger, inside a fleet the ledger holds",
+    ops: [{ op: "set", path: "messages|m3", value: {
+      id: "m3", from_agent_id: "a1", to_agent_id: "a-ghost", fleet_id: "f1",
+      type: "handoff", payload: "hand this to the reviewer", timestamp: T0 + 400, acknowledged: false,
+    } }] },
+  { id: "agent-stopped-reason-while-live", primary: "agent.stopped_reason_while_live", classification: "caught",
+    lie: "an agent row claims it has not finished and, in the same breath, that it is known why it stopped — a settle-only attribution on a live row",
+    ops: [
+      { op: "set", path: "agents|a3|status", value: "running" },
+      { op: "delete", path: "agents|a3|completed_at" },
+      { op: "set", path: "agents|a3|stopped_reason", value: "server_crash" },
+    ] },
+  { id: "agent-result-contract-while-live", primary: "agent.result_contract_while_live", classification: "caught",
+    lie: "an agent row carries a declared settle outcome while its own status says it has not settled — the value callers are told to trust as the stronger signal, on a run that has not produced one",
+    ops: [
+      { op: "set", path: "agents|a3|status", value: "running" },
+      { op: "delete", path: "agents|a3|completed_at" },
+      { op: "set", path: "agents|a3|result_contract", value: "ok" },
+    ] },
+  { id: "agent-runtime-attempt-duplicated", primary: "agent.runtime_attempt_duplicated", classification: "caught",
+    lie: "an agent's runtime history repeats the same runtime in adjacent positions, asserting a failover hop to the runtime it was already using — evidence the writer's own idempotence collapses, so no spawn path could have produced it",
+    ops: [{ op: "set", path: "agents|a3|runtime_attempts", value: ["opencode-cli", "opencode-cli"] }] },
+  { id: "fleet-crash-provenance-unsupported", primary: "fleet.crash_provenance_unsupported", classification: "caught",
+    lie: "a fleet blames a server crash for its abandonment while not one of its own agents holds an interrupted row attributing that crash — a shared external cause asserted over records that do not support it",
+    ops: [
+      { op: "set", path: "fleets|f1|status", value: "abandoned" },
+      { op: "set", path: "fleets|f1|stopped_reason", value: "server_crash" },
+    ] },
+
   // ===================== UNDETECTABLE: the honest boundary (ZERO findings) =====================
   { id: "undetectable-forged-seen-receipt", primary: "", classification: "undetectable",
     lie: "a3 is on record as having SEEN the incident alert. It never did. 'seen' is an annotation any third party may legitimately write, so no contradiction exists to detect.",

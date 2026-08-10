@@ -538,7 +538,55 @@ export function appendEvent(
  * Outbox projection helper. The event id is additive to the historical NDJSON
  * shape, so existing inspector and MCP consumers retain their required keys.
  */
-export function appendEventOnce(eventId: string, event: string, data: Record<string, unknown> = {}): void {
+/**
+ * Every `event_id` already present in the event log.
+ *
+ * Exists so a drain can pay the log read ONCE instead of once per row. The
+ * dedupe this serves guards exactly one window: a projector that appended an
+ * event and then died before marking the outbox row projected. Such an append
+ * necessarily happened BEFORE the current drain started, so a snapshot taken at
+ * drain start sees it. A CONCURRENT projector cannot open the window either —
+ * `projectLifecycleOutbox` appends and marks inside one `BEGIN IMMEDIATE`
+ * transaction, so a competing projector is blocked, and once it commits, its
+ * row is no longer selectable as unprojected.
+ */
+export function readAppendedEventIds(): Set<string> {
+  const file = resolveEventLogFile();
+  const seen = new Set<string>();
+  if (!existsSync(file)) return seen;
+  for (const match of readFileSync(file, "utf-8").matchAll(/"event_id":"([^"]+)"/g)) {
+    seen.add(match[1] as string);
+  }
+  return seen;
+}
+
+/**
+ * Append unless this `event_id` has already been written.
+ *
+ * 🔴 PASS `seen` FROM A DRAIN. Without it this reads the ENTIRE event log on
+ * every call, and its only caller invokes it once per outbox row from inside the
+ * transaction that holds the ledger write lock — so the cost was
+ * O(rows × log size) of lock-held time. Measured on a real 18 MB log: 10.2 ms
+ * per row, i.e. ~2 seconds of held write lock for a 200-row drain, growing
+ * linearly with a file nothing rotates. Worse, past Node's max string length the
+ * read THROWS, and the caller's catch turns that into permanently deferred
+ * projection announced by a single stderr line.
+ *
+ * With a snapshot supplied the whole drain pays one read. The set is updated on
+ * append so later rows in the same drain still dedupe correctly.
+ */
+export function appendEventOnce(
+  eventId: string,
+  event: string,
+  data: Record<string, unknown> = {},
+  seen?: Set<string>,
+): void {
+  if (seen) {
+    if (seen.has(eventId)) return;
+    appendEvent(event, { ...data, event_id: eventId });
+    seen.add(eventId);
+    return;
+  }
   const marker = `\"event_id\":\"${eventId}\"`;
   const file = resolveEventLogFile();
   if (existsSync(file) && readFileSync(file, "utf-8").includes(marker)) return;
@@ -567,19 +615,151 @@ export function readEventLog(limit = 1000): Array<Record<string, unknown>> {
 // ---------------------------------------------------------------------------
 
 const DEFAULT_FLEET_TIMEOUT_MS = 30 * 60 * 1000;
+/** Largest delay Node schedules without clamping it to 1ms. */
+export const MAX_FLEET_TIMEOUT_MS = 2_147_483_647;
+
+function configuredDefaultFleetTimeoutMs(): number {
+  const envVal = Number(resolveEnv(process.env, "MESHFLEET_AGENT_TIMEOUT_MS", "AGENT_MESH_AGENT_TIMEOUT_MS"));
+  return Number.isInteger(envVal) && envVal > 0 && envVal <= MAX_FLEET_TIMEOUT_MS
+    ? envVal
+    : DEFAULT_FLEET_TIMEOUT_MS;
+}
+
+/**
+ * Older releases persisted any positive timeout even though Node clamps delays
+ * above MAX_FLEET_TIMEOUT_MS to 1ms. Preserve an absent override's normal
+ * default, but make every present historical value safe before it reaches a
+ * runtime or scheduler. MAX is the least surprising fallback: it cannot turn a
+ * previously long/unvalidated deadline into an immediate failure.
+ */
+function effectiveFleetTimeoutMs(timeoutMs: unknown): number {
+  if (timeoutMs === undefined) return configuredDefaultFleetTimeoutMs();
+  return Number.isInteger(timeoutMs) && (timeoutMs as number) >= 1 && (timeoutMs as number) <= MAX_FLEET_TIMEOUT_MS
+    ? timeoutMs as number
+    : MAX_FLEET_TIMEOUT_MS;
+}
 
 export function getFleetTimeoutMs(fleetId: string): number {
   const fleet = loadData().fleets[fleetId];
-  if (fleet?.timeout_ms !== undefined) return fleet.timeout_ms;
-  const envVal = Number(resolveEnv(process.env, "MESHFLEET_AGENT_TIMEOUT_MS", "AGENT_MESH_AGENT_TIMEOUT_MS"));
-  return Number.isFinite(envVal) && envVal > 0 ? envVal : DEFAULT_FLEET_TIMEOUT_MS;
+  return effectiveFleetTimeoutMs(fleet?.timeout_ms);
 }
 
 export function setFleetTimeout(fleetId: string, timeoutMs: number): void {
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > MAX_FLEET_TIMEOUT_MS) {
+    throw new Error(`Fleet timeout must be an integer between 1 and ${MAX_FLEET_TIMEOUT_MS}ms`);
+  }
   withLedger((data) => {
     const fleet = data.fleets[fleetId];
     if (!fleet) throw new Error(`Fleet ${fleetId} not found`);
     fleet.timeout_ms = timeoutMs;
+  });
+}
+
+export interface FleetTimedOutAgent {
+  agent_id: string;
+  fleet_id: string;
+  pid?: number;
+  reason: string;
+  /** A mode-specific owner already attempted handle/PID containment. */
+  cancellation_attempted?: true;
+}
+
+export interface NormalizedFleetTimeout {
+  fleet_id: string;
+  timeout_ms: number;
+}
+
+/** One-shot upgrade migration for unsafe overrides written by older releases. */
+export function normalizePersistedFleetTimeouts(): NormalizedFleetTimeout[] {
+  return withLedger((data) => {
+    const normalized: NormalizedFleetTimeout[] = [];
+    for (const fleet of Object.values(data.fleets)) {
+      if (fleet.timeout_ms === undefined) continue;
+      const timeoutMs = effectiveFleetTimeoutMs(fleet.timeout_ms);
+      if (fleet.timeout_ms === timeoutMs) continue;
+      fleet.timeout_ms = timeoutMs;
+      normalized.push({ fleet_id: fleet.id, timeout_ms: timeoutMs });
+    }
+    return normalized;
+  });
+}
+
+/** Earliest active per-agent deadline in a fleet, or undefined when none is running. */
+export function nextFleetTimeoutDeadline(fleetId: string): number | undefined {
+  const data = loadData();
+  const fleet = data.fleets[fleetId];
+  if (!fleet || SEALED_FLEET_STATUSES.has(fleet.status)) return undefined;
+  const timeoutMs = effectiveFleetTimeoutMs(fleet.timeout_ms);
+  const deadlines = Object.values(data.agents)
+    .filter((agent) => agent.fleet_id === fleetId && agent.status === "running" && agent.started_at !== undefined)
+    .map((agent) => agent.started_at! + timeoutMs);
+  return deadlines.length > 0 ? Math.min(...deadlines) : undefined;
+}
+
+/**
+ * Atomically fail only the running agents whose own fleet timeout elapsed.
+ *
+ * Cancellation is deliberately not performed inside the ledger transaction.
+ * The caller owns runtime handles and uses the returned ids after the durable
+ * terminal state is committed; a rejected or hung provider cancellation must
+ * never keep the evidence ledger claiming that expired work is still running.
+ */
+export function expireFleetTimeoutAgents(
+  fleetId: string,
+  now: number = Date.now(),
+): FleetTimedOutAgent[] {
+  const expired: FleetTimedOutAgent[] = [];
+  withLedger((data) => {
+    expired.length = 0;
+    const fleet = data.fleets[fleetId];
+    if (!fleet || SEALED_FLEET_STATUSES.has(fleet.status)) return;
+    const timeoutMs = effectiveFleetTimeoutMs(fleet.timeout_ms);
+    for (const agent of Object.values(data.agents)) {
+      if (
+        agent.fleet_id !== fleetId ||
+        agent.status !== "running" ||
+        agent.started_at === undefined ||
+        agent.started_at + timeoutMs > now
+      ) continue;
+      const reason = `Fleet timeout exceeded after ${timeoutMs}ms`;
+      agent.status = "failed";
+      agent.error = reason;
+      agent.completed_at = now;
+      expired.push({ agent_id: agent.id, fleet_id: fleetId, pid: agent.pid, reason });
+    }
+    if (expired.length > 0) {
+      const from = _checkFleetCompletion(data, fleetId);
+      if (from) data.fleets[fleetId].completed_at = now;
+    }
+  });
+  return expired;
+}
+
+/**
+ * Terminalize a legacy attempt whose runtime already reported that its armed
+ * ceiling fired. This deliberately does not re-read the fleet override: an
+ * extension requested while the timed-out process is shutting down cannot
+ * revoke the terminal result or turn it into a retry.
+ */
+export function failRunningAgentForFleetRuntimeTimeout(
+  agentId: string,
+  fleetId: string,
+  reason: string,
+  now: number = Date.now(),
+): boolean {
+  return withLedger((data) => {
+    const agent = data.agents[agentId];
+    if (
+      !agent ||
+      agent.fleet_id !== fleetId ||
+      agent.status !== "running" ||
+      agent.completed_at !== undefined
+    ) return false;
+    agent.status = "failed";
+    agent.error = reason;
+    agent.completed_at = now;
+    _checkFleetCompletion(data, fleetId);
+    return true;
   });
 }
 

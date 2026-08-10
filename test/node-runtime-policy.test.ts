@@ -22,6 +22,69 @@ function inlineNodeMatrix(workflow: string): number[] {
   assert.fail("workflow strategy matrix must declare an inline Node version list");
 }
 
+function actionRefs(workflow: string): string[] {
+  return workflow.split(/\r?\n/).flatMap((line) => {
+    const match = line.match(/^\s*-\s+uses:\s+(actions\/(?:checkout|setup-node)@\S+)/);
+    return match ? [match[1]] : [];
+  });
+}
+
+function runCommands(workflow: string): string[] {
+  const lines = workflow.split(/\r?\n/);
+  const commands: string[] = [];
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = lines[index].match(/^(\s*)-?\s*run:\s*(.*)$/);
+    if (!match) continue;
+
+    const [, whitespace, value] = match;
+    if (value !== "|" && value !== ">" && value !== "|-" && value !== ">-") {
+      commands.push(value);
+      continue;
+    }
+
+    const indent = whitespace.length;
+    const block: string[] = [];
+    while (index + 1 < lines.length) {
+      const next = lines[index + 1];
+      const nextIndent = next.search(/\S/);
+      if (nextIndent !== -1 && nextIndent <= indent) break;
+      block.push(next.trim());
+      index += 1;
+    }
+    commands.push(block.join("\n"));
+  }
+
+  return commands;
+}
+
+function assertReproducibleCiWorkflow(workflow: string, release: string): void {
+  const ciActions = actionRefs(workflow);
+  const releaseActions = [...new Set(actionRefs(release))];
+
+  assert.deepEqual(
+    ciActions,
+    [
+      "actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8",
+      "actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444",
+    ],
+    "CI actions must use immutable reviewed revisions",
+  );
+  assert.deepEqual(
+    ciActions,
+    releaseActions,
+    "CI actions must use the same immutable revisions as tagged release",
+  );
+  assert.ok(
+    runCommands(workflow).some((command) => command.trim() === "npm ci"),
+    "CI must install exactly from package-lock.json",
+  );
+  assert.ok(
+    runCommands(workflow).every((command) => !/\bnpm\s+install\b/.test(command)),
+    "CI must not resolve a new dependency graph",
+  );
+}
+
 test("the operational Node default is pinned to the verified Node 24 canary", () => {
   const declared = readFileSync(".nvmrc", "utf8");
 
@@ -47,4 +110,33 @@ test("CI and tagged release verification both exercise the operational Node majo
 
 test("a commented Node list cannot satisfy the workflow matrix guard", () => {
   assert.throws(() => inlineNodeMatrix("strategy:\n  matrix:\n    # node: [20, 22, 24]\n    os: [ubuntu]\n"));
+});
+
+test("CI installs the committed lockfile under immutable release-matched actions", () => {
+  assertReproducibleCiWorkflow(
+    readFileSync(".github/workflows/ci.yml", "utf8"),
+    readFileSync(".github/workflows/release.yml", "utf8"),
+  );
+});
+
+test("floating actions, release drift, and dependency resolution cannot satisfy the guard", () => {
+  const release = [
+    "steps:",
+    "  - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8",
+    "  - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444",
+  ].join("\n");
+  const floating = release.replaceAll(/@[0-9a-f]{40}/g, "@v5") + "\n  - run: npm ci";
+  const ci = release + "\n  - run: npm ci";
+  const releaseDrift = release.replace("a0853c24544627f65ddf259abe73b1d18a591444", "1111111111111111111111111111111111111111");
+  const installBypasses = [
+    "  - run: npm install --legacy-peer-deps",
+    "  - run: npm ci && npm install",
+    "  - run: |\n      npm install\n      npm test",
+  ];
+
+  assert.throws(() => assertReproducibleCiWorkflow(floating, release));
+  assert.throws(() => assertReproducibleCiWorkflow(ci, releaseDrift));
+  for (const bypass of installBypasses) {
+    assert.throws(() => assertReproducibleCiWorkflow(`${release}\n${bypass}\n  - run: npm ci`, release));
+  }
 });

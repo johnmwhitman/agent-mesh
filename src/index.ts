@@ -27,10 +27,14 @@ import {
   _createFleet,
   _registerAgent,
   discoverPremadeAgents,
+  expireFleetTimeoutAgents,
   getFleetTimeoutMs,
   getInbox,
   listFleets,
   markAgentFinished,
+  nextFleetTimeoutDeadline,
+  normalizePersistedFleetTimeouts,
+  MAX_FLEET_TIMEOUT_MS,
   MAX_BATCH_MESSAGES,
   MAX_PAYLOAD_BYTES,
   MESSAGE_TYPES,
@@ -75,7 +79,7 @@ import {
 } from "./retry.js";
 import { recordRoutingOutcome } from "./routing-feedback.js";
 import { installCrashHandlers } from "./crash-handler.js";
-import { readCrashJournal, retireCrashJournal } from "./boot-reconciler.js";
+import { readCrashJournal, recoverCrashDeclarations, retireCrashJournal } from "./boot-reconciler.js";
 import { SweepHealth, runSweepTick } from "./sweep-health.js";
 import { summarizeCollection } from "./collection-summary.js";
 import { isHollowSuccess, HOLLOW_SUCCESS_REASON } from "./hollow-result.js";
@@ -83,6 +87,7 @@ import {
   readResultContract,
   resultPathFor,
   withResultContract,
+  withTextResultContract,
   type ResultContractStatus,
 } from "./result-contract.js";
 import { recommendRoute, type RecommendRouteInput } from "./recommend-route.js";
@@ -109,10 +114,16 @@ import {
 } from "./tool-args.js";
 import { buildFailureDetail, projectSuccessDiagnostics } from "./spawn-attempt.js";
 import { getDefaultRuntimeAdapter, requireRuntimeAdapter, availableRuntimeIds } from "./runtime/registry.js";
-import { CHILD_MARKER_ENV } from "./runtime/process.js";
-import type { RuntimeAdapter } from "./runtime/types.js";
+import { CHILD_MARKER_ENV, containRecordedProcess } from "./runtime/process.js";
+import type { ExecutionSpec, RuntimeAdapter, RuntimeHandle, RuntimeResult } from "./runtime/types.js";
 import { decideFailover } from "./failover.js";
 import { defaultLifecycleMode, LifecycleExecutionCoordinator, repairLifecycleOutbox } from "./lifecycle-execution.js";
+import {
+  FleetTimeoutEnforcer,
+  routeLegacyRuntimeResult,
+  terminalizeLegacyRuntimeTimeout,
+  type ExpiredFleetAgent,
+} from "./fleet-timeout.js";
 import { getDiscussionStore, primeDiscussionSweepIndex } from "./discussion-mcp.js";
 import {
   DiscussionError,
@@ -177,7 +188,44 @@ interface SpawnAgentInput {
 }
 
 const runtimeAdapter = getDefaultRuntimeAdapter();
-const lifecycleCoordinator = new LifecycleExecutionCoordinator(runtimeAdapter);
+interface ActiveLegacyRun {
+  fleetId: string;
+  adapter: RuntimeAdapter;
+  handle: RuntimeHandle;
+  attempt: number;
+}
+const activeLegacyRuns = new Map<string, ActiveLegacyRun>();
+let fleetTimeoutEnforcer: FleetTimeoutEnforcer;
+function reportFleetTimeoutError(error: unknown): void {
+  console.error(`Agent Mesh v${MESH_VERSION} — fleet timeout enforcement failed (non-fatal): ${error instanceof Error ? error.message : String(error)}`);
+}
+const lifecycleCoordinator = new LifecycleExecutionCoordinator(runtimeAdapter, {
+  onAgentStateChange: (fleetId) => fleetTimeoutEnforcer?.refresh(fleetId),
+});
+fleetTimeoutEnforcer = new FleetTimeoutEnforcer({
+  nextDeadline: nextFleetTimeoutDeadline,
+  expire: (fleetId, now) => lifecycleCoordinator.modeForFleet(fleetId) === "durable"
+    ? lifecycleCoordinator.expireFleetTimeout(fleetId, now)
+    : expireFleetTimeoutAgents(fleetId, now),
+  cancelAgent: (agent: ExpiredFleetAgent) => {
+    const active = activeLegacyRuns.get(agent.agent_id);
+    if (active) {
+      if (active.fleetId !== agent.fleet_id) return;
+      return active.adapter.cancel(active.handle, agent.reason);
+    }
+    if (agent.pid !== undefined) containRecordedProcess(agent.pid);
+  },
+  onExpired: (agent, timedOutAt) => {
+    if (lifecycleCoordinator.modeForFleet(agent.fleet_id) === "durable") return;
+    appendEvent("agent_fleet_timeout", {
+      agent_id: agent.agent_id,
+      fleet_id: agent.fleet_id,
+      reason: agent.reason,
+      timed_out_at: timedOutAt,
+    });
+  },
+  onError: reportFleetTimeoutError,
+});
 
 /**
  * Inner spawn loop. attempt is 1-indexed (first attempt = 1).
@@ -201,6 +249,7 @@ function buildExecutionSpec(
   // id string against a literal — is what makes "explicitly asked for the default" and "asked for
   // nothing" the same execution, instead of two paths that drift.
   const nonDefaultRuntime = adapter !== runtimeAdapter;
+  const restrictedRuntime = nonDefaultRuntime && adapter.describe().permissions?.mode === "restricted";
   return {
     fleetId: input.fleetId,
     agentId,
@@ -208,11 +257,13 @@ function buildExecutionSpec(
     // The prompt the runtime receives, not the prompt the caller sent: the result contract is
     // appended here so BOTH spawn paths teach it from one place. The caller's text is preserved
     // verbatim on the Agent row, which is what `collect_results` and the ledger still show.
-    prompt: withResultContract(input.prompt, resultPath, input.expectsArtifact === true),
+    prompt: restrictedRuntime
+      ? withTextResultContract(input.prompt)
+      : withResultContract(input.prompt, resultPath, input.expectsArtifact === true),
     requestedAgent: input.agentFile,
     requestedModel: input.requestedModel,
     cwd: process.cwd(),
-    timeoutMs: adapter.describe().defaultTimeoutMs,
+    timeoutMs: getFleetTimeoutMs(input.fleetId),
     // The child is told the path twice — env and prompt — because agents routinely never read
     // env, and an unread instruction is an absent one.
     //
@@ -221,22 +272,24 @@ function buildExecutionSpec(
     // still true of everything else: `environment` is merged, `environmentPolicy` is not set
     // here, so the host environment opencode authenticates with is untouched. Setting the POLICY
     // unconditionally would scrub that environment; setting one explicit variable does not.
-    environment: { RESULT_PATH: resultPath },
+    ...(restrictedRuntime ? {} : { environment: { RESULT_PATH: resultPath } }),
     //
-    // These fields are REQUESTS, not attestations. `kimi.ts` refuses an inherited environment, an
-    // absent permission request, and a resumed session; a spec without them fails validation and
-    // `start()` throws, which is how a selected Kimi agent died before this. Naming them here says
-    // what MeshFleet actually does: it spawns an unattended agent that may edit its workspace.
+    // These fields are REQUESTS, not attestations. Every selected runtime receives a scrubbed,
+    // new, unattended spec. A restricted text runtime receives edits forbidden; an agentic
+    // runtime receives workspace-only edits and must independently admit any claimed binding.
     ...(nonDefaultRuntime
       ? {
           environmentPolicy: { mode: "scrubbed" as const },
           session: { mode: "new" as const },
-          permissions: { mode: "unattended" as const, edit: "workspace" as const },
+          permissions: {
+            mode: "unattended" as const,
+            edit: restrictedRuntime ? "forbidden" as const : "workspace" as const,
+          },
           // Only the CALLER may claim isolation, and the claim is worth nothing on its own — the
           // adapter's operator-configured admission list is the deciding key. Omitted when the
           // caller named no binding, so the adapter refuses rather than MeshFleet inventing an
           // isolation guarantee it does not provide.
-          ...(input.workspaceBinding
+          ...(!restrictedRuntime && input.workspaceBinding
             ? { workspace: { isolation: "verified" as const, bindingId: input.workspaceBinding } }
             : {}),
         }
@@ -249,6 +302,9 @@ function buildExecutionSpec(
  * On any transient failure path, decides retry vs failover vs permanent.
  */
 function trySpawn(input: SpawnAgentInput, agentId: string, attempt: number): void {
+  // A fleet timeout (or any other terminal writer) may win while a retry timer
+  // or an asynchronous runtime start is pending. Never resurrect that row.
+  if (readLedger().agents[agentId]?.status !== "running") return;
   // Resolve ONCE and use the same adapter for describe/start/cancel/wait. Mixing them would give
   // a Kimi agent opencode's timeout and opencode's cancel semantics, which is worse than not
   // supporting selection at all: it would look like it worked.
@@ -261,6 +317,13 @@ function trySpawn(input: SpawnAgentInput, agentId: string, attempt: number): voi
   // the case failover exists for, and a record written only on success would omit it.
   recordRuntimeAttempt(agentId, adapter.id);
   void adapter.start(spec).then((handle) => {
+    if (readLedger().agents[agentId]?.status !== "running") {
+      void adapter.cancel(handle, "agent became terminal before runtime start completed");
+      void adapter.wait(handle).catch(() => {});
+      return;
+    }
+    activeLegacyRuns.set(agentId, { fleetId: input.fleetId, adapter, handle, attempt });
+    fleetTimeoutEnforcer.refresh(input.fleetId);
     if (handle.pid !== undefined) {
       withLedger((data) => {
         const agent = data.agents[agentId];
@@ -280,81 +343,124 @@ function trySpawn(input: SpawnAgentInput, agentId: string, attempt: number): voi
     });
     void adapter.wait(handle).then((result) => {
       heartbeat.stop();
-      // Composed OUTSIDE the success branch on purpose: the success-carries-no-error guard
-      // forbids the raw stderr token inside that region, and it is right to — raw transcripts
-      // in Agent.error made real failures indistinguishable from normal runs. A hollow success
-      // seals as FAILED, and its detail goes through buildFailureDetail, the same bounded
-      // composer every other failure detail uses.
-      const hollowFailureDetail = isHollowSuccess(result)
-        ? buildFailureDetail(result.stderr, HOLLOW_SUCCESS_REASON)
-        : undefined;
-      // OBSERVE-ONLY THIS RELEASE. The status is read and recorded; it decides nothing. The next
-      // release makes anything but `ok` bank `failed`. Reading it here — on the same result the
-      // banking decision uses — is what makes the adoption figure honest before it is enforced.
-      const resultContract = readResultContract(resultPath, { cwd: spec.cwd, expectsArtifact: input.expectsArtifact === true });
-      if (result.status === "success") {
-        // HOLLOW SUCCESS (2026-08-01): a runtime can exit 0 having produced no
-        // output at all — the model burned its turn on tool calls and never
-        // emitted a final answer. Exit code alone therefore does not mean the
-        // work happened. Sealing that as `complete` is the exact overclaim
-        // verify.ts already forbids: `complete` must never "claim work that
-        // never happened". It is also invisible to every caller, because
-        // `collect_results` returns an empty string that reads like a real
-        // result, and an orchestrator accepts nothing while believing it got
-        // something. `failed` is the honest seal — it is terminal (no
-        // re-execution, so an agent that edited files cannot be double-run)
-        // and every existing consumer already knows to reroute on it.
-        if (hollowFailureDetail !== undefined) {
-          markAgentFinished(
+      routeLegacyRuntimeResult(result.status, {
+        onTimeout: () => {
+          const active = activeLegacyRuns.get(agentId);
+          terminalizeLegacyRuntimeTimeout({
             agentId,
-            "failed",
-            result.stdout,
-            hollowFailureDetail,
-            result.identity.agent,
-            result.identity.model,
-            undefined,
-            resultContract,
-          );
-          return;
-        }
-        markAgentFinished(
+            fleetId: input.fleetId,
+            handleId: handle.id,
+            attempt,
+            active: active ? {
+              fleetId: active.fleetId,
+              handleId: active.handle.id,
+              attempt: active.attempt,
+            } : undefined,
+            onEventError: reportFleetTimeoutError,
+          });
+        },
+        onNonTimeout: () => settleLegacyNonTimeout(
+          input,
           agentId,
-          "complete",
-          result.stdout,
-          // A SUCCESS has no error. This used to pass `result.stderr`, so a completed agent's
-          // `error` held the child's entire stderr transcript — tool calls, their output,
-          // duplicated warning lines and all. Measured on the live store: 753 of 763 `complete`
-          // agents carried a populated `error`, averaging 4,352 bytes, 3.28 MB in total. A
-          // consumer asking `agent.error` whether the work failed got a non-empty string for
-          // 98.7% of successes, which makes a real failure indistinguishable from a normal run.
-          //
-          // The distilled signal was being DROPPED at the same moment. `classifySpawnResult`
-          // already separates an auxiliary provider warning from the raw transcript, and
-          // `opencode.ts` carries it in `diagnostics` — which this call ignored. The transcript
-          // was kept and the diagnosis discarded: exactly backwards.
-          undefined,
-          result.identity.agent,
-          result.identity.model,
-          projectSuccessDiagnostics(result.diagnostics),
-          resultContract,
-        );
-        return;
-      }
-      handleTransientFailure(
-        input,
-        agentId,
-        attempt,
-        result.stdout,
-        result.stderr,
-        watchdogReason ?? result.error ?? `Spawn failed with exit code ${result.exitCode}`,
-        result.identity.agent,
-        result.identity.model,
-        resultContract,
-      );
+          attempt,
+          resultPath,
+          spec,
+          result,
+          watchdogReason,
+        ),
+      });
+    }).finally(() => {
+      const active = activeLegacyRuns.get(agentId);
+      if (active?.handle.id === handle.id) activeLegacyRuns.delete(agentId);
+      fleetTimeoutEnforcer.refresh(input.fleetId);
     });
   }).catch((error: unknown) => {
     handleTransientFailure(input, agentId, attempt, "", "", error instanceof Error ? error.message : String(error));
   });
+}
+
+function settleLegacyNonTimeout(
+  input: SpawnAgentInput,
+  agentId: string,
+  attempt: number,
+  resultPath: string,
+  spec: ExecutionSpec,
+  result: RuntimeResult,
+  watchdogReason?: string,
+): void {
+  if (readLedger().agents[agentId]?.status !== "running") return;
+  // Composed OUTSIDE the success branch on purpose: the success-carries-no-error guard
+  // forbids the raw stderr token inside that region, and it is right to — raw transcripts
+  // in Agent.error made real failures indistinguishable from normal runs. A hollow success
+  // seals as FAILED, and its detail goes through buildFailureDetail, the same bounded
+  // composer every other failure detail uses.
+  const hollowFailureDetail = isHollowSuccess(result)
+    ? buildFailureDetail(result.stderr, HOLLOW_SUCCESS_REASON)
+    : undefined;
+  // OBSERVE-ONLY THIS RELEASE. The status is read and recorded; it decides nothing. The next
+  // release makes anything but `ok` bank `failed`. Reading it here — on the same result the
+  // banking decision uses — is what makes the adoption figure honest before it is enforced.
+  const resultContract = result.resultContract ??
+    readResultContract(resultPath, { cwd: spec.cwd, expectsArtifact: input.expectsArtifact === true });
+  if (result.status === "success") {
+    // HOLLOW SUCCESS (2026-08-01): a runtime can exit 0 having produced no
+    // output at all — the model burned its turn on tool calls and never
+    // emitted a final answer. Exit code alone therefore does not mean the
+    // work happened. Sealing that as `complete` is the exact overclaim
+    // verify.ts already forbids: `complete` must never "claim work that
+    // never happened". It is also invisible to every caller, because
+    // `collect_results` returns an empty string that reads like a real
+    // result, and an orchestrator accepts nothing while believing it got
+    // something. `failed` is the honest seal — it is terminal (no
+    // re-execution, so an agent that edited files cannot be double-run)
+    // and every existing consumer already knows to reroute on it.
+    if (hollowFailureDetail !== undefined) {
+      markAgentFinished(
+        agentId,
+        "failed",
+        result.stdout,
+        hollowFailureDetail,
+        result.identity.agent,
+        result.identity.model,
+        undefined,
+        resultContract,
+      );
+      return;
+    }
+    markAgentFinished(
+      agentId,
+      "complete",
+      result.stdout,
+      // A SUCCESS has no error. This used to pass `result.stderr`, so a completed agent's
+      // `error` held the child's entire stderr transcript — tool calls, their output,
+      // duplicated warning lines and all. Measured on the live store: 753 of 763 `complete`
+      // agents carried a populated `error`, averaging 4,352 bytes, 3.28 MB in total. A
+      // consumer asking `agent.error` whether the work failed got a non-empty string for
+      // 98.7% of successes, which makes a real failure indistinguishable from a normal run.
+      //
+      // The distilled signal was being DROPPED at the same moment. `classifySpawnResult`
+      // already separates an auxiliary provider warning from the raw transcript, and
+      // `opencode.ts` carries it in `diagnostics` — which this call ignored. The transcript
+      // was kept and the diagnosis discarded: exactly backwards.
+      undefined,
+      result.identity.agent,
+      result.identity.model,
+      projectSuccessDiagnostics(result.diagnostics),
+      resultContract,
+    );
+    return;
+  }
+  handleTransientFailure(
+    input,
+    agentId,
+    attempt,
+    result.stdout,
+    result.stderr,
+    watchdogReason ?? result.error ?? `Spawn failed with exit code ${result.exitCode}`,
+    result.identity.agent,
+    result.identity.model,
+    resultContract,
+  );
 }
 
 /**
@@ -450,6 +556,7 @@ function handleTransientFailure(
   // blame an agent for a silence it had no chance to break.
   resultContract?: ResultContractStatus,
 ): void {
+  if (readLedger().agents[agentId]?.status !== "running") return;
   const failureDetail = buildFailureDetail(stderr, errorDetail);
   if (!shouldAgentRetry(attempt)) {
     appendEvent("agent_failed_permanent", {
@@ -544,7 +651,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
                   type: "string",
                   description:
                     "Runtime adapter to spawn this agent under. Omit for the default. `model` " +
-                    "picks a model WITHIN a runtime; `runtime` picks the harness itself, so agents " +
+                    "is adapter-specific (the default OpenCode runtime accepts it); `runtime` " +
+                    "picks the harness itself, so agents " +
                     "in one fleet can run under different CLIs and one provider outage cannot stop " +
                     "every agent at once. Not supported in durable lifecycle mode.",
                 },
@@ -562,7 +670,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
                     "Declare that this agent's result envelope must name at least one produced " +
                     "file: a 'done' declaration with no artifacts is recorded as " +
                     "result_contract 'artifact_missing' instead of 'ok', and the agent is told " +
-                    "so in its prompt. Named paths are existence-checked only — this is a " +
+                    "so in its prompt. Restricted text runtimes refuse this request. Named " +
+                    "paths are existence-checked only — this is a " +
                     "declared-output check, never a content or quality guarantee.",
                 },
               },
@@ -598,7 +707,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         type: "object",
         properties: {
           fleet_id: { type: "string" },
-          timeout_ms: { type: "number" },
+          timeout_ms: { type: "integer", minimum: 1, maximum: MAX_FLEET_TIMEOUT_MS },
         },
         required: ["fleet_id", "timeout_ms"],
       },
@@ -1620,6 +1729,22 @@ toolHandlers["spawn_fleet"] = async (args) => {
       ]),
     );
     if (badAgent) return jsonError(badAgent);
+    const incompatibleRestricted = agents.find((agent) => {
+      if (!agent.runtime) return false;
+      const descriptor = requireRuntimeAdapter(agent.runtime).describe();
+      return descriptor.permissions?.mode === "restricted" && (
+        agent.agent !== undefined ||
+        agent.model !== undefined ||
+        agent.workspace_binding !== undefined ||
+        agent.expects_artifact === true
+      );
+    });
+    if (incompatibleRestricted) {
+      return jsonError(
+        `spawn_fleet: runtime '${incompatibleRestricted.runtime}' is text-only; omit agent, ` +
+          "model, workspace_binding, and expects_artifact",
+      );
+    }
     const fleetId = randomUUID();
     const specs = agents.map((a) => ({
       agentId: randomUUID(),
@@ -1750,12 +1875,30 @@ toolHandlers["set_fleet_timeout"] = async (args) => {
     // which stores a timeout that fails every agent the instant it starts.
     const badTimeout = firstError(
       requireString("set_fleet_timeout", "fleet_id", fleet_id),
-      requireNumber("set_fleet_timeout", "timeout_ms", timeout_ms, { min: 1, integer: true }),
+      requireNumber("set_fleet_timeout", "timeout_ms", timeout_ms, {
+        min: 1,
+        max: MAX_FLEET_TIMEOUT_MS,
+        integer: true,
+      }),
     );
     if (badTimeout) return jsonError(badTimeout);
     try {
       setFleetTimeout(fleet_id, timeout_ms);
-      appendEvent("fleet_timeout_set", { fleet_id, timeout_ms });
+      for (const active of activeLegacyRuns.values()) {
+        if (active.fleetId === fleet_id) active.handle.updateTimeout?.(timeout_ms);
+      }
+      lifecycleCoordinator.updateFleetRuntimeTimeout(fleet_id, timeout_ms);
+      try {
+        appendEvent("fleet_timeout_set", { fleet_id, timeout_ms });
+      } catch (error) {
+        // The ledger setting and runtime ceilings already changed. A repairable
+        // event-log projection failure must not suppress actual enforcement.
+        reportFleetTimeoutError(error);
+      }
+      // The fleet id exists only after spawn_fleet returns, so overrides are
+      // normally set while agents are already running. Persisting the number
+      // without re-arming those handles is not enforcement.
+      fleetTimeoutEnforcer.refresh(fleet_id);
       return jsonResult({ ok: true, timeout_ms: getFleetTimeoutMs(fleet_id) });
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : String(err));
@@ -2708,6 +2851,12 @@ if (!isChildInstance && !isAuditProfile) {
   // v0.7.x: recover any agents left in 'running' state from a previous
   // crashed process so fleet_status reflects reality. Liveness-probed since
   // 2026-07-03 — only agents with a missing/dead pid are flipped.
+  const normalizedFleetTimeouts = normalizePersistedFleetTimeouts();
+  if (normalizedFleetTimeouts.length > 0) {
+    console.error(
+      `Agent Mesh v${MESH_VERSION} — normalized ${normalizedFleetTimeouts.length} unsafe persisted fleet timeout override(s) to ${MAX_FLEET_TIMEOUT_MS}ms before recovery`,
+    );
+  }
   repairLifecycleOutbox();
   lifecycleCoordinator.recover();
   // Boot reconciler (r10): the crash journal is the reconciler's input,
@@ -2724,6 +2873,11 @@ if (!isChildInstance && !isAuditProfile) {
     );
   }
   const recovery = recoverInterruptedAgents({ crashNamedAgentIds: crashJournal.namedAgentIds });
+  // Declarations the crash prevented settle from recording — refused/blocked envelopes that
+  // exist on disk for journal-named interrupted rows. Runs after attribution (it reads the
+  // rows attribution just settled) and strictly BEFORE retirement, which is the barrier that
+  // says every mark this journal can drive has been applied.
+  const declarations = recoverCrashDeclarations(crashJournal.namedAgentIds);
   if (crashJournal.records.length > 0 || crashJournal.malformedLines > 0) {
     // Retire only AFTER the marks above are durably applied. Re-application
     // after a failed rename is idempotent, so nothing is lost either way.
@@ -2735,10 +2889,11 @@ if (!isChildInstance && !isAuditProfile) {
       recovered: recovery.recovered,
       provenance_applied: recovery.provenance_applied,
       fleets_marked: recovery.fleets_marked,
+      declarations_recovered: declarations.recovered,
       retired: retiredTo !== undefined,
     });
     console.error(
-      `Agent Mesh v${MESH_VERSION} — consumed crash journal: ${crashJournal.records.length} crash record(s) naming ${crashJournal.namedAgentIds.size} agent(s); ${recovery.provenance_applied} prior interrupted row(s) attributed, ${recovery.fleets_marked} fleet(s) marked, ${crashJournal.malformedLines} malformed line(s); ${retiredTo ? `journal retired to ${retiredTo}` : "journal retire FAILED — left in place, next boot re-applies (idempotent)"}`
+      `Agent Mesh v${MESH_VERSION} — consumed crash journal: ${crashJournal.records.length} crash record(s) naming ${crashJournal.namedAgentIds.size} agent(s); ${recovery.provenance_applied} prior interrupted row(s) attributed, ${recovery.fleets_marked} fleet(s) marked, ${declarations.recovered} stranded declaration(s) recovered, ${crashJournal.malformedLines} malformed line(s); ${retiredTo ? `journal retired to ${retiredTo}` : "journal retire FAILED — left in place, next boot re-applies (idempotent)"}`
     );
   }
   if (recovery.recovered > 0) {
@@ -2753,6 +2908,11 @@ if (!isChildInstance && !isAuditProfile) {
   const reconciledCount = reconcileAbandonedFleets();
   if (reconciledCount > 0) {
     console.error(`Agent Mesh v${MESH_VERSION} — reconciled ${reconciledCount} fleet(s) whose agents had all finished but which were still recorded as running (see fleet_reconciled events)`);
+  }
+  // Re-arm persisted running fleets after recovery. A server restart loses
+  // JavaScript timers, but it must not erase their durable deadlines.
+  for (const fleet of listFleets()) {
+    if (fleet.status === "running") fleetTimeoutEnforcer.refresh(fleet.id);
   }
 
   // D3: prime the Discussions sweep index — scan the ledger for discussion

@@ -1,4 +1,5 @@
 /** Provider-neutral execution contracts. Requested model is an execution selection input, not runtime identity or attestation. */
+import type { ResultContractStatus } from "../result-contract.js";
 
 export type RuntimeEvidenceLevel = "none" | "reported" | "observed" | "attested";
 export type RuntimeStatus = "success" | "failure" | "cancelled" | "timeout";
@@ -98,6 +99,8 @@ export interface RuntimeResult {
   error?: string;
   diagnostics: RuntimeDiagnostic[];
   identity: RuntimeIdentity;
+  /** Runtime-observed declaration when the adapter owns a non-file result contract. */
+  resultContract?: ResultContractStatus;
   /**
    * What the runtime actually DID this turn, as opposed to what it said.
    *
@@ -135,8 +138,11 @@ export interface RuntimeTrace {
 export interface RuntimeHandle {
   readonly id: string;
   readonly pid?: number;
+  /** Same-host Unix epoch milliseconds captured when runtime execution began. */
   readonly startedAt: number;
   isAlive(): boolean;
+  /** Re-arm this live execution's elapsed-time ceiling when supported. */
+  updateTimeout?(timeoutMs: number): void;
 }
 
 export interface RuntimeDescriptor {
