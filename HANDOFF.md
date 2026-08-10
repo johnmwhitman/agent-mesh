@@ -1,6 +1,6 @@
 # MeshFleet public handoff
 
-**Source version:** `0.21.0` · **MCP surface:** **37 MCP tools** ·
+**Source version:** `0.21.1` · **MCP surface:** **37 MCP tools** ·
 **current suite contract:** **1694/1694** tests collected, plus typecheck and build
 
 The latest completed cross-platform proof is GitHub Actions run `31315444631`

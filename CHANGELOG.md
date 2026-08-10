@@ -2,6 +2,12 @@
 
 All notable changes to Agent Mesh are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.1] - 2026-08-10
+
+### Fixed
+
+- **README source-version drift caught by the version-claim guard.** The 0.21.0 release commit bumped `package.json` but left README.md's `**Source version**: 0.20.0` line (the line that ships in the tarball) and HANDOFF.md's `**Source version:**` line untouched, so `test/readme-version-claims.test.ts` and `test/public-contract-parity.test.ts` failed on the first CI run of the release. Both guards exist exactly to prevent shipping a README that contradicts itself against the registry; the fix is to bump them with the version. Bumping the package instead of moving the v0.21.0 tag was chosen because npm registry still served v0.20.0 (the publish step never reached it), and a fix-forward `0.21.1` keeps the historic SHA at v0.21.0 while still landing the corrected guard pair.
+
 ## [0.21.0] - 2026-08-10
 
 ### Added
@@ -1095,7 +1101,10 @@ cd ~/.config/opencode/mcp-servers/agent-mesh && npm install && npm run build
 - Independent process execution (bypasses OpenCode's 30-minute background task timeout)
 - Schema for Fleet and Agent records
 
-[Unreleased]: https://github.com/johnmwhitman/agent-mesh/compare/v0.19.0...HEAD
+[Unreleased]: https://github.com/johnmwhitman/agent-mesh/compare/v0.21.1...HEAD
+[0.21.1]: https://github.com/johnmwhitman/agent-mesh/compare/v0.21.0...v0.21.1
+[0.21.0]: https://github.com/johnmwhitman/agent-mesh/compare/v0.20.0...v0.21.0
+[0.20.0]: https://github.com/johnmwhitman/agent-mesh/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/johnmwhitman/agent-mesh/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/johnmwhitman/agent-mesh/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/johnmwhitman/agent-mesh/compare/v0.16.0...v0.17.0
