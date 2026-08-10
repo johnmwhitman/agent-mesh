@@ -1,17 +1,22 @@
 #!/usr/bin/env node
 /**
- * agent-mesh dashboard — live TUI of running fleets, agents, and events.
+ * agent-mesh dashboard — live TUI of running fleets, agents, events,
+ * and (D2.1) the receipt timeline.
  *
  * Usage:
  *   npx agent-mesh dashboard          # refresh every 1s (default)
- *   npx agent-mesh dashboard --interval 500   # custom interval in ms
- *   npx agent-mesh dashboard --once   # one-shot, exit immediately
+ *   npx agent-mesh dashboard --interval 500         # custom interval in ms
+ *   npx agent-mesh dashboard --once                  # one-shot, exit immediately
+ *   npx agent-mesh dashboard --receipts              # enable receipt timeline
+ *                                                   # (panel always shown when on)
+ *   npx agent-mesh dashboard --receipts --receipt-limit 20   # cap rows shown
+ *   npx agent-mesh dashboard --fleet <id>            # scope to one fleet
  *
  * Reads the same JSON ledger as the MCP server. No IPC, no daemon — just
  * follows the event stream with ledger polling as a fallback. Ctrl+C to exit.
  */
 
-import { listFleets, loadData, readEventLog } from '../core.js'
+import { getRecentReceipts, listFleets, loadData, readEventLog, type Receipt } from '../core.js'
 import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
 import {
@@ -35,9 +40,15 @@ export type {
   SseFrame,
 } from '../dashboard-sse.js'
 
+// Receipt is the audit primitive shape shared with the receipts timeline
+// panel; re-exported from the ledger so callers (tests, future panels)
+// reach one definition rather than pulling core directly.
+export type { Receipt as DashboardReceipt } from '../core.js'
+
 const REFRESH_DEFAULT_MS = 1000
 const EVENT_LIMIT_DEFAULT = 50
 const AGENT_LIMIT = 10
+const RECEIPT_LIMIT_DEFAULT = 20
 
 function clearScreen(): void {
   process.stdout.write('\x1b[2J\x1b[H')
@@ -59,16 +70,62 @@ function fmtDuration(ms: number): string {
   return `${m}m${s % 60}s`
 }
 
-function render(events: readonly DashboardEvent[]): void {
-  const data = loadData()
-  const fleets = listFleets()
+function fmtTimestamp(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return '??:??:??'
+  return new Date(ms).toISOString().slice(11, 19)
+}
 
-  const agents = Object.values(data.agents)
-    .sort((a, b) => (b.started_at ?? 0) - (a.started_at ?? 0))
-    .slice(0, AGENT_LIMIT)
+/**
+ * Public, pure render for the dashboard. Extracted so tests can assert on
+ * layout without spawning the bin (which is the only way to drive stdout
+ * when the renderer writes to it directly).
+ */
+export interface DashboardAgent {
+  id: string
+  fleet_id: string
+  role: string
+  status: string
+  started_at?: number
+  completed_at?: number
+  retry_count?: number
+}
+
+export interface DashboardFleetRow {
+  id: string
+  status: string
+  agent_count: number
+  agents_running: number
+  agents_complete: number
+  agents_failed: number
+  created_at: number
+  completed_at?: number
+}
+
+export interface DashboardRenderInput {
+  fleets: readonly DashboardFleetRow[]
+  agents: readonly DashboardAgent[]
+  events: readonly DashboardEvent[]
+  receipts: readonly Receipt[]
+  showReceipts: boolean
+  receiptLimit: number
+  clock?: string
+}
+
+export type { Receipt }
+
+export function renderDashboard(input: DashboardRenderInput): string[] {
+  const {
+    fleets,
+    agents,
+    events,
+    receipts,
+    showReceipts,
+    receiptLimit,
+    clock,
+  } = input
 
   const lines: string[] = []
-  const now = new Date().toISOString().replace('T', ' ').slice(0, 19)
+  const now = clock ?? new Date().toISOString().replace('T', ' ').slice(0, 19)
 
   lines.push(`Meshfleet Dashboard — ${now}  (Ctrl+C to exit)`)
   lines.push('')
@@ -136,8 +193,55 @@ function render(events: readonly DashboardEvent[]): void {
   }
   lines.push('')
 
+  if (showReceipts) {
+    lines.push(`Recent Receipts (last ${Math.min(receipts.length, receiptLimit)})`)
+    if (receipts.length === 0) {
+      lines.push('  (none)')
+    } else {
+      const shown = receipts.slice(0, receiptLimit)
+      for (const r of shown) {
+        const ts = fmtTimestamp(r.timestamp)
+        const action = String(r.action ?? '?').padEnd(12)
+        const aid = String(r.agent_id ?? '?').slice(0, 10)
+        const mid = String(r.message_id ?? '?').slice(0, 12)
+        const note = r.note ? `  ${r.note}` : ''
+        lines.push(`  ${ts}  ${action} ${aid.padEnd(10)} ${mid.padEnd(12)}${note}`)
+      }
+    }
+    lines.push('')
+  }
+
+  return lines
+}
+
+function toFleetRows(fleets: ReturnType<typeof listFleets>): DashboardFleetRow[] {
+  return fleets.map((f) => ({
+    id: f.id,
+    status: f.status,
+    agent_count: f.agent_count,
+    agents_running: f.agents_running,
+    agents_complete: f.agents_complete,
+    agents_failed: f.agents_failed,
+    created_at: f.created_at,
+    completed_at: f.completed_at,
+  }))
+}
+
+function toAgentRows(agents: ReturnType<typeof loadData>['agents'][string][]): DashboardAgent[] {
+  return agents.map((a) => ({
+    id: a.id,
+    fleet_id: a.fleet_id,
+    role: a.role,
+    status: a.status,
+    started_at: a.started_at,
+    completed_at: a.completed_at,
+    retry_count: a.retry_count,
+  }))
+}
+
+function render(input: DashboardRenderInput): void {
   clearScreen()
-  process.stdout.write(lines.join('\n') + '\n')
+  process.stdout.write(renderDashboard(input).join('\n') + '\n')
 }
 
 function parsePositiveArg(args: readonly string[], name: string, fallback: number): number {
@@ -156,14 +260,31 @@ function main(): void {
   const fleetIdIndex = args.indexOf('--fleet')
   const fleetId = fleetIdIndex >= 0 ? args[fleetIdIndex + 1] : undefined
   const eventLimit = parsePositiveArg(args, '--events', EVENT_LIMIT_DEFAULT)
+  const receiptLimit = parsePositiveArg(args, '--receipt-limit', RECEIPT_LIMIT_DEFAULT)
+  const showReceipts = args.includes('--receipts')
   const pollOnly = args.includes('--poll-only')
   const events = new EventRingBuffer(eventLimit)
   events.replace(filteredEvents(eventLimit, fleetId))
 
   const interval = parsePositiveArg(args, '--interval', REFRESH_DEFAULT_MS)
 
+  const snapshot = (): DashboardRenderInput => {
+    const data = loadData()
+    const sortedAgents = Object.values(data.agents)
+      .sort((a, b) => (b.started_at ?? 0) - (a.started_at ?? 0))
+      .slice(0, AGENT_LIMIT)
+    return {
+      fleets: toFleetRows(listFleets()),
+      agents: toAgentRows(sortedAgents),
+      events: events.values().reverse(),
+      receipts: showReceipts ? getRecentReceipts(receiptLimit, fleetId) : [],
+      showReceipts,
+      receiptLimit,
+    }
+  }
+
   if (once) {
-    render(events.values().reverse())
+    render(snapshot())
     return
   }
 
@@ -181,7 +302,7 @@ function main(): void {
   const refresh = (): void => {
     try {
       events.replace(filteredEvents(eventLimit, fleetId))
-      render(events.values().reverse())
+      render(snapshot())
     } catch (err) {
       showCursor()
       process.stderr.write(`\nDashboard error: ${err instanceof Error ? err.message : String(err)}\n`)
@@ -197,7 +318,7 @@ function main(): void {
       poll: refresh,
       onEvent: (event) => {
         events.push(event)
-        render(events.values().reverse())
+        render(snapshot())
       },
     })
   } else {

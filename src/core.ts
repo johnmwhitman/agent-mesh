@@ -1352,6 +1352,29 @@ export function getReceipts(messageId: string): Receipt[] {
     .sort((a, b) => a.timestamp - b.timestamp || a.agent_id.localeCompare(b.agent_id));
 }
 
+/**
+ * Ledger-wide view of the most recent receipts, for the dashboard timeline
+ * (D2.1). Newest first; capped at `limit` (non-positive limits return []).
+ *
+ * `fleetId` is resolved through the receipt's message: a receipt with no
+ * matching message (a corrupt row that `_writeReceipt` did not produce, but
+ * the ledger can be hand-edited into) is silently dropped rather than
+ * surfacing a phantom entry.
+ */
+export function getRecentReceipts(limit: number, fleetId?: string): Receipt[] {
+  if (!Number.isInteger(limit) || limit < 1) return [];
+  const data = loadData();
+  const messages = data.messages ?? {};
+  return Object.values(data.receipts ?? {})
+    .filter((r) => {
+      const msg = messages[r.message_id];
+      if (!msg) return false;
+      return fleetId === undefined || msg.fleet_id === fleetId;
+    })
+    .sort((a, b) => b.timestamp - a.timestamp || a.agent_id.localeCompare(b.agent_id))
+    .slice(0, limit);
+}
+
 // ---------------------------------------------------------------------------
 // Capability Registry & Routing
 // ---------------------------------------------------------------------------
