@@ -297,6 +297,32 @@ test("durable recovery wakes at a future lease boundary, contains the diagnostic
   } finally { temp.cleanup(); }
 });
 
+test("durable recovery preserves fleet lineage when the final lease expires", () => {
+  const temp = withTempDb({ fleets: { f: { id: "f", status: "running", created_at: 1 } }, agents: { a: { id: "a", fleet_id: "f", role: "r", prompt: "p", status: "running" } }, messages: {}, inboxes: { a: [] }, capabilities: {} });
+  try {
+    let now = 1;
+    const store = new LifecycleStore({ now: () => now });
+    const initial = store.createWork({ workId: "a", fleetId: "f", agentId: "a", maxAttempts: 1 });
+    assert.equal(
+      store.acquireLease({ workId: "a", attemptId: initial.attempts[0].attempt_id, ownerId: "dead-owner", leaseMs: 1 }).accepted,
+      true,
+    );
+    const runtime = new ControlledRuntime();
+    const coordinator = new LifecycleExecutionCoordinator(runtime, { ownerId: "recovery-owner", now: () => now });
+    coordinator.recordMode("f", "durable");
+
+    now = 2;
+    coordinator.recover();
+
+    assert.equal(new LifecycleStore({ now: () => now }).getState("a")?.work.status, "failed");
+    assert.equal(runtime.starts, 0);
+    const failure = readEventLog().find((event) =>
+      event.event === "agent_failed_permanent" && event.agent_id === "a");
+    assert.equal(failure?.fleet_id, "f");
+    coordinator.stop();
+  } finally { temp.cleanup(); }
+});
+
 test("crash after NDJSON append before SQLite commit repairs with exactly one line", () => {
   const temp = withTempDb();
   try {
