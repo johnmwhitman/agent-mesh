@@ -1,10 +1,18 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  utimesSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { createRequire } from "node:module";
+import { createHash } from "node:crypto";
 
 import { parseOpenCodeEvents } from "../src/runtime/opencode-events.js";
 import { readOpenCodeSessionEvidence } from "../src/runtime/opencode-evidence.js";
@@ -24,22 +32,20 @@ import type { ExecutionSpec } from "../src/runtime/types.js";
  *     `sessionID` (top level and inside `part`), which the requester cannot
  *     know in advance.
  *   - The opencode state database at `$XDG_DATA_HOME/opencode/opencode.db`
- *     records, for the assistant message of that exact session, the model the
- *     turn actually ran under: role=assistant, modelID='z-ai/glm-5.2'
- *     (providerID is populated on the user-message row, so a reader that
- *     REQUIRES assistant-row providerID rejects truthful evidence).
+ *     records, for the assistant message of that exact session, the provider
+ *     and model the turn actually ran under. Current rows carry modelID and
+ *     providerID; session.model independently carries {id, providerID}.
  *   - A stream-failure run leaves the assistant row modelID NULL — absent
  *     evidence must stay absent, never synthesized.
  *
  * The evidence is therefore: sessionID from the child's OWN NDJSON stream,
- * then a read-only SQL query keyed by that id against the database the child
- * itself wrote. Neither half can be supplied by the request.
+ * then a read-only SQL query keyed by that id against a private DB/WAL/SHM
+ * snapshot taken after the child exits. Neither half can be supplied by the
+ * request, and SQLite never opens the child's source files.
  */
 
 const require = createRequire(import.meta.url);
 const Database = require("better-sqlite3") as typeof import("better-sqlite3");
-
-const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 function tmp(): string {
   return mkdtempSync(join(tmpdir(), "mf-opencode-evidence-"));
@@ -50,6 +56,7 @@ function makeDb(
   root: string,
   rows: Array<{ role: string; modelID?: string | null; providerID?: string | null }>,
   sessionId = "ses_test0000000000000000001",
+  sessionModel?: { id?: string; providerID?: string; variant?: string } | null,
 ): string {
   const dbDir = join(root, "opencode");
   mkdirSync(dbDir, { recursive: true });
@@ -59,8 +66,8 @@ function makeDb(
     CREATE TABLE session (id text PRIMARY KEY, model text, agent text, time_created integer NOT NULL, time_updated integer NOT NULL);
     CREATE TABLE message (id text PRIMARY KEY, session_id text NOT NULL, time_created integer NOT NULL, time_updated integer NOT NULL, data text NOT NULL);
   `);
-  db.prepare("INSERT INTO session (id, model, agent, time_created, time_updated) VALUES (?, NULL, 'build', ?, ?)")
-    .run(sessionId, Date.now() - 1000, Date.now());
+  db.prepare("INSERT INTO session (id, model, agent, time_created, time_updated) VALUES (?, ?, 'build', ?, ?)")
+    .run(sessionId, sessionModel === undefined || sessionModel === null ? null : JSON.stringify(sessionModel), Date.now() - 1000, Date.now());
   const insert = db.prepare(
     "INSERT INTO message (id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?)",
   );
@@ -117,7 +124,7 @@ test("evidence reader returns the assistant model for the exact session", () => 
   try {
     const dbPath = makeDb(root, [
       { role: "user", providerID: "routeplane" },
-      { role: "assistant", modelID: "z-ai/glm-5.2" },
+      { role: "assistant", modelID: "z-ai/glm-5.2", providerID: "routeplane" },
     ]);
     const evidence = readOpenCodeSessionEvidence({
       dbPath,
@@ -126,6 +133,164 @@ test("evidence reader returns the assistant model for the exact session", () => 
     });
     assert.deepEqual(evidence, { model: "routeplane/z-ai/glm-5.2" });
   } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("evidence reader may obtain the persisted provider from the joined session model", () => {
+  const root = tmp();
+  try {
+    const dbPath = makeDb(
+      root,
+      [{ role: "assistant", modelID: "z-ai/glm-5.2" }],
+      "ses_test0000000000000000001",
+      { id: "z-ai/glm-5.2", providerID: "routeplane" },
+    );
+    assert.deepEqual(
+      readOpenCodeSessionEvidence({
+        dbPath,
+        sessionId: "ses_test0000000000000000001",
+        providerNamespace: "routeplane",
+      }),
+      { model: "routeplane/z-ai/glm-5.2" },
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("evidence reader fails closed when persisted provider identity is missing", () => {
+  const root = tmp();
+  try {
+    const dbPath = makeDb(root, [{ role: "assistant", modelID: "z-ai/glm-5.2" }]);
+    assert.equal(
+      readOpenCodeSessionEvidence({
+        dbPath,
+        sessionId: "ses_test0000000000000000001",
+        providerNamespace: "routeplane",
+      }),
+      undefined,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("evidence reader fails closed when persisted provider differs from configured namespace", () => {
+  const root = tmp();
+  try {
+    const dbPath = makeDb(root, [
+      { role: "assistant", modelID: "z-ai/glm-5.2", providerID: "opencode-go" },
+    ]);
+    assert.equal(
+      readOpenCodeSessionEvidence({
+        dbPath,
+        sessionId: "ses_test0000000000000000001",
+        providerNamespace: "routeplane",
+      }),
+      undefined,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("evidence reader fails closed on assistant/session provider conflict", () => {
+  const root = tmp();
+  try {
+    const dbPath = makeDb(
+      root,
+      [{ role: "assistant", modelID: "z-ai/glm-5.2", providerID: "routeplane" }],
+      "ses_test0000000000000000001",
+      { id: "z-ai/glm-5.2", providerID: "opencode-go" },
+    );
+    assert.equal(
+      readOpenCodeSessionEvidence({
+        dbPath,
+        sessionId: "ses_test0000000000000000001",
+        providerNamespace: "routeplane",
+      }),
+      undefined,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("evidence reader fails closed on assistant/session model conflict", () => {
+  const root = tmp();
+  try {
+    const dbPath = makeDb(
+      root,
+      [{ role: "assistant", modelID: "z-ai/glm-5.2", providerID: "routeplane" }],
+      "ses_test0000000000000000001",
+      { id: "xai/grok-4.3", providerID: "routeplane" },
+    );
+    assert.equal(
+      readOpenCodeSessionEvidence({
+        dbPath,
+        sessionId: "ses_test0000000000000000001",
+        providerNamespace: "routeplane",
+      }),
+      undefined,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+function fileEvidence(path: string): { sha256: string; mtimeNs: bigint } {
+  return {
+    sha256: createHash("sha256").update(readFileSync(path)).digest("hex"),
+    mtimeNs: statSync(path, { bigint: true }).mtimeNs,
+  };
+}
+
+test("evidence reader observes uncheckpointed WAL data without mutating source DB sidecars", () => {
+  const root = tmp();
+  const dbPath = join(root, "opencode.db");
+  const db = new Database(dbPath);
+  try {
+    db.pragma("journal_mode = WAL");
+    db.pragma("wal_autocheckpoint = 0");
+    db.exec(`
+      CREATE TABLE session (id text PRIMARY KEY, model text, agent text, time_created integer NOT NULL, time_updated integer NOT NULL);
+      CREATE TABLE message (id text PRIMARY KEY, session_id text NOT NULL, time_created integer NOT NULL, time_updated integer NOT NULL, data text NOT NULL);
+    `);
+    db.pragma("wal_checkpoint(TRUNCATE)");
+    const sessionId = "ses_test0000000000000000001";
+    db.prepare("INSERT INTO session (id, model, agent, time_created, time_updated) VALUES (?, ?, 'build', ?, ?)")
+      .run(sessionId, JSON.stringify({ id: "z-ai/glm-5.2", providerID: "routeplane" }), Date.now() - 1000, Date.now());
+    db.prepare("INSERT INTO message (id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?)")
+      .run("msg_assistant", sessionId, Date.now() - 900, Date.now(), JSON.stringify({
+        role: "assistant",
+        modelID: "z-ai/glm-5.2",
+        providerID: "routeplane",
+      }));
+
+    const files = [dbPath, `${dbPath}-wal`, `${dbPath}-shm`];
+    const fixed = new Date("2000-01-01T00:00:00.000Z");
+    for (const path of files) utimesSync(path, fixed, fixed);
+    const before = new Map(files.map((path) => [path, fileEvidence(path)]));
+    const snapshotsBefore = new Set(
+      readdirSync(tmpdir()).filter((name) => name.startsWith("mf-opencode-evidence-snapshot-")),
+    );
+
+    assert.deepEqual(
+      readOpenCodeSessionEvidence({ dbPath, sessionId, providerNamespace: "routeplane" }),
+      { model: "routeplane/z-ai/glm-5.2" },
+      "the assistant row exists only in the uncheckpointed WAL",
+    );
+
+    for (const path of files) {
+      assert.deepEqual(fileEvidence(path), before.get(path), `${path} changed during evidence collection`);
+    }
+    const leakedSnapshots = readdirSync(tmpdir()).filter(
+      (name) => name.startsWith("mf-opencode-evidence-snapshot-") && !snapshotsBefore.has(name),
+    );
+    assert.deepEqual(leakedSnapshots, [], "private evidence snapshots must be cleaned");
+  } finally {
+    db.close();
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -234,7 +399,7 @@ test("classification accepts truthful DB evidence when the banner is absent", ()
   try {
     const dbPath = makeDb(root, [
       { role: "user", providerID: "routeplane" },
-      { role: "assistant", modelID: "z-ai/glm-5.2" },
+      { role: "assistant", modelID: "z-ai/glm-5.2", providerID: "routeplane" },
     ]);
     const sessionId = "ses_test0000000000000000001";
     const events = parseOpenCodeEvents(ndjson(sessionId));
@@ -260,7 +425,7 @@ test("classification accepts truthful DB evidence when the banner is absent", ()
 test("classification still fails closed when evidence disagrees with the request", () => {
   const root = tmp();
   try {
-    const dbPath = makeDb(root, [{ role: "assistant", modelID: "xai/grok-4.3" }]);
+    const dbPath = makeDb(root, [{ role: "assistant", modelID: "xai/grok-4.3", providerID: "routeplane" }]);
     const sessionId = "ses_test0000000000000000001";
     const runtimeModel = readOpenCodeSessionEvidence({
       dbPath,
@@ -343,7 +508,7 @@ test("adapter with the evidence knob on attests the real run via the child DB", 
     const sessionId = "ses_test0000000000000000001";
     const dbPath = makeDb(root, [
       { role: "user", providerID: "routeplane" },
-      { role: "assistant", modelID: "z-ai/glm-5.2" },
+      { role: "assistant", modelID: "z-ai/glm-5.2", providerID: "routeplane" },
     ], sessionId);
     const command = fakeOpencodeScript(root, sessionId);
     const adapter = new OpenCodeRuntimeAdapter({
@@ -366,7 +531,7 @@ test("adapter with the knob on fails closed when the DB has no row for the run",
   const root = tmp();
   try {
     const sessionId = "ses_test0000000000000000001";
-    makeDb(root, [{ role: "assistant", modelID: "z-ai/glm-5.2" }], "ses_STALE_ONLY");
+    makeDb(root, [{ role: "assistant", modelID: "z-ai/glm-5.2", providerID: "routeplane" }], "ses_STALE_ONLY");
     const command = fakeOpencodeScript(root, sessionId);
     const adapter = new OpenCodeRuntimeAdapter({
       command,
@@ -386,7 +551,7 @@ test("adapter with the knob on fails closed when observed model differs from req
   const root = tmp();
   try {
     const sessionId = "ses_test0000000000000000001";
-    makeDb(root, [{ role: "assistant", modelID: "xai/grok-4.3" }], sessionId);
+    makeDb(root, [{ role: "assistant", modelID: "xai/grok-4.3", providerID: "routeplane" }], sessionId);
     const command = fakeOpencodeScript(root, sessionId);
     const adapter = new OpenCodeRuntimeAdapter({
       command,

@@ -124,17 +124,35 @@ test("env binding is explicit: unset stays unset, set is validated fail-closed",
   );
 });
 
-test("session-evidence env binding: unset stays unset, set requires an absolute path", () => {
+test("session-evidence env binding: unset stays unset, set accepts POSIX and Windows absolute paths", () => {
   assert.equal(openCodeSessionEvidenceFromEnv({}), undefined);
   assert.equal(openCodeSessionEvidenceFromEnv({ MESHFLEET_OPENCODE_SESSION_DB: "" }), undefined);
   assert.deepEqual(
     openCodeSessionEvidenceFromEnv({ MESHFLEET_OPENCODE_SESSION_DB: "/tmp/xdg/opencode/opencode.db" }),
     { dbPath: "/tmp/xdg/opencode/opencode.db" },
   );
-  assert.throws(
-    () => openCodeSessionEvidenceFromEnv({ MESHFLEET_OPENCODE_SESSION_DB: "relative/opencode.db" }),
-    /must be absolute/,
+  assert.deepEqual(
+    openCodeSessionEvidenceFromEnv({ MESHFLEET_OPENCODE_SESSION_DB: "C:\\Users\\operator\\opencode\\opencode.db" }),
+    { dbPath: "C:\\Users\\operator\\opencode\\opencode.db" },
   );
+  assert.deepEqual(
+    openCodeSessionEvidenceFromEnv({ MESHFLEET_OPENCODE_SESSION_DB: "\\\\server\\share\\opencode\\opencode.db" }),
+    { dbPath: "\\\\server\\share\\opencode\\opencode.db" },
+  );
+});
+
+test("session-evidence env binding rejects relative POSIX and Windows paths", () => {
+  for (const dbPath of [
+    "relative/opencode.db",
+    ".\\relative\\opencode.db",
+    "C:relative\\opencode.db",
+  ]) {
+    assert.throws(
+      () => openCodeSessionEvidenceFromEnv({ MESHFLEET_OPENCODE_SESSION_DB: dbPath }),
+      /must be absolute/,
+      `accepted relative path ${JSON.stringify(dbPath)}`,
+    );
+  }
 });
 
 /**

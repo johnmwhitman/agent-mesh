@@ -95,7 +95,7 @@ function runtimeBanner(stderr: string): { agent: string; model: string } | undef
 function diagnosticAttribution(line: string): DiagnosticAttribution {
   const apiModel = line.match(/API\s+429\s+for\s+([^\s:]+)/i)?.[1];
   const missingModel = line.match(
-    /\bProviderModelNotFoundError:\s*([a-z0-9][\w.-]*\/[a-z0-9][\w.-]*)\b/i
+    /\bProviderModelNotFoundError:\s*([a-z0-9][\w.-]*(?:\/[a-z0-9][\w.-]*)+)\b/i
   )?.[1];
   const model = (apiModel ?? missingModel)?.replace(/[.,;]+$/, "").toLowerCase();
   if (model) return { model };
@@ -108,10 +108,10 @@ function diagnosticAttribution(line: string): DiagnosticAttribution {
 
 function isRuntimeDiagnostic(
   attribution: DiagnosticAttribution,
-  banner: { agent: string; model: string } | undefined
+  observedModel: string | undefined
 ): boolean {
-  if (!banner) return true;
-  const runtimeModel = banner.model.toLowerCase();
+  if (!observedModel) return true;
+  const runtimeModel = observedModel.toLowerCase();
   let [runtimeProvider, runtimeModelName] = runtimeModel.includes("/")
     ? runtimeModel.split("/", 2)
     : [undefined, runtimeModel];
@@ -164,6 +164,19 @@ export function classifySpawnResult(
       error: `Requested agent ${input.requestedAgent} but runtime agent ${banner.agent} executed`,
     };
   }
+  if (
+    banner &&
+    input.runtimeModel &&
+    !runtimeModelsMatch(banner.model, input.runtimeModel)
+  ) {
+    return {
+      ...receipt,
+      success: false,
+      error:
+        `Conflicting runtime model evidence: banner reported ${banner.model} ` +
+        `but persisted DB reported ${input.runtimeModel}`,
+    };
+  }
   if (input.requestedModel !== undefined && !observedModel) {
     return {
       ...receipt,
@@ -186,7 +199,7 @@ export function classifySpawnResult(
     .split("\n")
     .filter((line) => /^\s*Error:/i.test(line) || NO_CREDENTIALS.test(line) || PROVIDER_DIAGNOSTIC.test(line));
   const primaryError = diagnostics.find((line) =>
-    isRuntimeDiagnostic(diagnosticAttribution(line), banner)
+    isRuntimeDiagnostic(diagnosticAttribution(line), observedModel)
   );
   if (primaryError) {
     return { ...receipt, success: false, error: `Fatal primary provider error: ${primaryError.trim()}` };

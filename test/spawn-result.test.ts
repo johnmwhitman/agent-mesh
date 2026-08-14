@@ -183,6 +183,60 @@ test('spawn result: matching requested model retains auxiliary diagnostics', () 
   assert.match(result.warning ?? '', /auxiliary provider/i)
 })
 
+test('spawn result: conflicting banner and DB model evidence fails closed', () => {
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'answer',
+    stderr: '> oracle · routeplane/subs/codex\n',
+    requestedAgent: 'oracle',
+    requestedModel: 'subs/codex',
+    runtimeModel: 'routeplane/google/gemini-2.5-pro',
+  })
+
+  assert.equal(result.success, false)
+  assert.match(result.error ?? '', /conflicting runtime model evidence/i)
+})
+
+test('spawn result: matching banner and DB model evidence remains usable', () => {
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'answer',
+    stderr: '> oracle · routeplane/subs/codex\n',
+    requestedAgent: 'oracle',
+    requestedModel: 'subs/codex',
+    runtimeModel: 'routeplane/subs/codex',
+  })
+
+  assert.equal(result.success, true, result.error)
+  assert.equal(result.runtime_model, 'routeplane/subs/codex')
+})
+
+test('spawn result: DB-observed model attributes another provider diagnostic as auxiliary', () => {
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'complete answer',
+    stderr: 'ProviderModelNotFoundError: google/gemini-2.5-pro',
+    requestedModel: 'subs/codex',
+    runtimeModel: 'routeplane/subs/codex',
+  })
+
+  assert.equal(result.success, true, result.error)
+  assert.match(result.warning ?? '', /auxiliary provider/i)
+})
+
+test('spawn result: DB-observed model keeps its own provider diagnostic fatal', () => {
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'partial answer',
+    stderr: 'ProviderModelNotFoundError: routeplane/subs/codex',
+    requestedModel: 'subs/codex',
+    runtimeModel: 'routeplane/subs/codex',
+  })
+
+  assert.equal(result.success, false)
+  assert.match(result.error ?? '', /primary provider/i)
+})
+
 test('spawn result: requested-model mismatch precedes diagnostics and preserves receipt data', () => {
   const stdout = 'partial answer\n'
   const stderr = [

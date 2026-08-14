@@ -6,6 +6,7 @@
  */
 
 import { resolveEnv } from "./env.js";
+import { posix, win32 } from "node:path";
 
 type AgentSpawnStdio = ["ignore", "pipe", "pipe"];
 
@@ -150,7 +151,7 @@ export function openCodeSessionEvidenceFromEnv(
   );
   if (raw === undefined || raw.trim() === "") return undefined;
   const dbPath = raw.trim();
-  if (!dbPath.startsWith("/")) {
+  if (!posix.isAbsolute(dbPath) && !win32.isAbsolute(dbPath)) {
     throw new Error(
       "Invalid OpenCode session evidence database path: must be absolute. " +
         "Set MESHFLEET_OPENCODE_SESSION_DB to the child's $XDG_DATA_HOME/opencode/opencode.db.",
