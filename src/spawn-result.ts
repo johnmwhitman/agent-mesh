@@ -4,6 +4,15 @@ export interface SpawnResultInput {
   stderr: string;
   requestedAgent?: string;
   requestedModel?: string;
+  /**
+   * Independently observed runtime model (e.g. from the child runtime's own
+   * persisted evidence, joined by the runtime-emitted session id). This is
+   * NEVER the requested/argv value relabelled: callers must only supply a
+   * value the runtime itself attested. When present it satisfies the same
+   * fail-closed contract as the stderr banner; when absent the banner rules
+   * apply unchanged.
+   */
+  runtimeModel?: string;
 }
 
 export interface SpawnResultClassification {
@@ -121,7 +130,19 @@ export function classifySpawnResult(
   input: SpawnResultInput
 ): SpawnResultClassification {
   const banner = runtimeBanner(input.stderr);
-  const runtimeMeta = banner ? { runtime_agent: banner.agent, runtime_model: banner.model } : {};
+  // Evidence precedence: an independently observed runtime model (supplied by
+  // the caller from the runtime's own artifacts) attests identity the same
+  // way the stderr banner does. The banner, when present, still wins — it is
+  // the runtime's live self-report — and any disagreement between the two
+  // fails closed below via the same mismatch rule.
+  const observedModel = banner?.model ?? input.runtimeModel;
+  const runtimeMeta =
+    banner || input.runtimeModel
+      ? {
+          ...(banner ? { runtime_agent: banner.agent } : {}),
+          ...(observedModel ? { runtime_model: observedModel } : {}),
+        }
+      : {};
   const receipt = { stdout: input.stdout, stderr: input.stderr, ...runtimeMeta };
   const plainStderr = input.stderr.replace(ANSI_ESCAPE, "");
   if (input.exitCode !== 0) {
@@ -143,7 +164,7 @@ export function classifySpawnResult(
       error: `Requested agent ${input.requestedAgent} but runtime agent ${banner.agent} executed`,
     };
   }
-  if (input.requestedModel !== undefined && !banner) {
+  if (input.requestedModel !== undefined && !observedModel) {
     return {
       ...receipt,
       success: false,
@@ -152,13 +173,13 @@ export function classifySpawnResult(
   }
   if (
     input.requestedModel !== undefined &&
-    banner &&
-    !runtimeModelsMatch(input.requestedModel, banner.model)
+    observedModel &&
+    !runtimeModelsMatch(input.requestedModel, observedModel)
   ) {
     return {
       ...receipt,
       success: false,
-      error: `Requested model ${input.requestedModel} but runtime model banner reported ${banner.model}`,
+      error: `Requested model ${input.requestedModel} but runtime model banner reported ${observedModel}`,
     };
   }
   const diagnostics = plainStderr

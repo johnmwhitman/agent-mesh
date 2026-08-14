@@ -132,6 +132,33 @@ export function openCodeProviderNamespaceFromEnv(
   return validateOpenCodeProviderNamespace(raw);
 }
 
+/**
+ * Opt-in truthful evidence path for the effective runtime model under
+ * `--format json`. When set, it must be the absolute path of the OpenCode
+ * state database (`$XDG_DATA_HOME/opencode/opencode.db`) the child writes;
+ * the adapter then joins the runtime-emitted session id against it,
+ * read-only. Unset (the default) preserves today's behaviour exactly — no
+ * file is read and the stderr-banner rules apply unchanged.
+ */
+export function openCodeSessionEvidenceFromEnv(
+  env: NodeJS.ProcessEnv = process.env,
+): { dbPath: string } | undefined {
+  const raw = resolveEnv(
+    env,
+    "MESHFLEET_OPENCODE_SESSION_DB",
+    "AGENT_MESH_OPENCODE_SESSION_DB",
+  );
+  if (raw === undefined || raw.trim() === "") return undefined;
+  const dbPath = raw.trim();
+  if (!dbPath.startsWith("/")) {
+    throw new Error(
+      "Invalid OpenCode session evidence database path: must be absolute. " +
+        "Set MESHFLEET_OPENCODE_SESSION_DB to the child's $XDG_DATA_HOME/opencode/opencode.db.",
+    );
+  }
+  return { dbPath };
+}
+
 /** Build argv for `opencode run [--model <id>] [--agent <file>] <prompt>`. */
 export function buildRunArgs(
   input: RunArgsInput,

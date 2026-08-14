@@ -1,6 +1,7 @@
 import { agentTimeoutMs, buildRunArgs, validateOpenCodeProviderNamespace } from "../spawn-config.js";
 import { classifySpawnResult } from "../spawn-result.js";
 import { parseOpenCodeEvents } from "./opencode-events.js";
+import { readOpenCodeSessionEvidence } from "./opencode-evidence.js";
 import { noToolCallNotice } from "../hollow-result.js";
 import {
   cancelProcessExecution,
@@ -35,6 +36,17 @@ export interface OpenCodeRuntimeAdapterOptions {
    * process can start. Unset preserves the exact current argv.
    */
   providerNamespace?: string;
+  /**
+   * Opt-in truthful evidence source for the effective runtime model under
+   * `--format json` (which suppresses the stderr banner). When configured,
+   * the adapter joins the session id the CHILD emitted in its own NDJSON
+   * stream against the OpenCode state database the child wrote, read-only,
+   * and attests the observed model to classification. When absent — the
+   * default — nothing changes: no file is touched and the banner rules apply
+   * exactly as before. Evidence is never read from the request, the argv, or
+   * the environment; a missing/foreign/stale row fails closed.
+   */
+  sessionEvidence?: { dbPath: string };
 }
 
 function diagnosticsFor(result: { warning?: string; error?: string }): RuntimeDiagnostic[] {
@@ -68,6 +80,8 @@ export class OpenCodeRuntimeAdapter implements RuntimeAdapter {
   private readonly buildArgs: (spec: ExecutionSpec) => string[];
   private readonly spawnProcess?: SpawnProcess;
   private readonly terminationGraceMs?: number;
+  private readonly providerNamespace?: string;
+  private readonly sessionEvidenceDbPath?: string;
 
   constructor(options: OpenCodeRuntimeAdapterOptions = {}) {
     this.command = options.command ?? "opencode";
@@ -75,6 +89,8 @@ export class OpenCodeRuntimeAdapter implements RuntimeAdapter {
       options.providerNamespace === undefined
         ? undefined
         : validateOpenCodeProviderNamespace(options.providerNamespace);
+    this.providerNamespace = providerNamespace;
+    this.sessionEvidenceDbPath = options.sessionEvidence?.dbPath;
     this.buildArgs = options.buildArgs ?? ((spec) => buildRunArgs({
       prompt: spec.prompt,
       requestedModel: spec.requestedModel,
@@ -128,12 +144,26 @@ export class OpenCodeRuntimeAdapter implements RuntimeAdapter {
           // be, which is why the parser refuses to invent one.
           const events = parseOpenCodeEvents(raw.stdout);
           const stdout = events.parsed ? events.text : raw.stdout;
+          // Truthful effective-model evidence for JSON mode: only when the
+          // operator opted in, only keyed by the session id the CHILD emitted
+          // in its own stream, only from the database the child wrote. Never
+          // the requested or argv value. Absent/foreign/stale evidence stays
+          // undefined and classification keeps its fail-closed guard.
+          const observedModel =
+            events.parsed && events.sessionId && this.sessionEvidenceDbPath && this.providerNamespace
+              ? readOpenCodeSessionEvidence({
+                  dbPath: this.sessionEvidenceDbPath,
+                  sessionId: events.sessionId,
+                  providerNamespace: this.providerNamespace,
+                })?.model
+              : undefined;
           const classified = classifySpawnResult({
             exitCode: raw.exitCode,
             stdout,
             stderr: raw.stderr,
             requestedAgent: spec.requestedAgent,
             requestedModel: spec.requestedModel,
+            runtimeModel: observedModel,
           });
           return {
             status: classified.success ? "success" : "failure",

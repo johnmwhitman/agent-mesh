@@ -6,6 +6,7 @@ import {
   validateOpenCodeProviderNamespace,
   resolveOpenCodeCliModel,
   openCodeProviderNamespaceFromEnv,
+  openCodeSessionEvidenceFromEnv,
 } from "../src/spawn-config.js";
 import { runtimeModelsMatch } from "../src/spawn-result.js";
 import { OpenCodeRuntimeAdapter } from "../src/runtime/opencode.js";
@@ -120,6 +121,19 @@ test("env binding is explicit: unset stays unset, set is validated fail-closed",
   );
   assert.throws(() =>
     openCodeProviderNamespaceFromEnv({ MESHFLEET_OPENCODE_PROVIDER_NAMESPACE: "not a namespace" }),
+  );
+});
+
+test("session-evidence env binding: unset stays unset, set requires an absolute path", () => {
+  assert.equal(openCodeSessionEvidenceFromEnv({}), undefined);
+  assert.equal(openCodeSessionEvidenceFromEnv({ MESHFLEET_OPENCODE_SESSION_DB: "" }), undefined);
+  assert.deepEqual(
+    openCodeSessionEvidenceFromEnv({ MESHFLEET_OPENCODE_SESSION_DB: "/tmp/xdg/opencode/opencode.db" }),
+    { dbPath: "/tmp/xdg/opencode/opencode.db" },
+  );
+  assert.throws(
+    () => openCodeSessionEvidenceFromEnv({ MESHFLEET_OPENCODE_SESSION_DB: "relative/opencode.db" }),
+    /must be absolute/,
   );
 });
 

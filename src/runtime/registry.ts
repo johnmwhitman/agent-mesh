@@ -1,5 +1,5 @@
 import { OpenCodeRuntimeAdapter } from "./opencode.js";
-import { openCodeProviderNamespaceFromEnv } from "../spawn-config.js";
+import { openCodeProviderNamespaceFromEnv, openCodeSessionEvidenceFromEnv } from "../spawn-config.js";
 import { KimiRuntimeAdapter } from "./kimi.js";
 import { ClaudeRuntimeAdapter } from "./claude.js";
 import { LocalDemoRuntimeAdapter } from "./local-demo.js";
@@ -45,6 +45,10 @@ export function createDefaultRuntimeRegistry(): RuntimeAdapterRegistry {
       // fail-closed; unset preserves the exact current argv. Never rewritten
       // into the ledger.
       providerNamespace: openCodeProviderNamespaceFromEnv(),
+      // Opt-in truthful JSON-mode evidence source (absolute path to the
+      // child's opencode state database). Unset preserves today's behaviour
+      // exactly: no file is read, banner rules apply unchanged.
+      sessionEvidence: openCodeSessionEvidenceFromEnv(),
     }),
   );
   // The Kimi adapter shipped in #67 and was registered NOWHERE, so nothing could reach it:
