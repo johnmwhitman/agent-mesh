@@ -260,7 +260,9 @@ test("pre-PID launch crash quarantines the attempt instead of launching a replac
     assert.equal(state.work.status, "failed");
     assert.match(String(state.work.error), /manual recovery required/);
     assert.equal(replacementRuntime.starts, 0);
-    assert.ok(readEventLog().some((event) => event.event === "agent_launch_quarantined"));
+    const quarantine = readEventLog().find((event) =>
+      event.event === "agent_launch_quarantined" && event.agent_id === "a");
+    assert.equal(quarantine?.fleet_id, "f");
     replacement.stop();
   } finally { temp.cleanup(); }
 });
@@ -288,7 +290,9 @@ test("durable recovery wakes at a future lease boundary, contains the diagnostic
     );
     assert.equal(runtime.starts, 1, "scheduled recovery reclaims after expiry without restart");
     assert.deepEqual(contained, [999_999]);
-    assert.ok(readEventLog().some((event) => event.event === "agent_retry_scheduled"));
+    const retry = readEventLog().find((event) =>
+      event.event === "agent_retry_scheduled" && event.agent_id === "a");
+    assert.equal(retry?.fleet_id, "f");
     coordinator.stop();
   } finally { temp.cleanup(); }
 });
