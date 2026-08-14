@@ -85,7 +85,7 @@ provider process.
 
 | Version | Theme | Highlights |
 |---|---|---|
-| **0.1.0** | Core fleet orchestration | `spawn_fleet`, `fleet_status`, `collect_results`, JSON ledger, timeout bypass |
+| **0.1.0** | Core fleet orchestration | `spawn_fleet`, `fleet_status`, `collect_results`, JSON ledger, host task-timeout bypass |
 | **0.2.0** | P2P messaging | `send_message`, `get_inbox`, `ack_message`, capability registry, `route_work` |
 | **0.3.0** | Premade agents | `list_agents`, `attach_agent`, timeout watchdog, 26 tests, CI |
 | **0.4.0** | Resilience | `set_fleet_timeout`, structured event log, `list_fleets` |
@@ -166,8 +166,9 @@ Commercial assurance and account-specific provider operations are outside this
 public roadmap.
 
 **Now**
-- Provenance-signed tagged npm releases remain the release path; source and
-  registry latest are currently `0.20.0`.
+- Provenance-signed tagged npm releases remain the release path. As measured
+  2026-08-13 America/Chicago with `npm view meshfleet dist-tags.latest`, source
+  is `0.21.1` and npm registry latest is `0.20.0`.
 - VS Code extension marketplace listing (the read-only inspector MVP already lives in `editors/vscode/`) — waiting on a publisher account, not on code.
 
 **Next**

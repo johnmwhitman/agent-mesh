@@ -57,9 +57,21 @@ test("README's stated source version is the version package.json will publish", 
     pkg.version,
     `README.md says source version ${stated[1]}, package.json says ${pkg.version}`,
   );
+
+  const proseClaims = Array.from(
+    readme.matchAll(/\bsource is\s+([0-9]+\.[0-9]+\.[0-9]+)/gi),
+    (match) => match[1],
+  );
+  for (const claim of proseClaims) {
+    assert.equal(
+      claim,
+      pkg.version,
+      `README.md prose says source is ${claim}, package.json says ${pkg.version}`,
+    );
+  }
 });
 
-test("README does not assert what the npm registry currently serves", () => {
+test("README avoids standing release facts and states the bounded timeout contract", () => {
   // Every pattern here is a phrasing that has actually shipped false, or its
   // immediate sibling. Add to this list when a new one is caught in the wild —
   // that is the maintenance contract for a denylist.
@@ -95,6 +107,14 @@ test("README does not assert what the npm registry currently serves", () => {
       pattern: /npm\s+latest\s+are\s+`?v?[0-9]/i,
       why: "the registry's current dist-tag (plural-verb form)",
     },
+    {
+      pattern: /newest\s+Git\s+tag\s+is\s+`?v?[0-9]/i,
+      why: "the repository's current newest tag",
+    },
+    {
+      pattern: /no\s+artificial\s+ceiling/i,
+      why: "no timeout ceiling despite the bounded fleet-timeout contract",
+    },
   ];
 
   const lines = readme.split("\n");
@@ -108,9 +128,14 @@ test("README does not assert what the npm registry currently serves", () => {
   assert.deepEqual(
     hits,
     [],
-    "README.md states registry state it cannot verify locally, and it ships inside the " +
-      "package the registry serves. Link to https://www.npmjs.com/package/meshfleet instead " +
-      "of naming a version:\n" +
+    "README.md states release/runtime facts that can silently become false. Link to live " +
+      "release state and describe the bounded timeout contract instead:\n" +
       hits.join("\n"),
+  );
+
+  assert.match(
+    readme,
+    /Meshfleet applies its own 30-minute safety timeout by default; operators can configure that default with `MESHFLEET_AGENT_TIMEOUT_MS` or override it per fleet with `set_fleet_timeout`, up to Node's `2,147,483,647` ms timer limit\./i,
+    "README.md must retain the bounded runtime contract: exact default, supported overrides, and maximum",
   );
 });

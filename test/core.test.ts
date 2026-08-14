@@ -396,11 +396,20 @@ test("setFleetTimeout: override is independent per fleet", () => {
 
 test("getFleetTimeoutMs: returns default when no override set", () => {
   const { cleanup } = freshLedger();
-  createFleet("f-default");
-  // Default is 30 min (1_800_000 ms) when env var unset
-  const t = getFleetTimeoutMs("f-default");
-  assert.ok(t === 30 * 60 * 1000 || t > 0);
-  cleanup();
+  const meshfleetTimeout = process.env.MESHFLEET_AGENT_TIMEOUT_MS;
+  const legacyTimeout = process.env.AGENT_MESH_AGENT_TIMEOUT_MS;
+  try {
+    delete process.env.MESHFLEET_AGENT_TIMEOUT_MS;
+    delete process.env.AGENT_MESH_AGENT_TIMEOUT_MS;
+    createFleet("f-default");
+    assert.equal(getFleetTimeoutMs("f-default"), 30 * 60 * 1000);
+  } finally {
+    if (meshfleetTimeout === undefined) delete process.env.MESHFLEET_AGENT_TIMEOUT_MS;
+    else process.env.MESHFLEET_AGENT_TIMEOUT_MS = meshfleetTimeout;
+    if (legacyTimeout === undefined) delete process.env.AGENT_MESH_AGENT_TIMEOUT_MS;
+    else process.env.AGENT_MESH_AGENT_TIMEOUT_MS = legacyTimeout;
+    cleanup();
+  }
 });
 
 test("getFleetTimeoutMs: returns default for unknown fleet", () => {

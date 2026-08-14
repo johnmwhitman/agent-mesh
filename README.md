@@ -4,7 +4,7 @@
 
 **Website**: [meshfleet.app](https://meshfleet.app) · **Source version**: 0.21.1 · [npm](https://www.npmjs.com/package/meshfleet) · [CI](https://github.com/johnmwhitman/agent-mesh/actions)
 
-*Maintained: source is 0.20.0; the newest Git tag is v0.19.0 (2026-07-28); a tag is an intent to ship and [the registry](https://www.npmjs.com/package/meshfleet?activeTab=versions) is the only record of what shipped · issues answered within 48h · no download-count theater.*
+*Maintained: a Git tag is an intent to ship and [the registry](https://www.npmjs.com/package/meshfleet?activeTab=versions) is the only record of what shipped · issues answered within 48h · no download-count theater.*
 
 > **Project status — deliberately pre-1.0, actively maintained.** Releases are intentionally
 > infrequent (we cut versions when something is worth shipping, not on a calendar); the repo
@@ -29,7 +29,7 @@
 
 OpenCode is a single-agent runtime. You talk to it, it does things. The moment you need **multiple specialists** running in parallel — explore, then review, then implement — you hit the 30-minute background-task timeout.
 
-Meshfleet adds the missing layer: a fleet of agents that run in parallel, message each other, hand off work, and self-organize. As independent OS processes, not background tasks. No artificial ceiling.
+Meshfleet adds the missing layer: a fleet of agents that run in parallel, message each other, hand off work, and self-organize. As independent OS processes rather than host background tasks, they are not bound to the host's background-task lifetime. Meshfleet applies its own 30-minute safety timeout by default; operators can configure that default with `MESHFLEET_AGENT_TIMEOUT_MS` or override it per fleet with `set_fleet_timeout`, up to Node's `2,147,483,647` ms timer limit.
 
 ```typescript
 const { fleet_id } = await callTool("spawn_fleet", {
@@ -611,7 +611,7 @@ artifacts; verifying the work stays with your tooling and your review.
 | **CrewAI** | Role-based Python agents | Python-only, hosted |
 | **AutoGen** | Research projects | Heavy, Python-only |
 | **Hand-rolled cron** | Specific one-off workflows | No shared abstractions |
-| **Meshfleet** | OpenCode + multi-agent, local-first, auditable | TypeScript-only (for now) |
+| **Meshfleet** | OpenCode + multi-agent, local-first, auditable | 30-min default safety timeout (configurable); TypeScript-only (for now) |
 
 None of them answer "who saw this, who approved it, prove it." That's the lane.
 
