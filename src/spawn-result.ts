@@ -131,10 +131,10 @@ export function classifySpawnResult(
 ): SpawnResultClassification {
   const banner = runtimeBanner(input.stderr);
   // Evidence precedence: an independently observed runtime model (supplied by
-  // the caller from the runtime's own artifacts) attests identity the same
-  // way the stderr banner does. The banner, when present, still wins — it is
-  // the runtime's live self-report — and any disagreement between the two
-  // fails closed below via the same mismatch rule.
+  // the caller from the runtime's own artifacts) supplies observed identity
+  // the same way the stderr banner does. The banner, when present, still wins
+  // because it is the runtime's live self-report; any disagreement between
+  // the two fails closed below via the same mismatch rule.
   const observedModel = banner?.model ?? input.runtimeModel;
   const runtimeMeta =
     banner || input.runtimeModel
