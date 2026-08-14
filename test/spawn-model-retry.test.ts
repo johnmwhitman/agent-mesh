@@ -51,7 +51,7 @@ function readArgvVectors(logPath: string): string[][] {
     .map((line) => JSON.parse(line) as string[]);
 }
 
-test("legacy spawn retries retain the selected model argv", async () => {
+test("legacy spawn retries retain the selected model argv and fleet lineage", async () => {
   const dir = mkdtempSync(join(tmpdir(), "mesh-model-retry-"));
   const argvLog = join(dir, "opencode-argv.jsonl");
   const binDir = join(dir, "bin");
@@ -180,6 +180,32 @@ process.exit(1);
         `attempt ${i + 1} argv prefix: ${JSON.stringify(argv)}`,
       );
     }
+
+    const spawned = JSON.parse(response.result.content[0].text) as {
+      fleet_id: string;
+      agent_ids: string[];
+    };
+    await waitUntil(
+      () => existsSync(join(dir, "e.log")) &&
+        readFileSync(join(dir, "e.log"), "utf8").includes("agent_failed_permanent"),
+      "terminal failure event",
+      20_000,
+    );
+    const failureEvents = readFileSync(join(dir, "e.log"), "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as Record<string, unknown>)
+      .filter((event) =>
+        event.agent_id === spawned.agent_ids[0] &&
+        (event.event === "agent_retry_scheduled" || event.event === "agent_failed_permanent"));
+    assert.deepEqual(
+      failureEvents.map((event) => ({ event: event.event, fleet_id: event.fleet_id })),
+      [
+        { event: "agent_retry_scheduled", fleet_id: spawned.fleet_id },
+        { event: "agent_retry_scheduled", fleet_id: spawned.fleet_id },
+        { event: "agent_failed_permanent", fleet_id: spawned.fleet_id },
+      ],
+    );
   } finally {
     if (server && !server.killed) {
       server.kill("SIGTERM");

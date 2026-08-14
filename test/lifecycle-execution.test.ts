@@ -116,6 +116,46 @@ test("durable coordinator records pending projection before launch and settles a
   }
 });
 
+test("durable failure events preserve fleet lineage for retry and terminal failure", async () => {
+  const temp = withTempDb();
+  try {
+    const runtime = new ControlledRuntime();
+    const coordinator = new LifecycleExecutionCoordinator(runtime, {
+      ownerId: "owner-failure-lineage",
+      retryBaseMs: 0,
+      maxAttempts: 2,
+    });
+    coordinator.createFleet("fleet-lineage", [{
+      fleetId: "fleet-lineage",
+      agentId: "agent-lineage",
+      role: "worker",
+      prompt: "work",
+    }]);
+    await waitUntil(() => runtime.results.length === 1, "first lineage attempt");
+    runtime.results[0].resolve(failure("first failure"));
+    await waitUntil(() => runtime.results.length === 2, "second lineage attempt");
+    runtime.results[1].resolve(failure("final failure"));
+    await waitUntil(
+      () => loadData().agents["agent-lineage"].status === "failed",
+      "terminal lineage failure",
+    );
+
+    const failureEvents = readEventLog().filter((event) =>
+      event.agent_id === "agent-lineage" &&
+      (event.event === "agent_retry_scheduled" || event.event === "agent_failed_permanent"));
+    assert.deepEqual(
+      failureEvents.map((event) => ({ event: event.event, fleet_id: event.fleet_id })),
+      [
+        { event: "agent_retry_scheduled", fleet_id: "fleet-lineage" },
+        { event: "agent_failed_permanent", fleet_id: "fleet-lineage" },
+      ],
+    );
+    coordinator.stop();
+  } finally {
+    temp.cleanup();
+  }
+});
+
 test("durable fleet timeout cancels lifecycle authority and its owned runtime handle", async () => {
   const temp = withTempDb();
   try {
