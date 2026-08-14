@@ -1,4 +1,4 @@
-import { agentTimeoutMs, buildRunArgs } from "../spawn-config.js";
+import { agentTimeoutMs, buildRunArgs, validateOpenCodeProviderNamespace } from "../spawn-config.js";
 import { classifySpawnResult } from "../spawn-result.js";
 import { parseOpenCodeEvents } from "./opencode-events.js";
 import { noToolCallNotice } from "../hollow-result.js";
@@ -27,6 +27,14 @@ export interface OpenCodeRuntimeAdapterOptions {
   buildArgs?: (spec: ExecutionSpec) => string[];
   spawnProcess?: SpawnProcess;
   terminationGraceMs?: number;
+  /**
+   * Operator-declared OpenCode provider namespace (e.g. `routeplane`). When
+   * set, the adapter qualifies the public RoutePlane wire model id for the
+   * CLI at this boundary only; the ledger value is never rewritten. Validated
+   * fail-closed in the constructor — a malformed namespace throws before any
+   * process can start. Unset preserves the exact current argv.
+   */
+  providerNamespace?: string;
 }
 
 function diagnosticsFor(result: { warning?: string; error?: string }): RuntimeDiagnostic[] {
@@ -63,11 +71,15 @@ export class OpenCodeRuntimeAdapter implements RuntimeAdapter {
 
   constructor(options: OpenCodeRuntimeAdapterOptions = {}) {
     this.command = options.command ?? "opencode";
+    const providerNamespace =
+      options.providerNamespace === undefined
+        ? undefined
+        : validateOpenCodeProviderNamespace(options.providerNamespace);
     this.buildArgs = options.buildArgs ?? ((spec) => buildRunArgs({
       prompt: spec.prompt,
       requestedModel: spec.requestedModel,
       agentFile: spec.requestedAgent,
-    }));
+    }, providerNamespace));
     this.spawnProcess = options.spawnProcess;
     this.terminationGraceMs = options.terminationGraceMs;
   }

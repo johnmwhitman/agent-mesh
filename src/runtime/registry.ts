@@ -1,4 +1,5 @@
 import { OpenCodeRuntimeAdapter } from "./opencode.js";
+import { openCodeProviderNamespaceFromEnv } from "../spawn-config.js";
 import { KimiRuntimeAdapter } from "./kimi.js";
 import { ClaudeRuntimeAdapter } from "./claude.js";
 import { LocalDemoRuntimeAdapter } from "./local-demo.js";
@@ -36,7 +37,15 @@ export function createDefaultRuntimeRegistry(): RuntimeAdapterRegistry {
   // failover can be exercised end to end against a stub instead of a real subscription. Unset is
   // the adapter's own default, so every deployment that configures nothing is unchanged.
   registry.register(
-    new OpenCodeRuntimeAdapter({ command: process.env.MESHFLEET_OPENCODE_COMMAND?.trim() || undefined }),
+    new OpenCodeRuntimeAdapter({
+      command: process.env.MESHFLEET_OPENCODE_COMMAND?.trim() || undefined,
+      // Operator-declared OpenCode provider namespace. Set ONLY on deployments
+      // whose public requestedModel values are RoutePlane wire ids that
+      // OpenCode must see qualified (routeplane/ollama/glm-5.2). Validated
+      // fail-closed; unset preserves the exact current argv. Never rewritten
+      // into the ledger.
+      providerNamespace: openCodeProviderNamespaceFromEnv(),
+    }),
   );
   // The Kimi adapter shipped in #67 and was registered NOWHERE, so nothing could reach it:
   // `createDefaultRuntimeRegistry().ids()` returned `["opencode-cli"]` and a grep for `kimi`
