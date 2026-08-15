@@ -11,7 +11,6 @@ import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
 import {
   chmodSync,
-  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -56,7 +55,7 @@ test("legacy spawn retries retain the selected model argv", async () => {
   const argvLog = join(dir, "opencode-argv.jsonl");
   const binDir = join(dir, "bin");
   const isWindows = process.platform === "win32";
-  const opencodePath = join(binDir, isWindows ? "opencode.exe" : "opencode");
+  const opencodePath = join(binDir, isWindows ? "opencode.cmd" : "opencode");
   let server: ChildProcess | undefined;
 
   try {
@@ -72,16 +71,19 @@ process.stderr.write("> builder · openai/gpt-5\\n");
 process.exit(1);
 `;
     if (isWindows) {
-      // OpenCode's Windows package exposes a native opencode.exe. Copy Node's
-      // native executable to emulate that launch shape without shell:true.
-      // `opencode.exe run ...` makes Node execute the temporary `run` script,
-      // which proves the adapter supplied that first argv element as well as
-      // the selected model on each retry.
+      // Forward through a Windows command shim so the JS witness sees the
+      // complete OpenCode argv. A renamed node.exe is invalid here: global
+      // OpenCode flags precede `run`, so Node parses them as Node flags and
+      // exits before the witness can record anything.
+      const witness = join(dir, "fake-opencode.cjs");
       writeFileSync(
-        join(dir, "run"),
-        `const argv = ["run", ...process.argv.slice(2)];\n${writeInvocation}`,
+        witness,
+        `const argv = process.argv.slice(2);\n${writeInvocation}`,
       );
-      copyFileSync(process.execPath, opencodePath);
+      writeFileSync(
+        opencodePath,
+        `@echo off\r\n"${process.execPath}" "${witness}" %*\r\n`,
+      );
     } else {
       writeFileSync(
         opencodePath,
@@ -92,9 +94,6 @@ process.exit(1);
     }
 
     server = spawn(process.execPath, [join(repoRoot, "dist", "index.js")], {
-      // On Windows the copied native executable consumes `run` as its script
-      // path, mirroring the real command shape without a shell or preload.
-      cwd: isWindows ? dir : undefined,
       env: {
         ...process.env,
         PATH: `${binDir}${delimiter}${process.env.PATH ?? ""}`,

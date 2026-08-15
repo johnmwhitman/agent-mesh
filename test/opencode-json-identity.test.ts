@@ -473,16 +473,20 @@ function spec(overrides: Partial<ExecutionSpec> = {}): ExecutionSpec {
 }
 
 function fakeOpencodeScript(dir: string, sessionId: string): string {
-  const script = join(dir, "fake-opencode");
+  const isWindows = process.platform === "win32";
+  const script = join(dir, isWindows ? "fake-opencode.cmd" : "fake-opencode");
   // Emits a valid JSON-mode stream carrying sessionId and exits 0.
-  const body = `#!/bin/sh
+  const stream = ndjson(sessionId);
+  const body = isWindows
+    ? ["@echo off", ...stream.split("\n").map((line) => `echo ${line}`), ""].join("\r\n")
+    : `#!/bin/sh
 cat <<'EOF'
-${ndjson(sessionId)}
+${stream}
 EOF
 `;
   const { writeFileSync, chmodSync } = require("node:fs") as typeof import("node:fs");
   writeFileSync(script, body);
-  chmodSync(script, 0o755);
+  if (!isWindows) chmodSync(script, 0o755);
   return script;
 }
 
