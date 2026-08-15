@@ -165,7 +165,11 @@ export function buildRunArgs(
   input: RunArgsInput,
   providerNamespace?: string,
 ): string[] {
-  const runArgs: string[] = ["run"];
+  // OpenCode 1.17 no longer prints the old `> agent · model` banner in `run`
+  // output. Its INFO stream records are now the observed provider/model/agent
+  // evidence used to bind a requested selector to the runtime that actually
+  // executed. These are global flags, so they must precede the subcommand.
+  const runArgs: string[] = ["--print-logs", "--log-level", "INFO", "run"];
   if (input.requestedModel !== undefined) {
     runArgs.push("--model", resolveOpenCodeCliModel(input.requestedModel, providerNamespace));
   }

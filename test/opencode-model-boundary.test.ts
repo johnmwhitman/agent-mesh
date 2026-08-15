@@ -44,7 +44,7 @@ function spec(overrides: Partial<ExecutionSpec> = {}): ExecutionSpec {
 test("default (no configured namespace) passes the requested model through unchanged", () => {
   assert.deepEqual(
     buildRunArgs({ prompt: "review", requestedModel: "ollama/glm-5.2" }),
-    ["run", "--model", "ollama/glm-5.2", "--format", "json", "review"],
+    ["--print-logs", "--log-level", "INFO", "run", "--model", "ollama/glm-5.2", "--format", "json", "review"],
   );
   assert.equal(resolveOpenCodeCliModel("ollama/glm-5.2"), "ollama/glm-5.2");
 });
@@ -59,7 +59,7 @@ test("an explicit provider namespace qualifies the wire model id for the CLI onl
       { prompt: "review", requestedModel: "ollama/glm-5.2" },
       "routeplane",
     ),
-    ["run", "--model", "routeplane/ollama/glm-5.2", "--format", "json", "review"],
+    ["--print-logs", "--log-level", "INFO", "run", "--model", "routeplane/ollama/glm-5.2", "--format", "json", "review"],
   );
 });
 
@@ -189,6 +189,9 @@ test("adapter boundary: ledger identity unchanged, CLI argv harness-qualified, b
   const result = await adapter.wait(handle);
 
   assert.deepEqual(observedArgs, [
+    "--print-logs",
+    "--log-level",
+    "INFO",
     "run",
     "--model",
     "routeplane/ollama/glm-5.2",

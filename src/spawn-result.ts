@@ -86,10 +86,144 @@ export function runtimeModelsMatch(expected?: string, observed?: string): boolea
   );
 }
 
-function runtimeBanner(stderr: string): { agent: string; model: string } | undefined {
-  const plain = stderr.replace(ANSI_ESCAPE, "");
-  const match = plain.match(/^\s*>\s*([^·]+?)\s*·\s*([^\s]+)\s*$/m);
-  return match ? { agent: match[1].trim(), model: match[2] } : undefined;
+// Parse a single logfmt line into a Map of key → value(s). Returns null when the
+// line has no logfmt key=value tokens at all. Duplicate keys are collected — the
+// caller decides whether duplicates are acceptable for a given field.
+
+type ModernRuntimeResult =
+  | { agent: string; model: string }
+  | { conflict: true; selections: Array<{ agent: string; model: string }> }
+  | { malformed: true }
+  | undefined;
+
+function parseLogfmt(line: string): Map<string, string[]> | null {
+  const fields = new Map<string, string[]>();
+  // Match key=value (value may be quoted). The key must be preceded by start or
+  // whitespace so embedded dotted prefixes (foo.level) do not collide.
+  const re = /(?:^|\s)([a-zA-Z][a-zA-Z0-9_.-]*)=("(?:[^"\\]|\\.)*"|[^\s]+)/g;
+  let match: RegExpExecArray | null;
+  let found = false;
+  while ((match = re.exec(line)) !== null) {
+    found = true;
+    const key = match[1];
+    let value = match[2];
+    if (value.startsWith('"') && value.endsWith('"')) {
+      value = value.slice(1, -1).replace(/\\"/g, '"');
+    }
+    const existing = fields.get(key);
+    if (existing) existing.push(value);
+    else fields.set(key, [value]);
+  }
+  return found ? fields : null;
+}
+
+// The fields that a complete authoritative primary INFO record must carry, each
+// exactly once. Missing or duplicate values in any of these make the record
+// malformed rather than ignorable.
+const REQUIRED_FIELDS = ["level", "message", "small", "mode", "providerID", "modelID", "agent"] as const;
+
+function modernRuntimeSelection(stderr: string): ModernRuntimeResult {
+  const selections: Array<{ agent: string; model: string }> = [];
+  let sawMalformedPrimary = false;
+  for (const line of stderr.replace(ANSI_ESCAPE, "").split("\n")) {
+    const fields = parseLogfmt(line);
+    if (!fields) continue;
+    // Only lines carrying `message` are runtime-selection records.
+    const messageValues = fields.get("message");
+    if (!messageValues) continue;
+    // The message must be exactly `stream` or quoted `llm runtime selected`.
+    if (!messageValues.every((m) => m === "stream" || m === "llm runtime selected")) {
+      // A message field with an unrelated value is not a runtime record — ignore.
+      continue;
+    }
+    // A modern candidate is a runtime-selection message that also carries at
+    // least one runtime-selection discriminator (small, mode, providerID,
+    // modelID, agent). A line carrying only level + message=stream is generic
+    // log noise, not a runtime-selection candidate — level alone is not a
+    // discriminator. Ignore such lines rather than treating them as malformed.
+    const hasRuntimeDiscriminator =
+      fields.has("small") ||
+      fields.has("mode") ||
+      fields.has("providerID") ||
+      fields.has("modelID") ||
+      fields.has("agent");
+    if (!hasRuntimeDiscriminator) continue;
+    // Once we identify a candidate, the `small` field is the key discriminator:
+    //   - unique small=true  → auxiliary/title-generation, ignored (not primary)
+    //   - unique small=false → primary record, all required fields must be
+    //                          present and unique or it is malformed
+    //   - absent, duplicated, or invalid small value → malformed
+    const smallValues = fields.get("small");
+    if (!smallValues || smallValues.length === 0) {
+      // No small field at all — this is a candidate that failed to declare its
+      // dispatch type. Missing small is malformed, not ignorable.
+      sawMalformedPrimary = true;
+      continue;
+    }
+    if (smallValues.length > 1) {
+      // Duplicate small fields — malformed.
+      sawMalformedPrimary = true;
+      continue;
+    }
+    const smallValue = smallValues[0];
+    if (smallValue !== "true" && smallValue !== "false") {
+      // Invalid small value — malformed.
+      sawMalformedPrimary = true;
+      continue;
+    }
+    // small=true is the title-generation stream — auxiliary, not primary.
+    // It is ignored entirely, not malformed or authoritative.
+    if (smallValue === "true") continue;
+
+    // Now we have a primary candidate (small=false). Every required field
+    // must be present and unique — missing or duplicate values in any field
+    // (including level or mode) are malformed. This catches embedded keys like
+    // foo.level=INFO (where level is absent) and duplicate contradictory fields
+    // like level=DEBUG level=INFO or modelID=subs/grok modelID=subs/codex.
+    let malformed = false;
+    for (const key of REQUIRED_FIELDS) {
+      const values = fields.get(key);
+      if (!values || values.length === 0) {
+        malformed = true;
+        break;
+      }
+      if (values.length > 1) {
+        malformed = true;
+        break;
+      }
+      if (values[0].trim() === "") {
+        malformed = true;
+        break;
+      }
+    }
+    if (malformed) {
+      sawMalformedPrimary = true;
+      continue;
+    }
+    // Only INFO-level records attest runtime identity. A single non-INFO
+    // level on an otherwise-complete primary record is non-authoritative but
+    // not malformed — it is simply ignored.
+    if (fields.get("level")![0] !== "INFO") continue;
+    // A non-primary mode is a different stream. Only primary records attest
+    // the worker identity MeshFleet is about to bank.
+    const modeValues = fields.get("mode");
+    if (modeValues![0] !== "primary") continue;
+    const provider = fields.get("providerID")![0];
+    const model = fields.get("modelID")![0];
+    const agent = fields.get("agent")![0];
+    selections.push({ agent, model: `${provider}/${model}` });
+  }
+  if (sawMalformedPrimary) return { malformed: true };
+  if (selections.length === 0) return undefined;
+  const first = selections[0];
+  if (
+    !selections.every(
+      (selection) => selection.agent === first.agent && selection.model === first.model
+    )
+  ) {
+    return { conflict: true, selections };
+  }
+  return first;
 }
 
 function diagnosticAttribution(line: string): DiagnosticAttribution {
@@ -129,7 +263,31 @@ function isRuntimeDiagnostic(
 export function classifySpawnResult(
   input: SpawnResultInput
 ): SpawnResultClassification {
-  const banner = runtimeBanner(input.stderr);
+  // Parse modern evidence once. The result is reused for the malformed gate
+  // and the conflict/identity checks below, so modernRuntimeSelection is not
+  // called a second time.
+  const plainStderr = input.stderr.replace(ANSI_ESCAPE, "");
+  const modern = modernRuntimeSelection(plainStderr);
+
+  // Track whether modern evidence is malformed. This is checked AFTER the
+  // established exit-code/empty-stdout failures but BEFORE legacy fallback,
+  // requested-model acceptance, or any diagnostic gate.
+  const modernMalformed = modern && "malformed" in modern;
+
+  // Derive the banner from modern evidence first, then legacy fallback. This
+  // mirrors the previous runtimeBanner logic but reuses the already-parsed
+  // modern result instead of re-running modernRuntimeSelection.
+  let banner: { agent: string; model: string } | undefined;
+  if (modern && !("conflict" in modern) && !("malformed" in modern)) {
+    banner = modern;
+  }
+  // When modern evidence conflicts or is malformed, do not fall back to the
+  // legacy banner for identity — the conflict/malformed is reported below.
+  if (!banner && !(modern && ("conflict" in modern || "malformed" in modern))) {
+    const match = plainStderr.match(/^\s*>\s*([^·]+?)\s*·\s*([^\s]+)\s*$/m);
+    if (match) banner = { agent: match[1].trim(), model: match[2] };
+  }
+
   // Evidence precedence: an independently observed runtime model (supplied by
   // the caller from the runtime's own artifacts) supplies observed identity
   // the same way the stderr banner does. The banner, when present, still wins
@@ -144,12 +302,35 @@ export function classifySpawnResult(
         }
       : {};
   const receipt = { stdout: input.stdout, stderr: input.stderr, ...runtimeMeta };
-  const plainStderr = input.stderr.replace(ANSI_ESCAPE, "");
+
+  // Established failures take precedence over malformed/conflicting identity
+  // evidence: a nonzero exit code and empty stdout are reported before any
+  // modern-evidence gate.
   if (input.exitCode !== 0) {
     return { ...receipt, success: false, error: `Spawn failed with exit code ${input.exitCode}` };
   }
   if (input.stdout.trim() === "") {
     return { ...receipt, success: false, error: "Spawn exited without output (empty stdout)" };
+  }
+
+  // Malformed modern primary evidence poisons classification before legacy
+  // fallback, requested-model acceptance, or any diagnostic gate. The contract
+  // requires fail-closed on conflicting, missing, or malformed runtime-model
+  // evidence.
+  if (modernMalformed) {
+    return {
+      ...receipt,
+      success: false,
+      error: "Malformed runtime-model evidence in primary INFO stream record",
+    };
+  }
+  if (modern && "conflict" in modern) {
+    const observed = [...new Set(modern.selections.map((selection) => `${selection.agent} · ${selection.model}`))];
+    return {
+      ...receipt,
+      success: false,
+      error: `Conflicting runtime selections observed: ${observed.join("; ")}`,
+    };
   }
   if (EXPLICIT_FALLBACK.test(plainStderr)) {
     return { ...receipt, success: false, error: "Explicit OpenCode agent fallback detected" };

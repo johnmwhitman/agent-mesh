@@ -18,20 +18,22 @@ test('spawn stdio: stdin is ignored so opencode run cannot hang on it', () => {
 })
 
 test('buildRunArgs: prompt only', () => {
-  assert.deepEqual(buildRunArgs({ prompt: 'do the thing' }), ['run', '--format', 'json', 'do the thing'])
+  assert.deepEqual(buildRunArgs({ prompt: 'do the thing' }), [
+    '--print-logs', '--log-level', 'INFO', 'run', '--format', 'json', 'do the thing',
+  ])
 })
 
 test('buildRunArgs: agent file precedes the prompt', () => {
   assert.deepEqual(
     buildRunArgs({ prompt: 'review this', agentFile: 'oracle' }),
-    ['run', '--agent', 'oracle', '--format', 'json', 'review this']
+    ['--print-logs', '--log-level', 'INFO', 'run', '--agent', 'oracle', '--format', 'json', 'review this']
   )
 })
 
 test("buildRunArgs: requested model precedes the prompt", () => {
   assert.deepEqual(
     buildRunArgs({ prompt: "review", requestedModel: "opencode-go/minimax-m3" }),
-    ["run", "--model", "opencode-go/minimax-m3", "--format", "json", "review"],
+    ["--print-logs", "--log-level", "INFO", "run", "--model", "opencode-go/minimax-m3", "--format", "json", "review"],
   );
 })
 
@@ -42,7 +44,7 @@ test("buildRunArgs: model precedes agent and prompt", () => {
       requestedModel: "kilo/kilo-auto/free",
       agentFile: "oracle",
     }),
-    ["run", "--model", "kilo/kilo-auto/free", "--agent", "oracle", "--format", "json", "review"],
+    ["--print-logs", "--log-level", "INFO", "run", "--model", "kilo/kilo-auto/free", "--agent", "oracle", "--format", "json", "review"],
   );
 })
 
@@ -66,6 +68,19 @@ test("buildRunArgs: always requests the structured event stream", () => {
     assert.notEqual(at, -1, `--format missing for ${JSON.stringify(input)}`);
     assert.equal(args[at + 1], "json");
     assert.equal(args.at(-1), "p", "the prompt stays last");
+  }
+})
+
+test("buildRunArgs: always requests INFO runtime-selection evidence", () => {
+  for (const input of [
+    { prompt: "p" },
+    { prompt: "p", agentFile: "oracle" },
+    { prompt: "p", requestedModel: "routeplane/ollama/glm-5.2" },
+  ]) {
+    assert.deepEqual(
+      buildRunArgs(input).slice(0, 4),
+      ["--print-logs", "--log-level", "INFO", "run"],
+    );
   }
 })
 

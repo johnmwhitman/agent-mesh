@@ -131,6 +131,130 @@ test('spawn result: requested model without a parseable banner fails closed', ()
   assert.equal(result.error, 'Requested model but runtime model banner is missing or unparsable')
 })
 
+test('spawn result: modern OpenCode stream log proves nested requested model and agent', () => {
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'READY',
+    stderr: [
+      'timestamp=2026-08-13T23:44:20.759Z level=INFO message=stream providerID=routeplane modelID=ollama/glm-5.2 session.id=ses_x small=true agent=title mode=primary',
+      'timestamp=2026-08-13T23:44:21.815Z level=INFO message=stream providerID=routeplane modelID=ollama/glm-5.2 session.id=ses_x small=false agent=build mode=primary',
+    ].join('\n'),
+    requestedAgent: 'build',
+    requestedModel: 'routeplane/ollama/glm-5.2',
+  })
+
+  assert.equal(result.success, true)
+  assert.equal(result.runtime_agent, 'build')
+  assert.equal(result.runtime_model, 'routeplane/ollama/glm-5.2')
+})
+
+test('spawn result: modern OpenCode stream log rejects a different requested model', () => {
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'READY',
+    stderr: 'timestamp=x level=INFO message=stream providerID=routeplane modelID=ollama/glm-5.2 session.id=ses_x small=false agent=build mode=primary',
+    requestedModel: 'routeplane/subs/grok',
+  })
+
+  assert.equal(result.success, false)
+  assert.equal(
+    result.error,
+    'Requested model routeplane/subs/grok but runtime model banner reported routeplane/ollama/glm-5.2',
+  )
+})
+
+test('spawn result: title-generation small=true records are not runtime evidence', () => {
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'READY',
+    stderr: 'timestamp=x level=INFO message=stream providerID=routeplane modelID=ollama/glm-5.2 session.id=ses_x small=true agent=title mode=primary',
+    requestedModel: 'routeplane/ollama/glm-5.2',
+  })
+
+  assert.equal(result.success, false)
+  assert.equal(result.error, 'Requested model but runtime model banner is missing or unparsable')
+})
+
+test('spawn result: conflicting modern selections must not fall back to the legacy banner', () => {
+  const stderr = [
+    '> build · routeplane/subs/grok',
+    'timestamp=x level=INFO message=stream providerID=routeplane modelID=subs/grok session.id=s small=false agent=build mode=primary',
+    'timestamp=x level=INFO message=stream providerID=routeplane modelID=subs/codex session.id=s small=false agent=build mode=primary',
+  ].join('\n')
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'READY',
+    stderr,
+    requestedAgent: 'build',
+    requestedModel: 'routeplane/subs/grok',
+  })
+
+  assert.equal(result.success, false)
+  assert.match(result.error ?? '', /conflicting runtime selections/i)
+  assert.match(result.error ?? '', /routeplane\/subs\/grok/)
+  assert.match(result.error ?? '', /routeplane\/subs\/codex/)
+})
+
+test('spawn result: single quoted llm runtime selected record binds agent and model', () => {
+  const stderr = 'timestamp=x level=INFO message="llm runtime selected" providerID=routeplane modelID=subs/grok session.id=s small=false agent=build mode=primary'
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'READY',
+    stderr,
+    requestedAgent: 'build',
+    requestedModel: 'routeplane/subs/grok',
+  })
+
+  assert.equal(result.success, true)
+  assert.equal(result.runtime_agent, 'build')
+  assert.equal(result.runtime_model, 'routeplane/subs/grok')
+})
+
+test('spawn result: INFO evidence and DB evidence must agree when both exist', () => {
+  const stderr = 'timestamp=x level=INFO message=stream providerID=routeplane modelID=subs/grok session.id=s small=false agent=build mode=primary'
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'READY',
+    stderr,
+    requestedAgent: 'build',
+    requestedModel: 'routeplane/subs/grok',
+    runtimeModel: 'routeplane/google/gemini-2.5-pro',
+  })
+
+  assert.equal(result.success, false)
+  assert.match(result.error ?? '', /conflicting runtime model evidence/i)
+})
+
+test('spawn result: legacy banner still works when no INFO records are present', () => {
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'answer',
+    stderr: '> build · routeplane/subs/grok\n',
+    requestedAgent: 'build',
+    requestedModel: 'routeplane/subs/grok',
+  })
+
+  assert.equal(result.success, true)
+  assert.equal(result.runtime_agent, 'build')
+  assert.equal(result.runtime_model, 'routeplane/subs/grok')
+})
+
+test('spawn result: INFO evidence agrees with DB evidence succeeds', () => {
+  const stderr = 'timestamp=x level=INFO message=stream providerID=routeplane modelID=subs/grok session.id=s small=false agent=build mode=primary'
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'READY',
+    stderr,
+    requestedAgent: 'build',
+    requestedModel: 'routeplane/subs/grok',
+    runtimeModel: 'routeplane/subs/grok',
+  })
+
+  assert.equal(result.success, true)
+  assert.equal(result.runtime_agent, 'build')
+  assert.equal(result.runtime_model, 'routeplane/subs/grok')
+})
+
 test('spawn result: established failures precede requested-model binding', () => {
   const requestedModel = 'openai/gpt-5'
   const cases = [
@@ -629,4 +753,240 @@ test('spawn result: Anthropic insufficient-balance Error ending in a billing URL
 
   assert.equal(result.success, false)
   assert.match(result.error ?? '', /insufficient balance/i)
+})
+
+test('spawn result: DEBUG-level stream record is not runtime identity evidence', () => {
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'READY',
+    stderr: 'timestamp=x level=DEBUG message=stream providerID=routeplane modelID=subs/grok small=false agent=build mode=primary',
+    requestedAgent: 'build',
+    requestedModel: 'routeplane/subs/grok',
+  })
+
+  assert.equal(result.success, false)
+  assert.match(result.error ?? '', /missing or unparsable/i)
+})
+
+test('spawn result: WARN-level stream record is not runtime identity evidence', () => {
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'READY',
+    stderr: 'timestamp=x level=WARN message=stream providerID=routeplane modelID=subs/grok small=false agent=build mode=primary',
+    requestedAgent: 'build',
+    requestedModel: 'routeplane/subs/grok',
+  })
+
+  assert.equal(result.success, false)
+  assert.match(result.error ?? '', /missing or unparsable/i)
+})
+
+test('spawn result: malformed primary INFO evidence fails closed for every confirmed case', () => {
+  // Each case is a primary-looking INFO stream record that is actually malformed.
+  // The contract requires malformed modern primary evidence to fail closed — it
+  // must not be silently ignored and accepted via legacy fallback or requested-model match.
+  const cases = [
+    {
+      name: 'embedded foo.level is not level',
+      stderr:
+        'timestamp=x foo.level=INFO message=stream providerID=routeplane modelID=subs/grok small=false agent=build mode=primary',
+    },
+    {
+      name: 'duplicate contradictory level fields',
+      stderr:
+        'timestamp=x level=DEBUG level=INFO message=stream providerID=routeplane modelID=subs/grok small=false agent=build mode=primary',
+    },
+    {
+      name: 'duplicate contradictory modelID fields',
+      stderr:
+        'timestamp=x level=INFO message=stream providerID=routeplane modelID=subs/grok modelID=subs/codex small=false agent=build mode=primary',
+    },
+    {
+      name: 'incomplete primary INFO record missing mode',
+      stderr:
+        'timestamp=x level=INFO message=stream providerID=routeplane modelID=subs/grok small=false agent=build',
+    },
+  ]
+
+  for (const { name, stderr } of cases) {
+    const result = classifySpawnResult({
+      exitCode: 0,
+      stdout: 'READY',
+      stderr,
+      requestedAgent: 'build',
+      requestedModel: 'routeplane/subs/grok',
+    })
+    assert.equal(result.success, false, name)
+    assert.match(result.error ?? '', /malformed/i, name)
+  }
+})
+
+test('spawn result: malformed primary INFO poisons classification before legacy fallback', () => {
+  // An incomplete primary INFO record (missing mode) followed by a matching legacy
+  // banner must fail closed on the malformed modern evidence, not succeed via legacy.
+  const stderr = [
+    '> build · routeplane/subs/grok',
+    'timestamp=x level=INFO message=stream providerID=routeplane modelID=subs/grok small=false agent=build',
+  ].join('\n')
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'READY',
+    stderr,
+    requestedAgent: 'build',
+    requestedModel: 'routeplane/subs/grok',
+  })
+
+  assert.equal(result.success, false)
+  assert.match(result.error ?? '', /malformed/i)
+})
+
+test('spawn result: malformed primary INFO poisons an otherwise valid modern selection', () => {
+  const stderr = [
+    'timestamp=x level=INFO message=stream providerID=routeplane modelID=subs/grok small=false agent=build mode=primary',
+    'timestamp=y level=INFO message=stream providerID=routeplane modelID=subs/grok small=false agent=build',
+  ].join('\n')
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'READY',
+    stderr,
+    requestedAgent: 'build',
+    requestedModel: 'routeplane/subs/grok',
+  })
+
+  assert.equal(result.success, false)
+  assert.match(result.error ?? '', /malformed/i)
+})
+
+test('spawn result: empty required primary INFO values are malformed runtime evidence', () => {
+  const records = [
+    'timestamp=x level=INFO message=stream providerID="" modelID=subs/grok small=false agent=build mode=primary',
+    'timestamp=x level=INFO message=stream providerID=routeplane modelID="" small=false agent=build mode=primary',
+    'timestamp=x level=INFO message=stream providerID=routeplane modelID=subs/grok small=false agent="" mode=primary',
+    'timestamp=x level=INFO message=stream providerID="   " modelID=subs/grok small=false agent=build mode=primary',
+  ]
+
+  for (const stderr of records) {
+    const result = classifySpawnResult({ exitCode: 0, stdout: 'READY', stderr })
+    assert.equal(result.success, false, stderr)
+    assert.equal(
+      result.error,
+      'Malformed runtime-model evidence in primary INFO stream record',
+      stderr,
+    )
+  }
+})
+
+test('spawn result: valid identical repeated primary selections remain acceptable', () => {
+  const stderr = [
+    'timestamp=x level=INFO message=stream providerID=routeplane modelID=subs/grok small=false agent=build mode=primary',
+    'timestamp=y level=INFO message=stream providerID=routeplane modelID=subs/grok small=false agent=build mode=primary',
+  ].join('\n')
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'READY',
+    stderr,
+    requestedAgent: 'build',
+    requestedModel: 'routeplane/subs/grok',
+  })
+
+  assert.equal(result.success, true, result.error ?? '')
+  assert.equal(result.runtime_agent, 'build')
+  assert.equal(result.runtime_model, 'routeplane/subs/grok')
+})
+
+test('spawn result: missing small field on a modern candidate is malformed', () => {
+  // A modern candidate (message=stream with runtime-selection fields) that
+  // lacks the `small` discriminator must fail closed as malformed, not be
+  // silently ignored and accepted via legacy fallback.
+  const stderr = [
+    '> build · routeplane/subs/grok',
+    'timestamp=x level=INFO message=stream providerID=routeplane modelID=subs/grok agent=build mode=primary',
+  ].join('\n')
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'READY',
+    stderr,
+    requestedAgent: 'build',
+    requestedModel: 'routeplane/subs/grok',
+  })
+
+  assert.equal(result.success, false)
+  assert.match(result.error ?? '', /malformed/i)
+})
+
+test('spawn result: duplicate small fields on a modern candidate are malformed', () => {
+  const stderr = 'timestamp=x level=INFO message=stream providerID=routeplane modelID=subs/grok small=false small=true agent=build mode=primary'
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'READY',
+    stderr,
+    requestedAgent: 'build',
+    requestedModel: 'routeplane/subs/grok',
+  })
+
+  assert.equal(result.success, false)
+  assert.match(result.error ?? '', /malformed/i)
+})
+
+test('spawn result: invalid small value on a modern candidate is malformed', () => {
+  const stderr = 'timestamp=x level=INFO message=stream providerID=routeplane modelID=subs/grok small=maybe agent=build mode=primary'
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'READY',
+    stderr,
+    requestedAgent: 'build',
+    requestedModel: 'routeplane/subs/grok',
+  })
+
+  assert.equal(result.success, false)
+  assert.match(result.error ?? '', /malformed/i)
+})
+
+test('spawn result: nonzero exit code precedes malformed evidence', () => {
+  // Established failures (nonzero exit, empty stdout) must be reported before
+  // the malformed-evidence gate. A malformed modern record with a nonzero exit
+  // code reports the exit code, not the malformed evidence.
+  const stderr = 'timestamp=x level=INFO message=stream providerID=routeplane modelID=subs/grok small=false agent=build'
+  const result = classifySpawnResult({
+    exitCode: 7,
+    stdout: 'partial',
+    stderr,
+    requestedAgent: 'build',
+    requestedModel: 'routeplane/subs/grok',
+  })
+
+  assert.equal(result.success, false)
+  assert.equal(result.error, 'Spawn failed with exit code 7')
+})
+
+test('spawn result: empty stdout precedes malformed evidence', () => {
+  const stderr = 'timestamp=x level=INFO message=stream providerID=routeplane modelID=subs/grok small=false agent=build'
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: '',
+    stderr,
+    requestedAgent: 'build',
+    requestedModel: 'routeplane/subs/grok',
+  })
+
+  assert.equal(result.success, false)
+  assert.match(result.error ?? '', /empty stdout/i)
+})
+
+test('spawn result: generic message=stream noise does not poison legacy runtime evidence', () => {
+  const stderr = [
+    '> build · routeplane/subs/grok',
+    'timestamp=x level=INFO message=stream unrelated=value',
+  ].join('\n')
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'READY',
+    stderr,
+    requestedAgent: 'build',
+    requestedModel: 'routeplane/subs/grok',
+  })
+
+  assert.equal(result.success, true, result.error ?? '')
+  assert.equal(result.runtime_agent, 'build')
+  assert.equal(result.runtime_model, 'routeplane/subs/grok')
 })

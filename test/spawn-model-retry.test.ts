@@ -178,8 +178,8 @@ process.exit(1);
     assert.ok(vectors.length >= 3, `expected >=3 vectors, got ${vectors.length}`);
     for (const [i, argv] of vectors.slice(0, 3).entries()) {
       assert.deepEqual(
-        argv.slice(0, 3),
-        ["run", "--model", "opencode-go/minimax-m3"],
+        argv.slice(0, 7),
+        ["--print-logs", "--log-level", "INFO", "run", "--model", "opencode-go/minimax-m3", "--format"],
         `attempt ${i + 1} argv prefix: ${JSON.stringify(argv)}`,
       );
     }
