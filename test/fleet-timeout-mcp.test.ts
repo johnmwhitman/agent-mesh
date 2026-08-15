@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -34,11 +35,24 @@ test("set_fleet_timeout re-arms an already-running real MCP child", async () => 
     "",
   ].join("\n");
   if (isWindows) {
-    // OpenCode ships a native .exe on Windows. Copy Node's genuine executable
-    // to reproduce that launch shape; buildRunArgs()'s first `run` argument is
-    // the script below because the runtime inherits this temporary cwd.
-    copyFileSync(process.execPath, sleeper);
-    writeFileSync(join(dir, "run"), sleeperSource);
+    // OpenCode ships a native .exe on Windows and accepts global flags before
+    // `run`. A renamed node.exe is not a faithful stand-in: Node parses those
+    // OpenCode flags as its own and exits before running a script. Compile the
+    // smallest native-shaped sleeper so this timeout test accepts arbitrary
+    // OpenCode argv while still exercising direct .exe process management.
+    const windowsDir = process.env.WINDIR ?? "C:\\Windows";
+    const compiler = [
+      join(windowsDir, "Microsoft.NET", "Framework64", "v4.0.30319", "csc.exe"),
+      join(windowsDir, "Microsoft.NET", "Framework", "v4.0.30319", "csc.exe"),
+    ].find(existsSync);
+    assert.ok(compiler, "Windows timeout witness requires the in-box .NET Framework C# compiler");
+    const source = join(dir, "sleeper.cs");
+    const marker = invoked.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+    writeFileSync(
+      source,
+      `using System.IO; using System.Threading; static class Program { static void Main(string[] args) { File.WriteAllText("${marker}", "invoked"); Thread.Sleep(Timeout.Infinite); } }`,
+    );
+    execFileSync(compiler, ["/nologo", `/out:${sleeper}`, source]);
   } else {
     writeFileSync(sleeper, `#!/usr/bin/env node\n${sleeperSource}`, { mode: 0o755 });
     chmodSync(sleeper, 0o755);
