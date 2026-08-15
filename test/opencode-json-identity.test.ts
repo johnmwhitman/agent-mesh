@@ -19,7 +19,7 @@ import { readOpenCodeSessionEvidence } from "../src/runtime/opencode-evidence.js
 import { classifySpawnResult } from "../src/spawn-result.js";
 import { OpenCodeRuntimeAdapter } from "../src/runtime/opencode.js";
 import type { ExecutionSpec } from "../src/runtime/types.js";
-import { compileWindowsNodeLauncher } from "./helpers/windows-native-command.js";
+import { compileWindowsStaticStdout } from "./helpers/windows-native-command.js";
 
 /**
  * Truthful runtime-model evidence under `--format json` (the remaining defect
@@ -480,9 +480,7 @@ function fakeOpencodeScript(dir: string, sessionId: string): string {
   const stream = ndjson(sessionId);
   const { writeFileSync, chmodSync } = require("node:fs") as typeof import("node:fs");
   if (isWindows) {
-    const witness = join(dir, "fake-opencode.cjs");
-    writeFileSync(witness, `process.stdout.write(${JSON.stringify(`${stream}\n`)});\n`);
-    compileWindowsNodeLauncher(script, witness);
+    compileWindowsStaticStdout(script, `${stream}\n`);
   } else {
     writeFileSync(script, `#!/bin/sh
 cat <<'EOF'

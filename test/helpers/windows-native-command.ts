@@ -4,15 +4,12 @@ import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 function csharpString(value: string): string {
-  return `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
+  return JSON.stringify(value)
+    .replaceAll("\u2028", "\\u2028")
+    .replaceAll("\u2029", "\\u2029");
 }
 
-/**
- * Compile a native Windows executable that forwards all of its argv to a Node
- * witness script. This mirrors OpenCode's native .exe launch shape without
- * making Node interpret OpenCode's leading global flags as Node flags.
- */
-export function compileWindowsNodeLauncher(outputPath: string, witnessPath: string): string {
+function compileWindowsExecutable(outputPath: string, source: string): string {
   assert.equal(process.platform, "win32", "the native launcher is Windows-only");
   const windir = process.env.WINDIR ?? "C:\\Windows";
   const compiler = [
@@ -22,6 +19,34 @@ export function compileWindowsNodeLauncher(outputPath: string, witnessPath: stri
   assert.ok(compiler, "Windows CI requires the .NET Framework C# compiler");
 
   const sourcePath = `${outputPath}.cs`;
+  writeFileSync(sourcePath, source);
+  execFileSync(compiler, ["/nologo", "/target:exe", `/out:${outputPath}`, sourcePath], {
+    stdio: "pipe",
+  });
+  return outputPath;
+}
+
+/** Compile a native witness that emits exact stdout and ignores arbitrary argv. */
+export function compileWindowsStaticStdout(outputPath: string, stdout: string): string {
+  return compileWindowsExecutable(outputPath, `using System;
+
+internal static class Program
+{
+    private static int Main(string[] args)
+    {
+        Console.Out.Write(${csharpString(stdout)});
+        return 0;
+    }
+}
+`);
+}
+
+/**
+ * Compile a native Windows executable that forwards all of its argv to a Node
+ * witness script. This mirrors OpenCode's native .exe launch shape without
+ * making Node interpret OpenCode's leading global flags as Node flags.
+ */
+export function compileWindowsNodeLauncher(outputPath: string, witnessPath: string): string {
   const source = `using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -84,9 +109,5 @@ internal static class Program
     }
 }
 `;
-  writeFileSync(sourcePath, source);
-  execFileSync(compiler, ["/nologo", "/target:exe", `/out:${outputPath}`, sourcePath], {
-    stdio: "pipe",
-  });
-  return outputPath;
+  return compileWindowsExecutable(outputPath, source);
 }
