@@ -21,6 +21,7 @@ import {
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { compileWindowsNodeLauncher } from "./helpers/windows-native-command.js";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -55,7 +56,7 @@ test("legacy spawn retries retain the selected model argv", async () => {
   const argvLog = join(dir, "opencode-argv.jsonl");
   const binDir = join(dir, "bin");
   const isWindows = process.platform === "win32";
-  const opencodePath = join(binDir, isWindows ? "opencode.cmd" : "opencode");
+  const opencodePath = join(binDir, isWindows ? "opencode.exe" : "opencode");
   let server: ChildProcess | undefined;
 
   try {
@@ -71,7 +72,7 @@ process.stderr.write("> builder · openai/gpt-5\\n");
 process.exit(1);
 `;
     if (isWindows) {
-      // Forward through a Windows command shim so the JS witness sees the
+      // Forward through a native Windows launcher so the JS witness sees the
       // complete OpenCode argv. A renamed node.exe is invalid here: global
       // OpenCode flags precede `run`, so Node parses them as Node flags and
       // exits before the witness can record anything.
@@ -80,10 +81,7 @@ process.exit(1);
         witness,
         `const argv = process.argv.slice(2);\n${writeInvocation}`,
       );
-      writeFileSync(
-        opencodePath,
-        `@echo off\r\n"${process.execPath}" "${witness}" %*\r\n`,
-      );
+      compileWindowsNodeLauncher(opencodePath, witness);
     } else {
       writeFileSync(
         opencodePath,

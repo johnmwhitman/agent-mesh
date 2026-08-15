@@ -19,6 +19,7 @@ import { readOpenCodeSessionEvidence } from "../src/runtime/opencode-evidence.js
 import { classifySpawnResult } from "../src/spawn-result.js";
 import { OpenCodeRuntimeAdapter } from "../src/runtime/opencode.js";
 import type { ExecutionSpec } from "../src/runtime/types.js";
+import { compileWindowsNodeLauncher } from "./helpers/windows-native-command.js";
 
 /**
  * Truthful runtime-model evidence under `--format json` (the remaining defect
@@ -474,19 +475,22 @@ function spec(overrides: Partial<ExecutionSpec> = {}): ExecutionSpec {
 
 function fakeOpencodeScript(dir: string, sessionId: string): string {
   const isWindows = process.platform === "win32";
-  const script = join(dir, isWindows ? "fake-opencode.cmd" : "fake-opencode");
+  const script = join(dir, isWindows ? "fake-opencode.exe" : "fake-opencode");
   // Emits a valid JSON-mode stream carrying sessionId and exits 0.
   const stream = ndjson(sessionId);
-  const body = isWindows
-    ? ["@echo off", ...stream.split("\n").map((line) => `echo ${line}`), ""].join("\r\n")
-    : `#!/bin/sh
+  const { writeFileSync, chmodSync } = require("node:fs") as typeof import("node:fs");
+  if (isWindows) {
+    const witness = join(dir, "fake-opencode.cjs");
+    writeFileSync(witness, `process.stdout.write(${JSON.stringify(`${stream}\n`)});\n`);
+    compileWindowsNodeLauncher(script, witness);
+  } else {
+    writeFileSync(script, `#!/bin/sh
 cat <<'EOF'
 ${stream}
 EOF
-`;
-  const { writeFileSync, chmodSync } = require("node:fs") as typeof import("node:fs");
-  writeFileSync(script, body);
-  if (!isWindows) chmodSync(script, 0o755);
+`);
+    chmodSync(script, 0o755);
+  }
   return script;
 }
 
