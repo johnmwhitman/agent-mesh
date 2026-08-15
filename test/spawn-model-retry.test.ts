@@ -11,7 +11,6 @@ import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
 import {
   chmodSync,
-  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -22,6 +21,7 @@ import {
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { compileWindowsNodeLauncher } from "./helpers/windows-native-command.js";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -72,16 +72,16 @@ process.stderr.write("> builder · openai/gpt-5\\n");
 process.exit(1);
 `;
     if (isWindows) {
-      // OpenCode's Windows package exposes a native opencode.exe. Copy Node's
-      // native executable to emulate that launch shape without shell:true.
-      // `opencode.exe run ...` makes Node execute the temporary `run` script,
-      // which proves the adapter supplied that first argv element as well as
-      // the selected model on each retry.
+      // Forward through a native Windows launcher so the JS witness sees the
+      // complete OpenCode argv. A renamed node.exe is invalid here: global
+      // OpenCode flags precede `run`, so Node parses them as Node flags and
+      // exits before the witness can record anything.
+      const witness = join(dir, "fake-opencode.cjs");
       writeFileSync(
-        join(dir, "run"),
-        `const argv = ["run", ...process.argv.slice(2)];\n${writeInvocation}`,
+        witness,
+        `const argv = process.argv.slice(2);\n${writeInvocation}`,
       );
-      copyFileSync(process.execPath, opencodePath);
+      compileWindowsNodeLauncher(opencodePath, witness);
     } else {
       writeFileSync(
         opencodePath,
@@ -92,9 +92,6 @@ process.exit(1);
     }
 
     server = spawn(process.execPath, [join(repoRoot, "dist", "index.js")], {
-      // On Windows the copied native executable consumes `run` as its script
-      // path, mirroring the real command shape without a shell or preload.
-      cwd: isWindows ? dir : undefined,
       env: {
         ...process.env,
         PATH: `${binDir}${delimiter}${process.env.PATH ?? ""}`,
@@ -178,8 +175,8 @@ process.exit(1);
     assert.ok(vectors.length >= 3, `expected >=3 vectors, got ${vectors.length}`);
     for (const [i, argv] of vectors.slice(0, 3).entries()) {
       assert.deepEqual(
-        argv.slice(0, 3),
-        ["run", "--model", "opencode-go/minimax-m3"],
+        argv.slice(0, 7),
+        ["--print-logs", "--log-level", "INFO", "run", "--model", "opencode-go/minimax-m3", "--format"],
         `attempt ${i + 1} argv prefix: ${JSON.stringify(argv)}`,
       );
     }

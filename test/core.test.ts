@@ -333,6 +333,34 @@ test("markAgentFinished: idempotent on already-completed agent", () => {
   cleanup();
 });
 
+test("markAgentFinished: persists observed runtime_model without rewriting requested_model", () => {
+  const { cleanup } = freshLedger();
+  const agentId = randomUUID();
+  registerAgentInLedger({
+    id: agentId,
+    fleet_id: "f-model-truth",
+    role: "worker",
+    prompt: "p",
+    requested_model: "subs/codex",
+    status: "running",
+  });
+
+  markAgentFinished(
+    agentId,
+    "complete",
+    "ok",
+    undefined,
+    undefined,
+    "routeplane/subs/codex",
+  );
+
+  const agent = loadData().agents[agentId];
+  assert.equal(agent.requested_model, "subs/codex");
+  assert.equal(agent.runtime_model, "routeplane/subs/codex");
+  assert.equal(Object.prototype.hasOwnProperty.call(agent, "identity"), false);
+  cleanup();
+});
+
 // ---------------------------------------------------------------------------
 // Real-world integration: premade agent auto-registration
 // ---------------------------------------------------------------------------

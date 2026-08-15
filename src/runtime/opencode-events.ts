@@ -55,6 +55,14 @@ export interface OpenCodeTrace {
   finishReason?: string
   /** How many `step_finish` events were seen; 0 means the turn never closed. */
   steps: number
+  /**
+   * The runtime-emitted session id, when every event that carries one agrees
+   * on it (envelope AND part). The requester cannot know this value in
+   * advance, which is what makes it usable as a join key to the runtime's own
+   * persisted evidence. Undefined when no event carried an id or when any two
+   * observations conflict — conflicting identity is no identity.
+   */
+  sessionId?: string
 }
 
 /** What a `text`-ish part looks like once we stop trusting the wrapper. */
@@ -92,6 +100,21 @@ export function parseOpenCodeEvents(stdout: string): OpenCodeTrace {
   let steps = 0
   let finishReason: string | undefined
   let recognised = 0
+  let sessionId: string | undefined
+  let sessionConflict = false
+
+  const observeSessionId = (value: unknown): void => {
+    if (value === undefined || value === null) return
+    if (typeof value !== 'string' || value === '') {
+      sessionConflict = true
+      return
+    }
+    if (sessionId === undefined) {
+      sessionId = value
+      return
+    }
+    if (sessionId !== value) sessionConflict = true
+  }
 
   for (const line of stdout.split('\n')) {
     const trimmed = line.trim()
@@ -106,6 +129,9 @@ export function parseOpenCodeEvents(stdout: string): OpenCodeTrace {
     const { type, part } = event as { type?: unknown; part?: unknown }
     if (typeof type !== 'string') continue
     recognised += 1
+
+    observeSessionId((event as { sessionID?: unknown }).sessionID)
+    observeSessionId((part as { sessionID?: unknown } | undefined)?.sessionID)
 
     if (type === 'text') {
       const text = partText(part)
@@ -129,5 +155,13 @@ export function parseOpenCodeEvents(stdout: string): OpenCodeTrace {
   }
 
   if (recognised === 0) return empty
-  return { parsed: true, text: chunks.join(''), toolCalls, toolNames, finishReason, steps }
+  return {
+    parsed: true,
+    text: chunks.join(''),
+    toolCalls,
+    toolNames,
+    finishReason,
+    steps,
+    sessionId: sessionConflict ? undefined : sessionId,
+  }
 }
