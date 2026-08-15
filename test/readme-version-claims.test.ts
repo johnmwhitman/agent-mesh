@@ -114,3 +114,16 @@ test("README does not assert what the npm registry currently serves", () => {
       hits.join("\n"),
   );
 });
+
+test("README maintenance status links to live source and release records without freezing them", () => {
+  assert.match(
+    readme,
+    /Maintained: current source and Git tags are visible in \[the repository\]\(https:\/\/github\.com\/johnmwhitman\/agent-mesh\)/,
+    "README.md must keep a positive, durable maintenance-status contract instead of merely deleting stale measurements",
+  );
+  assert.doesNotMatch(
+    readme,
+    /Maintained:[^\n]*(?:source is|newest Git tag is)\s+`?v?[0-9]+\.[0-9]+\.[0-9]+/i,
+    "README.md maintenance status must not freeze source or Git-tag measurements that drift after a release",
+  );
+});
