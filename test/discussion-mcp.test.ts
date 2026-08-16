@@ -515,6 +515,83 @@ test("D3 startup wiring: the deferred prime call is registered AFTER server.conn
   assert.ok(setImmediateIdx < primeCallIdx, "primeDiscussionSweepIndex() call must be inside the setImmediate deferral");
 });
 
+test("D3 startup wiring: a periodic sweepStranded loop is wired (priming alone never terminalizes)", () => {
+  // The D3 recorded obligation (discussion-store.ts "D3 OBLIGATION" note)
+  // names BOTH halves: prime the sweep index at startup AND run the
+  // periodic sweeper. The prime is asserted by the test above; this test
+  // pins the missing second half — without a periodic `sweepStranded()`
+  // call, a stranded `reserved`/`started` attempt would sit live forever
+  // (never `deadman`, never killed, turn budget never charged) as long as
+  // no tool traffic touches its discussion.
+  assert.ok(
+    indexSource.includes("MESHFLEET_DISCUSSION_SWEEP_MS"),
+    "the discussion sweeper must be configurable via MESHFLEET_DISCUSSION_SWEEP_MS (0 disables)",
+  );
+  assert.ok(
+    indexSource.includes(".sweepStranded()"),
+    "the periodic discussion sweeper must call store.sweepStranded()",
+  );
+  assert.ok(
+    indexSource.includes("discussionSweeper.unref()"),
+    "the discussion sweeper interval must be unref'd so it cannot hold the process open",
+  );
+  // The sweeper must be registered after the startup prime (which seeds the
+  // ids the sweeper scans) and after the ratification sweeper block.
+  const primeIdx = indexSource.indexOf("primeDiscussionSweepIndex()");
+  const discussionSweepIdx = indexSource.indexOf("MESHFLEET_DISCUSSION_SWEEP_MS");
+  const ratifyIdx = indexSource.indexOf("ratification sweep");
+  assert.ok(primeIdx !== -1 && discussionSweepIdx !== -1 && ratifyIdx !== -1, "expected markers missing from index.ts");
+  assert.ok(
+    ratifyIdx < discussionSweepIdx,
+    "the discussion sweeper must be registered after the ratification sweeper block",
+  );
+  assert.ok(
+    primeIdx < discussionSweepIdx,
+    "the discussion sweeper must be registered after the sweep-index prime",
+  );
+});
+
+test("D3 sweeper obligation: a fresh store primed from the ledger then swept terminalizes a past-deadline reservation", async () => {
+  // Behavioral end-to-end for the obligation the wiring test above pins
+  // statically: a process restart leaves a stranded `reserved` attempt with
+  // a passed deadline; priming discovers its discussion; one sweepStranded
+  // call (exactly what the periodic loop invokes) terminalizes it as
+  // `deadman` and charges the turn.
+  const db = withTempDb();
+  try {
+    seedFleetAndAgents();
+    const fake = makeFakeSpawn();
+    _resetDiscussionStoreForTests({ spawn: fake.spawn });
+    const store = getDiscussionStore();
+
+    const opened = await store.openDiscussion(
+      askPeerDefaults({ wake_peer: true, timeout_ms: 1000, turn_timeout_ms: 1000 })
+    );
+    assert.ok(opened.reservation);
+
+    const pastClock = () => opened.reservation!.deadline + 1;
+    const fake2 = makeFakeSpawn();
+    _resetDiscussionStoreForTests({ spawn: fake2.spawn, clock: pastClock });
+
+    // Restart simulation: prime, then sweep — no getDiscussion in between,
+    // exactly the periodic loop's call pattern.
+    const primedCount = primeDiscussionSweepIndex();
+    assert.ok(primedCount >= 1, "priming must discover the stranded discussion");
+
+    const freshStore = getDiscussionStore();
+    const sweep = await freshStore.sweepStranded(pastClock());
+    const terminalizedForThisDiscussion = sweep.terminalized.filter((t) => t.discussion_id === opened.discussion_id);
+    assert.equal(terminalizedForThisDiscussion.length, 1, "the sweep must terminalize the stranded attempt");
+    assert.equal(terminalizedForThisDiscussion[0]!.state, "deadman");
+
+    const view = freshStore.getDiscussion({ discussion_id: opened.discussion_id });
+    assert.equal(view.status, "deadman", "the discussion must derive as deadman after the sweep");
+    assert.equal(view.attempts.find((a) => a.attempt_id === opened.reservation!.attempt_id)?.state, "deadman");
+  } finally {
+    db.cleanup();
+  }
+});
+
 test("primeDiscussionSweepIndex is best-effort: an empty ledger primes zero discussions without throwing", () => {
   const db = withTempDb();
   try {

@@ -121,6 +121,7 @@ Derived status evaluates in strict order. Terminal states never reopen.
 *   **Two Agents Only:** Discussions are strictly peer-to-peer. Broadcast or group discussions are rejected.
 *   **64KiB Envelope:** The *entire* serialized JSON envelope (including metadata, not just the `body`) must not exceed 65,536 UTF-8 bytes. Validation occurs before transaction entry.
 *   **No Automatic Retries:** Failed spawns, child exits without a reply, and deadman kills consume their turn budget. The system never automatically retries a failed or killed turn.
+*   **Stranded-Attempt Sweeper:** A periodic server loop (`sweepStranded`) runs every 30 seconds by default and terminalizes any `reserved`/`started` attempt past its recorded deadline as `deadman` — killing the child if this server process spawned it — so a crashed owner or dead child can never leave a turn live forever. Configure the interval with `MESHFLEET_DISCUSSION_SWEEP_MS` (0 disables the loop).
 *   **Budgets Charged at Reservation:** Turn allocation and budget validation occur atomically at reservation. A failed or deadman attempt consumes its turn even if it produces no transcript message.
 *   **Hourly Wake Quota:** Agents are subject to a strict hourly limit on wake reservations to prevent runaway compute loops.
 *   **Global Kill-Switch:** Operators can halt all discussion processing globally via an administrative kill-switch.

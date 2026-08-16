@@ -3,12 +3,12 @@
 **Purpose:** MeshFleet's engine — fleet dispatch, receipts, ledgers, A2A profiles, MCP server.
 `meshfleet-app` (marketing) and `meshfleet-pro` (parked commercial) are separate, read-only here.
 
-**Hermes lane owner:** `meshfleet` profile (`~/AI/agents/.hermes/profiles/meshfleet`), specialist
-under Conductor. Cross-lane matters → Conductor (`~/AI/CONDUCTOR-QUEUE.md`).
+**Hermes lane owner:** `meshfleet` profile (`<home>/AI/agents/.hermes/profiles/meshfleet`), specialist
+under Conductor. Cross-lane matters → Conductor (`<home>/AI/CONDUCTOR-QUEUE.md`).
 
 **Law, in order:** `docs/ops/GOAL-PROMPT.md` (the verifier + laws) → `HANDOFF.md` → `ROADMAP.md`
 → this file. Product queue = HANDOFF/GOAL-PROMPT open items; receipts append to the lane's
-`~/AI/agents/.hermes/profiles/meshfleet/QUEUE.md` (~170K — read with `tail`, never whole).
+`<home>/AI/agents/.hermes/profiles/meshfleet/QUEUE.md` (~170K — read with `tail`, never whole).
 
 **Verifier (the only definition of green):** pinned Node **24.18.1** (`.nvmrc`), never shell Node 26.
 ```

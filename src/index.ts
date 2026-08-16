@@ -2977,6 +2977,49 @@ if (!isChildInstance && !isAuditProfile) {
     sweeper.unref();
   }
 
+  // D3 recorded obligation (discussion-store.ts "D3 OBLIGATION" note): the
+  // sweep index is primed above, but priming alone never TERMINALIZES
+  // anything — stranded `reserved`/`started` attempts past their recorded
+  // deadline would stay live forever unless something periodically calls
+  // `sweepStranded`. That periodic sweeper was specified but never wired:
+  // the only production callers were the tool handlers (open/wake/reply/
+  // get), which each sweep exactly their own discussion, and the startup
+  // prime, which only seeds ids. A discussion whose child died (or whose
+  // owner crashed) with no further tool traffic therefore stayed in
+  // `reserved`/`started` past its deadline — never `deadman`, never killed,
+  // turn budget never charged. Wire the missing loop here, alongside the
+  // ratification sweeper it mirrors: same SweepHealth reporting (failures
+  // are surfaced, never silent), same `unref()` so it cannot hold the
+  // process open, and a 0-disabling env override for operators.
+  const discussionSweepMs = Number(
+    resolveEnv(process.env, "MESHFLEET_DISCUSSION_SWEEP_MS", "AGENT_MESH_DISCUSSION_SWEEP_MS") ?? 30_000,
+  );
+  if (Number.isFinite(discussionSweepMs) && discussionSweepMs > 0) {
+    const discussionSweepHealth = new SweepHealth({ label: "discussion sweep" });
+    const discussionSweeper = setInterval(() => {
+      runSweepTick({
+        sweep: () => {
+          // Best-effort by contract: sweepStranded's own doc comments require
+          // it never throw; runSweepTick additionally guarantees the tick
+          // cannot take the server down.
+          void getDiscussionStore()
+            .sweepStranded()
+            .then(({ terminalized }) => {
+              if (terminalized.length > 0) {
+                console.error(
+                  `Agent Mesh v${MESH_VERSION} — discussion sweep terminalized ${terminalized.length} stranded attempt(s)`,
+                );
+              }
+            });
+        },
+        health: discussionSweepHealth,
+        warn: (message) => console.error(`Agent Mesh v${MESH_VERSION} — ${message}`),
+        emit: (event, payload) => appendEvent(event, { sweep: "discussion", ...payload }),
+      });
+    }, discussionSweepMs);
+    discussionSweeper.unref();
+  }
+
   // Start the SSE HTTP server for real-time inbox push (v0.7.0)
   try {
     const { host, port } = await startSseServer({

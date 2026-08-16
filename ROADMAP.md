@@ -266,6 +266,12 @@ public roadmap.
   local-timestamp evidence ceiling; unbounded output is unchanged. This does
   not establish authenticity, completeness, tamper evidence, authenticated
   provenance, or external time.
+- Periodic Discussion stranded-attempt sweeper: `sweepStranded` now runs on a
+  server loop (default every 30s, `MESHFLEET_DISCUSSION_SWEEP_MS`, 0 disables),
+  terminalizing `reserved`/`started` attempts past their recorded deadline as
+  `deadman` so a crashed owner or dead child can never leave a turn live
+  forever. It is a local recovery pass over the existing ledger; it adds no
+  authentication, cross-host coordination, or delivery guarantee.
 
 **Later / exploring**
 - Out-of-band ledger-head fingerprints and external timestamp anchoring
