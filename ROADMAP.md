@@ -166,8 +166,8 @@ Commercial assurance and account-specific provider operations are outside this
 public roadmap.
 
 **Now**
-- Provenance-signed tagged npm releases remain the release path; source and
-  registry latest are currently `0.20.0`.
+- Provenance-signed tagged npm releases remain the release path; source is
+  currently `0.21.1` and registry latest is `0.20.0`.
 - VS Code extension marketplace listing (the read-only inspector MVP already lives in `editors/vscode/`) — waiting on a publisher account, not on code.
 
 **Next**
