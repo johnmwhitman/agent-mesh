@@ -8,8 +8,11 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 
 - **Adjacent A00-A13 local-admission precedence canaries.** Ordinary tests now inject both
   defects for every adjacent evaluate-local-admission pair and assert the earlier row wins,
-  with TypeScript/Python witness byte parity and later-only controls where the public result
-  differs. This does not expand the 44-case corpus.
+  with TypeScript/Python witness byte parity and a later-only control for every pair.
+  Distinguishable pairs must not match their later-only control (skipping the earlier row
+  would collapse them). A07-A08 and A08-A09 share the public `AUTHORIZATION_DENIED`
+  collapse, so those two pairs pin deny-before-oracle rather than order. This does not
+  expand the 44-case corpus.
 
 ## [0.21.1] - 2026-08-10
 
