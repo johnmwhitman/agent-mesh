@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -365,13 +366,15 @@ def check_snapshot(value: Any, kind: str) -> dict[str, Any]:
         output.append(rule)
     return {**value, "rules": output}
 
+ENVELOPE_FIELD_RE = re.compile(r"\b(sender|recipients\[\d+\]|payload(?:\.[a-z_]+)?|scope(?:\.fleet_id)?|protocol|version|kind|message_id|type|issued_at_ms|expires_at_ms|audience|correlation_id|dedupe_key)\b")
+
 def envelope_path(error: Exception) -> str:
     text = str(error)
     if "recipient" in text:
         return "$.envelope.recipients"
-    for field in ["sender", "recipients", "payload", "scope", "protocol", "version", "kind", "message_id", "type", "issued_at_ms", "expires_at_ms", "audience", "correlation_id", "dedupe_key"]:
-        if field in text:
-            return "$.envelope." + field
+    match = ENVELOPE_FIELD_RE.search(text)
+    if match:
+        return "$.envelope." + match.group(1)
     return "$.envelope"
 
 def evaluate_local_admission(request_json: str, envelope_json: str, replay_oracle) -> dict[str, Any]:

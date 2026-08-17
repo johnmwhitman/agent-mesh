@@ -4,24 +4,24 @@ Status: bounded offline evidence only. This ledger records executable coverage,
 not profile conformance, authority, acceptance, persistence, delivery, or
 transport capability.
 
-Base reviewed: `2760310` (origin/main). Corpus: 44 mandatory raw-text cases in
+Base reviewed: `2760310` (origin/main). Corpus: 112 mandatory raw-text cases in
 `test/fixtures/a2a/local-admission/v0.1/corpus.json`; every case is evaluated by
 the TypeScript implementation and mandatory Python witness with exact result
 bytes, replay call count, and replay arguments.
 
 | Section 9 family | Existing executable proof | This slice | Remaining exact gap |
 | --- | --- | --- | --- |
-| request-raw/path | byte 262143/262144/262145; one surrogate, malformed JSON, duplicate key, fraction, depth, and malformed unknown-child representatives | — | BOM, whitespace/comment/trailing variants, literal/escaped duplicates in every request object, and every safe-path class |
-| independent-input | raw-text-only inputs and no request `envelope` member; representative request-before-envelope ordering | — | independent depth/byte collision vectors and double-encoding vectors |
-| depth/numeric | representative request depth and fraction; 4A retains its own vectors | — | request depth 8/9 and negative, `-0`, exponent, unsafe-integer boundaries |
-| precedence | representative request, envelope, denial, replay, and expiry ordering | — | mutation canary for each adjacent A00-A13 pair |
-| envelope | malformed and recipient representatives plus audience/self-recipient ordinary tests | — | all 4A invalid families and exact prefixed source paths |
-| evidence | one invalid field representative | **CLOSED bounded subfamily:** provenance; issued-at equality; expires-at equality; lifetime 300000/300001 | every remaining field/type/grammar vector |
-| binding | one invalid field representative | — | fields, interval edges, duplicate source index, context mismatch, and 0/256/257 rule vectors |
-| authorization | valid one type/recipient; one invalid action; generic denial | **CLOSED bounded subfamily:** types 5/6; recipients 128/129; duplicate type and recipient source index; all-recipient denial before replay | snapshot fields/provenance, rule-count edge, session key, and other policy contexts |
-| relativity | plan only reports fixture IDs/versions | — | decision changes caused by changed fixtures |
-| oracle/results | all four non-admission verdicts, unavailable, throw, unseen plan, unseen-only expiry, and exact query | — | malformed oracle case and every rejected-code inventory |
-| privacy | offline/import-surface checks and closed sidecar fixtures | — | dedicated ignored-input/diagnostic-invariance matrix |
+| request-raw/path | byte 262143/262144/262145; surrogate, malformed JSON, duplicate key, fraction, depth, malformed unknown-child; BOM, whitespace, comment/trailing, escaped/nested duplicates, number lexemes, raw control byte, bad escape | **CLOSED bounded subfamily:** literal/escaped/nested duplicate keys; BOM/whitespace/comment/trailing; bad escape and raw control byte; `-0`, exponent, unsafe, leading-zero, fraction, negative | duplicates in binding/authorization/sender objects and every safe-path class |
+| independent-input | raw-text-only inputs; no request `envelope` member; representative request-before-envelope ordering | **CLOSED bounded subfamily:** request `envelope` member rejected; double-encoded envelope rejected; independent byte-limit | independent depth/byte collision vectors and every double-encoding variant |
+| depth/numeric | representative request depth and fraction; 4A retains its own vectors | **CLOSED bounded subfamily:** depth 8 acceptance and depth 9 rejection; `-0`, exponent, unsafe-integer, leading-zero, negative, fraction | all remaining number lexeme classes |
+| precedence | representative request, envelope, denial, replay, and expiry ordering | **CLOSED bounded subfamily:** request-wins-envelope; envelope-wins-evidence; denial hides malformed oracle and throw | mutation canary for each adjacent A00-A13 pair |
+| envelope | malformed and recipient representatives plus audience/self-recipient ordinary tests | **CLOSED bounded subfamily:** duplicate key; type/sender/recipient-element/payload-body/expiry/message-id/audience/number invalids; duplicate/self/empty/wildcard recipients | all 4A invalid families and exact prefixed source paths |
+| evidence | one invalid field representative | **CLOSED bounded subfamily:** provenance; issued-at equality; expires-at equality; lifetime 300000/300001; adapter/audience/session/principal invalids; missing/unknown field; lifetime overlong | every remaining field/type/grammar vector |
+| binding | one invalid field representative | **CLOSED bounded subfamily:** empty rules; 256 rules admit; 257 rules reject; duplicate key; empty/future/expired intervals | fields, context mismatch, and source-indexed duplicate in every object |
+| authorization | valid one type/recipient; one invalid action; generic denial | **CLOSED bounded subfamily:** types 5/6; recipients 128/129; duplicate type and recipient source index; all-recipient denial before replay; empty rules; invalid type value; six types; duplicate key; session denial | snapshot fields/provenance, rule-count edge, and other policy contexts |
+| relativity | plan only reports fixture IDs/versions | **CLOSED bounded subfamily:** fixture change flips the decision; plan IDs/versions only | every fixture-sensitivity class |
+| oracle/results | all four non-admission verdicts, unavailable, throw, unseen plan, unseen-only expiry, and exact query | **CLOSED bounded subfamily:** malformed oracle; denial hides malformed oracle and throw | every rejected-code inventory |
+| privacy | offline/import-surface checks and closed sidecar fixtures | **CLOSED bounded subfamily:** capability/profile/proof input ignored (fail-closed unknown-core rejection) | model/runtime/receipt/conformance/provider/environment/secret and diagnostic invariance |
 
 ## Authentication-evidence slice records
 

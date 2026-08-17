@@ -2,6 +2,34 @@
 
 All notable changes to Agent Mesh are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Slice 4C-1 local-admission corpus expanded 44 → 112 mandatory cases.** New
+  Section 9 family coverage: literal/escaped/nested duplicate keys, BOM /
+  non-JSON whitespace / comment / trailing data, bad escapes and raw control
+  bytes, `-0`/exponent/unsafe/leading-zero number lexemes, request depth 8/9,
+  request `envelope`-member and double-encoded-envelope rejection, independent
+  byte-limit, envelope invalid-field projection paths, evidence field grammar
+  (adapter/audience/session/principal, missing/unknown, lifetime overlong),
+  binding 256-admits/257-rejects and interval edges, authorization empty-rules /
+  invalid type value / six-types / duplicate key / session denial, malformed
+  oracle verdict and denial-hides-oracle precedence, privacy fail-closed
+  unknown-core rejection, and fixture-relativity decision flip. A gate test
+  asserts each family's cases keep their required outcomes and pins the corpus
+  at 112.
+
+### Fixed
+
+- **Python local-admission witness envelope-path projection now matches the
+  TypeScript projection.** `envelope_path` used order-dependent substring
+  checks, so `payload.body` projected to `$.envelope.payload` and an
+  `expires_at_ms` error with `issued_at_ms` in its text projected to
+  `$.envelope.issued_at_ms`. It now uses the same anchored greedy regex as the
+  TypeScript evaluator; TypeScript and Python agree byte-for-byte on all 112
+  cases.
+
 ## [0.21.1] - 2026-08-10
 
 ### Fixed

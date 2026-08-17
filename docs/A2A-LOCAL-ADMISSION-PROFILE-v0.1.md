@@ -1,11 +1,12 @@
 # A2A Local Admission Profile v0.1
 
-> **STATUS — bounded evidence-alpha restored, 2026-07-29.** The TypeScript
-> evaluator, independent Python witness, shared 44-case corpus, and closed
+> **STATUS — bounded evidence-alpha expanded, 2026-08-17.** The TypeScript
+> evaluator, independent Python witness, shared 112-case corpus, and closed
 > StaticHarnessMapping sidecar fixtures are executable again on the current
 > branch. They remain test-only and outside package/MCP/CLI surfaces. The
-> corpus does not yet satisfy every exhaustive family and cardinality row in
-> Section 9, so this is not full Slice 4C-1 conformance or activation.
+> corpus carries representative Section 9 family coverage; remaining gaps are
+> source-indexed 4A error paths and exhaustive maximum-cardinality
+> boundaries, so this is not full Slice 4C-1 conformance or activation.
 
 **Status:** Partially implemented as offline, dormant evidence. This Slice 4C-1
 contract creates no public ingress, authentication provider, trust root,
@@ -450,15 +451,23 @@ every case. Required families are:
 | oracle/results | six verdicts, throw/malformed; exact call arguments; sole success; five dispositions; every rejected code; no uppercase/generic replay; no second digest/extra field |
 | privacy | capability/profile/proof/model/runtime/receipt/conformance/provider/environment/secret input cannot affect authorization or diagnostics |
 
-The current evidence-alpha corpus has 44 mandatory cases. It proves the closed
+The current evidence-alpha corpus has 112 mandatory cases. It proves the closed
 one-operation raw boundary, all replay verdict mappings, representative
 precedence and denial, exact TypeScript/Python bytes, recipient-order
 normalization, byte-limit edges, authorization message-type and recipient
-boundaries, witness mutation detection, and strict corpus ingestion. It does
-not yet claim exhaustive coverage of every row above,
-including all source-indexed 4A error paths and every maximum-cardinality
-boundary. Until that delta is closed, the compatibility registry remains
-`unverified` rather than full `reference-conformance`.
+boundaries, witness mutation detection, and strict corpus ingestion, and it
+carries representative Section 9 family coverage across request raw/path
+classes (BOM, whitespace, comment, trailing data, malformed escapes, control
+bytes, number lexemes, literal/escaped/nested duplicate keys, depth 8
+acceptance and depth 9 rejection, raw failure below unknown members),
+independent-input byte-limit independence and request/envelope precedence,
+envelope projection paths, evidence field/path grammar, binding and
+authorization cardinality and duplicate-key rules, interval edges, oracle
+verdict and malformed-verdict handling, privacy fail-closed rejection, and
+fixture relativity. It still does not claim exhaustive source-indexed coverage
+of every 4A error path or every maximum-cardinality boundary. Until that delta
+is closed, the compatibility registry remains `unverified` rather than full
+`reference-conformance`.
 
 The corpus MUST NOT contain native object/accessor/Proxy/subclass/prototype/
 sparse-array/mutation cases. Ordinary implementation tests instead prove no

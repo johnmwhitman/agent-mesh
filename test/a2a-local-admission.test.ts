@@ -52,7 +52,11 @@ test("local admission evidence-alpha corpus is closed, self-consistent, and raw-
     assert.deepEqual(Object.keys(item.expected).sort(), ["replay_oracle_arguments", "replay_oracle_calls", "result"]);
     assert.equal(typeof item.invocation_args.request_json, "string");
     assert.equal(typeof item.invocation_args.envelope_json, "string");
-    assert.equal(item.invocation_args.request_json.includes("\"envelope\""), false);
+    // every request is raw JSON text with no object-shaped envelope member; the
+    // single exception proves that an `envelope` member is rejected as unknown
+    if (item.id !== "request.has-envelope-member-rejected") {
+      assert.equal(item.invocation_args.request_json.includes("\"envelope\""), false);
+    }
   }
 });
 
@@ -86,7 +90,7 @@ test("authorization boundary evidence covers the next feasible Section 9 cardina
 test("authentication-evidence boundaries stay ordered and preserve their terminal semantics", () => {
   const evidenceCases = corpus.cases.filter((item) => item.id.startsWith("evidence."));
   assert.deepEqual(
-    evidenceCases.map((item) => item.id),
+    evidenceCases.slice(0, 6).map((item) => item.id),
     [
       "evidence.invalid",
       "evidence.provenance-invalid",
@@ -97,7 +101,7 @@ test("authentication-evidence boundaries stay ordered and preserve their termina
     ],
   );
   assert.deepEqual(
-    evidenceCases.slice(1).map((item) => item.expected),
+    evidenceCases.slice(1, 6).map((item) => item.expected),
     [
       { result: { kind: "rejected", code: "INVALID_AUTHENTICATION_EVIDENCE", field_path: "$.authentication_evidence.provenance" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
       corpus.cases[0]!.expected,
@@ -107,7 +111,7 @@ test("authentication-evidence boundaries stay ordered and preserve their termina
     ],
   );
   assert.deepEqual(
-    evidenceCases.slice(1).map((item) => {
+    evidenceCases.slice(1, 6).map((item) => {
       const request = JSON.parse(item.invocation_args.request_json) as { authentication_evidence: unknown };
       return request.authentication_evidence;
     }),
@@ -277,9 +281,9 @@ test("Python witness rejects ambiguous, nonstandard, and open corpus documents",
   }
   const raw = readFileSync(corpusPath, "utf8");
   const mutations = [
-    raw.replace('{"mandatory_case_ids":', '{"mandatory_case_ids":[],"mandatory_case_ids":'),
-    `{"poison":NaN,${raw.slice(1)}`,
-    `{"extra":false,${raw.slice(1)}`,
+    raw.replace('"mandatory_case_ids": [', '"mandatory_case_ids": [],"mandatory_case_ids": ['),
+    `{\n  "poison": NaN,\n${raw.slice(raw.indexOf("{"))}`,
+    `{\n  "extra": false,\n${raw.slice(raw.indexOf("{"))}`,
   ];
   const directory = mkdtempSync(join(tmpdir(), "meshfleet-local-admission-corpus-"));
   try {
@@ -373,6 +377,112 @@ test("self-recipient envelope failures use the same safe recipients path across 
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test("Section 9 exhaustive family gates are each closed by at least one mandatory case", () => {
+  const ids = new Set(corpus.mandatory_case_ids);
+  const byId = new Map(corpus.cases.map((item) => [item.id, item]));
+  type Outcome = (r: { kind: string; code?: string; disposition?: string }) => boolean;
+  const families: Array<[string, Array<{ id: string; outcome: Outcome }>]> = [
+    ["request-raw/path", [
+      { id: "request.duplicate-escaped", outcome: (r) => r.kind === "rejected" && r.code === "DUPLICATE_JSON_KEY" },
+      { id: "request.duplicate-nested-known", outcome: (r) => r.kind === "rejected" && r.code === "DUPLICATE_JSON_KEY" },
+      { id: "request.duplicate-nested-unknown", outcome: (r) => r.kind === "rejected" && r.code === "DUPLICATE_JSON_KEY" },
+      { id: "request.bom", outcome: (r) => r.kind === "rejected" && r.code === "INVALID_UTF8" },
+      { id: "request.nonjson-whitespace", outcome: (r) => r.kind === "rejected" && r.code === "MALFORMED_JSON" },
+      { id: "request.comment", outcome: (r) => r.kind === "rejected" && r.code === "MALFORMED_JSON" },
+      { id: "request.trailing-data", outcome: (r) => r.kind === "rejected" && r.code === "MALFORMED_JSON" },
+      { id: "request.bad-escape", outcome: (r) => r.kind === "rejected" && r.code === "MALFORMED_JSON" },
+      { id: "request.raw-control-byte", outcome: (r) => r.kind === "rejected" && r.code === "MALFORMED_JSON" },
+      { id: "request.number-negative-zero", outcome: (r) => r.kind === "rejected" && r.code === "MALFORMED_JSON" },
+      { id: "request.number-exponent", outcome: (r) => r.kind === "rejected" && r.code === "MALFORMED_JSON" },
+      { id: "request.number-unsafe", outcome: (r) => r.kind === "rejected" && r.code === "MALFORMED_JSON" },
+    ]],
+    ["independent-input", [
+      { id: "request.has-envelope-member-rejected", outcome: (r) => r.kind === "rejected" && r.code === "UNKNOWN_CORE_FIELD" },
+      { id: "envelope.double-encoded-rejected", outcome: (r) => r.kind === "rejected" && r.code === "AUTHORIZATION_DENIED" },
+      { id: "independent.input-byte-limit", outcome: (r) => r.kind === "rejected" && r.code === "MALFORMED_ENVELOPE" },
+    ]],
+    ["depth/numeric", [
+      { id: "request.depth-8-accepted-unknown", outcome: (r) => r.kind === "rejected" && r.code === "INVALID_AUTHENTICATION_EVIDENCE" },
+      { id: "request.depth-exceeded", outcome: (r) => r.kind === "rejected" && r.code === "MAX_DEPTH_EXCEEDED" },
+      { id: "request.number-fraction", outcome: (r) => r.kind === "rejected" && r.code === "MALFORMED_JSON" },
+      { id: "request.number-negative", outcome: (r) => r.kind === "rejected" && r.code === "MALFORMED_JSON" },
+      { id: "request.number-leading-zero", outcome: (r) => r.kind === "rejected" && r.code === "MALFORMED_JSON" },
+    ]],
+    ["precedence", [
+      { id: "request-wins-envelope", outcome: (r) => r.kind === "rejected" && r.code === "INVALID_REQUEST_ID" },
+      { id: "envelope-wins-evidence", outcome: (r) => r.kind === "rejected" && r.code === "MALFORMED_ENVELOPE" },
+      { id: "denied.hides-malformed-oracle", outcome: (r) => r.kind === "rejected" && r.code === "AUTHORIZATION_DENIED" },
+      { id: "oracle.throws-hidden-by-denial", outcome: (r) => r.kind === "rejected" && r.code === "AUTHORIZATION_DENIED" },
+    ]],
+    ["envelope", [
+      { id: "envelope.duplicate-key", outcome: (r) => r.kind === "rejected" && r.code === "MALFORMED_ENVELOPE" },
+      { id: "envelope.invalid-type", outcome: (r) => r.kind === "rejected" && r.code === "MALFORMED_ENVELOPE" },
+      { id: "envelope.invalid-sender", outcome: (r) => r.kind === "rejected" && r.code === "MALFORMED_ENVELOPE" },
+      { id: "envelope.invalid-recipient-element", outcome: (r) => r.kind === "rejected" && r.code === "MALFORMED_ENVELOPE" },
+      { id: "envelope.invalid-payload-body", outcome: (r) => r.kind === "rejected" && r.code === "MALFORMED_ENVELOPE" },
+      { id: "envelope.invalid-expiry", outcome: (r) => r.kind === "rejected" && r.code === "MALFORMED_ENVELOPE" },
+      { id: "envelope.invalid-message-id", outcome: (r) => r.kind === "rejected" && r.code === "MALFORMED_ENVELOPE" },
+      { id: "envelope.invalid-audience", outcome: (r) => r.kind === "rejected" && r.code === "MALFORMED_ENVELOPE" },
+      { id: "envelope.invalid-number", outcome: (r) => r.kind === "rejected" && r.code === "MALFORMED_ENVELOPE" },
+    ]],
+    ["evidence", [
+      { id: "evidence.invalid", outcome: (r) => r.kind === "rejected" && r.code === "INVALID_AUTHENTICATION_EVIDENCE" },
+      { id: "evidence.invalid-adapter", outcome: (r) => r.kind === "rejected" && r.code === "INVALID_AUTHENTICATION_EVIDENCE" },
+      { id: "evidence.invalid-audience", outcome: (r) => r.kind === "rejected" && r.code === "INVALID_AUTHENTICATION_EVIDENCE" },
+      { id: "evidence.invalid-session", outcome: (r) => r.kind === "rejected" && r.code === "INVALID_AUTHENTICATION_EVIDENCE" },
+      { id: "evidence.invalid-principal", outcome: (r) => r.kind === "rejected" && r.code === "INVALID_AUTHENTICATION_EVIDENCE" },
+      { id: "evidence.missing-field", outcome: (r) => r.kind === "rejected" && r.code === "INVALID_AUTHENTICATION_EVIDENCE" },
+      { id: "evidence.unknown-field", outcome: (r) => r.kind === "rejected" && r.code === "INVALID_AUTHENTICATION_EVIDENCE" },
+      { id: "evidence.provenance-invalid", outcome: (r) => r.kind === "rejected" && r.code === "INVALID_AUTHENTICATION_EVIDENCE" },
+      { id: "evidence.lifetime-overlong", outcome: (r) => r.kind === "rejected" && r.code === "AUTHORIZATION_DENIED" },
+    ]],
+    ["binding", [
+      { id: "binding.invalid", outcome: (r) => r.kind === "rejected" && r.code === "INVALID_BINDING_SNAPSHOT" },
+      { id: "binding.empty-rules", outcome: (r) => r.kind === "rejected" && r.code === "AUTHORIZATION_DENIED" },
+      { id: "binding.rules-256-admits", outcome: (r) => r.kind === "admission_plan" },
+      { id: "binding.rules-257", outcome: (r) => r.kind === "rejected" && r.code === "INVALID_BINDING_SNAPSHOT" },
+      { id: "binding.duplicate-key", outcome: (r) => r.kind === "rejected" && r.code === "INVALID_BINDING_SNAPSHOT" },
+      { id: "binding.empty-interval", outcome: (r) => r.kind === "rejected" && r.code === "AUTHORIZATION_DENIED" },
+      { id: "binding.future-interval", outcome: (r) => r.kind === "rejected" && r.code === "AUTHORIZATION_DENIED" },
+      { id: "binding.expired-interval", outcome: (r) => r.kind === "rejected" && r.code === "AUTHORIZATION_DENIED" },
+    ]],
+    ["authorization", [
+      { id: "authorization.invalid", outcome: (r) => r.kind === "rejected" && r.code === "INVALID_AUTHORIZATION_SNAPSHOT" },
+      { id: "authorization.empty-rules", outcome: (r) => r.kind === "rejected" && r.code === "AUTHORIZATION_DENIED" },
+      { id: "authorization.invalid-action", outcome: (r) => r.kind === "rejected" && r.code === "INVALID_AUTHORIZATION_SNAPSHOT" },
+      { id: "authorization.invalid-type-value", outcome: (r) => r.kind === "rejected" && r.code === "INVALID_AUTHORIZATION_SNAPSHOT" },
+      { id: "authorization.duplicate-message-type", outcome: (r) => r.kind === "rejected" && r.code === "INVALID_AUTHORIZATION_SNAPSHOT" },
+      { id: "authorization.six-types", outcome: (r) => r.kind === "rejected" && r.code === "INVALID_AUTHORIZATION_SNAPSHOT" },
+      { id: "authorization.duplicate-recipient-rule", outcome: (r) => r.kind === "rejected" && r.code === "INVALID_AUTHORIZATION_SNAPSHOT" },
+      { id: "authorization.recipients-129", outcome: (r) => r.kind === "rejected" && r.code === "INVALID_AUTHORIZATION_SNAPSHOT" },
+      { id: "authorization.duplicate-key", outcome: (r) => r.kind === "rejected" && r.code === "INVALID_AUTHORIZATION_SNAPSHOT" },
+      { id: "authorization.session-denied", outcome: (r) => r.kind === "rejected" && r.code === "AUTHORIZATION_DENIED" },
+    ]],
+    ["relativity", [
+      { id: "relativity.plan-ids-versions-only", outcome: (r) => r.kind === "admission_plan" },
+      { id: "relativity.decision-flips", outcome: (r) => r.kind === "rejected" && r.code === "AUTHORIZATION_DENIED" },
+    ]],
+    ["oracle/results", [
+      { id: "oracle.malformed-verdict", outcome: (r) => r.kind === "rejected" && r.code === "REPLAY_PROTECTION_UNAVAILABLE" },
+      { id: "denied.hides-malformed-oracle", outcome: (r) => r.kind === "rejected" && r.code === "AUTHORIZATION_DENIED" },
+    ]],
+    ["privacy", [
+      { id: "privacy.capability-input-ignored", outcome: (r) => r.kind === "rejected" && r.code === "UNKNOWN_CORE_FIELD" },
+      { id: "privacy.proof-input-ignored", outcome: (r) => r.kind === "rejected" && r.code === "UNKNOWN_CORE_FIELD" },
+    ]],
+  ];
+  for (const [family, entries] of families) {
+    assert.ok(entries.length > 0, `family ${family} must list at least one case`);
+    for (const entry of entries) {
+      assert.ok(ids.has(entry.id), `family ${family}: missing mandatory case ${entry.id}`);
+      const item = byId.get(entry.id)!;
+      const result = item.expected.result as { kind: string; code?: string; disposition?: string };
+      assert.ok(entry.outcome(result), `family ${family}: case ${entry.id} no longer proves its gate: ${JSON.stringify(result)}`);
+    }
+  }
+  assert.equal(corpus.mandatory_case_ids.length, 112, "canonical corpus must stay at 112 mandatory cases");
 });
 
 test("the static sidecar has seven exact-null positives and all required closed negative cases", () => {
