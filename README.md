@@ -230,8 +230,8 @@ d648beb0-cfb2-4…  failed    2 agents, 2 done (27.3s)
 
 $ npx agent-mesh inspect --compact        # opt-in one-line status rows; default output unchanged
 bc34d339-935c-4a6c-b5b9-4f0d4a2b1c0d complete 3 done
-37ae1cf2-5ce8-4…  complete 1 done
-d648beb0-cfb2-4…  failed 2 done
+37ae1cf2-5ce8-4b7f-9d3a-2c1e5f8a7b6d complete 1 done
+d648beb0-cfb2-4e9a-8c5d-3f0a1b2c3d4e failed 2 done
 
 $ npx agent-mesh inspect --metrics
 Total fleets:       7
