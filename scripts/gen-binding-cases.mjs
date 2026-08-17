@@ -131,7 +131,10 @@ cases.push(mk(
 // ---- context mismatch (A08): rule exists but one context member differs ----
 cases.push(mk(
   "binding.context-mismatch-adapter",
-  (r) => { r.binding_snapshot.rules[0].adapter_id = "other.adapter"; },
+  (r) => {
+    // mismatch on the binding rule only; authorization rule keeps the evidence context
+    r.binding_snapshot.rules[0].adapter_id = "other.adapter";
+  },
   null,
   DENIED,
 ));
@@ -157,7 +160,10 @@ cases.push(mk(
 // ---- sender equality (A08): binding rule matches context but sender differs ----
 cases.push(mk(
   "binding.sender-mismatch",
-  (r) => { r.binding_snapshot.rules[0].sender = { namespace: "local", agent_id: "agent-c" }; },
+  (r) => {
+    // binding rule matches context but its sender differs from the envelope sender
+    r.binding_snapshot.rules[0].sender = { namespace: "local", agent_id: "agent-c" };
+  },
   null,
   DENIED,
 ));
@@ -165,10 +171,9 @@ cases.push(mk(
 // sanity: every id unique
 const ids = new Set(cases.map((c) => c.id));
 if (ids.size !== cases.length) throw new Error("duplicate ids");
-// sanity: every new id not already present
-for (const c of cases) {
-  if (corpus.cases.some((x) => x.id === c.id)) throw new Error(`id already present: ${c.id}`);
-}
+// NOTE: the branch HEAD corpus already contains these ids (this slice's own
+// previous commit 3cf1e4d); the splice script regenerates the corpus from the
+// pristine 112-case base (cd3cdc2) instead, so skip the already-present check here.
 
 writeFileSync(new URL("/tmp/binding-new-cases.json", import.meta.url), JSON.stringify(cases, null, 2));
 console.log(`wrote ${cases.length} cases -> /tmp/binding-new-cases.json`);
