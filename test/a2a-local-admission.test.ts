@@ -83,6 +83,45 @@ test("authorization boundary evidence covers the next feasible Section 9 cardina
   );
 });
 
+test("privacy-invariance matrix pins every foreign-key surface with the canonical decision", () => {
+  const privacyCases = corpus.cases.filter((item) => item.id.startsWith("privacy."));
+  assert.deepEqual(
+    privacyCases.map((item) => item.id),
+    [
+      "privacy.unknown-top-level",
+      "privacy.unknown-evidence-member",
+      "privacy.unknown-binding-rule-member",
+      "privacy.unknown-authorization-rule-member",
+      "privacy.unknown-authorization-recipient-member",
+      "privacy.unknown-binding-sender-member",
+      "privacy.unknown-envelope-sender-member",
+      "privacy.unknown-envelope-recipient-member",
+      "privacy.duplicate-key-hidden-foreign-member",
+    ],
+  );
+  assert.equal(privacyCases.length, 9, "privacy matrix must stay exactly 9 cases");
+  const zeroOracle = new Set([
+    "privacy.unknown-top-level",
+    "privacy.unknown-evidence-member",
+    "privacy.unknown-binding-rule-member",
+    "privacy.unknown-authorization-rule-member",
+    "privacy.unknown-authorization-recipient-member",
+    "privacy.unknown-binding-sender-member",
+    "privacy.duplicate-key-hidden-foreign-member",
+  ]);
+  for (const item of privacyCases) {
+    const raw = item.invocation_args.request_json + item.invocation_args.envelope_json;
+    assert.equal(raw.includes("capability_profile"), true, `${item.id} must inject a foreign key`);
+    if (zeroOracle.has(item.id)) {
+      assert.equal(item.expected.replay_oracle_calls, 0, `${item.id} must never reach the oracle`);
+    } else {
+      // Envelope-side injections are dropped by the delegated 4A decoder, so
+      // the decision must be exactly the base admission plan (one replay call).
+      assert.deepEqual(item.expected, corpus.cases[0]!.expected, `${item.id} must equal the base decision`);
+    }
+  }
+});
+
 test("authentication-evidence boundaries stay ordered and preserve their terminal semantics", () => {
   const evidenceCases = corpus.cases.filter((item) => item.id.startsWith("evidence."));
   assert.deepEqual(

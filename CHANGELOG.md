@@ -2,6 +2,23 @@
 
 All notable changes to Agent Mesh are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Section 9 privacy-invariance matrix: corpus 44 → 53 mandatory cases.** Nine
+  new mandatory `evaluate-local-admission` corpus cases inject one foreign
+  (capability/profile/proof/model/runtime/receipt/conformance/provider/
+  environment/secret) member into every request and envelope surface and pin
+  the measured decision: top-level request unknown member rejects
+  `UNKNOWN_CORE_FIELD` at `$`; nested request objects reject at the nearest
+  known containing-object path with the family code (the foreign name is never
+  reflected); envelope agent-reference members are dropped by the delegated 4A
+  decoder so the decision is byte-identical to the base admission plan; a raw
+  hidden duplicate rejects `DUPLICATE_JSON_KEY` at `$` before any policy stage.
+  TypeScript and the independent Python witness agree byte-for-byte on all 53
+  cases.
+
 ## [0.21.1] - 2026-08-10
 
 ### Fixed
