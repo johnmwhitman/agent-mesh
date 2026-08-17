@@ -90,6 +90,20 @@ exists. The three-variable law in the next section governs runs that **spawn the
 ledger directly** — the verifier is not one of those. Confusing the two cost a full red run that
 was briefly misread as a regression on `main`.
 
+**`python3` on PATH must be Python 3.10 or newer.** The A2A reference witnesses deliberately
+spawn the literal `python3` command because their READMEs document that command. On macOS,
+`/usr/bin/python3` can still be 3.9.6; that parser rejects the witnesses' PEP 604 annotations
+(`X | None`) before the corpus can run. The observed shape is a **four-test A2A witness cascade**
+on an otherwise green TypeScript tree. Put Homebrew or the Hermes Python ahead of `/usr/bin` before
+running the verifier; `scripts/run-tests.mjs` now refuses an older `python3` with that diagnosis.
+
+**`better-sqlite3` must be rebuilt under the same Node runtime that runs the verifier.** The lane
+verifier is pinned to Node 24.18.1, but a shell that recently used Node 26 can leave
+`node_modules/better-sqlite3` compiled for Node's newer native addon ABI. The observed shape is a
+hundreds-test SQLite cascade with a `NODE_MODULE_VERSION` mismatch (Node 26 module 147 vs Node 24
+module 137), not a product regression. Run `npm rebuild better-sqlite3` under pinned Node 24.18.1;
+`scripts/run-tests.mjs` now refuses before the suite fans that into unrelated failures.
+
 ## 🔴 Isolation law — violating this destroys the operator's data
 
 Any run that spawns the server or opens a ledger sets **ALL THREE** (the wording said "BOTH" from

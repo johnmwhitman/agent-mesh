@@ -16,7 +16,11 @@ export MESHFLEET_EVENT_LOG_FILE="$(mktemp -t meshfleet-verify-events)"
 npm run typecheck && npm run build && node scripts/run-tests.mjs
 ```
 Build BEFORE test (`mcp-stdio.test.ts` packs the package). Set only that env var — setting
-`MESHFLEET_DATA_FILE` forces every test onto one ledger (479 false failures). Run to a file, test `$?`.
+`MESHFLEET_DATA_FILE` forces every test onto one ledger (479 false failures). Keep Python 3.10+
+ahead of `/usr/bin/python3` (3.9 causes four A2A witness false failures), and rebuild
+`better-sqlite3` under the same pinned Node if the shell previously used Node 26 (native ABI
+cascade). `scripts/run-tests.mjs` preflights all three shapes before running tests. Run to a file,
+test `$?`.
 
 **Branch/PR rules:** isolated worktrees for code; feature branches; `VERIFIED:` commit subjects;
 never merge/push protected branches, force-push, or delete worktrees. Redeploy the installed MCP
