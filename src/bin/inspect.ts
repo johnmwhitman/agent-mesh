@@ -27,6 +27,8 @@ import {
   filterTimelineWindow,
   formatEventLog,
   formatFleetSummary,
+  formatFleetSummaryCompact,
+  buildFleetsCompactJson,
   getFleetMetrics,
   formatReceiptTrail,
   formatTimeline,
@@ -56,6 +58,7 @@ const USAGE = `agent-mesh inspect — CLI inspector for running fleets
 
   Usage:
   npx agent-mesh inspect                    Show all fleets
+  npx agent-mesh inspect --compact          Compact one-line fleet status rows (opt-in; default output unchanged)
   npx agent-mesh inspect <fleet_id>         Show one fleet and its agents
   npx agent-mesh inspect --metrics          Show summary metrics
   npx agent-mesh inspect --events [n]      Show recent events (default 20)
@@ -261,6 +264,19 @@ function main(): void {
   }
 
   if (positional.length === 0) {
+    if (args.includes('--compact')) {
+      const fleets = listFleets()
+      if (jsonMode) {
+        process.stdout.write(JSON.stringify(buildFleetsCompactJson(fleets), null, 2) + '\n')
+        return
+      }
+      if (fleets.length === 0) {
+        process.stdout.write('No fleets found. Run spawn_fleet from your OpenCode session.\n')
+        return
+      }
+      process.stdout.write(fleets.map(formatFleetSummaryCompact).join('\n') + '\n')
+      return
+    }
     if (jsonMode) {
       process.stdout.write(JSON.stringify(buildFleetsJson(listFleets()), null, 2) + '\n')
       return

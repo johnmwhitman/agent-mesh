@@ -2,6 +2,16 @@
 
 All notable changes to Agent Mesh are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Opt-in compact fleet status for `agent-mesh inspect`.** `npx agent-mesh inspect --compact` prints
+  one line per fleet (`<id> <status> <live counts>`) instead of the padded default block, for
+  many-fleet terminal views; `--compact --json` adds a `fleets-compact` kind on the existing
+  `meshfleet.inspect/v1` envelope with the same row objects the full `fleets` kind already serves.
+  The default output bytes are untouched — this is an opt-in projection, not a replacement.
+
 ## [0.21.1] - 2026-08-10
 
 ### Fixed
