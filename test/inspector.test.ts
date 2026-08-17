@@ -1,8 +1,11 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
 
 import {
   formatFleetSummary,
+  formatFleetSummaryCompact,
+  buildFleetsCompactJson,
   formatAgentRow,
   formatEventLog,
   getFleetMetrics,
@@ -77,6 +80,111 @@ test('formatFleetSummary: handles running fleet with no completion time', () => 
   assert.match(out, /running/)
   assert.match(out, /2 running/)
   assert.doesNotMatch(out, /completed/)
+})
+
+// ---------------------------------------------------------------------------
+// formatFleetSummaryCompact (opt-in projection; default bytes untouched)
+// ---------------------------------------------------------------------------
+
+test('formatFleetSummaryCompact: one line, id + status + live counts only', () => {
+  const fleet: FleetSummary = {
+    id: 'fleet-abc',
+    status: 'complete',
+    created_at: 1700000000000,
+    completed_at: 1700000010000,
+    agent_count: 3,
+    agents_complete: 3,
+    agents_failed: 0,
+    agents_running: 0,
+  }
+  const out = formatFleetSummaryCompact(fleet)
+  assert.equal(out, 'fleet-abc complete 3 done')
+  assert.ok(!out.includes('ago'), 'compact rows carry no age/timing text')
+  assert.ok(out.split('\n').length === 1, 'compact row is a single line')
+})
+
+test('formatFleetSummaryCompact: running fleet with no completed agents', () => {
+  const fleet: FleetSummary = {
+    id: 'running-fleet',
+    status: 'running',
+    created_at: 1700000000000,
+    agent_count: 2,
+    agents_complete: 0,
+    agents_failed: 0,
+    agents_running: 2,
+  }
+  assert.equal(formatFleetSummaryCompact(fleet), 'running-fleet running 2 running')
+})
+
+test('formatFleetSummaryCompact: mixed counts ordered running, failed, done', () => {
+  const fleet: FleetSummary = {
+    id: 'mixed',
+    status: 'running',
+    created_at: 0,
+    agent_count: 6,
+    agents_complete: 3,
+    agents_failed: 1,
+    agents_running: 2,
+  }
+  assert.equal(
+    formatFleetSummaryCompact(fleet),
+    'mixed running 2 running, 1 failed, 3 done'
+  )
+})
+
+test('formatFleetSummaryCompact: zero-count fleet falls back to agent_count', () => {
+  const fleet: FleetSummary = {
+    id: 'pending-fleet',
+    status: 'pending',
+    created_at: 0,
+    agent_count: 4,
+    agents_complete: 0,
+    agents_failed: 0,
+    agents_running: 0,
+  }
+  assert.equal(formatFleetSummaryCompact(fleet), 'pending-fleet pending 4 agents')
+})
+
+test('formatFleetSummaryCompact: unknown status passes through, never elided', () => {
+  // The union type cannot express a foreign status, but a ledger byte stream
+  // can carry one — the formatter must pass it through, never elide it.
+  const fleet = {
+    id: 'odd',
+    status: 'quarantined',
+    created_at: 0,
+    agent_count: 1,
+    agents_complete: 0,
+    agents_failed: 0,
+    agents_running: 0,
+  } as unknown as FleetSummary
+  assert.equal(formatFleetSummaryCompact(fleet), 'odd quarantined 1 agents')
+})
+
+test('buildFleetsCompactJson: additive kind on the inspect schema, projected rows', () => {
+  const fleets: FleetSummary[] = [
+    {
+      id: 'f1',
+      status: 'running',
+      created_at: 0,
+      agent_count: 2,
+      agents_complete: 1,
+      agents_failed: 0,
+      agents_running: 1,
+    },
+  ]
+  const envelope = buildFleetsCompactJson(fleets)
+  assert.equal(envelope.schema, 'meshfleet.inspect/v1')
+  assert.equal(envelope.kind, 'fleets-compact')
+  assert.deepEqual(envelope.data, [
+    {
+      id: 'f1',
+      status: 'running',
+      agent_count: 2,
+      agents_complete: 1,
+      agents_failed: 0,
+      agents_running: 1,
+    },
+  ])
 })
 
 // ---------------------------------------------------------------------------
@@ -210,4 +318,91 @@ test('getFleetMetrics: returns MetricsReport shape', () => {
   assert.ok('avg_fleet_duration_ms' in m)
   assert.ok('success_rate' in m)
   cleanup()
+})
+
+// ---------------------------------------------------------------------------
+// CLI: opt-in --compact projection (default output bytes stay untouched)
+// ---------------------------------------------------------------------------
+
+function runInspectCli(args: string[], env: NodeJS.ProcessEnv) {
+  return spawnSync(process.execPath, ["--import", "tsx", "src/bin/inspect.ts", ...args], {
+    cwd: process.cwd(),
+    env,
+    encoding: "utf8",
+  })
+}
+
+test("inspect --compact: one line per fleet, default format untouched", () => {
+  const temp = withTempDb({
+    fleets: {
+      f1: { id: "f1", status: "running", created_at: 1 },
+      f2: { id: "f2", status: "complete", created_at: 1, completed_at: 2 },
+    },
+    agents: {
+      a1: { id: "a1", fleet_id: "f1", role: "r", prompt: "P", status: "running", retry_count: 0 },
+      a2: { id: "a2", fleet_id: "f1", role: "r", prompt: "P", status: "complete", retry_count: 0 },
+      a3: { id: "a3", fleet_id: "f2", role: "r", prompt: "P", status: "failed", retry_count: 0 },
+    },
+    messages: {},
+    inboxes: { a1: [], a2: [], a3: [] },
+    capabilities: {},
+  })
+  try {
+    const env = { ...process.env, MESHFLEET_DB_FILE: temp.dbFile }
+    const compact = runInspectCli(["--compact"], env)
+    assert.equal(compact.status, 0)
+    assert.equal(compact.stdout, "f1 running 1 running, 1 done\nf2 complete 1 failed\n")
+    // Default invocation bytes are byte-identical to the pre-flag path:
+    // padded status labels, counts with agent_count, timing suffix.
+    const def = runInspectCli([], env)
+    assert.equal(def.status, 0)
+    assert.match(def.stdout, /f1  running\s+2 agents, 1 done, 1 running \(/)
+    assert.match(def.stdout, /f2  complete\s+1 agents, 1 failed \(/)
+    // The compact projection must not leak into the default output.
+    assert.ok(!def.stdout.includes("1 running, 1 done\n"), "default output stays verbose")
+  } finally {
+    temp.cleanup()
+  }
+})
+
+test("inspect --compact --json: additive fleets-compact kind on the inspect schema", () => {
+  const temp = withTempDb({
+    fleets: { f1: { id: "f1", status: "running", created_at: 1 } },
+    agents: { a1: { id: "a1", fleet_id: "f1", role: "r", prompt: "P", status: "pending", retry_count: 0 } },
+    messages: {},
+    inboxes: { a1: [] },
+    capabilities: {},
+  })
+  try {
+    const env = { ...process.env, MESHFLEET_DB_FILE: temp.dbFile }
+    const out = runInspectCli(["--compact", "--json"], env)
+    assert.equal(out.status, 0)
+    const envelope = JSON.parse(out.stdout)
+    assert.deepEqual(envelope, {
+      schema: "meshfleet.inspect/v1",
+      kind: "fleets-compact",
+      data: [
+        { id: "f1", status: "running", agent_count: 1, agents_complete: 0, agents_failed: 0, agents_running: 0 },
+      ],
+    })
+    // The full --json fleets envelope is unchanged and distinct.
+    const full = runInspectCli(["--json"], env)
+    assert.equal(JSON.parse(full.stdout).kind, "fleets")
+  } finally {
+    temp.cleanup()
+  }
+})
+
+test("inspect --compact: empty ledger prints the same guidance as default", () => {
+  const temp = withTempDb()
+  try {
+    const env = { ...process.env, MESHFLEET_DB_FILE: temp.dbFile }
+    const compact = runInspectCli(["--compact"], env)
+    const def = runInspectCli([], env)
+    assert.equal(compact.status, 0)
+    assert.equal(def.status, 0)
+    assert.equal(compact.stdout, def.stdout, "empty-ledger guidance matches default")
+  } finally {
+    temp.cleanup()
+  }
 })
