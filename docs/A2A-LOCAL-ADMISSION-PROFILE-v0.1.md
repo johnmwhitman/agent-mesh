@@ -324,7 +324,14 @@ Given exact 4A path `p`, `$` becomes `$.envelope`; otherwise remove its leading
 `$` and prefix `$.envelope`; preserve every source index. Root/unlocatable 4A
 parse failures use `$.envelope`. Unknown names/values are never reflected.
 Example: `$.recipients[2]` becomes `$.envelope.recipients[2]`; a duplicate key
-uses its exact 4A containing-object path under that prefix.
+uses its exact 4A containing-object path under that prefix. The projection is
+byte-exact between TypeScript and the independent Python witness, including
+nested member paths (`$.envelope.sender.agent_id`,
+`$.envelope.recipients[0].namespace`, `$.envelope.payload.media_type`,
+`$.envelope.payload.body`, `$.envelope.scope.fleet_id`,
+`$.envelope.extensions`); 4A failures whose message text carries no source
+index (for example the duplicate-recipient family) fall back to the containing
+family root (`$.envelope.recipients`), never to a guessed index.
 
 ## 8. Closed result union
 
