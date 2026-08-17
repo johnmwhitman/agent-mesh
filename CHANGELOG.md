@@ -2,6 +2,15 @@
 
 All notable changes to Agent Mesh are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Adjacent A00-A13 local-admission precedence canaries.** Ordinary tests now inject both
+  defects for every adjacent evaluate-local-admission pair and assert the earlier row wins,
+  with TypeScript/Python witness byte parity and later-only controls where the public result
+  differs. This does not expand the 44-case corpus.
+
 ## [0.21.1] - 2026-08-10
 
 ### Fixed

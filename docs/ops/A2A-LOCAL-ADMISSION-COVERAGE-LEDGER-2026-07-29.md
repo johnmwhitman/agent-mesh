@@ -14,7 +14,7 @@ bytes, replay call count, and replay arguments.
 | request-raw/path | byte 262143/262144/262145; one surrogate, malformed JSON, duplicate key, fraction, depth, and malformed unknown-child representatives | — | BOM, whitespace/comment/trailing variants, literal/escaped duplicates in every request object, and every safe-path class |
 | independent-input | raw-text-only inputs and no request `envelope` member; representative request-before-envelope ordering | — | independent depth/byte collision vectors and double-encoding vectors |
 | depth/numeric | representative request depth and fraction; 4A retains its own vectors | — | request depth 8/9 and negative, `-0`, exponent, unsafe-integer boundaries |
-| precedence | representative request, envelope, denial, replay, and expiry ordering | — | mutation canary for each adjacent A00-A13 pair |
+| precedence | representative request, envelope, denial, replay, and expiry ordering | **CLOSED bounded subfamily:** request-wins-envelope; envelope-wins-evidence; denial hides malformed oracle and throw; **mutation canary for every adjacent A00-A13 pair (13 ordinary test mutations, TS + Python witness byte parity)** | every non-adjacent A00-A13 ordering (covered by the corpus's representative precedence cases) |
 | envelope | malformed and recipient representatives plus audience/self-recipient ordinary tests | — | all 4A invalid families and exact prefixed source paths |
 | evidence | one invalid field representative | **CLOSED bounded subfamily:** provenance; issued-at equality; expires-at equality; lifetime 300000/300001 | every remaining field/type/grammar vector |
 | binding | one invalid field representative | — | fields, interval edges, duplicate source index, context mismatch, and 0/256/257 rule vectors |

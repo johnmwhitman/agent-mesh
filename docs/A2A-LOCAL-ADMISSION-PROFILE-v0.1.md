@@ -524,6 +524,10 @@ the split-raw one-operation corpus, direct TypeScript/Python byte differential,
 mutation canaries, import checks, StaticHarnessMapping fixtures and validator,
 and independent contract/security review. Evidence-alpha has these mechanisms
 but not the exhaustive Section 9 corpus coverage required for full conformance.
+The precedence family additionally pins a mutation canary for every adjacent
+A00-A13 pair as ordinary test mutations with TypeScript/Python witness byte
+parity; the 13 adjacent-pair canaries are closed while non-adjacent orderings
+remain covered by representative corpus cases.
 
 Operational use separately requires adapter trust/credentials, protected
 diagnostics, snapshot provenance/revocation, replay persistence, plan-to-4B
