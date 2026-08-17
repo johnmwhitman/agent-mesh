@@ -83,6 +83,37 @@ test("authorization boundary evidence covers the next feasible Section 9 cardina
   );
 });
 
+test("binding sender agent-reference grammar and source-indexed authorization duplicates stay mandatory", () => {
+  const required = [
+    "binding.rule-sender-missing-namespace",
+    "binding.rule-sender-missing-agent-id",
+    "binding.rule-sender-extra-member",
+    "binding.rule-sender-nonstring-agent-id",
+    "binding.rule-sender-empty-namespace",
+    "authorization.duplicate-key-second-rule",
+    "authorization.duplicate-recipient-in-rule",
+  ];
+  const byId = new Map(corpus.cases.map((item) => [item.id, item]));
+  for (const id of required) {
+    assert.ok(corpus.mandatory_case_ids.includes(id), `mandatory case ${id} must stay in the corpus`);
+    const item = byId.get(id)!;
+    const actual = evaluate(item);
+    assert.equal(JSON.stringify(actual), JSON.stringify(item.expected), id);
+  }
+  const inRule = byId.get("authorization.duplicate-recipient-in-rule")!;
+  assert.equal(
+    (inRule.expected.result as { field_path: string }).field_path,
+    "$.authorization_snapshot.rules[0].recipients[1]",
+    "in-rule recipient duplicate must pin the source index",
+  );
+  const secondRule = byId.get("authorization.duplicate-key-second-rule")!;
+  assert.equal(
+    (secondRule.expected.result as { field_path: string }).field_path,
+    "$.authorization_snapshot.rules[1]",
+    "second-rule duplicate must pin the source index",
+  );
+});
+
 test("authentication-evidence boundaries stay ordered and preserve their terminal semantics", () => {
   const evidenceCases = corpus.cases.filter((item) => item.id.startsWith("evidence."));
   assert.deepEqual(

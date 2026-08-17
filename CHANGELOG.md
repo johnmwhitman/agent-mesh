@@ -2,6 +2,12 @@
 
 All notable changes to Agent Mesh are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Section 9 binding-family grammar gates closed further: corpus 44 → 51 mandatory cases.** Seven new mandatory `evaluate-local-admission` corpus cases pin the binding-rule sender agent-reference grammar classes beyond the wildcard case (missing `namespace`, missing `agent_id`, extra member, non-string `agent_id`, empty `namespace`) and the source-indexed authorization duplicate classes (duplicate rule key at `rules[1]`, duplicate recipient within one rule at `recipients[1]`). TypeScript and the independent Python witness agree byte-for-byte on all 51 cases.
+
 ## [0.21.1] - 2026-08-10
 
 ### Fixed
