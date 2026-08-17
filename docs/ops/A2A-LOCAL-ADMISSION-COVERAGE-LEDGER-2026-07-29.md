@@ -4,7 +4,7 @@ Status: bounded offline evidence only. This ledger records executable coverage,
 not profile conformance, authority, acceptance, persistence, delivery, or
 transport capability.
 
-Base reviewed: `2c2e392` (origin/main). Corpus: 52 mandatory raw-text cases in
+Base reviewed: `137d4da` (train/20260820). Corpus: 70 mandatory raw-text cases in
 `test/fixtures/a2a/local-admission/v0.1/corpus.json`; every case is evaluated by
 the TypeScript implementation and mandatory Python witness with exact result
 bytes, replay call count, and replay arguments.
@@ -18,7 +18,7 @@ bytes, replay call count, and replay arguments.
 | envelope | malformed and recipient representatives plus audience/self-recipient ordinary tests | — | all 4A invalid families and exact prefixed source paths |
 | evidence | one invalid field representative | **CLOSED bounded subfamily:** provenance; issued-at equality; expires-at equality; lifetime 300000/300001 | every remaining field/type/grammar vector |
 | binding | one invalid field representative | **CLOSED bounded subfamily:** 0 rules (no match → AUTHORIZATION_DENIED@$); 256 rules (max valid → admission_plan with unchanged 4A digest); 257 rules (cap exceeded → INVALID_BINDING_SNAPSHOT@$.binding_snapshot.rules) | fields, interval edges, duplicate source index, context mismatch, and 0/256/257 rule vectors |
-| authorization | valid one type/recipient; one invalid action; generic denial | **CLOSED bounded subfamily:** types 5/6; recipients 128/129; duplicate type and recipient source index; all-recipient denial before replay; session + context (adapter / principal / audience / session_ref / sender) mismatch each deny independently; rule-count edge closed as structurally unreachable below the independent request-byte ceiling (executable contradiction proof below) | snapshot fields/provenance and other policy contexts |
+| authorization | valid one type/recipient; one invalid action; generic denial | **CLOSED bounded subfamily:** types 5/6; recipients 128/129; duplicate type and recipient source index; all-recipient denial before replay; session + context (adapter / principal / audience / session_ref / sender) mismatch each deny independently; rule-count edge closed as structurally unreachable below the independent request-byte ceiling (executable contradiction proof below); snapshot version/id/provenance/effective-from/effective-until; snapshot unknown member and non-array rules; rule adapter/principal/audience/session/sender; rule unknown member; missing action; negative/fractional/unsafe raw lexemes in effective-from; inverted interval denies | snapshot rule-count edge and other policy contexts |
 | relativity | plan only reports fixture IDs/versions | — | decision changes caused by changed fixtures |
 | oracle/results | all four non-admission verdicts, unavailable, throw, unseen plan, unseen-only expiry, and exact query | — | malformed oracle case and every rejected-code inventory |
 | privacy | offline/import-surface checks and closed sidecar fixtures | — | dedicated ignored-input/diagnostic-invariance matrix |

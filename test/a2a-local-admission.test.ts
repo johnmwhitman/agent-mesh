@@ -105,6 +105,55 @@ test("authorization context mismatch on any single policy field denies the reque
   }
 });
 
+test("authorization snapshot field/grammar gates pin every exact source path", () => {
+  const snapshotIds = corpus.mandatory_case_ids.filter((id) => id.startsWith("authorization.snapshot-"));
+  const ruleIds = corpus.mandatory_case_ids.filter((id) => id.startsWith("authorization.rule-"));
+  assert.deepEqual(snapshotIds, [
+    "authorization.snapshot-version-invalid",
+    "authorization.snapshot-id-invalid",
+    "authorization.snapshot-provenance-invalid",
+    "authorization.snapshot-from-invalid",
+    "authorization.snapshot-from-fractional",
+    "authorization.snapshot-from-unsafe",
+    "authorization.snapshot-until-invalid",
+    "authorization.snapshot-until-inverted",
+    "authorization.snapshot-unknown-member",
+    "authorization.snapshot-rules-not-array",
+  ]);
+  assert.deepEqual(ruleIds, [
+    "authorization.rule-adapter-invalid",
+    "authorization.rule-principal-invalid",
+    "authorization.rule-audience-invalid",
+    "authorization.rule-session-invalid",
+    "authorization.rule-sender-invalid",
+    "authorization.rule-sender-unknown-member",
+    "authorization.rule-unknown-member",
+    "authorization.rule-missing-action",
+  ]);
+  const cases = corpus.cases.filter((item) => snapshotIds.includes(item.id) || ruleIds.includes(item.id));
+  assert.equal(cases.length, 18);
+  for (const item of cases) {
+    assert.equal(item.expected.replay_oracle_calls, 0, item.id);
+    const result = item.expected.result as { kind: string; code: string; field_path: string };
+    assert.equal(result.kind, "rejected", item.id);
+    assert.equal(item.invocation_args.request_json.includes("authorization_snapshot"), true, item.id);
+    assert.equal(item.invocation_args.request_json.includes("binding_snapshot"), true, item.id);
+    assert.equal(item.invocation_args.request_json.includes("authentication_evidence"), true, item.id);
+    if (item.id === "authorization.snapshot-until-inverted") {
+      assert.deepEqual(result, { kind: "rejected", code: "AUTHORIZATION_DENIED", field_path: "$" });
+      continue;
+    }
+    // every snapshot grammar rejection reports an exact source path inside the snapshot
+    assert.match(result.field_path, /^\$\.authorization_snapshot(?:$|\.|\.rules\[\d+\](?:\.|$))/, item.id);
+    if (["authorization.snapshot-from-invalid", "authorization.snapshot-from-fractional", "authorization.snapshot-from-unsafe"].includes(item.id)) {
+      // raw number lexemes fail at the scanner before semantic snapshot validation
+      assert.deepEqual(result, { kind: "rejected", code: "MALFORMED_JSON", field_path: "$.authorization_snapshot.effective_from_ms" });
+    } else {
+      assert.equal(result.code, "INVALID_AUTHORIZATION_SNAPSHOT", item.id);
+    }
+  }
+});
+
 test("authentication-evidence boundaries stay ordered and preserve their terminal semantics", () => {
   const evidenceCases = corpus.cases.filter((item) => item.id.startsWith("evidence."));
   assert.deepEqual(
@@ -159,9 +208,10 @@ test("the 2048-rule profile row exceeds the raw request ceiling by authorization
 });
 
 test("binding rules-count covers the 0/256/257 cardinality boundary for binding_snapshot.rules", () => {
-  // Cases are in insertion order; the three new ones are appended at the end
-  // (in the order scripts/gen-binding-rules-count-cases.mjs emitted them).
-  const bindingRulesCountCases = corpus.cases.slice(-3);
+  // Filter by id prefix so the binding rules-count row stays correct after
+  // later slices (e.g. authorization snapshot/rule field/grammar) append
+  // additional cases at the end of the corpus.
+  const bindingRulesCountCases = corpus.cases.filter((item) => item.id.startsWith("binding.rules-"));
   assert.deepEqual(
     bindingRulesCountCases.map((item) => item.id),
     [
