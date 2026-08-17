@@ -26,6 +26,18 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
   unrepresentable). Corpus 44 → 49 cases. Suite 1767 → 1768.
 - **`scripts/merge-train.mjs` + `test/merge-train.test.mjs` (30 verified branches queued, 1 read + 1 command collapse).** The lane now collapses the 19+ verifier-verified branches pooled at MERGE-READY to one operator decision per day. `--dry-run` (default) emits `MERGE-TRAIN-YYYYMMDD.md` with per-branch one-liner + diffstat + the canonical-verifier receipt on the train tip + the ONE operator command `git merge --ff-only train/YYYYMMDD`; `--apply` actually opens `train/YYYYMMDD` off `origin/main`, sequentially rolls in each candidate via `git merge --no-ff`, runs the train-tip through the canonical Node 24.18.1 + python3 3.10+ verifier under `flock heavy-build`, and emits the same report with `Final status: GREEN — NN/NN tests`. Candidates are filtered by (a) ahead of `origin/main` strictly, (b) tip subject `VERIFIED:` claim, (c) `git merge-tree` clean merge with `origin/main`, (d) no MERGE-READY ancestor-superset on the train (skipping the smaller one keeps the train lean). Branches that fail to merge or break the verifier get bisected out and listed as leftovers with the exact reason and a suggested operator action (`rebase or drop`). Six unit tests cover the selector against a mock git interface: empty repo, branch at exactly `origin/main`, `VERIFIED:` subject, non-`VERIFIED:` leftover, strict-ancestor redundancy, and unverified-superset no-redundancy. The first train run on the lane's current backlog (2026-08-18) is at `MERGE-TRAIN-20260818.md`: 30 branches --no-ff onto `train/20260818`, 3 leftovers (two redundant ancestor-superset branches; one unverified-subject). Reads the canonical receipt via `scripts/run-tests.mjs` (the same one CI runs); no new gate is invented.
 - **`scripts/portfolio-merge-train.mjs` — multi-repo dossier wrapper.** Step-2 generalisation of the merge-train: takes a list of repo paths (`--repo`, repeatable, or `--config` JSON file) and emits `MERGE-TRAIN-PORTFOLIO-YYYYMMDD.md` with one section per repo. Per-repo sections reuse the lane's `pickCandidates` selector (so cherry-pick order, subject gate, and merge-tree cleanliness are identical to the single-repo train), plus a fresh/stale/suspect/dead population roll-up so the lane can spot which branches are candidates for prune before the next sweep. Default staleness bands: fresh ≤30d, stale 31-180d, suspect 181-360d, dead >360d — proportional to `--stale-days N` so a tighter threshold tightens all four bands. `--apply` is documented as a per-repo step (the wrapper never pushes or merges); push, deploy, and runtime promotion remain operator-gated. Three unit tests pin the staleness band math so a future refactor cannot silently flip the boundaries.
+- **Section 9 privacy-invariance matrix: corpus 44 → 53 mandatory cases.** Nine
+  new mandatory `evaluate-local-admission` corpus cases inject one foreign
+  (capability/profile/proof/model/runtime/receipt/conformance/provider/
+  environment/secret) member into every request and envelope surface and pin
+  the measured decision: top-level request unknown member rejects
+  `UNKNOWN_CORE_FIELD` at `$`; nested request objects reject at the nearest
+  known containing-object path with the family code (the foreign name is never
+  reflected); envelope agent-reference members are dropped by the delegated 4A
+  decoder so the decision is byte-identical to the base admission plan; a raw
+  hidden duplicate rejects `DUPLICATE_JSON_KEY` at `$` before any policy stage.
+  TypeScript and the independent Python witness agree byte-for-byte on all 53
+  cases.
 
 ## [0.21.1] - 2026-08-10
 

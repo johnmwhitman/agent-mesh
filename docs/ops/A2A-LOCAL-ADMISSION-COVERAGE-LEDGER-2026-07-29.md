@@ -21,7 +21,7 @@ bytes, replay call count, and replay arguments.
 | authorization | valid one type/recipient; one invalid action; generic denial | **CLOSED bounded subfamily:** types 5/6; recipients 128/129; duplicate type and recipient source index; all-recipient denial before replay; session + context (adapter / principal / audience / session_ref / sender) mismatch each deny independently | rule-count edge (262144-byte cap with 216-byte rule lower bound makes 2048 rules unrepresentable; existing test pins this) |
 | relativity | plan only reports fixture IDs/versions | — | decision changes caused by changed fixtures |
 | oracle/results | all four non-admission verdicts, unavailable, throw, unseen plan, unseen-only expiry, and exact query | — | malformed oracle case and every rejected-code inventory |
-| privacy | offline/import-surface checks and closed sidecar fixtures | — | dedicated ignored-input/diagnostic-invariance matrix |
+| privacy | offline/import-surface checks and closed sidecar fixtures | **CLOSED bounded subfamily:** foreign capability/profile/proof/model/runtime/receipt/conformance/provider/environment/secret members in every request and envelope surface — top-level request rejects `UNKNOWN_CORE_FIELD` at `$`; nested request objects reject at the nearest known containing-object path with the family code; envelope agent-reference members are dropped by the delegated 4A decoder with the decision byte-identical to the base plan; raw hidden duplicate rejects `DUPLICATE_JSON_KEY` at `$` | dedicated ignored-input/diagnostic-invariance matrix (9 `privacy.*` mandatory cases) |
 
 ## Authentication-evidence slice records
 
@@ -51,6 +51,21 @@ bytes, replay call count, and replay arguments.
 | `authorization.context.audience-mismatch` | `AUTHORIZATION_DENIED` at `$` | 0 |
 | `authorization.context.session-mismatch` | `AUTHORIZATION_DENIED` at `$` | 0 |
 | `authorization.context.sender-mismatch` | `AUTHORIZATION_DENIED` at `$` | 0 |
+
+## Privacy slice records
+
+| Case IDs | Required outcome | Replay calls |
+| --- | --- | --- |
+| `privacy.unknown-top-level` | `UNKNOWN_CORE_FIELD` at `$` | 0 |
+| `privacy.unknown-evidence-member` | `INVALID_AUTHENTICATION_EVIDENCE` at `$.authentication_evidence` | 0 |
+| `privacy.unknown-binding-rule-member` | `INVALID_BINDING_SNAPSHOT` at `$.binding_snapshot.rules[0]` | 0 |
+| `privacy.unknown-authorization-rule-member` | `INVALID_AUTHORIZATION_SNAPSHOT` at `$.authorization_snapshot.rules[0]` | 0 |
+| `privacy.unknown-authorization-recipient-member` | `INVALID_AUTHORIZATION_SNAPSHOT` at `$.authorization_snapshot.rules[0].recipients[0]` | 0 |
+| `privacy.unknown-binding-sender-member` | `INVALID_BINDING_SNAPSHOT` at `$.binding_snapshot.rules[0].sender` | 0 |
+| `privacy.unknown-envelope-sender-member` | `admission_plan` byte-identical to `valid.admission-plan` (foreign member dropped by delegated 4A decoder) | 1 |
+| `privacy.unknown-envelope-recipient-member` | `admission_plan` byte-identical to `valid.admission-plan` (foreign member dropped by delegated 4A decoder) | 1 |
+| `privacy.duplicate-key-hidden-foreign-member` | `DUPLICATE_JSON_KEY` at `$` | 0 |
+
 
 ## Unreachable profile row
 
