@@ -317,6 +317,21 @@ export function formatFleetSummary(fleet: FleetSummary): string {
   return `${id}  ${status}  ${counts}${timing}`
 }
 
+/**
+ * One-line status row for a fleet — the opt-in `--compact` projection. The
+ * default `formatFleetSummary` bytes stay untouched; this is deliberately
+ * terser (single line, no age/timing, counts collapsed) for many-fleet
+ * terminal views. Unknown statuses are passed through, never elided.
+ */
+export function formatFleetSummaryCompact(fleet: FleetSummary): string {
+  const counts: string[] = []
+  if (fleet.agents_running > 0) counts.push(`${fleet.agents_running} running`)
+  if (fleet.agents_failed > 0) counts.push(`${fleet.agents_failed} failed`)
+  if (fleet.agents_complete > 0) counts.push(`${fleet.agents_complete} done`)
+  if (counts.length === 0) counts.push(`${fleet.agent_count} agents`)
+  return `${fleet.id} ${fleet.status} ${counts.join(', ')}`
+}
+
 function formatAgentCounts(fleet: FleetSummary): string {
   const parts: string[] = []
   parts.push(`${fleet.agent_count} agents`)
@@ -1172,6 +1187,38 @@ export function buildVerifyV3Json(report: VerifyReport): VerifyEnvelopeV3 {
 
 export function buildFleetsJson(fleets: FleetSummary[]): InspectJsonEnvelope<"fleets", FleetSummary[]> {
   return { schema: INSPECT_JSON_SCHEMA, kind: "fleets", data: fleets };
+}
+
+/**
+ * Compact fleet-status envelope (`inspect --compact --json`). Same schema root
+ * as the full `fleets` envelope, additive `fleets-compact` kind, and rows are
+ * the same objects the `--json` path already serves — this is a projection,
+ * not a new data model. Default output bytes are untouched.
+ */
+export interface FleetStatusCompactRow {
+  id: string;
+  status: string;
+  agent_count: number;
+  agents_complete: number;
+  agents_failed: number;
+  agents_running: number;
+}
+
+export function buildFleetsCompactJson(
+  fleets: FleetSummary[]
+): InspectJsonEnvelope<"fleets-compact", FleetStatusCompactRow[]> {
+  return {
+    schema: INSPECT_JSON_SCHEMA,
+    kind: "fleets-compact",
+    data: fleets.map((f) => ({
+      id: f.id,
+      status: f.status,
+      agent_count: f.agent_count,
+      agents_complete: f.agents_complete,
+      agents_failed: f.agents_failed,
+      agents_running: f.agents_running,
+    })),
+  };
 }
 
 export function buildCouncilsJson(
