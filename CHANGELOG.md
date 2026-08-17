@@ -24,6 +24,20 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
   CLOSED for the bounded subfamily; the rule-count edge remains the only open
   item (262144-byte cap + 216-byte rule lower bound makes 2048 rules
   unrepresentable). Corpus 44 → 49 cases. Suite 1767 → 1768.
+### Fixed
+
+- **Exact prefixed source paths for envelope failure projection.** Slice 4C-1
+  `MALFORMED_ENVELOPE` field paths now preserve the exact 4A member path for
+  sender/recipient member, payload member, scope member, and extensions
+  failures (`$.envelope.sender.agent_id`,
+  `$.envelope.recipients[0].namespace`, `$.envelope.payload.media_type`,
+  `$.envelope.payload.body`, `$.envelope.scope.fleet_id`,
+  `$.envelope.extensions`) instead of collapsing to the family root, with
+  family-root fallbacks for index-free recipient failures and unlocatable
+  raw-scan failures. The independent Python witness mirrors the projection
+  byte-for-byte (including the previously diverging `extensions` member).
+  Test-only offline evidence; no package export, MCP/CLI surface, or public
+  ingress change.
 
 ## [0.21.1] - 2026-08-10
 
