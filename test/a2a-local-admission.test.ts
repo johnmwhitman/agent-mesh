@@ -19,6 +19,10 @@ const root = process.cwd();
 const corpusPath = join(root, "test", "fixtures", "a2a", "local-admission", "v0.1", "corpus.json");
 const sidecarPath = join(root, "test", "fixtures", "a2a", "local-admission", "v0.1", "static-harness-mappings.json");
 const pythonWitness = join(root, "reference", "python", "a2a_local_admission_reference.py");
+// Python 3.10+ (PEP 604) is required by the witness; the pinned verifier uses
+// the Homebrew interpreter because /usr/bin/python3 is 3.9.6. Override with
+// PYTHON3 to point at a different 3.10+ interpreter.
+const python3 = process.env.PYTHON3 ?? "python3";
 const corpus = JSON.parse(readFileSync(corpusPath, "utf8")) as { mandatory_case_ids: string[]; cases: CorpusCase[] };
 const localAdmissionCorpusCountDocs = [
   join(root, "COMPATIBILITY.md"),
@@ -81,6 +85,70 @@ test("authorization boundary evidence covers the next feasible Section 9 cardina
       "authorization.boundary.all-recipient-denied",
     ],
   );
+});
+
+test("envelope member-class gates cover every 4A invalid envelope member family", () => {
+  const envelopeIds = corpus.mandatory_case_ids.filter((id) => id.startsWith("envelope."));
+  assert.deepEqual(envelopeIds, [
+    "envelope.malformed",
+    "envelope.invalid-recipient",
+    "envelope.missing-audience",
+    "envelope.audience-empty",
+    "envelope.expires-not-after-issued",
+    "envelope.message-id-empty",
+    "envelope.payload-missing-media-type",
+    "envelope.payload-not-object",
+    "envelope.recipients-duplicate",
+    "envelope.recipients-empty",
+    "envelope.recipients-self",
+    "envelope.scope-fleet-id-empty",
+    "envelope.sender-wildcard",
+    "envelope.type-unknown",
+  ]);
+  const memberClasses: Record<string, string> = {
+    "envelope.recipients-empty": "$.envelope.recipients",
+    "envelope.recipients-duplicate": "$.envelope.recipients",
+    "envelope.recipients-self": "$.envelope.recipients",
+    "envelope.sender-wildcard": "$.envelope.sender",
+    "envelope.payload-not-object": "$.envelope.payload",
+    "envelope.payload-missing-media-type": "$.envelope.payload.media_type",
+    "envelope.message-id-empty": "$.envelope.message_id",
+    "envelope.type-unknown": "$.envelope.type",
+    "envelope.audience-empty": "$.envelope.audience",
+    "envelope.expires-not-after-issued": "$.envelope.expires_at_ms",
+    "envelope.scope-fleet-id-empty": "$.envelope.scope.fleet_id",
+  };
+  for (const [id, path] of Object.entries(memberClasses)) {
+    const item = corpus.cases.find((caseItem) => caseItem.id === id);
+    assert.ok(item, id);
+    assert.deepEqual(item!.expected.result, { kind: "rejected", code: "MALFORMED_ENVELOPE", field_path: path }, id);
+    assert.equal(item!.expected.replay_oracle_calls, 0, id);
+  }
+});
+
+test("envelope error projection uses exact prefixed member paths in both witnesses", () => {
+  const cases: Array<{ id: string; envelope: Record<string, unknown>; path: string }> = [
+    { id: "sender-wildcard", envelope: { sender: { namespace: "local", agent_id: "*" } }, path: "$.envelope.sender" },
+    { id: "recipients-self", envelope: { recipients: [{ namespace: "local", agent_id: "agent-a" }] }, path: "$.envelope.recipients" },
+    { id: "recipients-duplicate", envelope: { recipients: [{ namespace: "local", agent_id: "agent-b" }, { namespace: "local", agent_id: "agent-b" }] }, path: "$.envelope.recipients" },
+    { id: "recipients-empty", envelope: { recipients: [] }, path: "$.envelope.recipients" },
+    { id: "payload-not-object", envelope: { payload: "offline" }, path: "$.envelope.payload" },
+    { id: "payload-missing-media-type", envelope: { payload: { body: "offline" } }, path: "$.envelope.payload.media_type" },
+    { id: "message-id-empty", envelope: { message_id: "" }, path: "$.envelope.message_id" },
+    { id: "type-unknown", envelope: { type: "teleport" }, path: "$.envelope.type" },
+    { id: "audience-empty", envelope: { audience: "" }, path: "$.envelope.audience" },
+    { id: "expires-not-after-issued", envelope: { expires_at_ms: 0 }, path: "$.envelope.expires_at_ms" },
+    { id: "scope-fleet-id-empty", envelope: { scope: { fleet_id: "" } }, path: "$.envelope.scope.fleet_id" },
+  ];
+  for (const item of cases) {
+    const envelope = { protocol: "meshfleet.a2a", version: "0.1", kind: "message", message_id: "message-ref", sender: { namespace: "local", agent_id: "agent-a" }, recipients: [{ namespace: "local", agent_id: "agent-b" }], type: "handoff", issued_at_ms: 1, expires_at_ms: 150, audience: "local-audience", payload: { media_type: "text/plain", body: "offline" }, ...item.envelope };
+    const result = admission.evaluateLocalAdmission(
+      corpus.cases[0]!.invocation_args.request_json,
+      JSON.stringify(envelope),
+      () => "unseen" as never,
+    );
+    assert.deepEqual(result, { kind: "rejected", code: "MALFORMED_ENVELOPE", field_path: item.path }, item.id);
+  }
 });
 
 test("authentication-evidence boundaries stay ordered and preserve their terminal semantics", () => {
@@ -195,7 +263,7 @@ test("ingress recipient normalization is order-independent and agrees across wit
     envelope_digest: "meshfleet.a2a.fingerprint.v1:sha256:a59c52ffb3c2d02d77e89a402b24659d4fd5666848f496b9bc4a44db604b6d65",
   }]);
 
-  const available = spawnSync("python3", ["--version"], { encoding: "utf8" });
+  const available = spawnSync(python3, ["--version"], { encoding: "utf8" });
   if (available.status !== 0) {
     t.skip("python3 unavailable");
     return;
@@ -204,7 +272,7 @@ test("ingress recipient normalization is order-independent and agrees across wit
   try {
     const path = join(directory, "invocation.json");
     writeFileSync(path, JSON.stringify(invocation), "utf8");
-    const witness = spawnSync("python3", [pythonWitness, "--evaluate-file", path], { encoding: "utf8", timeout: 20_000 });
+    const witness = spawnSync(python3, [pythonWitness, "--evaluate-file", path], { encoding: "utf8", timeout: 20_000 });
     assert.equal(witness.status, 0, witness.stderr || witness.stdout);
     assert.equal(witness.stdout.trim(), JSON.stringify({
       result,
@@ -217,12 +285,12 @@ test("ingress recipient normalization is order-independent and agrees across wit
 });
 
 test("TypeScript and the mandatory Python reference agree on canonical result bytes for every admission case", (t) => {
-  const available = spawnSync("python3", ["--version"], { encoding: "utf8" });
+  const available = spawnSync(python3, ["--version"], { encoding: "utf8" });
   if (available.status !== 0) {
     t.skip("python3 unavailable");
     return;
   }
-  const run = spawnSync("python3", [pythonWitness, "--corpus", corpusPath], { encoding: "utf8", timeout: 20_000 });
+  const run = spawnSync(python3, [pythonWitness, "--corpus", corpusPath], { encoding: "utf8", timeout: 20_000 });
   assert.equal(run.status, 0, run.stderr || run.stdout);
   const report = JSON.parse(run.stdout) as {
     ok: boolean;
@@ -249,7 +317,7 @@ test("expected-data and witness-output mutation canaries fail closed", (t) => {
   const mutatedExpected = { ...first.expected, result: { kind: "rejected", code: "INVALID_REQUEST", field_path: "$" } };
   assert.notEqual(JSON.stringify(actual), JSON.stringify(mutatedExpected));
 
-  const available = spawnSync("python3", ["--version"], { encoding: "utf8" });
+  const available = spawnSync(python3, ["--version"], { encoding: "utf8" });
   if (available.status !== 0) {
     t.skip("python3 unavailable");
     return;
@@ -260,9 +328,9 @@ test("expected-data and witness-output mutation canaries fail closed", (t) => {
     mutated.cases[0]!.expected = mutatedExpected;
     const path = join(directory, "mutated.json");
     writeFileSync(path, JSON.stringify(mutated), "utf8");
-    const expectedFailure = spawnSync("python3", [pythonWitness, "--corpus", path], { encoding: "utf8", timeout: 20_000 });
+    const expectedFailure = spawnSync(python3, [pythonWitness, "--corpus", path], { encoding: "utf8", timeout: 20_000 });
     assert.notEqual(expectedFailure.status, 0);
-    const witnessFailure = spawnSync("python3", [pythonWitness, "--corpus", corpusPath, "--mutate-output"], { encoding: "utf8", timeout: 20_000 });
+    const witnessFailure = spawnSync(python3, [pythonWitness, "--corpus", corpusPath, "--mutate-output"], { encoding: "utf8", timeout: 20_000 });
     assert.notEqual(witnessFailure.status, 0);
   } finally {
     rmSync(directory, { recursive: true, force: true });
@@ -270,7 +338,7 @@ test("expected-data and witness-output mutation canaries fail closed", (t) => {
 });
 
 test("Python witness rejects ambiguous, nonstandard, and open corpus documents", (t) => {
-  const available = spawnSync("python3", ["--version"], { encoding: "utf8" });
+  const available = spawnSync(python3, ["--version"], { encoding: "utf8" });
   if (available.status !== 0) {
     t.skip("python3 unavailable");
     return;
@@ -286,7 +354,7 @@ test("Python witness rejects ambiguous, nonstandard, and open corpus documents",
     for (const [index, mutation] of mutations.entries()) {
       const path = join(directory, `mutated-${index}.json`);
       writeFileSync(path, mutation, "utf8");
-      const witness = spawnSync("python3", [pythonWitness, "--corpus", path], { encoding: "utf8", timeout: 20_000 });
+      const witness = spawnSync(python3, [pythonWitness, "--corpus", path], { encoding: "utf8", timeout: 20_000 });
       assert.notEqual(witness.status, 0, `mutation ${index} unexpectedly passed`);
     }
   } finally {
@@ -295,7 +363,7 @@ test("Python witness rejects ambiguous, nonstandard, and open corpus documents",
 });
 
 test("Python witness cannot treat a request kind field as a forged result", (t) => {
-  const available = spawnSync("python3", ["--version"], { encoding: "utf8" });
+  const available = spawnSync(python3, ["--version"], { encoding: "utf8" });
   if (available.status !== 0) {
     t.skip("python3 unavailable");
     return;
@@ -325,7 +393,7 @@ test("Python witness cannot treat a request kind field as a forged result", (t) 
   try {
     const path = join(directory, "invocation.json");
     writeFileSync(path, JSON.stringify(invocation), "utf8");
-    const witness = spawnSync("python3", [pythonWitness, "--evaluate-file", path], { encoding: "utf8", timeout: 20_000 });
+    const witness = spawnSync(python3, [pythonWitness, "--evaluate-file", path], { encoding: "utf8", timeout: 20_000 });
     assert.equal(witness.status, 0, witness.stderr || witness.stdout);
     assert.deepEqual(JSON.parse(witness.stdout), expected);
   } finally {
@@ -334,7 +402,7 @@ test("Python witness cannot treat a request kind field as a forged result", (t) 
 });
 
 test("self-recipient envelope failures use the same safe recipients path across witnesses", (t) => {
-  const available = spawnSync("python3", ["--version"], { encoding: "utf8" });
+  const available = spawnSync(python3, ["--version"], { encoding: "utf8" });
   if (available.status !== 0) {
     t.skip("python3 unavailable");
     return;
@@ -367,7 +435,7 @@ test("self-recipient envelope failures use the same safe recipients path across 
   try {
     const path = join(directory, "invocation.json");
     writeFileSync(path, JSON.stringify(invocation), "utf8");
-    const witness = spawnSync("python3", [pythonWitness, "--evaluate-file", path], { encoding: "utf8", timeout: 20_000 });
+    const witness = spawnSync(python3, [pythonWitness, "--evaluate-file", path], { encoding: "utf8", timeout: 20_000 });
     assert.equal(witness.status, 0, witness.stderr || witness.stdout);
     assert.deepEqual(JSON.parse(witness.stdout), expected);
   } finally {

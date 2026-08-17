@@ -2,6 +2,12 @@
 
 All notable changes to Agent Mesh are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Every 4A invalid envelope member class is a mandatory local-admission corpus case.** The evidence-alpha corpus grows 44→55 with exact member-class gates (recipients empty/duplicate/self, sender wildcard, payload non-object/missing `media_type`, empty `message_id`, unknown `type`, empty `audience`, `expires_at_ms` not after `issued_at_ms`, empty `scope.fleet_id`), each pinned to `MALFORMED_ENVELOPE` at its exact prefixed source path (`payload.media_type`, `scope.fleet_id`) with zero replay-oracle calls. Both witnesses (TypeScript strict decoder + Python reference) agree byte-for-byte on every case except the expires ordering message, whose language-local projection is pinned to the TypeScript byte and documented in the generator.
+
 ## [0.21.1] - 2026-08-10
 
 ### Fixed
