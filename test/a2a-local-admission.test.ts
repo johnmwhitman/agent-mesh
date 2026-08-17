@@ -83,10 +83,71 @@ test("authorization boundary evidence covers the next feasible Section 9 cardina
   );
 });
 
+test("authentication-evidence field/grammar gates are all mandatory with exact source paths", () => {
+  const boundary = new Set([
+    "evidence.issued-at-evaluation-valid",
+    "evidence.expires-at-evaluation-denied",
+    "evidence.lifetime-300000-valid",
+    "evidence.lifetime-300001-denied",
+  ]);
+  const evidenceIds = corpus.mandatory_case_ids.filter((id) => id.startsWith("evidence.") && !boundary.has(id));
+  assert.deepEqual(
+    evidenceIds,
+    [
+      "evidence.invalid",
+      "evidence.provenance-invalid",
+      "evidence.adapter-leading-uppercase",
+      "evidence.adapter-uppercase",
+      "evidence.adapter-underscore",
+      "evidence.adapter-too-long",
+      "evidence.adapter-trailing-dot",
+      "evidence.adapter-trailing-dash",
+      "evidence.adapter-single-char-valid-denied",
+      "evidence.opaque-leading-punct",
+      "evidence.opaque-uppercase-valid-denied",
+      "evidence.opaque-space",
+      "evidence.opaque-too-long",
+      "evidence.audience-uppercase-valid-denied",
+      "evidence.session-uppercase-valid-denied",
+      "evidence.issued-before-evaluation",
+      "evidence.issued-after-expiry",
+      "evidence.provenance-empty",
+      "evidence.provenance-uppercase",
+      "evidence.issued-fraction",
+      "evidence.issued-negative",
+      "evidence.issued-exponent",
+      "evidence.issued-over-safe",
+      "evidence.expires-fraction",
+      "evidence.expires-negative",
+      "evidence.expires-exponent",
+      "evidence.expires-over-safe",
+    ],
+  );
+  const byId = new Map(corpus.cases.map((item) => [item.id, item]));
+  for (const id of evidenceIds) {
+    const item = byId.get(id);
+    if (!item) throw new Error(`evidence case missing: ${id}`);
+    if ((item.expected.result as { kind: string }).kind !== "rejected") continue;
+    const result = item.expected.result as { kind: string; code?: string; field_path?: string };
+    assert.equal(item.expected.replay_oracle_calls, 0, id);
+    assert.deepEqual(item.expected.replay_oracle_arguments, [], id);
+    if (id.endsWith("-valid-denied") || id === "evidence.issued-before-evaluation" || id === "evidence.issued-after-expiry") {
+      assert.equal(result.code, "AUTHORIZATION_DENIED", id);
+      assert.equal(result.field_path, "$", id);
+    } else if (id.includes("fraction") || id.includes("negative") || id.includes("exponent") || id.includes("over-safe")) {
+      assert.equal(result.code, "MALFORMED_JSON", id);
+      assert.match(result.field_path ?? "", /^\$\.authentication_evidence\.(issued_at_ms|expires_at_ms)$/, id);
+    } else {
+      assert.equal(result.code, "INVALID_AUTHENTICATION_EVIDENCE", id);
+      assert.match(result.field_path ?? "", /^\$\.authentication_evidence\.[a-z_]+$/, id);
+    }
+  }
+});
+
 test("authentication-evidence boundaries stay ordered and preserve their terminal semantics", () => {
   const evidenceCases = corpus.cases.filter((item) => item.id.startsWith("evidence."));
   assert.deepEqual(
-    evidenceCases.map((item) => item.id),
+    evidenceCases.slice(0, 6).map((item) => item.id),
     [
       "evidence.invalid",
       "evidence.provenance-invalid",
@@ -97,7 +158,7 @@ test("authentication-evidence boundaries stay ordered and preserve their termina
     ],
   );
   assert.deepEqual(
-    evidenceCases.slice(1).map((item) => item.expected),
+    evidenceCases.slice(1, 6).map((item) => item.expected),
     [
       { result: { kind: "rejected", code: "INVALID_AUTHENTICATION_EVIDENCE", field_path: "$.authentication_evidence.provenance" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
       corpus.cases[0]!.expected,
@@ -107,7 +168,7 @@ test("authentication-evidence boundaries stay ordered and preserve their termina
     ],
   );
   assert.deepEqual(
-    evidenceCases.slice(1).map((item) => {
+    evidenceCases.slice(1, 6).map((item) => {
       const request = JSON.parse(item.invocation_args.request_json) as { authentication_evidence: unknown };
       return request.authentication_evidence;
     }),

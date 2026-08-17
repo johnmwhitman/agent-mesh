@@ -2,6 +2,12 @@
 
 All notable changes to Agent Mesh are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Section 9 authentication-evidence field/grammar gates.** The local-admission corpus grows 44→69 mandatory cases: adapter_id grammar rejects (leading uppercase, uppercase, underscore, trailing dot, trailing dash, 65-byte) plus a single-char grammar-valid case that denies only via binding mismatch (AUTHORIZATION_DENIED pin); opaque-ref classes (leading punctuation, space, 129-byte rejects; uppercase is opaque-VALID and pinned as binding-mismatch AUTHORIZATION_DENIED on principal_ref/audience/session_ref); local-time lexeme classes (fraction/negative/exponent/over-safe → MALFORMED_JSON at the exact member path, A02 scanner precedes A06); issuance-vs-evaluation and issuance-vs-expiry orderings (AUTHORIZATION_DENIED); provenance literal variants (empty, uppercase → INVALID_AUTHENTICATION_EVIDENCE). All 25 new cases zero oracle calls; family-pin test asserts the 31-case id list with per-class code/path contracts; generator `scripts/gen-evidence-gates-cases.mjs` committed with pristine-44 backup.
+
 ## [0.21.1] - 2026-08-10
 
 ### Fixed

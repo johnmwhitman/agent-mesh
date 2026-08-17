@@ -1,7 +1,7 @@
 # A2A Local Admission Profile v0.1
 
 > **STATUS — bounded evidence-alpha restored, 2026-07-29.** The TypeScript
-> evaluator, independent Python witness, shared 44-case corpus, and closed
+> evaluator, independent Python witness, shared 69-case corpus, and closed
 > StaticHarnessMapping sidecar fixtures are executable again on the current
 > branch. They remain test-only and outside package/MCP/CLI surfaces. The
 > corpus does not yet satisfy every exhaustive family and cardinality row in
@@ -443,14 +443,14 @@ every case. Required families are:
 | depth/numeric | request depth 8/9; local negative/`-0`/fraction/exponent/unsafe integers; envelope depth/numbers use unchanged 4A vectors |
 | precedence | mutation canary for every adjacent A00-A13 pair; request framing/fixed fields beat envelope; envelope beats evidence/policy; denied cases zero oracle calls; malformed oracle hidden by denial |
 | envelope | malformed syntax, duplicate key, byte/depth, unknown field, number, recipient, and every 4A invalid family map only to `MALFORMED_ENVELOPE` with prefixed exact path; audience; wildcard; duplicate/self-recipient behavior; unchanged digest |
-| evidence | every field/type/grammar; provenance; issuance/expiry equalities; lifetime 300000/300001 |
+| evidence | every field/type/grammar; provenance; issuance/expiry equalities; lifetime 300000/300001; adapter/opaque grammars; local-time type/range; ordering classes |
 | binding | snapshot fields/version/provenance; 0/256/257 rules; interval edges; duplicate key source index; exact adapter/principal/audience/session/sender; prohibited fields |
 | authorization | snapshot fields/version/provenance; 0/2048/2049 rules; 1/5/6 types; 1/128/129 recipients; duplicates; session key; action; every recipient denial; prohibited fields |
 | relativity | plan IDs/versions only; changed fixture can change decision; no operational-current/provenance/revocation claim |
 | oracle/results | six verdicts, throw/malformed; exact call arguments; sole success; five dispositions; every rejected code; no uppercase/generic replay; no second digest/extra field |
 | privacy | capability/profile/proof/model/runtime/receipt/conformance/provider/environment/secret input cannot affect authorization or diagnostics |
 
-The current evidence-alpha corpus has 44 mandatory cases. It proves the closed
+The current evidence-alpha corpus has 69 mandatory cases. It proves the closed
 one-operation raw boundary, all replay verdict mappings, representative
 precedence and denial, exact TypeScript/Python bytes, recipient-order
 normalization, byte-limit edges, authorization message-type and recipient
