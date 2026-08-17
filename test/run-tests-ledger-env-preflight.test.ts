@@ -31,7 +31,17 @@ const runner = join(repoRoot, "scripts", "run-tests.mjs");
 
 const preflightModulePath = join(repoRoot, "scripts", "lib", "ledger-env-preflight.mjs");
 const preflightModuleUrl = pathToFileURL(preflightModulePath).href;
-const { BANNED_LEDGER_ENV, findLedgerEnvOverrides, ledgerEnvRefusal } =
+const {
+  BANNED_LEDGER_ENV,
+  betterSqlite3NativeRefusal,
+  findBetterSqlite3NativeProblem,
+  findLedgerEnvOverrides,
+  findPythonPathProblem,
+  ledgerEnvRefusal,
+  parsePythonVersionOutput,
+  pythonPathRefusal,
+  pythonVersionMeetsMinimum,
+} =
   await import(preflightModuleUrl);
 
 test("every ledger path variable that actually overrides is banned", () => {
@@ -153,6 +163,48 @@ test("the runner refuses immediately, and does not run the suite", () => {
     "the refusal must come before any test executes"
   );
   assert.ok(Date.now() - started < 15_000, "the refusal must be immediate");
+});
+
+test("python PATH preflight refuses the PEP 604 false-red shape", () => {
+  assert.deepEqual(parsePythonVersionOutput("Python 3.9.6"), {
+    major: 3,
+    minor: 9,
+    patch: 6,
+    text: "Python 3.9.6",
+  });
+  assert.equal(pythonVersionMeetsMinimum(parsePythonVersionOutput("Python 3.9.6")), false);
+  assert.equal(pythonVersionMeetsMinimum(parsePythonVersionOutput("Python 3.10.0")), true);
+  assert.equal(pythonVersionMeetsMinimum(parsePythonVersionOutput("Python 3.14.6")), true);
+
+  const problem = findPythonPathProblem({}, () => ({ stdout: "Python 3.9.6\n", stderr: "", status: 0 }));
+  assert.equal(problem?.version?.text, "Python 3.9.6");
+
+  const text = pythonPathRefusal(problem);
+  assert.match(text, /PATH resolves python3/);
+  assert.match(text, /Python 3\.9\.6/);
+  assert.match(text, /PEP 604/);
+  assert.match(text, /four-test cascade/);
+  assert.match(text, /Python 3\.10\+/);
+
+  assert.equal(findPythonPathProblem({}, () => ({ stdout: "Python 3.11.15\n", stderr: "", status: 0 })), null);
+  assert.equal(findPythonPathProblem({}, () => ({ error: { code: "ENOENT" } })), null);
+});
+
+test("better-sqlite3 preflight turns native ABI explosions into one refusal", () => {
+  assert.equal(findBetterSqlite3NativeProblem(() => ({})), null);
+  const problem = findBetterSqlite3NativeProblem(
+    () => {
+      throw new Error("The module was compiled against a different Node.js version using NODE_MODULE_VERSION 147");
+    },
+    { node: "24.18.1", modules: "137" },
+  );
+
+  assert.match(problem?.message ?? "", /NODE_MODULE_VERSION 147/);
+  const text = betterSqlite3NativeRefusal(problem);
+  assert.match(text, /better-sqlite3 cannot load/);
+  assert.match(text, /NODE_MODULE_VERSION=137/);
+  assert.match(text, /shell Node 26/);
+  assert.match(text, /npm rebuild better-sqlite3/);
 });
 
 test("this very run is the negative case", () => {

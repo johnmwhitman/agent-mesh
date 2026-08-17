@@ -1,7 +1,7 @@
 # MeshFleet public handoff
 
 **Source version:** `0.21.1` · **MCP surface:** **37 MCP tools** ·
-**current suite contract:** **1767/1767** tests collected, plus typecheck and build
+**current suite contract:** **1769/1769** tests collected, plus typecheck and build
 
 The latest completed cross-platform proof is GitHub Actions run `31315444631`
 at `e14bd8f` (9/9 jobs across Node 20/22/24 on Ubuntu, macOS, and Windows). It
@@ -126,8 +126,10 @@ authorize spend. Runtime execution and advisory ranking remain separate contract
   with a monotonic safety ceiling, including completion beyond the former fixed
   two-second budget.
 - `test/run-tests-ledger-env-preflight.test.ts` proves the full-suite launcher
-  rejects shared ledger-path overrides and imports the preflight through a proper
-  file URL on every platform, including Windows path semantics.
+  rejects shared ledger-path overrides, stale `python3` PATH resolution, and
+  `better-sqlite3` native-addon load failures before any suite scan executes;
+  it also imports the preflight through a proper file URL on every platform,
+  including Windows path semantics.
 - `test/success-carries-no-error.test.ts` proves successful agents do not persist
   raw stderr as `Agent.error`; bounded normalized diagnostics remain available.
 

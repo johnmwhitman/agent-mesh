@@ -1,5 +1,10 @@
-// Preflight for `node scripts/run-tests.mjs`: refuse to run when a ledger PATH is set in
-// the environment.
+import { spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
+
+const requireForPreflight = createRequire(import.meta.url);
+
+// Preflight for `node scripts/run-tests.mjs`: refuse verifier-environment shapes that
+// make a green tree look red.
 //
 // The suite manages its own ledgers in-process. A ledger path set in the environment
 // OUTRANKS that, and the failure it produces names an innocent test:
@@ -31,6 +36,8 @@ export const BANNED_LEDGER_ENV = [
   "MESHFLEET_DATA_FILE",
   "AGENT_MESH_DATA_FILE", // deprecated alias, still honored by resolveEnv (src/env.ts:26)
 ];
+
+export const MINIMUM_PYTHON3 = { major: 3, minor: 10 };
 
 /**
  * Names of banned ledger-path variables that are actually in effect.
@@ -77,6 +84,78 @@ export function ledgerEnvRefusal(names) {
     "MESHFLEET_EVENT_LOG_FILE is the only ledger variable this suite tolerates. The",
     "three-variable isolation law governs runs that SPAWN THE SERVER or OPEN A LEDGER",
     "directly. The suite is not one of those, and applying that law here is what reddens it.",
+    "",
+  ].join("\n");
+}
+
+export function parsePythonVersionOutput(output) {
+  const match = String(output).match(/\bPython\s+(\d+)\.(\d+)(?:\.(\d+))?\b/);
+  if (!match) return null;
+  return {
+    major: Number(match[1]),
+    minor: Number(match[2]),
+    patch: Number(match[3] ?? 0),
+    text: match[0],
+  };
+}
+
+export function pythonVersionMeetsMinimum(version, minimum = MINIMUM_PYTHON3) {
+  if (!version) return false;
+  if (version.major !== minimum.major) return version.major > minimum.major;
+  return version.minor >= minimum.minor;
+}
+
+export function findPythonPathProblem(env = process.env, run = spawnSync) {
+  const result = run("python3", ["--version"], { encoding: "utf8", env });
+  if (result?.error?.code === "ENOENT") return null;
+  const output = `${result?.stdout ?? ""}${result?.stderr ?? ""}`.trim();
+  const version = parsePythonVersionOutput(output);
+  if (!version || pythonVersionMeetsMinimum(version)) return null;
+  return { output, version };
+}
+
+export function pythonPathRefusal(problem) {
+  const seen = problem?.version?.text ?? problem?.output ?? "an older python3";
+  return [
+    "",
+    "Refusing to run the suite: PATH resolves python3 to a version too old for the witnesses.",
+    "",
+    `  python3 --version => ${seen}`,
+    "",
+    "The A2A reference witnesses execute through the literal `python3` command and use",
+    "PEP 604 union syntax (`X | None`), which Python 3.9 parses as a syntax error.",
+    "That produced the tick-39 four-test cascade even though the TypeScript tree was green.",
+    "",
+    `Put Python ${MINIMUM_PYTHON3.major}.${MINIMUM_PYTHON3.minor}+ ahead of /usr/bin on PATH, then rerun the verifier.`,
+    "On this lane the known-good shape is Homebrew/Hermes python before /usr/bin, with",
+    "MESHFLEET_EVENT_LOG_FILE as the only MeshFleet verifier variable.",
+    "",
+  ].join("\n");
+}
+
+export function findBetterSqlite3NativeProblem(requireFn = requireForPreflight, versions = process.versions) {
+  try {
+    requireFn("better-sqlite3");
+    return null;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { message, node: versions.node, modules: versions.modules };
+  }
+}
+
+export function betterSqlite3NativeRefusal(problem) {
+  return [
+    "",
+    "Refusing to run the suite: better-sqlite3 cannot load under this Node runtime.",
+    "",
+    `  node=${problem?.node ?? process.versions.node} NODE_MODULE_VERSION=${problem?.modules ?? process.versions.modules}`,
+    `  ${String(problem?.message ?? "native addon load failed").split("\n")[0]}`,
+    "",
+    "A better-sqlite3 native addon built under shell Node 26 produces a hundreds-test",
+    "SQLite cascade when the canonical verifier runs under pinned Node 24.18.1. Rebuild",
+    "the addon under the same Node that will run the verifier, then rerun:",
+    "",
+    "  npm rebuild better-sqlite3",
     "",
   ].join("\n");
 }

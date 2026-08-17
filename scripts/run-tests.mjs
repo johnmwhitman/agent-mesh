@@ -7,7 +7,14 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
 import { spawnSync } from "node:child_process";
-import { findLedgerEnvOverrides, ledgerEnvRefusal } from "./lib/ledger-env-preflight.mjs";
+import {
+  betterSqlite3NativeRefusal,
+  findBetterSqlite3NativeProblem,
+  findLedgerEnvOverrides,
+  findPythonPathProblem,
+  ledgerEnvRefusal,
+  pythonPathRefusal,
+} from "./lib/ledger-env-preflight.mjs";
 
 // Ledger-env preflight. FIRST, before any scan — a ledger path in the environment outranks
 // the isolation the tests install for themselves, and the suite then fails in files the
@@ -20,6 +27,25 @@ import { findLedgerEnvOverrides, ledgerEnvRefusal } from "./lib/ledger-env-prefl
 const ledgerEnvOverrides = findLedgerEnvOverrides(process.env);
 if (ledgerEnvOverrides.length > 0) {
   console.error(ledgerEnvRefusal(ledgerEnvOverrides));
+  process.exit(1);
+}
+
+// Python PATH preflight. Several blackbox witnesses intentionally spawn `python3` by
+// literal name because their READMEs document that command. If PATH resolves it to macOS'
+// /usr/bin/python3 3.9, PEP 604 (`X | None`) syntax failures look like product regressions
+// in four A2A witness tests. Refuse the environment before the suite points at the wrong file.
+const pythonPathProblem = findPythonPathProblem(process.env);
+if (pythonPathProblem) {
+  console.error(pythonPathRefusal(pythonPathProblem));
+  process.exit(1);
+}
+
+// Native-addon preflight. better-sqlite3 must load under the same Node runtime that runs
+// this process. An addon built under shell Node 26, then tested under pinned Node 24, emits
+// a NODE_MODULE_VERSION mismatch and cascades through every SQLite-backed test.
+const betterSqlite3Problem = findBetterSqlite3NativeProblem();
+if (betterSqlite3Problem) {
+  console.error(betterSqlite3NativeRefusal(betterSqlite3Problem));
   process.exit(1);
 }
 
