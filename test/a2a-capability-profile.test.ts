@@ -303,6 +303,48 @@ test("direct objects cannot satisfy schemas through polluted prototypes", () => 
   }
 });
 
+test("polluted provenance members fail closed instead of corrupting normalized output", () => {
+  const reported = structuredClone(byId("proof.attested-complete").invocation_args.raw_profile) as Record<string, unknown>;
+  delete (reported.claims as Array<Record<string, unknown>>)[0]!.proof;
+  (reported.claims as Array<Record<string, unknown>>)[0]!.provenance = { level: "reported" };
+  Object.defineProperty(Object.prototype, "issuer_ref", { configurable: true, value: "ref_polluted_prototype_issuer_0000000000000000000" });
+  try {
+    const result = validateProfile(reported, 1760000000000) as { ok: boolean; value: Record<string, unknown> };
+    assert.equal(result.value.valid, false);
+    assert.deepEqual((result.value.errors as Array<Record<string, unknown>>)[0]!, { code: "INVALID_PROVENANCE", field_path: "$.claims[0].provenance.issuer_ref" });
+  } finally {
+    delete (Object.prototype as Record<string, unknown>).issuer_ref;
+  }
+});
+
+test("ASCII grammar rejects trailing newline exactly as the Python fullmatch witness does", () => {
+  const base = structuredClone(byId("profile.empty-claims").invocation_args.raw_profile) as Record<string, unknown>;
+  const claim = structuredClone(((byId("proof.attested-complete").invocation_args.raw_profile as Record<string, unknown>).claims as Array<Record<string, unknown>>)[0]!) as Record<string, unknown>;
+  for (const id of ["cp_aaaaaaaaaaaaaaaaaaaa\n", "ref_iiiiiiiiiiiiiiiiiiii\n", "clm_tttttttttttttttttttt\n", "nonce_nnnnnnnnnnnnnnnnnnnn\n", "sha256:" + "a".repeat(64) + "\n", "1.2.3\n", "capability-id\n"]) {
+    const candidate = structuredClone(base) as Record<string, unknown>;
+    if (id.startsWith("ref_")) (candidate.issuer as Record<string, unknown>).ref = id;
+    else if (id.startsWith("clm_")) { candidate.claims = [structuredClone(claim)]; (candidate.claims as Array<Record<string, unknown>>)[0]!.claim_id = id; }
+    else if (id.startsWith("nonce_")) { candidate.claims = [structuredClone(claim)]; (candidate.claims as Array<Record<string, unknown>>)[0]!.provenance = { level: "reported", issuer_ref: "ref_iiiiiiiiiiiiiiiiiiii", observed_at_ms: 1760000000000, probe_ref: "ref_pppppppppppppppppppp" }; }
+    else if (id.startsWith("sha256:")) { candidate.claims = [structuredClone(claim)]; (candidate.claims as Array<Record<string, unknown>>)[0]!.proof = { ...((byId("proof.attested-complete").invocation_args.raw_profile as Record<string, unknown>).claims as Array<Record<string, unknown>>)[0]!.proof as Record<string, unknown>, proof_digest: id }; }
+    else if (id.includes(".")) { candidate.claims = [structuredClone(claim)]; (candidate.claims as Array<Record<string, unknown>>)[0]!.applicability = { protocol_versions: ["tcp/" + id], transport_families: [], operations: [] }; }
+    else candidate.profile_id = id;
+    const result = validateProfile(candidate, 1760000000000) as { ok: boolean; value: { valid: boolean } };
+    assert.equal(result.value.valid, false, id);
+  }
+});
+
+test("proof key order never leaks into normalized claims or fingerprints", () => {
+  const profile = structuredClone(byId("proof.attested-complete").invocation_args.raw_profile) as Record<string, unknown>;
+  const proof = ((profile.claims as Array<Record<string, unknown>>)[0]!).proof as Record<string, unknown>;
+  const keys = Object.keys(proof);
+  const reordered = structuredClone(profile);
+  (reordered.claims as Array<Record<string, unknown>>)[0]!.proof = Object.fromEntries([...keys].reverse().map((key) => [key, proof[key]]));
+  const canonical = validReport("proof.attested-complete");
+  const reorderedReport = validateProfile(reordered, 1760000000000) as { ok: boolean; value: Record<string, unknown> };
+  assert.equal(reorderedReport.value.profile_fingerprint, canonical.profile_fingerprint);
+  assert.deepEqual(((reorderedReport.value.proof_results as Array<Record<string, unknown>>)[0]!).claim_fingerprint, (canonical.proof_results as Array<Record<string, unknown>>)[0]!.claim_fingerprint);
+});
+
 test("compiler AST proves the dormant static dependency boundary and private fingerprints", () => {
   const source = readFileSync(sourcePath, "utf8");
   const file = ts.createSourceFile(sourcePath, source, ts.ScriptTarget.ES2022, true, ts.ScriptKind.TS);

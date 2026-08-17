@@ -55,15 +55,15 @@ function sortErrors(errors: ErrorRecord[]): ErrorRecord[] {
 function minPath<T extends { path: string }>(items: T[]): T | undefined { return items.sort((a, b) => compareAscii(a.path, b.path))[0]; }
 function safeInteger(value: unknown, nonnegative = false): value is number { return typeof value === "number" && Number.isSafeInteger(value) && (!nonnegative || value >= 0); }
 function string(value: unknown): value is string { return typeof value === "string"; }
-function opaque(value: unknown): value is string { return string(value) && /^ref_[A-Za-z0-9_-]{20,84}$/.test(value); }
-function profileId(value: unknown): value is string { return string(value) && /^cp_[A-Za-z0-9_-]{20,84}$/.test(value); }
-function claimId(value: unknown): value is string { return string(value) && /^clm_[A-Za-z0-9_-]{20,84}$/.test(value); }
-function nonce(value: unknown): value is string { return string(value) && /^nonce_[A-Za-z0-9_-]{20,84}$/.test(value); }
-function canonicalId(value: unknown): value is string { return string(value) && Buffer.byteLength(value, "utf8") <= 96 && /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/.test(value); }
-function exactVersion(value: unknown): value is string { return string(value) && Buffer.byteLength(value, "utf8") <= 32 && /^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:\.(?:0|[1-9][0-9]*))?$/.test(value); }
+function opaque(value: unknown): value is string { return string(value) && /^ref_[A-Za-z0-9_-]{20,84}$(?![\s\S])/.test(value); }
+function profileId(value: unknown): value is string { return string(value) && /^cp_[A-Za-z0-9_-]{20,84}$(?![\s\S])/.test(value); }
+function claimId(value: unknown): value is string { return string(value) && /^clm_[A-Za-z0-9_-]{20,84}$(?![\s\S])/.test(value); }
+function nonce(value: unknown): value is string { return string(value) && /^nonce_[A-Za-z0-9_-]{20,84}$(?![\s\S])/.test(value); }
+function canonicalId(value: unknown): value is string { return string(value) && Buffer.byteLength(value, "utf8") <= 96 && /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$(?![\s\S])/.test(value); }
+function exactVersion(value: unknown): value is string { return string(value) && Buffer.byteLength(value, "utf8") <= 32 && /^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:\.(?:0|[1-9][0-9]*))?$(?![\s\S])/.test(value); }
 function protocolRef(value: unknown): value is string { if (!string(value) || Buffer.byteLength(value, "utf8") > 129) return false; const cut = value.lastIndexOf("/"); return cut > 0 && canonicalId(value.slice(0, cut)) && exactVersion(value.slice(cut + 1)); }
-function label(value: unknown): value is string { return string(value) && /^[A-Za-z0-9][A-Za-z0-9._+@-]{0,95}$/.test(value); }
-function digest(value: unknown): value is string { return string(value) && /^sha256:[0-9a-f]{64}$/.test(value); }
+function label(value: unknown): value is string { return string(value) && /^[A-Za-z0-9][A-Za-z0-9._+@-]{0,95}$(?![\s\S])/.test(value); }
+function digest(value: unknown): value is string { return string(value) && /^sha256:[0-9a-f]{64}$(?![\s\S])/.test(value); }
 function fieldPath(value: unknown): value is string { return string(value) && Buffer.byteLength(value, "utf8") <= 256 && (/^\$evaluation_time_ms$/.test(value) || /^\$(?:\.[a-z][a-z0-9_]*|\[[0-9]+\])*$/.test(value)); }
 function validTime(value: unknown): value is number { return safeInteger(value, true); }
 function evaluationError(): JsonRecord { return { ok: false, error: { code: "INVALID_EVALUATION_TIME", field_path: "$evaluation_time_ms" } }; }
@@ -293,7 +293,10 @@ function normalizeProvenance(value: unknown, claim: JsonRecord, path: string, er
     if (!opaque(value.probe_ref)) errors.push({ code: "INVALID_PROVENANCE", field_path: pathJoin(path, "probe_ref") });
   }
   const normalized: JsonRecord = { level };
-  for (const key of ["issuer_ref", "observed_at_ms", "probe_ref"]) if (key in value) normalized[key] = value[key];
+  // Own-property reads only: a polluted Object.prototype member must never be
+  // copied into normalized provenance (it would corrupt fingerprints or crash
+  // strict-mode assignment).
+  for (const key of ["issuer_ref", "observed_at_ms", "probe_ref"]) if (own(value, key)) normalized[key] = value[key];
   return normalized;
 }
 function normalizeProof(value: unknown, claim: JsonRecord, provenance: JsonRecord, path: string, errors: ErrorRecord[]): JsonRecord | undefined {
@@ -304,14 +307,18 @@ function normalizeProof(value: unknown, claim: JsonRecord, provenance: JsonRecor
   const hasDigest = own(value, "proof_digest"); const hasRef = own(value, "proof_ref");
   if (hasDigest === hasRef) errors.push({ code: "INVALID_PROOF_CARRIER", field_path: path });
   unknownFields(value, [...keys, "proof_digest", "proof_ref"], path, errors, true);
-  for (const key of ["issuer_ref", "audience_ref", "verification_method_ref"]) if (!opaque(value[key])) errors.push({ code: "INVALID_PROOF_CARRIER", field_path: pathJoin(path, key) });
-  if (!nonce(value.challenge)) errors.push({ code: "INVALID_PROOF_CARRIER", field_path: pathJoin(path, "challenge") });
-  if (!label(value.proof_format)) errors.push({ code: "INVALID_PROOF_CARRIER", field_path: pathJoin(path, "proof_format") });
-  if (hasDigest && !digest(value.proof_digest)) errors.push({ code: "INVALID_PROOF_CARRIER", field_path: pathJoin(path, "proof_digest") });
-  if (hasRef && !opaque(value.proof_ref)) errors.push({ code: "INVALID_PROOF_CARRIER", field_path: pathJoin(path, "proof_ref") });
+  for (const key of ["issuer_ref", "audience_ref", "verification_method_ref"]) if (!own(value, key) || !opaque(value[key])) errors.push({ code: "INVALID_PROOF_CARRIER", field_path: pathJoin(path, key) });
+  if (!own(value, "challenge") || !nonce(value.challenge)) errors.push({ code: "INVALID_PROOF_CARRIER", field_path: pathJoin(path, "challenge") });
+  if (!own(value, "proof_format") || !label(value.proof_format)) errors.push({ code: "INVALID_PROOF_CARRIER", field_path: pathJoin(path, "proof_format") });
+  if (hasDigest && (!own(value, "proof_digest") || !digest(value.proof_digest))) errors.push({ code: "INVALID_PROOF_CARRIER", field_path: pathJoin(path, "proof_digest") });
+  if (hasRef && (!own(value, "proof_ref") || !opaque(value.proof_ref))) errors.push({ code: "INVALID_PROOF_CARRIER", field_path: pathJoin(path, "proof_ref") });
   if (provenance.issuer_ref !== undefined && value.issuer_ref !== provenance.issuer_ref) errors.push({ code: "INVALID_PROOF_CARRIER", field_path: pathJoin(path, "issuer_ref") });
   if (!validTime(value.issued_at_ms) || !validTime(value.not_before_ms) || !validTime(value.expires_at_ms) || !validTime(claim.issued_at_ms) || !validTime(claim.expires_at_ms) || value.issued_at_ms < claim.issued_at_ms || value.issued_at_ms > value.not_before_ms || value.not_before_ms >= value.expires_at_ms || value.expires_at_ms > claim.expires_at_ms) errors.push({ code: "INVALID_PROOF_CARRIER", field_path: pathJoin(path, "expires_at_ms") });
-  return { ...value };
+  const normalized: JsonRecord = {};
+  // Canonical key order (proof_digest when present, else proof_ref), exactly as
+  // the Python witness emits: input key order must never leak into fingerprints.
+  for (const key of [...keys, hasDigest ? "proof_digest" : "proof_ref"]) if (own(value, key)) normalized[key] = value[key];
+  return normalized;
 }
 function normalizeClaim(value: unknown, path: string, errors: ErrorRecord[], deferExtensions: boolean): JsonRecord | undefined {
   if (!record(value)) { errors.push({ code: "INVALID_CLAIM_SCHEMA", field_path: path }); return undefined; }

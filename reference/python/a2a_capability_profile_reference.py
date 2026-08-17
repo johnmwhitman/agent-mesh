@@ -115,8 +115,10 @@ def norm_app(v,base,errors):
     required(v,["protocol_versions","transport_families","operations"],base,errors,"INVALID_APPLICABILITY"); unknown(v,["protocol_versions","transport_families","operations"],base,errors)
     return {"protocol_versions":norm_set(v.get("protocol_versions"),16,protocol_ref,path(base,"protocol_versions"),errors),"transport_families":norm_set(v.get("transport_families"),16,canonical_id,path(base,"transport_families"),errors),"operations":norm_set(v.get("operations"),32,canonical_id,path(base,"operations"),errors)}
 def norm_provenance(v,claim,base,errors):
-    if not is_obj(v) or v.get("level") not in {"advertised","reported","observed","attested"}:
+    if not is_obj(v):
         errors.append(err("INVALID_PROVENANCE",base)); return {"level":"advertised"}
+    if v.get("level") not in {"advertised","reported","observed","attested"}:
+        errors.append(err("INVALID_PROVENANCE",path(base,"level"))); return {"level":"advertised"}
     level=v["level"]
     req={"advertised":["level"],"reported":["level","issuer_ref"],"observed":["level","issuer_ref","observed_at_ms","probe_ref"],"attested":["level","issuer_ref"]}[level]
     required(v,req,base,errors,"INVALID_PROVENANCE"); unknown(v,req,base,errors)
