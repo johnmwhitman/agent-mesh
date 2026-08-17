@@ -16,7 +16,7 @@ ADRs, current source, and executable fixtures outrank this summary.
   fixture-verified adapters. MiniMax is explicit-only. Per-agent
   runtime selection is available in legacy lifecycle mode and refused in
   durable mode.
-- Slice 4C-1 is a test-only offline local-admission evaluator. Its 112 mandatory cases,
+- Slice 4C-1 is a test-only offline local-admission evaluator. Its 129 mandatory cases,
   Python agreement, and static harness sidecar carry representative Section 9
   family coverage, so it remains `unverified` for source-indexed 4A error
   paths and exhaustive maximum-cardinality boundaries; it stays unexported.

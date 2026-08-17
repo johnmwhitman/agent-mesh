@@ -74,23 +74,27 @@ test("stable local-admission case-count prose reconciles against the canonical c
 
 test("authorization boundary evidence covers the next feasible Section 9 cardinality slice", () => {
   assert.deepEqual(
-    corpus.mandatory_case_ids.filter((id) => id.startsWith("authorization.boundary.")),
+    [...corpus.mandatory_case_ids].filter((id) => id.startsWith("authorization.boundary.")).sort(),
     [
+      "authorization.boundary.all-recipient-denied",
+      "authorization.boundary.duplicate-message-type",
+      "authorization.boundary.duplicate-recipient",
       "authorization.boundary.message-types-5",
       "authorization.boundary.message-types-6",
       "authorization.boundary.recipients-128",
       "authorization.boundary.recipients-129",
-      "authorization.boundary.duplicate-message-type",
-      "authorization.boundary.duplicate-recipient",
-      "authorization.boundary.all-recipient-denied",
     ],
   );
 });
 
 test("authentication-evidence boundaries stay ordered and preserve their terminal semantics", () => {
-  const evidenceCases = corpus.cases.filter((item) => item.id.startsWith("evidence."));
+  const ordered = new Map(corpus.cases.map((item) => [item.id, item]));
+  const evidenceCases = corpus.mandatory_case_ids.filter((id) => id.startsWith("evidence.")).map((id) => ordered.get(id)!);
+  const evidenceById = new Map(evidenceCases.map((item) => [item.id, item]));
   assert.deepEqual(
-    evidenceCases.slice(0, 6).map((item) => item.id),
+    ["evidence.invalid", "evidence.provenance-invalid", "evidence.issued-at-evaluation-valid",
+     "evidence.expires-at-evaluation-denied", "evidence.lifetime-300000-valid", "evidence.lifetime-300001-denied"]
+      .map((id) => evidenceById.get(id)!.id),
     [
       "evidence.invalid",
       "evidence.provenance-invalid",
@@ -100,18 +104,22 @@ test("authentication-evidence boundaries stay ordered and preserve their termina
       "evidence.lifetime-300001-denied",
     ],
   );
+  const expectedByPosition = [
+    { result: { kind: "rejected", code: "INVALID_AUTHENTICATION_EVIDENCE", field_path: "$.authentication_evidence.provenance" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+    evidenceById.get("evidence.issued-at-evaluation-valid")!.expected,
+    { result: { kind: "rejected", code: "AUTHORIZATION_DENIED", field_path: "$" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+    evidenceById.get("evidence.lifetime-300000-valid")!.expected,
+    { result: { kind: "rejected", code: "AUTHORIZATION_DENIED", field_path: "$" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+  ];
+  const slice = ["evidence.provenance-invalid", "evidence.issued-at-evaluation-valid",
+    "evidence.expires-at-evaluation-denied", "evidence.lifetime-300000-valid", "evidence.lifetime-300001-denied"]
+    .map((id) => evidenceById.get(id)!);
   assert.deepEqual(
-    evidenceCases.slice(1, 6).map((item) => item.expected),
-    [
-      { result: { kind: "rejected", code: "INVALID_AUTHENTICATION_EVIDENCE", field_path: "$.authentication_evidence.provenance" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
-      corpus.cases[0]!.expected,
-      { result: { kind: "rejected", code: "AUTHORIZATION_DENIED", field_path: "$" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
-      corpus.cases[0]!.expected,
-      { result: { kind: "rejected", code: "AUTHORIZATION_DENIED", field_path: "$" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
-    ],
+    slice.map((item) => item.expected),
+    expectedByPosition,
   );
   assert.deepEqual(
-    evidenceCases.slice(1, 6).map((item) => {
+    slice.map((item) => {
       const request = JSON.parse(item.invocation_args.request_json) as { authentication_evidence: unknown };
       return request.authentication_evidence;
     }),
@@ -141,7 +149,8 @@ test("the 2048-rule profile row exceeds the raw request ceiling by authorization
 });
 
 test("local admission evaluates every required corpus record with exact output bytes and replay evidence", () => {
-  for (const item of corpus.cases) {
+  const ordered = new Map(corpus.cases.map((item) => [item.id, item]));
+  for (const item of corpus.mandatory_case_ids.map((id) => ordered.get(id)!)) {
     const actual = evaluate(item);
     assert.equal(JSON.stringify(actual), JSON.stringify(item.expected), item.id);
   }
@@ -444,6 +453,23 @@ test("Section 9 exhaustive family gates are each closed by at least one mandator
       { id: "binding.rules-256-admits", outcome: (r) => r.kind === "admission_plan" },
       { id: "binding.rules-257", outcome: (r) => r.kind === "rejected" && r.code === "INVALID_BINDING_SNAPSHOT" },
       { id: "binding.duplicate-key", outcome: (r) => r.kind === "rejected" && r.code === "INVALID_BINDING_SNAPSHOT" },
+      { id: "binding.duplicate-key-second-rule", outcome: (r) => r.kind === "rejected" && r.code === "INVALID_BINDING_SNAPSHOT" },
+      { id: "binding.missing-snapshot-member", outcome: (r) => r.kind === "rejected" && r.code === "INVALID_BINDING_SNAPSHOT" },
+      { id: "binding.unknown-snapshot-member", outcome: (r) => r.kind === "rejected" && r.code === "INVALID_BINDING_SNAPSHOT" },
+      { id: "binding.invalid-snapshot-id", outcome: (r) => r.kind === "rejected" && r.code === "INVALID_BINDING_SNAPSHOT" },
+      { id: "binding.invalid-provenance", outcome: (r) => r.kind === "rejected" && r.code === "INVALID_BINDING_SNAPSHOT" },
+      { id: "binding.invalid-effective-from", outcome: (r) => r.kind === "rejected" && r.code === "INVALID_BINDING_SNAPSHOT" },
+      { id: "binding.invalid-effective-until", outcome: (r) => r.kind === "rejected" && r.code === "INVALID_BINDING_SNAPSHOT" },
+      { id: "binding.missing-rule-member", outcome: (r) => r.kind === "rejected" && r.code === "INVALID_BINDING_SNAPSHOT" },
+      { id: "binding.unknown-rule-member", outcome: (r) => r.kind === "rejected" && r.code === "INVALID_BINDING_SNAPSHOT" },
+      { id: "binding.invalid-rule-adapter", outcome: (r) => r.kind === "rejected" && r.code === "INVALID_BINDING_SNAPSHOT" },
+      { id: "binding.invalid-rule-principal", outcome: (r) => r.kind === "rejected" && r.code === "INVALID_BINDING_SNAPSHOT" },
+      { id: "binding.invalid-rule-sender", outcome: (r) => r.kind === "rejected" && r.code === "INVALID_BINDING_SNAPSHOT" },
+      { id: "binding.context-mismatch-adapter", outcome: (r) => r.kind === "rejected" && r.code === "AUTHORIZATION_DENIED" },
+      { id: "binding.context-mismatch-principal", outcome: (r) => r.kind === "rejected" && r.code === "AUTHORIZATION_DENIED" },
+      { id: "binding.context-mismatch-audience", outcome: (r) => r.kind === "rejected" && r.code === "AUTHORIZATION_DENIED" },
+      { id: "binding.context-mismatch-session", outcome: (r) => r.kind === "rejected" && r.code === "AUTHORIZATION_DENIED" },
+      { id: "binding.sender-mismatch", outcome: (r) => r.kind === "rejected" && r.code === "AUTHORIZATION_DENIED" },
       { id: "binding.empty-interval", outcome: (r) => r.kind === "rejected" && r.code === "AUTHORIZATION_DENIED" },
       { id: "binding.future-interval", outcome: (r) => r.kind === "rejected" && r.code === "AUTHORIZATION_DENIED" },
       { id: "binding.expired-interval", outcome: (r) => r.kind === "rejected" && r.code === "AUTHORIZATION_DENIED" },
@@ -482,7 +508,7 @@ test("Section 9 exhaustive family gates are each closed by at least one mandator
       assert.ok(entry.outcome(result), `family ${family}: case ${entry.id} no longer proves its gate: ${JSON.stringify(result)}`);
     }
   }
-  assert.equal(corpus.mandatory_case_ids.length, 112, "canonical corpus must stay at 112 mandatory cases");
+  assert.equal(corpus.mandatory_case_ids.length, 129, "canonical corpus must stay at 129 mandatory cases");
 });
 
 test("the static sidecar has seven exact-null positives and all required closed negative cases", () => {

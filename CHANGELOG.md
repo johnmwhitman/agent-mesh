@@ -6,6 +6,14 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 
 ### Added
 
+- **Slice 4C-1 local-admission corpus expanded 112 → 129 mandatory cases.**
+  New binding-family Section 9 coverage: snapshot missing/unknown members,
+  invalid snapshot id/provenance/interval fields, rule missing/unknown members,
+  invalid rule adapter/principal/sender, duplicate key at the second rule path
+  (source-indexed), adapter/principal/audience/session context mismatch, and
+  envelope-sender equality mismatch. TypeScript and the Python witness agree
+  byte-for-byte on all 129 cases; the family-gate test pins the corpus at 129.
+
 - **Slice 4C-1 local-admission corpus expanded 44 → 112 mandatory cases.** New
   Section 9 family coverage: literal/escaped/nested duplicate keys, BOM /
   non-JSON whitespace / comment / trailing data, bad escapes and raw control

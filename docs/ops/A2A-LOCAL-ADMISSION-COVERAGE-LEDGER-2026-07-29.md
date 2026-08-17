@@ -4,7 +4,7 @@ Status: bounded offline evidence only. This ledger records executable coverage,
 not profile conformance, authority, acceptance, persistence, delivery, or
 transport capability.
 
-Base reviewed: `2760310` (origin/main). Corpus: 112 mandatory raw-text cases in
+Base reviewed: `2760310` (origin/main). Corpus: 129 mandatory raw-text cases in
 `test/fixtures/a2a/local-admission/v0.1/corpus.json`; every case is evaluated by
 the TypeScript implementation and mandatory Python witness with exact result
 bytes, replay call count, and replay arguments.
@@ -17,7 +17,7 @@ bytes, replay call count, and replay arguments.
 | precedence | representative request, envelope, denial, replay, and expiry ordering | **CLOSED bounded subfamily:** request-wins-envelope; envelope-wins-evidence; denial hides malformed oracle and throw | mutation canary for each adjacent A00-A13 pair |
 | envelope | malformed and recipient representatives plus audience/self-recipient ordinary tests | **CLOSED bounded subfamily:** duplicate key; type/sender/recipient-element/payload-body/expiry/message-id/audience/number invalids; duplicate/self/empty/wildcard recipients | all 4A invalid families and exact prefixed source paths |
 | evidence | one invalid field representative | **CLOSED bounded subfamily:** provenance; issued-at equality; expires-at equality; lifetime 300000/300001; adapter/audience/session/principal invalids; missing/unknown field; lifetime overlong | every remaining field/type/grammar vector |
-| binding | one invalid field representative | **CLOSED bounded subfamily:** empty rules; 256 rules admit; 257 rules reject; duplicate key; empty/future/expired intervals | fields, context mismatch, and source-indexed duplicate in every object |
+| binding | one invalid field representative | **CLOSED bounded subfamily:** empty rules; 256 rules admit; 257 rules reject; duplicate key; empty/future/expired intervals; snapshot missing/unknown members; invalid snapshot id/provenance/interval fields; rule missing/unknown members; invalid rule adapter/principal/sender; source-indexed duplicate at second rule path; adapter/principal/audience/session context mismatch; envelope-sender equality mismatch | rule-name/agent-reference grammar classes beyond sender, and source-indexed duplicates in authorization objects |
 | authorization | valid one type/recipient; one invalid action; generic denial | **CLOSED bounded subfamily:** types 5/6; recipients 128/129; duplicate type and recipient source index; all-recipient denial before replay; empty rules; invalid type value; six types; duplicate key; session denial | snapshot fields/provenance, rule-count edge, and other policy contexts |
 | relativity | plan only reports fixture IDs/versions | **CLOSED bounded subfamily:** fixture change flips the decision; plan IDs/versions only | every fixture-sensitivity class |
 | oracle/results | all four non-admission verdicts, unavailable, throw, unseen plan, unseen-only expiry, and exact query | **CLOSED bounded subfamily:** malformed oracle; denial hides malformed oracle and throw | every rejected-code inventory |
