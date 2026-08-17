@@ -406,3 +406,20 @@ test("inspect --compact: empty ledger prints the same guidance as default", () =
     temp.cleanup()
   }
 })
+
+test("inspect --compact --json: empty ledger emits an empty fleets-compact envelope, not prose", () => {
+  const temp = withTempDb()
+  try {
+    const env = { ...process.env, MESHFLEET_DB_FILE: temp.dbFile }
+    const out = runInspectCli(["--compact", "--json"], env)
+    assert.equal(out.status, 0)
+    const envelope = JSON.parse(out.stdout)
+    assert.deepEqual(envelope, {
+      schema: "meshfleet.inspect/v1",
+      kind: "fleets-compact",
+      data: [],
+    })
+  } finally {
+    temp.cleanup()
+  }
+})

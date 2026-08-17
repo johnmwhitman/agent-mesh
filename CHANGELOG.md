@@ -29,7 +29,9 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 - **Opt-in compact fleet status for `agent-mesh inspect`.** `npx agent-mesh inspect --compact` prints
   one line per fleet (`<id> <status> <live counts>`) instead of the padded default block, for
   many-fleet terminal views; `--compact --json` adds a `fleets-compact` kind on the existing
-  `meshfleet.inspect/v1` envelope with the same row objects the full `fleets` kind already serves.
+  `meshfleet.inspect/v1` envelope with compact row projections (id, status, and the same live
+  count fields the full `fleets` kind serves, minus timing fields) — additive, never a
+  replacement.
   The default output bytes are untouched — this is an opt-in projection, not a replacement.
 
 ## [0.21.1] - 2026-08-10
