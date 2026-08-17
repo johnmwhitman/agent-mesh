@@ -7,10 +7,11 @@ import { execFileSync } from "node:child_process";
 const corpusPath = new URL("../test/fixtures/a2a/local-admission/v0.1/corpus.json", import.meta.url);
 // start from the pristine 112-case corpus at the branch base (cd3cdc2), not the
 // branch HEAD which already contains this slice's 129-case corpus
+const repoRoot = new URL("..", import.meta.url).pathname;
 const baseCorpusPath = "/tmp/binding-base-corpus.json";
 if (!existsSync(baseCorpusPath)) {
   // write the base corpus once via git show (streamed to file to avoid ENOBUFS)
-  execFileSync("bash", ["-c", `git -C /Users/johnwhitman/AI/.worktrees/agent-mesh-binding-slice-20260817 show cd3cdc2:test/fixtures/a2a/local-admission/v0.1/corpus.json > ${baseCorpusPath}`]);
+  execFileSync("bash", ["-c", `cd "${repoRoot}" && git show cd3cdc2:test/fixtures/a2a/local-admission/v0.1/corpus.json > /tmp/binding-base-corpus.json`]);
 }
 const corpus = JSON.parse(readFileSync(baseCorpusPath, "utf8"));
 const fresh = JSON.parse(readFileSync("/tmp/binding-new-cases.json", "utf8"));
