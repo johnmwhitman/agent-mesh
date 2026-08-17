@@ -114,3 +114,18 @@ test("README does not assert what the npm registry currently serves", () => {
       hits.join("\n"),
   );
 });
+
+test("README maintenance status does not contradict the repo's own source-version truth", () => {
+  const pkg = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8")) as {
+    version: string;
+  };
+  const sourceIs = /Maintained:[^\n]*?source is\s+`?v?([0-9]+\.[0-9]+\.[0-9]+)/i.exec(readme);
+  if (!sourceIs) {
+    return; // the sibling maintenance-status contract test already requires the durable link form
+  }
+  assert.equal(
+    sourceIs[1],
+    pkg.version,
+    `README.md maintenance line says source is ${sourceIs[1]}, package.json says ${pkg.version}`,
+  );
+});

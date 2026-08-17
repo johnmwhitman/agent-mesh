@@ -4,7 +4,7 @@
 
 **Website**: [meshfleet.app](https://meshfleet.app) · **Source version**: 0.21.1 · [npm](https://www.npmjs.com/package/meshfleet) · [CI](https://github.com/johnmwhitman/agent-mesh/actions)
 
-*Maintained: source is 0.20.0; the newest Git tag is v0.19.0 (2026-07-28); a tag is an intent to ship and [the registry](https://www.npmjs.com/package/meshfleet?activeTab=versions) is the only record of what shipped · issues answered within 48h · no download-count theater.*
+*Maintained: current source and Git tags are visible in [the repository](https://github.com/johnmwhitman/agent-mesh); a tag is an intent to ship and [the registry](https://www.npmjs.com/package/meshfleet?activeTab=versions) is the only record of what shipped · issues answered within 48h · no download-count theater.*
 
 > **Project status — deliberately pre-1.0, actively maintained.** Releases are intentionally
 > infrequent (we cut versions when something is worth shipping, not on a calendar); the repo
