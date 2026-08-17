@@ -468,8 +468,11 @@ function snapshot<T extends BindingRule | AuthorizationRule>(
 
 function projectedEnvelopePath(error: unknown): string {
   const detail = error instanceof Error ? error.message : "";
-  if (detail.includes("recipient")) return "$.envelope.recipients";
-  const field = detail.match(/\b(sender|recipients\[\d+\]|payload(?:\.[a-z_]+)?|scope(?:\.fleet_id)?|protocol|version|kind|message_id|type|issued_at_ms|expires_at_ms|audience|correlation_id|dedupe_key)\b/)?.[1];
+  if (detail.includes("recipient")) {
+    const member = detail.match(/\brecipients(?:\[\d+\])?(?:\.(?:namespace|agent_id))?\b/)?.[0];
+    return member === undefined ? "$.envelope.recipients" : `$.envelope.${member}`;
+  }
+  const field = detail.match(/\b(sender(?:\.(?:namespace|agent_id))?|payload(?:\.(?:media_type|body))?|scope(?:\.fleet_id)?|extensions|protocol|version|kind|message_id|type|issued_at_ms|expires_at_ms|audience|correlation_id|dedupe_key)\b/)?.[1];
   return field === undefined ? "$.envelope" : `$.envelope.${field}`;
 }
 
