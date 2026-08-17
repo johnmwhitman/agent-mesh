@@ -467,6 +467,13 @@ supplied nor exposed. Witnesses import no network, MCP, provider SDK, DB,
 persistence, 4B journal, runtime, transport, credential, environment, secret,
 delivery, outbox, or lifecycle-execution module.
 
+The rejected-code inventory is source-derived and mechanically pinned: the
+corpus must exercise every member of the TypeScript `RejectCode` union and
+every code the mandatory Python witness can emit, and the two inventories must
+agree. The guard re-derives both sets from source, so a new reject code without
+a corpus case fails the suite, and a deleted corpus case that was the only
+evidence for a code fails the suite.
+
 ## 10. Closed StaticHarnessMapping sidecar
 
 This planning sidecar is not admission input, not a `RendererResult` field, and

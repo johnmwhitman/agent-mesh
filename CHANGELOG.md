@@ -2,6 +2,12 @@
 
 All notable changes to Agent Mesh are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Source-derived rejected-code inventory for the local-admission evidence-alpha.** The oracle/results coverage row's "every rejected-code inventory" gap is now closed by a mechanical guard: the corpus must exercise every member of the TypeScript `RejectCode` union and every code the mandatory Python witness can emit, and the two inventories must agree. A new reject code without a corpus case fails the suite; a deleted corpus case that was the only evidence for a code fails the suite.
+
 ## [0.21.1] - 2026-08-10
 
 ### Fixed
