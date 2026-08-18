@@ -83,6 +83,28 @@ test("authorization boundary evidence covers the next feasible Section 9 cardina
   );
 });
 
+test("authorization context mismatch on any single policy field denies the request", () => {
+  const contextCases = corpus.cases.filter((item) => item.id.startsWith("authorization.context."));
+  assert.deepEqual(
+    contextCases.map((item) => item.id),
+    [
+      "authorization.context.adapter-mismatch",
+      "authorization.context.principal-mismatch",
+      "authorization.context.audience-mismatch",
+      "authorization.context.session-mismatch",
+      "authorization.context.sender-mismatch",
+    ],
+  );
+  for (const item of contextCases) {
+    assert.deepEqual(
+      item.expected,
+      { result: { kind: "rejected", code: "AUTHORIZATION_DENIED", field_path: "$" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+      item.id,
+    );
+    assert.equal(item.invocation_args.replay_oracle_result, "unseen", item.id);
+  }
+});
+
 test("authentication-evidence boundaries stay ordered and preserve their terminal semantics", () => {
   const evidenceCases = corpus.cases.filter((item) => item.id.startsWith("evidence."));
   assert.deepEqual(

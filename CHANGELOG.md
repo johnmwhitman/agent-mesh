@@ -2,6 +2,29 @@
 
 All notable changes to Agent Mesh are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Section 9 authorization context-mismatch bounded subfamily.** Five new
+  mandatory corpus cases (`authorization.context.{adapter,principal,audience,
+  session_ref,sender}-mismatch`) prove that an authorization rule whose context
+  field disagrees with the binding/evidence/envelope on any one key denies the
+  request with `AUTHORIZATION_DENIED` at `$`. Each case mutates exactly one
+  authorization-rule field of the existing `valid.admission-plan` fixture and
+  keeps the rest byte-identical, so partial matches, default-allow fallbacks,
+  and silent fallbacks cannot exist. `action` is intentionally excluded because
+  the snapshot validator rejects non-`a2a.message.admit` actions at
+  `$.authorization_snapshot.rules[i].action` as `INVALID_AUTHORIZATION_SNAPSHOT`
+  (grammar class, not context class). Generator:
+  `scripts/gen-auth-context-cases.mjs` (idempotent, pristine-44 sentinel at
+  `/tmp/corpus-pristine-44.json`). Family-pin test in
+  `test/a2a-local-admission.test.ts` asserts the five ids and the
+  `AUTHORIZATION_DENIED@$` outcome. Coverage ledger authorization row now reads
+  CLOSED for the bounded subfamily; the rule-count edge remains the only open
+  item (262144-byte cap + 216-byte rule lower bound makes 2048 rules
+  unrepresentable). Corpus 44 → 49 cases. Suite 1767 → 1768.
+
 ## [0.21.1] - 2026-08-10
 
 ### Fixed
