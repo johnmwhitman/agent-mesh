@@ -2,6 +2,12 @@
 
 All notable changes to Agent Mesh are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Independent-input collision vectors and double-encoding envelope rejection gates.** The Section 9 `independent-input` row of `docs/ops/A2A-LOCAL-ADMISSION-COVERAGE-LEDGER-2026-07-29.md` is CLOSED bounded subfamily: 6 new mandatory corpus cases (44 → 50) pin the profile's "request contains no envelope member; envelope is not double-encoded; each input's byte/depth limit is independent; request error wins collision with envelope error" contract. Two cases (`request.envelope-member-root`, `request.envelope-member-nested`) inject an `envelope` member at the top level and nested inside `authentication_evidence` to pin the rejection (`UNKNOWN_CORE_FIELD` at `$`, `INVALID_AUTHENTICATION_EVIDENCE` at `$.authentication_evidence`). Two positive collision vectors (`request.depth-9-envelope-malformed`, `request.byte-262145-envelope-malformed`) prove request error wins over envelope error when both inputs are at their limit. Two negative-collision vectors (`request.depth-8-envelope-malformed`, `request.byte-262143-envelope-malformed`) prove envelope error wins when the request is structurally valid (depth-8 admits, byte-262143 with the unknown "extra" pad rejects on the top-level field). Generator `scripts/gen-independent-input-cases.mjs` proves RED against the 44-case base (probes TS first, then Python witness) and appends 6 cases with byte-for-byte parity. Family-pin test in `test/a2a-local-admission.test.ts` asserts the 6 ids and per-case outcome codes.
+
 ## [0.21.1] - 2026-08-10
 
 ### Fixed

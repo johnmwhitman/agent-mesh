@@ -4,7 +4,7 @@ Status: bounded offline evidence only. This ledger records executable coverage,
 not profile conformance, authority, acceptance, persistence, delivery, or
 transport capability.
 
-Base reviewed: `2760310` (origin/main). Corpus: 44 mandatory raw-text cases in
+Base reviewed: `c571928` (origin/main). Corpus: 50 mandatory raw-text cases in
 `test/fixtures/a2a/local-admission/v0.1/corpus.json`; every case is evaluated by
 the TypeScript implementation and mandatory Python witness with exact result
 bytes, replay call count, and replay arguments.
@@ -12,7 +12,7 @@ bytes, replay call count, and replay arguments.
 | Section 9 family | Existing executable proof | This slice | Remaining exact gap |
 | --- | --- | --- | --- |
 | request-raw/path | byte 262143/262144/262145; one surrogate, malformed JSON, duplicate key, fraction, depth, and malformed unknown-child representatives | — | BOM, whitespace/comment/trailing variants, literal/escaped duplicates in every request object, and every safe-path class |
-| independent-input | raw-text-only inputs and no request `envelope` member; representative request-before-envelope ordering | — | independent depth/byte collision vectors and double-encoding vectors |
+| independent-input | raw-text-only inputs and no request `envelope` member; representative request-before-envelope ordering | **CLOSED bounded subfamily:** root `envelope` member reject; nested `envelope` member reject; depth 9 + envelope malformed (request error wins); byte 262145 + envelope malformed (request error wins); depth 8 + envelope malformed (envelope error wins); byte 262143 + envelope malformed (envelope error wins) | every remaining circuit-level interaction matrix (concurrency, streaming, partial inputs) |
 | depth/numeric | representative request depth and fraction; 4A retains its own vectors | — | request depth 8/9 and negative, `-0`, exponent, unsafe-integer boundaries |
 | precedence | representative request, envelope, denial, replay, and expiry ordering | — | mutation canary for each adjacent A00-A13 pair |
 | envelope | malformed and recipient representatives plus audience/self-recipient ordinary tests | — | all 4A invalid families and exact prefixed source paths |
@@ -30,6 +30,17 @@ bytes, replay call count, and replay arguments.
 | `evidence.provenance-invalid` | `INVALID_AUTHENTICATION_EVIDENCE` at `$.authentication_evidence.provenance` | 0 |
 | `evidence.issued-at-evaluation-valid`, `evidence.lifetime-300000-valid` | `admission_plan` with the unchanged 4A digest | 1 |
 | `evidence.expires-at-evaluation-denied`, `evidence.lifetime-300001-denied` | `AUTHORIZATION_DENIED` at `$` | 0 |
+
+## Independent-input slice records
+
+| Case IDs | Required outcome | Replay calls |
+| --- | --- | --- |
+| `request.envelope-member-root` | `UNKNOWN_CORE_FIELD` at `$` | 0 |
+| `request.envelope-member-nested` | `INVALID_AUTHENTICATION_EVIDENCE` at `$.authentication_evidence` | 0 |
+| `request.depth-9-envelope-malformed` | `MAX_DEPTH_EXCEEDED` at `$.authentication_evidence` (request error wins over envelope error) | 0 |
+| `request.byte-262145-envelope-malformed` | `REQUEST_TOO_LARGE` at `$` (request error wins over envelope error) | 0 |
+| `request.depth-8-envelope-malformed` | `MALFORMED_ENVELOPE` at `$.envelope` (envelope error surfaces; depth-8 admits) | 0 |
+| `request.byte-262143-envelope-malformed` | `UNKNOWN_CORE_FIELD` at `$` (unknown "extra" pad surfaces before envelope decoder) | 0 |
 
 ## Authorization slice records
 
