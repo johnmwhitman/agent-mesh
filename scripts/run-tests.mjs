@@ -54,13 +54,25 @@ function collectTests(dir) {
 // imports nothing at all — it is deliberately the pure seam, with `extension.ts` holding the
 // `vscode` dependency. If model.ts ever grows an import of `vscode`, root `npm test` breaks
 // loudly; that is the correct outcome and not a reason to drop the root.
-// Prune BUILD OUTPUT AND VCS ONLY. An adversarial review of the first version of this guard
-// caught it reproducing the very defect it was written to prevent: the prune list also held
-// "reference", matched by NAME AT ANY DEPTH, so a `*.test.ts` anywhere under any directory
-// so named would have been invisible to the scan and the guard would have reported a false
-// green. Nothing may be pruned here for being "probably not tests" — only for being
-// generated or not source.
-const PRUNE = new Set(["node_modules", "dist", "out", "coverage", ".git", ".github"]);
+// Prune BUILD OUTPUT, VCS, AND WORKTREE CHECKOUTS ONLY. An adversarial review of the first
+// version of this guard caught it reproducing the very defect it was written to prevent: the
+// prune list also held "reference", matched by NAME AT ANY DEPTH, so a `*.test.ts` anywhere
+// under any directory so named would have been invisible to the scan and the guard would have
+// reported a false green. Nothing may be pruned here for being "probably not tests" — only
+// for being generated, not source, or a duplicate checkout of the same source.
+//
+// `.worktrees/` and `.wt-meshfleet/` are the lane's standard locations for `git worktree add`
+// checkouts at the repo root (see AGENTS.md / GOAL-PROMPT.md "Concurrency"). A worktree is
+// an alternate checkout of the same source tree — not a new source of tests — so a `test/`
+// inside a worktree is necessarily a duplicate of the primary checkout's `test/`, run by
+// `cd <worktree> && npm test`. With either directory present at the repo root and a foreign
+// `test/*.test.ts` inside it, this guard would refuse to run the primary suite for every
+// session that left the worktree around — a fourth environment-shaped false-red cascade
+// indistinguishable from a code regression. Excluding both names is the smallest safe patch;
+// the directory name is the lane convention, not a property of the contents, and PRUNE only
+// matches at the top level of `scanForTests`, so neither entry can hide a test file under any
+// subdirectory the operator might name differently.
+const PRUNE = new Set(["node_modules", "dist", "out", "coverage", ".git", ".github", ".worktrees", ".wt-meshfleet"]);
 
 function scanForTests(dir) {
   let entries;
