@@ -375,6 +375,85 @@ test("self-recipient envelope failures use the same safe recipients path across 
   }
 });
 
+test("Section 9 precedence family: 13 adjacent A00-A13 canaries are pinned in the canonical corpus", () => {
+  const PRECEDENCE_PAIR_IDS = [
+    "precedence.A00-A01", "precedence.A01-A02", "precedence.A02-A03",
+    "precedence.A03-A04", "precedence.A04-A05", "precedence.A05-A06",
+    "precedence.A06-A07", "precedence.A07-A08", "precedence.A08-A09",
+    "precedence.A09-A10", "precedence.A10-A11", "precedence.A11-A12",
+    "precedence.A12-A13",
+  ] as const;
+  const LATER_ONLY_IDS = PRECEDENCE_PAIR_IDS.map((id) => id.replace("precedence.", "control.") + ".later");
+  const allCanaryIds = [...PRECEDENCE_PAIR_IDS, ...LATER_ONLY_IDS];
+
+  // 1. Pin family: every canary id is mandatory in the corpus.
+  for (const id of allCanaryIds) {
+    assert.ok(corpus.mandatory_case_ids.includes(id), `${id} must be a mandatory corpus case`);
+  }
+  // 2. Pin family order: the canary lands BEFORE its later-only control.
+  for (const pairId of PRECEDENCE_PAIR_IDS) {
+    const laterId = pairId.replace("precedence.", "control.") + ".later";
+    const canaryPos = corpus.mandatory_case_ids.indexOf(pairId);
+    const laterPos = corpus.mandatory_case_ids.indexOf(laterId);
+    assert.ok(canaryPos < laterPos, `${pairId} (${canaryPos}) must precede ${laterId} (${laterPos})`);
+  }
+
+  // 3. Per-pair precedence outcome: each canary's expected result matches the
+  //    EARLIER step's failure code (or AUTHORIZATION_DENIED for the A07-A08/A08-A09
+  //    collapsed public pair). The canary must FAIL CLOSED by being adjacent-ORDER:
+  //    the canary's actual observation must NOT match the later-only control unless
+  //    the pair is documented as collapsed.
+  const COLLAPSED_PUBLIC_PAIRS = new Set(["precedence.A07-A08", "precedence.A08-A09"]);
+  const casesById = new Map(corpus.cases.map((item) => [item.id, item]));
+
+  // Encode the canonical "earlier step wins" outcome per pair. This is the
+  // closed authoritative ordering from docs/A2A-LOCAL-ADMISSION-PROFILE-v0.1.md
+  // Section 6: A00 -> A01 -> ... -> A13. Each canary matches the EARLIER step.
+  const EARLIER_STEP_OUTCOMES: Record<string, string> = {
+    "precedence.A00-A01": "rejected:REQUEST_TOO_LARGE@$",
+    "precedence.A01-A02": "rejected:UNKNOWN_CORE_FIELD@$",
+    "precedence.A02-A03": "rejected:INVALID_REQUEST@$.action",
+    "precedence.A03-A04": "rejected:MALFORMED_ENVELOPE@$.envelope",
+    "precedence.A04-A05": "rejected:INVALID_AUTHENTICATION_EVIDENCE@$.authentication_evidence.provenance",
+    "precedence.A05-A06": "rejected:INVALID_BINDING_SNAPSHOT@$.binding_snapshot.snapshot_version",
+    "precedence.A06-A07": "rejected:INVALID_AUTHORIZATION_SNAPSHOT@$.authorization_snapshot.snapshot_version",
+    "precedence.A07-A08": "rejected:AUTHORIZATION_DENIED@$",
+    "precedence.A08-A09": "rejected:AUTHORIZATION_DENIED@$",
+    "precedence.A09-A10": "rejected:AUTHORIZATION_DENIED@$",
+    "precedence.A10-A11": "rejected:REPLAY_PROTECTION_UNAVAILABLE@$",
+    "precedence.A11-A12": "not_admitted:duplicate",
+    "precedence.A12-A13": "not_admitted:expired_at_acceptance",
+  };
+  for (const pairId of PRECEDENCE_PAIR_IDS) {
+    const canary = casesById.get(pairId)!;
+    const expected = EARLIER_STEP_OUTCOMES[pairId]!;
+    const result = canary.expected.result as { kind: string; code?: string; disposition?: string; field_path?: string };
+    let actual: string;
+    if (result.kind === "rejected") actual = `rejected:${result.code}@${result.field_path}`;
+    else actual = `not_admitted:${result.disposition}`;
+    assert.equal(actual, expected, `${pairId} per-pair precedence outcome must match the earlier step`);
+  }
+
+  // 4. Observation mismatch: the canary must not equal the later-only control.
+  //    For collapsed pairs (A07-A08, A08-A09), both project AUTHORIZATION_DENIED at $;
+  //    the canary's proof is that it made zero oracle calls (denied-before-oracle).
+  for (const pairId of PRECEDENCE_PAIR_IDS) {
+    const canary = casesById.get(pairId)!;
+    const laterId = pairId.replace("precedence.", "control.") + ".later";
+    const control = casesById.get(laterId)!;
+    if (COLLAPSED_PUBLIC_PAIRS.has(pairId)) {
+      assert.deepEqual(canary.expected.result, control.expected.result, `${pairId} collapses to the same public result as ${laterId}`);
+      assert.equal(canary.expected.replay_oracle_calls, 0, `${pairId} must deny before the oracle`);
+    } else {
+      assert.notEqual(
+        JSON.stringify(canary.expected),
+        JSON.stringify(control.expected),
+        `${pairId} must not match ${laterId}; skipping the earlier row would collapse this canary onto the later-only control`,
+      );
+    }
+  }
+});
+
 test("the static sidecar has seven exact-null positives and all required closed negative cases", () => {
   const fixture = JSON.parse(readFileSync(sidecarPath, "utf8")) as {
     positive: Array<{ id: string; mapping: unknown }>;
