@@ -10,10 +10,15 @@ the TypeScript implementation and mandatory Python witness with exact result
 bytes, replay call count, and replay arguments. The base 44-case corpus was
 extended by 26 precedence cases (13 adjacent A00-A13 mutation canaries + 13
 later-only precedence controls) on this branch; the precedence row is the only
-family CLOSED bounded subfamily on this tree. The other 10 Section 9 families
-remain at their pre-closeout representative coverage and their exhaustive
-closures live on 19 separate merge-ready branches off the same origin/main
-base — see Slice-record provenance below.
+family with a NEW CLOSED bounded subfamily added by this branch. The
+`evidence` and `authorization` families carry base-corpus closures (provenance /
+issued-at / expires-at / lifetime boundaries; type 5/6 + recipient 128/129 +
+duplicate source index + all-recipient denial) inherited from origin/main's
+44-case corpus — these closures also exist on this tree but this branch adds
+nothing to them. The other 8 Section 9 families remain at their pre-closeout
+representative coverage on this branch; their exhaustive closures live on
+separate merge-ready branches off the same origin/main base — see Slice-record
+provenance below.
 
 | Section 9 family | Existing executable proof | This slice | Remaining exact gap |
 | --- | --- | --- | --- |
@@ -22,14 +27,22 @@ base — see Slice-record provenance below.
 | depth/numeric | representative request depth and fraction; 4A retains its own vectors | — | request depth 8/9 and negative, `-0`, exponent, unsafe-integer boundaries |
 | precedence | representative request, envelope, denial, replay, and expiry ordering | **CLOSED bounded subfamily:** mutation canary for every adjacent A00-A13 pair (13 canaries + 13 later-only controls; request framing/fixed fields beat envelope; envelope beats evidence/policy; denied cases zero oracle calls; malformed oracle hidden by denial) | — |
 | envelope | malformed and recipient representatives plus audience/self-recipient ordinary tests | — | all 4A invalid families and exact prefixed source paths |
-| evidence | one invalid field representative | **CLOSED bounded subfamily:** provenance; issued-at equality; expires-at equality; lifetime 300000/300001 | every remaining field/type/grammar vector |
+| evidence | one invalid field representative plus 5 base-corpus closure cases (provenance; issued-at equality; expires-at equality; lifetime 300000/300001) inherited from origin/main | — | every remaining field/type/grammar vector |
 | binding | one invalid field representative | — | fields, interval edges, duplicate source index, context mismatch, and 0/256/257 rule vectors |
-| authorization | valid one type/recipient; one invalid action; generic denial | **CLOSED bounded subfamily:** types 5/6; recipients 128/129; duplicate type and recipient source index; all-recipient denial before replay | snapshot fields/provenance, rule-count edge, session key, and other policy contexts |
+| authorization | valid one type/recipient; one invalid action; generic denial plus 7 base-corpus closure cases (message-types 5/6; recipients 128/129; duplicate message-type/recipient source index; all-recipient denial) inherited from origin/main | — | snapshot fields/provenance, rule-count edge, session key, and other policy contexts |
 | relativity | plan only reports fixture IDs/versions | — | decision changes caused by changed fixtures |
 | oracle/results | all four non-admission verdicts, unavailable, throw, unseen plan, unseen-only expiry, and exact query | — | malformed oracle case and every rejected-code inventory |
 | privacy | offline/import-surface checks and closed sidecar fixtures | — | dedicated ignored-input/diagnostic-invariance matrix |
 
-## Authentication-evidence slice records
+## Base corpus slice records (inherited from origin/main)
+
+The following two slice-records tables describe closures that exist on this tree
+because they were part of origin/main's 44-case corpus. This branch adds no
+cases; the case IDs and expected outcomes match the corpus on this tree but
+the closures themselves were authored upstream. They are documented here for
+completeness so reviewers do not mistake them for this branch's contribution.
+
+### Authentication-evidence (base corpus)
 
 | Case IDs | Required outcome | Replay calls |
 | --- | --- | --- |
@@ -37,7 +50,7 @@ base — see Slice-record provenance below.
 | `evidence.issued-at-evaluation-valid`, `evidence.lifetime-300000-valid` | `admission_plan` with the unchanged 4A digest | 1 |
 | `evidence.expires-at-evaluation-denied`, `evidence.lifetime-300001-denied` | `AUTHORIZATION_DENIED` at `$` | 0 |
 
-## Authorization slice records
+### Authorization (base corpus)
 
 | Case IDs | Required outcome | Replay calls |
 | --- | --- | --- |
@@ -69,18 +82,52 @@ base — see Slice-record provenance below.
 
 ## Slice-record provenance
 
-The per-family slice records for the 10 remaining Section 9 families
+The per-family slice records for the 8 remaining Section 9 families
 (`request-raw/path`, `independent-input`, `depth/numeric`, `envelope`,
-`binding`, `relativity`, `oracle/results`, `privacy`, plus the
-field/type/grammar extensions of `evidence` and `authorization`) live on each
-merge-ready branch's own coverage-ledger body — each branch marks ITS row as
-CLOSED bounded subfamily with its own slice-records table and the union of the
-19 branch bodies is what the post-merge main will see. This consolidation entry
-on origin/main marks the precedence family as CLOSED bounded subfamily on this
-tree (with the 26-case precedence slice records table above) and points at the
-branches that hold the per-case proof tables for the other 10 families. The
-COMPATIBILITY row remains `unverified` until those 19 branches merge; the
-CONFORMANCE-MATRIX row is `unverified` today.
+`binding`, `relativity`, `oracle/results`, `privacy`) — plus the field/type/
+grammar extensions of `evidence` and `authorization` that go beyond the
+base-corpus closures inherited from origin/main — live on each merge-ready
+branch's own coverage-ledger body. Each branch marks ITS row as CLOSED
+bounded subfamily with its own slice-records table. The 19 merge-ready
+branches (all off origin/main `c571928`) listed below carry the per-case
+proof tables; merge will reconcile their coverage-ledger bodies onto
+origin/main. This consolidation entry on this branch (`feat/coverage-ledger-
+post-merge-consolidation-20260818`, tip `ee20b6b`) marks the precedence
+family as CLOSED bounded subfamily on this tree (with the 26-case precedence
+slice records table above) and points at the branches that hold the
+per-case proof tables for the other 8 families. The COMPATIBILITY row
+remains `unverified` until those 19 branches merge; the CONFORMANCE-MATRIX
+row is `unverified` today.
+
+### Merge-ready branches holding the remaining Section 9 closures
+
+Each branch listed below is `git-contains c571928` and is merge-ready at
+tree and canonical-gate level on its own worktree; merge remains John-gated.
+
+| Section 9 family | Merge-ready branch (off `origin/main c571928`) |
+| --- | --- |
+| `request-raw/path` (BOM/whitespace/comment/trailing; literal/escaped duplicates; safe-path class) | `feat/request-raw-path-gates-20260818`, `feat/request-raw-path-per-object-gates-20260818`, `feat/request-raw-path-cross-object-gates-20260818` |
+| `independent-input` (depth/byte collision; double-encoding) | `feat/independent-input-gates-20260818` |
+| `depth/numeric` (depth 8/9 + negative, `-0`, exponent, unsafe-integer boundaries) | `feat/depth-numeric-gates-20260818` |
+| `envelope` (all 4A invalid families + exact prefixed source paths) | `feat/envelope-member-gates-20260817`, `feat/envelope-path-precision-20260817` |
+| `evidence` field/type/grammar extensions (adapter_id / principal_ref / issued_at_ms / expires_at_ms type and grammar) | `feat/evidence-field-gates-20260817`, `feat/evidence-field-grammar-20260818` |
+| `binding` (fields, interval edges, duplicate source index, context mismatch, 0/256/257 rule vectors) | `feat/binding-grammar-gaps-20260817`, `feat/binding-interval-edges-20260818`, `feat/binding-rules-count-gates-20260818`, `feat/binding-slice-20260817` |
+| `authorization` snapshot fields/provenance, rule-count edge, session key, other policy contexts | `feat/authorization-snapshot-gates-20260817`, `feat/auth-context-gates-20260818` |
+| `relativity` (changed fixture metadata decision shifts) | `feat/relativity-changed-fixtures-20260818` |
+| `oracle/results` (malformed oracle + rejected-code inventory) | `feat/oracle-malformed-gates-20260818`, `feat/rejected-code-inventory-20260817` |
+| `privacy` (ignored-input / diagnostic-invariance matrix) | `feat/privacy-invariance-matrix-20260817` |
+
+The `precedence` family is closed on this branch (see precedence slice records
+above); the precedence-canary branch itself (`feat/precedence-canary-20260818`,
+tip `f65596b`) is the merge-ready source of the 26 cases, layered on top of
+the earlier `feat/precedence-canaries-20260817` which carries the same
+mutation canary pattern. Slice 4C-1 exhaustive closeout is held at `feat/
+4c1-exhaustive-profile-gates-20260817` (tip `cd3cdc2`), which is the parent
+that aggregates the family-closure branches above; the durable-acceptance
+seam is at `feat/durable-acceptance-seam-20260817` (tip `7464c90`), the
+capability-profile seam at `feat/capability-profile-seam-20260817` (tip
+`f5b4ee1`), and the compact fleet-status branch at `feat/compact-fleet-
+status-20260817` (tip `9737b1e`).
 
 ## Unreachable profile row
 

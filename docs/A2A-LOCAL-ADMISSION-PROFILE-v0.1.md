@@ -6,9 +6,12 @@
 > closed StaticHarnessMapping sidecar fixtures are executable again on the
 > current branch. They remain test-only and outside package/MCP/CLI surfaces.
 > The corpus does not yet satisfy every exhaustive family and cardinality row
-> in Section 9 (only the precedence row is CLOSED bounded subfamily on this
-> tree; the other 10 families live on 19 separate merge-ready branches), so
-> this is not full Slice 4C-1 conformance or activation.
+> in Section 9 (only the precedence row is a NEW CLOSED bounded subfamily on
+> this branch; the `evidence` and `authorization` families carry base-corpus
+> closures inherited from origin/main; the other 8 families live on separate
+> merge-ready branches off `origin/main c571928` listed in the Slice-record
+> provenance of `docs/ops/A2A-LOCAL-ADMISSION-COVERAGE-LEDGER-2026-07-29.md`),
+> so this is not full Slice 4C-1 conformance or activation.
 
 **Status:** Partially implemented as offline, dormant evidence. This Slice 4C-1
 contract creates no public ingress, authentication provider, trust root,

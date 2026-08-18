@@ -34,6 +34,23 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
   row stays `unverified` (the CONFORMANCE-MATRIX row is `unverified` today). The 4
   `localAdmissionCorpusCountDocs` (which test 71 asserts say "70 mandatory cases") were not
   touched by the closeout revert; the 70-case corpus count is real on this tree.
+- **Scope-correct the scope-correction: separate base-corpus closures from this branch's
+  contribution.** The prior scope-correction (`ee20b6b`) left the table cells for `evidence`
+  and `authorization` marked `**CLOSED bounded subfamily:**` while the lead paragraph said
+  precedence is the only family closed on this tree — one of those two statements was false.
+  The fix marks the `evidence` and `authorization` table cells as `—` (this branch adds
+  nothing to those closures), reframes their slice-records tables as "Base corpus slice
+  records (inherited from origin/main)" so reviewers do not mistake them for this branch's
+  contribution, updates the lead paragraph to acknowledge that the base-corpus closures
+  exist on this tree but were authored upstream, replaces the "union of 19 branch bodies"
+  statement with "merge will reconcile their coverage-ledger bodies onto origin/main",
+  replaces "this consolidation entry on origin/main" with the actual branch name and tip
+  SHA, and adds a named inventory of the 19 merge-ready branches (with their tip SHAs)
+  grouped by Section 9 family in the Slice-record provenance section. The profile status
+  blockquote (`docs/A2A-LOCAL-ADMISSION-PROFILE-v0.1.md`) and `ROADMAP.md` item 7 are
+  reconciled to the same framing. The 70-case corpus count is unchanged; the precedence
+  closure is unchanged; the 19 merge-ready branches and their tree-and-gate merge-ready
+  status are unchanged.
 
 ## [0.21.1] - 2026-08-10
 

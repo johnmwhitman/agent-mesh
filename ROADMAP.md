@@ -48,9 +48,14 @@ The ranked A2A strategy is canonical in
    precedence controls), independent Python witness, recipient normalization
    proof, strict corpus canaries, and closed sidecar fixtures close the
    precedence row of the Section 9 coverage ledger as CLOSED bounded
-   subfamily; the other 10 Section 9 families live on 19 separate merge-ready
-   branches and are not in this tree's corpus. No active, approved, remote,
-   or multi-host claim.
+   subfamily on this branch; the `evidence` and `authorization` families
+   carry base-corpus closures inherited from origin/main's 44-case corpus
+   (documented separately under "Base corpus slice records" in the coverage
+   ledger); the other 8 Section 9 families live on separate merge-ready
+   branches off `origin/main c571928` and are not in this branch's corpus —
+   the named inventory is in the Slice-record provenance table of
+   `docs/ops/A2A-LOCAL-ADMISSION-COVERAGE-LEDGER-2026-07-29.md`. No active,
+   approved, remote, or multi-host claim.
 8. **Slices 4D and 4E** - the offline delivery-trace profile and its independent
    Python reference are implemented as conformance evidence. A deterministic
    two-host coordinator witness is also implemented under
