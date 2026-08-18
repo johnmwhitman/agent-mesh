@@ -4,7 +4,7 @@ Status: bounded offline evidence only. This ledger records executable coverage,
 not profile conformance, authority, acceptance, persistence, delivery, or
 transport capability.
 
-Base reviewed: `2760310` (origin/main). Corpus: 49 mandatory raw-text cases in
+Base reviewed: `4a7eb30` (origin/main, post-merge-tick-94). Corpus: 75 mandatory raw-text cases in
 `test/fixtures/a2a/local-admission/v0.1/corpus.json`; every case is evaluated by
 the TypeScript implementation and mandatory Python witness with exact result
 bytes, replay call count, and replay arguments.
@@ -14,7 +14,7 @@ bytes, replay call count, and replay arguments.
 | request-raw/path | byte 262143/262144/262145; one surrogate, malformed JSON, duplicate key, fraction, depth, and malformed unknown-child representatives | — | BOM, whitespace/comment/trailing variants, literal/escaped duplicates in every request object, and every safe-path class |
 | independent-input | raw-text-only inputs and no request `envelope` member; representative request-before-envelope ordering | — | independent depth/byte collision vectors and double-encoding vectors |
 | depth/numeric | representative request depth and fraction; 4A retains its own vectors | — | request depth 8/9 and negative, `-0`, exponent, unsafe-integer boundaries |
-| precedence | representative request, envelope, denial, replay, and expiry ordering | — | mutation canary for each adjacent A00-A13 pair |
+| precedence | representative request, envelope, denial, replay, and expiry ordering | **CLOSED bounded subfamily:** 13 adjacent A00-A13 mutation canaries + 13 later-only precedence controls pin the earlier-step-wins contract; COLLAPSED A07-A08/A08-A09 pairs also pin 0 oracle calls | — |
 | envelope | malformed and recipient representatives plus audience/self-recipient ordinary tests | — | all 4A invalid families and exact prefixed source paths |
 | evidence | one invalid field representative | **CLOSED bounded subfamily:** provenance; issued-at equality; expires-at equality; lifetime 300000/300001 | every remaining field/type/grammar vector |
 | binding | one invalid field representative | — | fields, interval edges, duplicate source index, context mismatch, and 0/256/257 rule vectors |
@@ -51,6 +51,26 @@ bytes, replay call count, and replay arguments.
 | `authorization.context.audience-mismatch` | `AUTHORIZATION_DENIED` at `$` | 0 |
 | `authorization.context.session-mismatch` | `AUTHORIZATION_DENIED` at `$` | 0 |
 | `authorization.context.sender-mismatch` | `AUTHORIZATION_DENIED` at `$` | 0 |
+
+## Precedence slice records
+
+| Case IDs | Required outcome | Replay calls |
+| --- | --- | --- |
+| `precedence.A00-A01` | `rejected:REQUEST_TOO_LARGE@$` | 0 |
+| `precedence.A01-A02` | `rejected:UNKNOWN_CORE_FIELD@$` | 0 |
+| `precedence.A02-A03` | `rejected:INVALID_REQUEST@$.action` | 0 |
+| `precedence.A03-A04` | `rejected:MALFORMED_ENVELOPE@$.envelope` | 0 |
+| `precedence.A04-A05` | `rejected:INVALID_AUTHENTICATION_EVIDENCE@$.authentication_evidence.provenance` | 0 |
+| `precedence.A05-A06` | `rejected:INVALID_BINDING_SNAPSHOT@$.binding_snapshot.snapshot_version` | 0 |
+| `precedence.A06-A07` | `rejected:INVALID_AUTHORIZATION_SNAPSHOT@$.authorization_snapshot.snapshot_version` | 0 |
+| `precedence.A07-A08` (COLLAPSED) | `rejected:AUTHORIZATION_DENIED@$` | 0 |
+| `precedence.A08-A09` (COLLAPSED) | `rejected:AUTHORIZATION_DENIED@$` | 0 |
+| `precedence.A09-A10` | `rejected:AUTHORIZATION_DENIED@$` (denial hides thrown oracle) | 0 |
+| `precedence.A10-A11` | `rejected:REPLAY_PROTECTION_UNAVAILABLE@$` | 1 |
+| `precedence.A11-A12` | `not_admitted.duplicate` | 1 |
+| `precedence.A12-A13` | `not_admitted.expired_at_acceptance` | 0 |
+
+Each canary has a paired later-only control (`control.A00-A01.later` … `control.A12-A13.later`) that proves the predecessor's failure is what fired the canary: the control removes the predecessor's mutation and keeps only the later step's, so the result shifts to the later step's code. The 13 canary + 13 control cases form the bounded precedence subfamily.
 
 ## Unreachable profile row
 
