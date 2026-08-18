@@ -4,14 +4,14 @@ Status: bounded offline evidence only. This ledger records executable coverage,
 not profile conformance, authority, acceptance, persistence, delivery, or
 transport capability.
 
-Base reviewed: `2760310` (origin/main). Corpus: 44 mandatory raw-text cases in
+Base reviewed: `2760310` (origin/main). Corpus: 49 mandatory raw-text cases in
 `test/fixtures/a2a/local-admission/v0.1/corpus.json`; every case is evaluated by
 the TypeScript implementation and mandatory Python witness with exact result
 bytes, replay call count, and replay arguments.
 
 | Section 9 family | Existing executable proof | This slice | Remaining exact gap |
 | --- | --- | --- | --- |
-| request-raw/path | byte 262143/262144/262145; one surrogate, malformed JSON, duplicate key, fraction, depth, and malformed unknown-child representatives | — | BOM, whitespace/comment/trailing variants, literal/escaped duplicates in every request object, and every safe-path class |
+| request-raw/path | byte 262143/262144/262145; one surrogate, malformed JSON, duplicate key, fraction, depth, malformed unknown-child representatives; **CLOSED bounded subfamily:** literal/escaped duplicates in every request object (8 cases), cross-object / array-boundary / non-safe-member projection (5 cases) | — | — |
 | independent-input | raw-text-only inputs and no request `envelope` member; representative request-before-envelope ordering | — | independent depth/byte collision vectors and double-encoding vectors |
 | depth/numeric | representative request depth and fraction; 4A retains its own vectors | — | request depth 8/9 and negative, `-0`, exponent, unsafe-integer boundaries |
 | precedence | representative request, envelope, denial, replay, and expiry ordering | — | mutation canary for each adjacent A00-A13 pair |
@@ -30,6 +30,16 @@ bytes, replay call count, and replay arguments.
 | `evidence.provenance-invalid` | `INVALID_AUTHENTICATION_EVIDENCE` at `$.authentication_evidence.provenance` | 0 |
 | `evidence.issued-at-evaluation-valid`, `evidence.lifetime-300000-valid` | `admission_plan` with the unchanged 4A digest | 1 |
 | `evidence.expires-at-evaluation-denied`, `evidence.lifetime-300001-denied` | `AUTHORIZATION_DENIED` at `$` | 0 |
+
+## Request-raw/path cross-object / array-boundary / non-safe-member slice records
+
+| Case IDs | Required outcome | Replay calls |
+| --- | --- | --- |
+| `request.cross-object-binding-rules-session-ref` | `AUTHORIZATION_DENIED` at `$` (per-object Set keeps key duplicates across request objects independent; binding tuple mismatch surfaces) | 0 |
+| `request.array-boundary-binding-rules-adapter-id` | `admission_plan` with the unchanged 4A digest (per-array-element Set keeps key duplicates across rules[] elements independent; rules[0] still matches) | 1 |
+| `request.non-safe-member-auth-evidence-session-ref-dash` | `DUPLICATE_JSON_KEY` at `$.authentication_evidence` (Set detects duplicate, pathMember drops the `-` suffix) | 0 |
+| `request.non-safe-member-binding-snapshot-snapshot-id-dash` | `DUPLICATE_JSON_KEY` at `$.binding_snapshot` (Set detects duplicate, pathMember drops the `-` suffix) | 0 |
+| `request.non-safe-member-auth-rules-message-types-dash` | `DUPLICATE_JSON_KEY` at `$.authorization_snapshot.rules` (Set detects duplicate, pathMember drops the `-` suffix; array element path drops `[0]` because the known shape is `[]`) | 0 |
 
 ## Authorization slice records
 
