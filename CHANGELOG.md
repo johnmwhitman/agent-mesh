@@ -18,6 +18,25 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
   CLOSED bounded subfamily. The corpus count moves from 44 to 70 mandatory cases; the
   reconciled count is published in `HANDOFF.md` (1767 → 1768).
 
+### Changed
+
+- **Slice 4C-1 exhaustive profile gate closeout on origin/main docs.** The
+  Section 9 coverage ledger body now marks all 11 families
+  (`request-raw/path`, `independent-input`, `depth/numeric`, `precedence`,
+  `envelope`, `evidence`, `binding`, `authorization`, `relativity`,
+  `oracle/results`, `privacy`) as CLOSED bounded subfamily; the
+  `Offline local-admission evidence-alpha` row in `COMPATIBILITY.md`
+  transitions from `unverified` to `reference-conformance` with the
+  post-precedence 70-case mandatory corpus count; `ROADMAP.md` Slice 4C-1
+  checkbox flips from `[ ]` to `[x]`; `docs/A2A-PROGRAM.md`,
+  `docs/A2A-HANDOFF-CURRENT.md`, `docs/A2A-LOCAL-ADMISSION-PROFILE-v0.1.md`,
+  and the profile status blockquote are reconciled to the closeout. Per-family
+  slice records for the nine families whose case detail lives on a branch are
+  documented via a "Slice-record provenance" pointer in the ledger body; the
+  existing `evidence` and `authorization` slice records tables are extended
+  with the new bounded subfamily cases. This is a docs-only change layered on
+  the precedence-canary corpus change: no source file, no test file changes.
+
 ## [0.21.1] - 2026-08-10
 
 ### Fixed

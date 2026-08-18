@@ -43,10 +43,12 @@ The ranked A2A strategy is canonical in
    specified, with an ephemeral non-acceptance plan, explicit
    assumed local adapter boundary, supplied fixture binding/all-recipient policy
    before replay, and no
-   public/auth/network/storage/runtime activation. The 44-case mandatory corpus,
+   public/auth/network/storage/runtime activation. The 70-case mandatory corpus
+   (44 base + 26 across the Slice 4C-1 exhaustive profile gate closeout),
    independent Python witness, recipient normalization proof, strict corpus
-   canaries, and closed sidecar fixtures do not yet satisfy the profile's full
-   exhaustive coverage gate. No active, approved, remote, or multi-host claim.
+   canaries, and closed sidecar fixtures close every Section 9 coverage-ledger
+   family as CLOSED bounded subfamily. No active, approved, remote, or
+   multi-host claim.
 8. **Slices 4D and 4E** - the offline delivery-trace profile and its independent
    Python reference are implemented as conformance evidence. A deterministic
    two-host coordinator witness is also implemented under
@@ -302,18 +304,21 @@ observable, not a daemon, dashboard, or service claim.
 - [ ] **Slice 4C-0: capability profile and evidence taxonomy** — specification
   records remain, but the former reference implementation is absent from current
   main. Treat it as unshipped.
-- [ ] **Slice 4C-1: principal-bound authenticated-local semantic path** —
-  bounded offline evidence-alpha implemented, full profile still open. The
+- [x] **Slice 4C-1: principal-bound authenticated-local semantic path** —
+  bounded offline evidence-alpha implemented, exhaustive profile gate CLOSED
+  bounded subfamily across all 11 Section 9 coverage-ledger families. The
   contract has one operation over independent
   raw `request_json` and unchanged 4A `envelope_json`, no wrapper/object-input
   path, and no
   public intermediate-success APIs; its admission plan is not acceptance,
   persistence, receipt, delivery, execution, or reusable authority. No released
   package export, MCP tool, CLI, runtime, DB, transport, or network consumer.
-  The current 44-case direct TypeScript/Python evidence and sidecar fixtures do
-  not close every exhaustive Section 9 family/cardinality/path gate. Keep the
-  row open and do not treat it as authenticated ingress, acceptance, remote,
-  multi-host, or released capability.
+  The 70-case direct TypeScript/Python evidence (44 base + 26 across the
+  Slice 4C-1 exhaustive profile gate closeout) and sidecar fixtures close every
+  exhaustive Section 9 family/cardinality/path gate that fits below the
+  262144-byte request cap. Keep it offline and unexported; do not treat it as
+  authenticated ingress, acceptance, remote, multi-host, or released
+  capability.
 - [x] **Slice 4D: offline delivery-attempt and transport conformance** — compare
   stdio, mailbox, HTTP/SSE, and WebSocket semantic traces without live peers.
   **4D-alpha is implemented locally at reference-conformance:** the pure

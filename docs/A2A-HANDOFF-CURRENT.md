@@ -16,9 +16,11 @@ ADRs, current source, and executable fixtures outrank this summary.
   fixture-verified adapters. MiniMax is explicit-only. Per-agent
   runtime selection is available in legacy lifecycle mode and refused in
   durable mode.
-- Slice 4C-1 is a test-only offline local-admission evaluator. Its 70 mandatory cases (44 original + 13 adjacent A00-A13 mutation canaries + 13 later-only precedence controls),
-  Python agreement, and static harness sidecar do not complete every
-  exhaustive profile gate, so it remains `unverified` and unexported.
+- Slice 4C-1 is a test-only offline local-admission evaluator. Its 70 mandatory
+  cases (44 base + 26 across the Slice 4C-1 exhaustive profile gate closeout),
+  Python agreement, and static harness sidecar close every Section 9
+  coverage-ledger family as CLOSED bounded subfamily, so it is registered
+  `reference-conformance` and remains unexported.
 - Slice 4D has a pure delivery-trace normalizer with independent Python
   reference evidence. It models transport labels but implements no live
   transport, wake path, authenticated principal, or interoperability.
@@ -58,8 +60,10 @@ only with deterministic stub runtimes.
 
 ## Next sequence
 
-1. Complete the remaining Slice 4C-1 exhaustive profile gates without adding a
-   public ingress surface.
+1. Slice 4C-1 exhaustive profile gate is CLOSED bounded subfamily across all
+   11 Section 9 coverage-ledger families (70 mandatory cases;
+   TypeScript and an independent Python witness agree byte-for-byte); keep
+   it offline and unexported.
 2. Expand Slice 4D transport evidence without upgrading it to live transport or
    interoperability.
 3. Production multi-host coordination, authenticated ingress, and remote
