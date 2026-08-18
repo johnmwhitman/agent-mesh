@@ -1,13 +1,11 @@
 # A2A Local Admission Profile v0.1
 
-> **STATUS — bounded evidence-alpha exhaustive profile gate CLOSED, 2026-07-29.**
-> The TypeScript evaluator, independent Python witness, shared 70-case corpus
-> (44 base + 26 across the Slice 4C-1 exhaustive profile gate closeout), and
-> closed StaticHarnessMapping sidecar fixtures are executable on the current
-> branch. They remain test-only and outside package/MCP/CLI surfaces. Every
-> Section 9 family is CLOSED bounded subfamily in the coverage ledger, so this
-> is `reference-conformance` for Slice 4C-1 exhaustive profile gate without
-> activation.
+> **STATUS — bounded evidence-alpha restored, 2026-07-29.** The TypeScript
+> evaluator, independent Python witness, shared 44-case corpus, and closed
+> StaticHarnessMapping sidecar fixtures are executable again on the current
+> branch. They remain test-only and outside package/MCP/CLI surfaces. The
+> corpus does not yet satisfy every exhaustive family and cardinality row in
+> Section 9, so this is not full Slice 4C-1 conformance or activation.
 
 **Status:** Partially implemented as offline, dormant evidence. This Slice 4C-1
 contract creates no public ingress, authentication provider, trust root,
@@ -452,19 +450,15 @@ every case. Required families are:
 | oracle/results | six verdicts, throw/malformed; exact call arguments; sole success; five dispositions; every rejected code; no uppercase/generic replay; no second digest/extra field |
 | privacy | capability/profile/proof/model/runtime/receipt/conformance/provider/environment/secret input cannot affect authorization or diagnostics |
 
-The current evidence-alpha corpus has 70 mandatory cases (44 base + 26 across
-the Slice 4C-1 exhaustive profile gate closeout). It proves the closed
+The current evidence-alpha corpus has 70 mandatory cases (44 original + 13 adjacent A00-A13 mutation canaries + 13 later-only precedence controls). It proves the closed
 one-operation raw boundary, all replay verdict mappings, representative
 precedence and denial, exact TypeScript/Python bytes, recipient-order
 normalization, byte-limit edges, authorization message-type and recipient
-boundaries, witness mutation detection, and strict corpus ingestion. The
-coverage ledger marks every Section 9 family above as CLOSED bounded
-subfamily, including all source-indexed 4A error paths and every
-maximum-cardinality boundary that fits below the 262144-byte request cap. The
-authorization 0/2048/2049-rule row is provably unrepresentable below the
-independent 262144-byte request cap (see the coverage ledger's "Unreachable
-profile row" note). The compatibility registry therefore registers this row
-as `reference-conformance`.
+boundaries, witness mutation detection, and strict corpus ingestion. It does
+not yet claim exhaustive coverage of every row above,
+including all source-indexed 4A error paths and every maximum-cardinality
+boundary. Until that delta is closed, the compatibility registry remains
+`unverified` rather than full `reference-conformance`.
 
 The corpus MUST NOT contain native object/accessor/Proxy/subclass/prototype/
 sparse-array/mutation cases. Ordinary implementation tests instead prove no

@@ -47,11 +47,9 @@ verified boundaries:
   multi-host coordination remain unimplemented. The former Slice 4B acceptance
   writer and Slice 4C-0 reference implementation are absent from current main;
   their specifications remain design records.
-- Slice 4A is reference-conformance verified. Slice 4C-1 exhaustive profile
-  gate is CLOSED bounded subfamily across all 11 Section 9 coverage-ledger
-  families (70 mandatory cases; TypeScript and an independent Python witness
-  agree byte-for-byte). Slice 4D has offline delivery-trace reference
-  evidence, and Slice 4E has an offline two-host coordinator witness only.
+- Slice 4A is reference-conformance verified. Slice 4C-1 remains an incomplete
+  offline evidence path. Slice 4D has offline delivery-trace reference evidence,
+  and Slice 4E has an offline two-host coordinator witness only.
 
 ### Local-only A2A compatibility adapter (implemented)
 
@@ -98,18 +96,10 @@ preauthorization, treats policy snapshots as caller-supplied fixtures rather
 than current-state proof, and keeps 4C-0 evidence non-authoritative. It adds no
 public ingress, auth provider, trust root, credential verification, replay
 store, persistence integration, MCP, network, transport, delivery, runtime,
-provider call, release, or activation. The shared corpus has 70 mandatory
-cases (44 base + 26 added across the Slice 4C-1 exhaustive profile gate
-closeout: 4A invalid envelope families with exact prefixed source paths, 13
-adjacent-pair A00-A13 precedence canaries with 13 later-only controls, every
-depth/byte collision vector, every safe-path class projection, every
-literal/escaped duplicate key class, every field/type/grammar vector, every
-snapshot/version/provenance/interval-edges/context-mismatch vector, every
-decision-flip relativity vector, every malformed-oracle verdict, and every
-privacy invariance vector), an independent Python witness, strict mutation
-canaries, and seven positive plus fourteen negative StaticHarnessMapping
-fixtures. It satisfies every Section 9 coverage-ledger family as CLOSED
-bounded subfamily and is therefore registered as `reference-conformance`.
+provider call, release, or activation. The shared corpus currently has 70 mandatory cases (44 original + 13 adjacent A00-A13 mutation canaries + 13 later-only precedence controls), an independent Python witness, strict mutation canaries, and
+seven positive plus fourteen negative StaticHarnessMapping fixtures. It does
+not yet satisfy every exhaustive coverage row in the profile and is therefore
+registered as `unverified`, not full Slice 4C-1 conformance.
 
 ## Ranked program
 
@@ -283,12 +273,10 @@ They are additive, reversible, and do not widen the current MCP surface.
    and decision record remain, but the former reference implementation is absent
    from current main.
 4. **Slice 4C-1: principal-bound authenticated-local semantic path.** Bounded
-   evidence-alpha is executable and the exhaustive profile gate is CLOSED
-   bounded subfamily across all 11 Section 9 coverage-ledger families
-   (70 mandatory cases; TypeScript and an independent Python witness
-   agree byte-for-byte). It models a local adapter path without public
-   ingress, remote transport, credentials, or delivery and remains
-   separately gated.
+   evidence-alpha is executable but the exhaustive profile gate remains open.
+   It models a local adapter path without public
+   ingress, remote transport, credentials, or delivery and remains separately
+   gated.
 5. **Slice 4D then 4E:** 4D-alpha has a pure reference-conformance offline
    delivery-trace normalizer; an independent stdlib-only Python witness agrees
    with the TypeScript evaluator over the language-neutral corpus. It implements
@@ -324,9 +312,6 @@ This design record authorizes no public ingress, `send_a2a`, principal provider,
 provider call, runtime selection, transport, persistence, durable registry,
 delivery, execution, cryptographic verification, credentials, network, deploy,
 publish, merge, push, or activation. Slice 4C-1 remains offline, inactive,
-and separately gated, but its exhaustive profile gate is CLOSED bounded
-subfamily across all 11 Section 9 coverage-ledger families (70 mandatory cases;
-TypeScript and an independent Python witness agree byte-for-byte). The later
-4D-alpha fixture normalizer does
+incomplete, and separately gated. The later 4D-alpha fixture normalizer does
 not satisfy, bypass, consume, or activate 4C-1; it only proves that modeled
 transport labels normalize to the same closed delivery-observation vocabulary.
