@@ -4,7 +4,7 @@ Status: bounded offline evidence only. This ledger records executable coverage,
 not profile conformance, authority, acceptance, persistence, delivery, or
 transport capability.
 
-Base reviewed: `2760310` (origin/main). Corpus: 44 mandatory raw-text cases in
+Base reviewed: `2760310` (origin/main). Corpus: 51 mandatory raw-text cases in
 `test/fixtures/a2a/local-admission/v0.1/corpus.json`; every case is evaluated by
 the TypeScript implementation and mandatory Python witness with exact result
 bytes, replay call count, and replay arguments.
@@ -13,7 +13,7 @@ bytes, replay call count, and replay arguments.
 | --- | --- | --- | --- |
 | request-raw/path | byte 262143/262144/262145; one surrogate, malformed JSON, duplicate key, fraction, depth, and malformed unknown-child representatives | — | BOM, whitespace/comment/trailing variants, literal/escaped duplicates in every request object, and every safe-path class |
 | independent-input | raw-text-only inputs and no request `envelope` member; representative request-before-envelope ordering | — | independent depth/byte collision vectors and double-encoding vectors |
-| depth/numeric | representative request depth and fraction; 4A retains its own vectors | — | request depth 8/9 and negative, `-0`, exponent, unsafe-integer boundaries |
+| depth/numeric | representative request depth and fraction; 4A retains its own vectors | **CLOSED bounded subfamily:** request depth 8/9 (5 nested x under auth_evidence / 6 nested); negative / negative-zero / exponent lexemes (raw-string surgery because JSON.stringify normalizes -0→0 and 1e2→100); unsafe-integer boundary 9007199254740992 (rejected) vs MAX_SAFE 9007199254740991 (scanner-admitted, authorization-window denial) | request depth 8/9 and negative, `-0`, exponent, unsafe-integer boundaries |
 | precedence | representative request, envelope, denial, replay, and expiry ordering | — | mutation canary for each adjacent A00-A13 pair |
 | envelope | malformed and recipient representatives plus audience/self-recipient ordinary tests | — | all 4A invalid families and exact prefixed source paths |
 | evidence | one invalid field representative | **CLOSED bounded subfamily:** provenance; issued-at equality; expires-at equality; lifetime 300000/300001 | every remaining field/type/grammar vector |
@@ -41,6 +41,24 @@ bytes, replay call count, and replay arguments.
 | `authorization.boundary.duplicate-message-type` | `INVALID_AUTHORIZATION_SNAPSHOT` at `$.authorization_snapshot.rules[0].message_types[1]` | 0 |
 | `authorization.boundary.duplicate-recipient` | `INVALID_AUTHORIZATION_SNAPSHOT` at `$.authorization_snapshot.rules[0].recipients[1]` | 0 |
 | `authorization.boundary.all-recipient-denied` | `AUTHORIZATION_DENIED` at `$` | 0 |
+
+## Depth/numeric slice records
+
+| Case IDs | Required outcome | Replay calls |
+| --- | --- | --- |
+| `request.depth-8` | scanner-admitted (deepest value at scanner depth 8) → `INVALID_AUTHENTICATION_EVIDENCE` at `$.authentication_evidence.adapter_id` | 0 |
+| `request.depth-9` | scanner-rejected (deepest value at scanner depth 9) → `MAX_DEPTH_EXCEEDED` at `$.authentication_evidence` | 0 |
+| `request.number-negative` (`-1`), `request.number-negative-zero` (`-0`), `request.number-exponent` (`1e2`), `request.number-unsafe-integer` (`9007199254740992`) | `MALFORMED_JSON` at `$.evaluation_time_ms` (raw-string surgery because JSON.stringify normalizes `-0`→`0` and `1e2`→`100`) | 0 |
+| `request.number-max-safe` (`9007199254740991`) | scanner-ADMITTED (no `MALFORMED_JSON`); evaluation time exceeds the evidence window → `AUTHORIZATION_DENIED` at `$` | 0 |
+
+The existing `request.depth-exceeded` (deepest value at scanner depth 11) and
+`request.number-fraction` cases remain on `MAX_DEPTH_EXCEEDED` and
+`MALFORMED_JSON` respectively and are unchanged. The lexemes `-0`, `1e2`, and
+`9007199254740991` are byte-identical between the TypeScript and Python
+witnesses (the Python witness applies `raw.isdigit()` plus an explicit
+`int(raw) > MAX_SAFE` check; the TypeScript scanner uses
+`/^(?:0|[1-9][0-9]*)$/` followed by `Number.isSafeInteger` and
+`numeric <= MAX_SAFE`).
 
 ## Unreachable profile row
 

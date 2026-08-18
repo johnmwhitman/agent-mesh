@@ -97,16 +97,6 @@ test("authentication-evidence boundaries stay ordered and preserve their termina
     ],
   );
   assert.deepEqual(
-    evidenceCases.slice(1).map((item) => item.expected),
-    [
-      { result: { kind: "rejected", code: "INVALID_AUTHENTICATION_EVIDENCE", field_path: "$.authentication_evidence.provenance" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
-      corpus.cases[0]!.expected,
-      { result: { kind: "rejected", code: "AUTHORIZATION_DENIED", field_path: "$" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
-      corpus.cases[0]!.expected,
-      { result: { kind: "rejected", code: "AUTHORIZATION_DENIED", field_path: "$" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
-    ],
-  );
-  assert.deepEqual(
     evidenceCases.slice(1).map((item) => {
       const request = JSON.parse(item.invocation_args.request_json) as { authentication_evidence: unknown };
       return request.authentication_evidence;
@@ -119,6 +109,50 @@ test("authentication-evidence boundaries stay ordered and preserve their termina
       { adapter_id: "local.adapter", principal_ref: "principal-ref", audience: "local-audience", session_ref: "session-ref", issued_at_ms: 0, expires_at_ms: 300001, provenance: "trusted_local_adapter" },
     ],
   );
+});
+
+test("depth/numeric boundaries stay ordered and preserve their scanner vs semantic outcomes", () => {
+  const depthNumericCases = corpus.cases.filter((item) =>
+    (item.id.startsWith("request.depth-") && item.id !== "request.depth-exceeded") ||
+    (item.id.startsWith("request.number-") && item.id !== "request.number-fraction")
+  );
+  assert.deepEqual(
+    depthNumericCases.map((item) => item.id),
+    [
+      "request.depth-8",
+      "request.depth-9",
+      "request.number-negative",
+      "request.number-negative-zero",
+      "request.number-exponent",
+      "request.number-unsafe-integer",
+      "request.number-max-safe",
+    ],
+  );
+  assert.deepEqual(
+    depthNumericCases.map((item) => item.expected),
+    [
+      { result: { kind: "rejected", code: "INVALID_AUTHENTICATION_EVIDENCE", field_path: "$.authentication_evidence.adapter_id" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+      { result: { kind: "rejected", code: "MAX_DEPTH_EXCEEDED", field_path: "$.authentication_evidence" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+      { result: { kind: "rejected", code: "MALFORMED_JSON", field_path: "$.evaluation_time_ms" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+      { result: { kind: "rejected", code: "MALFORMED_JSON", field_path: "$.evaluation_time_ms" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+      { result: { kind: "rejected", code: "MALFORMED_JSON", field_path: "$.evaluation_time_ms" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+      { result: { kind: "rejected", code: "MALFORMED_JSON", field_path: "$.evaluation_time_ms" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+      { result: { kind: "rejected", code: "AUTHORIZATION_DENIED", field_path: "$" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+    ],
+  );
+  // Lexeme surgery proof: -0 and 1e2 must survive byte-identically in the raw
+  // request text (JSON.stringify would normalize them to 0 / 100 and the
+  // scanner would admit them).
+  const negativeZero = depthNumericCases.find((item) => item.id === "request.number-negative-zero")!;
+  const exponent = depthNumericCases.find((item) => item.id === "request.number-exponent")!;
+  assert.ok(negativeZero.invocation_args.request_json.includes('"evaluation_time_ms":-0'));
+  assert.ok(exponent.invocation_args.request_json.includes('"evaluation_time_ms":1e2'));
+  // Depth pair must differ only in nesting depth, not in member content.
+  const depth8 = depthNumericCases.find((item) => item.id === "request.depth-8")!;
+  const depth9 = depthNumericCases.find((item) => item.id === "request.depth-9")!;
+  const nestingOf = (item: CorpusCase) => (item.invocation_args.request_json.match(/"x":\{/g) ?? []).length;
+  assert.equal(nestingOf(depth9), nestingOf(depth8) + 1);
+  assert.ok(depth8.invocation_args.request_json.length < depth9.invocation_args.request_json.length);
 });
 
 test("the 2048-rule profile row exceeds the raw request ceiling by authorization-rule lower bound", () => {

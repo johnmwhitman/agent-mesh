@@ -96,7 +96,7 @@ preauthorization, treats policy snapshots as caller-supplied fixtures rather
 than current-state proof, and keeps 4C-0 evidence non-authoritative. It adds no
 public ingress, auth provider, trust root, credential verification, replay
 store, persistence integration, MCP, network, transport, delivery, runtime,
-provider call, release, or activation. The shared corpus currently has 44
+provider call, release, or activation. The shared corpus currently has 51
 mandatory cases, an independent Python witness, strict mutation canaries, and
 seven positive plus fourteen negative StaticHarnessMapping fixtures. It does
 not yet satisfy every exhaustive coverage row in the profile and is therefore
