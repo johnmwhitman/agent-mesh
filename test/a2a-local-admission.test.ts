@@ -101,6 +101,26 @@ test("coverage-ledger named inventory pins the 19 merge-ready Section 9 closure 
   }
 });
 
+test("coverage-ledger named inventory branches all resolve to real local refs in this tree", () => {
+  for (const name of namedInventoryBranchNames) {
+    const result = spawnSync("git", ["rev-parse", "--verify", `refs/heads/${name}`], {
+      cwd: root,
+      encoding: "utf8",
+    });
+    assert.equal(
+      result.status,
+      0,
+      `git rev-parse --verify refs/heads/${name} must succeed (status=${result.status} stderr=${result.stderr.trim()})`,
+    );
+    const sha = result.stdout.trim();
+    assert.match(
+      sha,
+      /^[0-9a-f]{40}$/,
+      `git rev-parse --verify refs/heads/${name} must produce a 40-char SHA (got ${JSON.stringify(sha)})`,
+    );
+  }
+});
+
 test("authorization boundary evidence covers the next feasible Section 9 cardinality slice", () => {
   assert.deepEqual(
     corpus.mandatory_case_ids.filter((id) => id.startsWith("authorization.boundary.")),
