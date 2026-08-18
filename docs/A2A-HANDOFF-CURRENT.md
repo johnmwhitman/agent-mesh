@@ -16,7 +16,7 @@ ADRs, current source, and executable fixtures outrank this summary.
   fixture-verified adapters. MiniMax is explicit-only. Per-agent
   runtime selection is available in legacy lifecycle mode and refused in
   durable mode.
-- Slice 4C-1 is a test-only offline local-admission evaluator. Its 70 mandatory cases (44 original + 13 adjacent A00-A13 mutation canaries + 13 later-only precedence controls),
+- Slice 4C-1 is a test-only offline local-admission evaluator. Its 79 mandatory cases (44 original + 13 adjacent A00-A13 mutation canaries + 13 later-only precedence controls + 9 privacy.* cases),
   Python agreement, and static harness sidecar do not complete every
   exhaustive profile gate, so it remains `unverified` and unexported.
 - Slice 4D has a pure delivery-trace normalizer with independent Python

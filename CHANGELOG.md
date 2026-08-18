@@ -15,16 +15,18 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
   later step's code wins and the canary flags it. The TypeScript evaluator and the independent
   Python witness agree over the new cases byte-for-byte. The coverage ledger
   (`docs/ops/A2A-LOCAL-ADMISSION-COVERAGE-LEDGER-2026-07-29.md`) marks the precedence row
-  CLOSED bounded subfamily. The corpus count moves from 44 to 70 mandatory cases; the
-  reconciled count is published in `HANDOFF.md` (1767 → 1768).
+  CLOSED bounded subfamily. The corpus count moves from 44 to 79 mandatory cases (44 base + 26 precedence + 9 privacy.*); the
+  reconciled count is published in `HANDOFF.md` (1767 → 1770).
 
 ### Fixed
 
 - **Scope-correct the Slice 4C-1 closeout overclaim on origin/main docs.** The prior closeout
   commit (`f892d1e`) marked all 11 Section 9 coverage-ledger families as CLOSED bounded
   subfamily and bumped COMPATIBILITY.md / CONFORMANCE-MATRIX.yaml to a stronger registered
-  status, but on this tree only the precedence family is provably closed (corpus 70 = 44 base
-  + 13 canaries + 13 controls from the precedence-canary merge); the other 10 families live on
+  status, but on this tree only the precedence family was provably closed at the time of the closeout (corpus 70 = 44 base
+  + 13 canaries + 13 controls from the precedence-canary merge); this privacy merge lifts the corpus
+  to 79 (44 base + 26 precedence + 9 privacy.*), so on this tree the precedence + privacy families are
+  now both CLOSED bounded subfamily on a single branch; the other 9 families live on
   19 separate merge-ready branches at corpus 44–155 each. This commit reverts the closeout
   overclaim and replaces it with the scope-correct consolidation: the coverage-ledger body
   marks the precedence row CLOSED bounded subfamily (with the 26-case precedence slice records
@@ -32,8 +34,8 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
   points at the 19 branches that hold the per-case proof tables for the other 10 families, the
   `Base reviewed` line is updated to the actual origin/main SHA `c571928`, and the COMPATIBILITY
   row stays `unverified` (the CONFORMANCE-MATRIX row is `unverified` today). The 4
-  `localAdmissionCorpusCountDocs` (which test 71 asserts say "70 mandatory cases") were not
-  touched by the closeout revert; the 70-case corpus count is real on this tree.
+  `localAdmissionCorpusCountDocs` (which test 71 asserts say "79 mandatory cases" after the privacy merge) were not
+  touched by the closeout revert; the 79-case corpus count is real on this tree (44 base + 26 precedence + 9 privacy.*).
 - **Scope-correct the scope-correction: separate base-corpus closures from this branch's
   contribution.** The prior scope-correction (`ee20b6b`) left the table cells for `evidence`
   and `authorization` marked `**CLOSED bounded subfamily:**` while the lead paragraph said
@@ -48,9 +50,10 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
   SHA, and adds a named inventory of the 19 merge-ready branches (with their tip SHAs)
   grouped by Section 9 family in the Slice-record provenance section. The profile status
   blockquote (`docs/A2A-LOCAL-ADMISSION-PROFILE-v0.1.md`) and `ROADMAP.md` item 7 are
-  reconciled to the same framing. The 70-case corpus count is unchanged; the precedence
-  closure is unchanged; the 19 merge-ready branches and their tree-and-gate merge-ready
-  status are unchanged.
+  reconciled to the same framing. The 70-case corpus count was unchanged at the time of this scope-correction; the privacy
+  merge lifts it to 79 (44 base + 26 precedence + 9 privacy.*). The precedence closure is
+  unchanged; the 19 merge-ready branches and their tree-and-gate merge-ready
+  status are unchanged at the time of this scope-correction (now 18 — `feat/privacy-invariance-matrix-20260817` has merged into this branch).
 
 ## [0.21.1] - 2026-08-10
 

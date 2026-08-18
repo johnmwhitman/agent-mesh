@@ -4,13 +4,14 @@ Status: bounded offline evidence only. This ledger records executable coverage,
 not profile conformance, authority, acceptance, persistence, delivery, or
 transport capability.
 
-Base reviewed: `c571928` (origin/main). Corpus: 70 mandatory raw-text cases in
+Base reviewed: `c571928` (origin/main). Corpus: 79 mandatory raw-text cases in
 `test/fixtures/a2a/local-admission/v0.1/corpus.json`; every case is evaluated by
 the TypeScript implementation and mandatory Python witness with exact result
 bytes, replay call count, and replay arguments. The base 44-case corpus was
 extended by 26 precedence cases (13 adjacent A00-A13 mutation canaries + 13
-later-only precedence controls) on this branch; the precedence row is the only
-family with a NEW CLOSED bounded subfamily added by this branch. The
+later-only precedence controls) and 9 privacy-invariance cases (privacy row
+migration after merge); the precedence row and the privacy row are now both
+CLOSED bounded subfamily on this branch. The
 `evidence` and `authorization` families carry base-corpus closures (provenance /
 issued-at / expires-at / lifetime boundaries; type 5/6 + recipient 128/129 +
 duplicate source index + all-recipient denial) inherited from origin/main's
@@ -32,7 +33,7 @@ provenance below.
 | authorization | valid one type/recipient; one invalid action; generic denial plus 7 base-corpus closure cases (message-types 5/6; recipients 128/129; duplicate message-type/recipient source index; all-recipient denial) inherited from origin/main | — | snapshot fields/provenance, rule-count edge, session key, and other policy contexts |
 | relativity | plan only reports fixture IDs/versions | — | decision changes caused by changed fixtures |
 | oracle/results | all four non-admission verdicts, unavailable, throw, unseen plan, unseen-only expiry, and exact query | — | malformed oracle case and every rejected-code inventory |
-| privacy | offline/import-surface checks and closed sidecar fixtures | — | dedicated ignored-input/diagnostic-invariance matrix |
+| privacy | offline/import-surface checks and closed sidecar fixtures | **CLOSED bounded subfamily:** foreign capability/profile/proof/model/runtime/receipt/conformance/provider/environment/secret members in every request and envelope surface — top-level request rejects `UNKNOWN_CORE_FIELD` at `$`; nested request objects reject at the nearest known containing-object path with the family code; envelope agent-reference members are dropped by the delegated 4A decoder with the decision byte-identical to the base plan; raw hidden duplicate rejects `DUPLICATE_JSON_KEY` at `$` | dedicated ignored-input/diagnostic-invariance matrix (9 `privacy.*` mandatory cases) |
 
 ## Base corpus slice records (inherited from origin/main)
 
@@ -82,19 +83,19 @@ completeness so reviewers do not mistake them for this branch's contribution.
 
 ## Slice-record provenance
 
-The per-family slice records for the 8 remaining Section 9 families
+The per-family slice records for the 7 remaining Section 9 families
 (`request-raw/path`, `independent-input`, `depth/numeric`, `envelope`,
-`binding`, `relativity`, `oracle/results`, `privacy`) — plus the field/type/
+`binding`, `relativity`, `oracle/results`) — plus the field/type/
 grammar extensions of `evidence` and `authorization` that go beyond the
 base-corpus closures inherited from origin/main — live on each merge-ready
 branch's own coverage-ledger body. Each branch marks ITS row as CLOSED
-bounded subfamily with its own slice-records table. The 19 merge-ready
+bounded subfamily with its own slice-records table. The 18 merge-ready
 branches (all off origin/main `c571928`) listed below carry the per-case
 proof tables; merge will reconcile their coverage-ledger bodies onto
 origin/main. This consolidation entry on this branch (`feat/coverage-ledger-
-post-merge-consolidation-20260818`, tip `ee20b6b`) marks the precedence
-family as CLOSED bounded subfamily on this tree (with the 26-case precedence
-slice records table above) and points at the branches that hold the
+post-merge-consolidation-20260818`, tip pinning with the privacy merge applied) marks the precedence
+AND the privacy family as CLOSED bounded subfamily on this tree (with the 26-case precedence
+slice records table above AND the new 9-case privacy slice records table below) and points at the branches that hold the
 per-case proof tables for the other 8 families. The COMPATIBILITY row
 remains `unverified` until those 19 branches merge; the CONFORMANCE-MATRIX
 row is `unverified` today.
@@ -128,7 +129,19 @@ seam is at `feat/durable-acceptance-seam-20260817` (tip `7464c90`), the
 capability-profile seam at `feat/capability-profile-seam-20260817` (tip
 `f5b4ee1`), and the compact fleet-status branch at `feat/compact-fleet-
 status-20260817` (tip `9737b1e`).
+## Privacy slice records
 
+| Case IDs | Required outcome | Replay calls |
+| --- | --- | --- |
+| `privacy.unknown-top-level` | `UNKNOWN_CORE_FIELD` at `$` | 0 |
+| `privacy.unknown-evidence-member` | `INVALID_AUTHENTICATION_EVIDENCE` at `$.authentication_evidence` | 0 |
+| `privacy.unknown-binding-rule-member` | `INVALID_BINDING_SNAPSHOT` at `$.binding_snapshot.rules[0]` | 0 |
+| `privacy.unknown-authorization-rule-member` | `INVALID_AUTHORIZATION_SNAPSHOT` at `$.authorization_snapshot.rules[0]` | 0 |
+| `privacy.unknown-authorization-recipient-member` | `INVALID_AUTHORIZATION_SNAPSHOT` at `$.authorization_snapshot.rules[0].recipients[0]` | 0 |
+| `privacy.unknown-binding-sender-member` | `INVALID_BINDING_SNAPSHOT` at `$.binding_snapshot.rules[0].sender` | 0 |
+| `privacy.unknown-envelope-sender-member` | `admission_plan` byte-identical to `valid.admission-plan` (foreign member dropped by delegated 4A decoder) | 1 |
+| `privacy.unknown-envelope-recipient-member` | `admission_plan` byte-identical to `valid.admission-plan` (foreign member dropped by delegated 4A decoder) | 1 |
+| `privacy.duplicate-key-hidden-foreign-member` | `DUPLICATE_JSON_KEY` at `$` | 0 |
 ## Unreachable profile row
 
 The declared authorization `rules` maximum of 2048 and its 2049 rejection
