@@ -135,7 +135,11 @@ function requireAllowedKeys(
 ): void {
   const unknown = Object.keys(value).find((key) => !allowed.has(key));
   if (unknown !== undefined) {
-    invalid(path ? `${path}.${unknown}` : unknown, "is not allowed");
+    const sortedAllowed = Array.from(allowed).sort();
+    invalid(
+      path ? `${path}.${unknown}` : unknown,
+      `is not allowed; allowed keys are: ${sortedAllowed.join(", ")}`,
+    );
   }
 }
 

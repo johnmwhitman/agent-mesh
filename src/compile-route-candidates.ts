@@ -92,7 +92,13 @@ function requireAllowedKeys(
   allowed: ReadonlySet<string>,
 ): void {
   const unknown = Object.keys(value).find((key) => !allowed.has(key));
-  if (unknown !== undefined) invalid(path ? `${path}.${unknown}` : unknown, "is not allowed");
+  if (unknown !== undefined) {
+    const sortedAllowed = Array.from(allowed).sort();
+    invalid(
+      path ? `${path}.${unknown}` : unknown,
+      `is not allowed; allowed keys are: ${sortedAllowed.join(", ")}`,
+    );
+  }
 }
 
 function requireString(value: unknown, path: string, maxLength = 128): asserts value is string {

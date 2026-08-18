@@ -174,7 +174,11 @@ test("packed recommend-route consumer imports, evaluates, and rejects without MC
           const result = api.recommendRoute(input);
           if (JSON.stringify(input) !== before || result.advisory !== true || Object.values(result.effects).some(Boolean) || result.ranked[0]?.candidate_id !== "local-code" || JSON.stringify(Object.keys(api).sort()) !== JSON.stringify(["assertRecommendRouteTask", "assertRouteCandidates", "recommendRoute"])) process.exit(1);
           try { api.assertRouteCandidates([{ ...input.candidates[0], provider: "forbidden" }], { errorPrefix: "consumer", path: "candidates" }); process.exit(1); }
-          catch (error) { if (!(error instanceof Error) || error.message !== "consumer: 'candidates[0].provider' is not allowed") process.exit(1); }
+          catch (error) {
+            if (!(error instanceof Error)) process.exit(1);
+            if (!error.message.startsWith("consumer: 'candidates[0].provider' is not allowed; allowed keys are: ")) process.exit(1);
+            if (!error.message.includes("capabilities")) process.exit(1);
+          }
         })`,
       ],
       { cwd: consumer, encoding: "utf8", env: {} },

@@ -937,7 +937,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "compile_route_candidates",
       description:
-        "Offline projection of caller-supplied route-candidate snapshots. Does not persist, rank, execute, authorize, wake, or contact providers.",
+        "Offline projection of caller-supplied route-candidate snapshots. Does not persist, rank, execute, authorize, wake, or contact providers. At the top level, allowed keys are: manifest, observations. Errors name the allowed keys for every rejected field.",
       inputSchema: {
         type: "object",
         additionalProperties: false,
@@ -1092,7 +1092,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "recommend_route",
       description:
-        "Advisory-only ranking over caller-supplied sanitized task traits and candidate snapshots. Does not persist, execute, authorize, wake agents, or contact providers.",
+        "Advisory-only ranking over caller-supplied sanitized task traits and candidate snapshots. Does not persist, execute, authorize, wake agents, or contact providers. At the top level, allowed keys are: task, candidates, top_n, preference. Errors name the allowed keys for every rejected field.",
       inputSchema: {
         type: "object",
         properties: {
@@ -2110,6 +2110,38 @@ toolHandlers["plan_speculative_backlog"] = async (args) => {
   }
 };
 
+const ALLOWED_RECOMMEND_ROUTE_TOP_LEVEL = [
+  "task",
+  "candidates",
+  "top_n",
+  "preference",
+] as const;
+const ALLOWED_RECOMMEND_ROUTE_TASK = [
+  "required_capabilities",
+  "optional_capabilities",
+  "privacy",
+  "locality",
+  "coordination",
+  "policy_tags",
+  "min_context_tokens",
+] as const;
+const ALLOWED_RECOMMEND_ROUTE_CANDIDATE = [
+  "candidate_id",
+  "capabilities",
+  "privacy",
+  "locality",
+  "coordination_modes",
+  "policy_tags",
+  "context_window",
+  "observed_outcomes",
+  "budget",
+  "requested_identity",
+  "observed_identity",
+] as const;
+const ALLOWED_RECOMMEND_ROUTE_PREFERENCE = ["objective", "now_ms"] as const;
+const allowedKeysList = (allowed: ReadonlyArray<string>): string =>
+  `allowed keys are: ${allowed.slice().sort().join(", ")}`;
+
 toolHandlers["recommend_route"] = async (args) => {
   const input = args as Record<string, unknown>;
   const firstUnexpected = (
@@ -2125,46 +2157,40 @@ toolHandlers["recommend_route"] = async (args) => {
   };
   const topLevelUnexpected = firstUnexpected(
     input,
-    new Set(["task", "candidates", "top_n", "preference"]),
+    new Set(ALLOWED_RECOMMEND_ROUTE_TOP_LEVEL),
     "",
   );
   if (topLevelUnexpected) {
     return jsonError(
-      `recommend_route: '${topLevelUnexpected}' is not allowed; supply sanitized traits only`,
+      `recommend_route: '${topLevelUnexpected}' is not allowed; ${allowedKeysList(ALLOWED_RECOMMEND_ROUTE_TOP_LEVEL)}`,
     );
   }
   const taskUnexpected = firstUnexpected(
     input.task,
-    new Set([
-      "required_capabilities",
-      "optional_capabilities",
-      "privacy",
-      "locality",
-      "coordination",
-      "policy_tags",
-      "min_context_tokens",
-    ]),
+    new Set(ALLOWED_RECOMMEND_ROUTE_TASK),
     "task.",
   );
   if (taskUnexpected) {
     return jsonError(
-      `recommend_route: '${taskUnexpected}' is not allowed; supply sanitized traits only`,
+      `recommend_route: '${taskUnexpected}' is not allowed; ${allowedKeysList(ALLOWED_RECOMMEND_ROUTE_TASK)}`,
     );
   }
+  if (input.preference !== undefined) {
+    const preference = input.preference as Record<string, unknown> | null;
+    if (typeof preference === "object" && preference !== null && !Array.isArray(preference)) {
+      const preferenceAllowed = new Set<string>(ALLOWED_RECOMMEND_ROUTE_PREFERENCE);
+      const preferenceUnexpected = Object.keys(preference).find(
+        (key) => !preferenceAllowed.has(key),
+      );
+      if (preferenceUnexpected !== undefined) {
+        return jsonError(
+          `recommend_route: 'preference.${preferenceUnexpected}' is not allowed; ${allowedKeysList(ALLOWED_RECOMMEND_ROUTE_PREFERENCE)}`,
+        );
+      }
+    }
+  }
   if (Array.isArray(input.candidates)) {
-    const allowedCandidateKeys = new Set([
-      "candidate_id",
-      "capabilities",
-      "privacy",
-      "locality",
-      "coordination_modes",
-      "policy_tags",
-      "context_window",
-      "observed_outcomes",
-      "budget",
-      "requested_identity",
-      "observed_identity",
-    ]);
+    const allowedCandidateKeys = new Set(ALLOWED_RECOMMEND_ROUTE_CANDIDATE);
     for (let index = 0; index < input.candidates.length; index++) {
       const candidateUnexpected = firstUnexpected(
         input.candidates[index],
@@ -2173,7 +2199,7 @@ toolHandlers["recommend_route"] = async (args) => {
       );
       if (candidateUnexpected) {
         return jsonError(
-          `recommend_route: '${candidateUnexpected}' is not allowed; recommendation never executes or wakes agents`,
+          `recommend_route: '${candidateUnexpected}' is not allowed; ${allowedKeysList(ALLOWED_RECOMMEND_ROUTE_CANDIDATE)} (recommendation never executes or wakes agents)`,
         );
       }
     }
