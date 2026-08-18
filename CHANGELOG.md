@@ -2,6 +2,12 @@
 
 All notable changes to Agent Mesh are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Local-admission request-raw/path "BOM / whitespace / comment / trailing / literal-escaped" bounded subfamily closed.** Eleven new mandatory corpus cases pin the parser's exact-prefixed rejection behavior for non-JSON-shaped raw request inputs that the existing 44-case corpus only represented with single surrogates, single malformed JSON, single duplicate keys, single fractions, single depths, and single malformed unknown-child cases. The new cases exercise every code path the scanner already walks: `request.bom-leading` (`U+FEFF`) → `INVALID_UTF8` at `$`; `request.whitespace-form-feed` (`U+000C`), `request.whitespace-vertical-tab` (`U+000B`), `request.whitespace-nel` (`U+0085`), `request.whitespace-line-separator` (`U+2028`), `request.whitespace-paragraph-separator` (`U+2029`), `request.comment-line` (`// ...`), `request.comment-block` (`/* ... */`), `request.trailing-garbage` (`{`), and `request.trailing-comma` (` ,\n`) → `MALFORMED_JSON` at `$`; `request.literal-escaped-duplicate-key` (literal `"version"` + escape `\u0076ersion`) → `DUPLICATE_JSON_KEY` at `$`. Every case rejects before envelope decode and records zero replay-oracle calls. Two probes caught a real generator-script regression: writing the corpus with `JSON.stringify(corpus, null, 2)` changed it from compact one-line JSON to pretty-printed multi-line JSON, which broke the existing test 80 ("Python witness rejects ambiguous, nonstandard, and open corpus documents") whose first mutation (`raw.replace('{"mandatory_case_ids":', '{"mandatory_case_ids":[],"mandatory_case_ids":')`) assumed compact whitespace. The fix is to keep the corpus in compact form (`JSON.stringify(corpus) + "\n"`) — the same form the witness and every prior generator uses. Coverage-ledger `request-raw/path` row now reads `CLOSED bounded subfamily: BOM (leading); non-standard whitespace (form-feed, vertical-tab, NEL, line-separator, paragraph-separator); line/block comments; trailing garbage and trailing comma; literal/escaped duplicate key`; a new request-raw-path slice-records table mirrors the existing authorization/evidence/depth-numeric precedent.
+
 ## [0.21.1] - 2026-08-10
 
 ### Fixed

@@ -11,7 +11,7 @@ bytes, replay call count, and replay arguments.
 
 | Section 9 family | Existing executable proof | This slice | Remaining exact gap |
 | --- | --- | --- | --- |
-| request-raw/path | byte 262143/262144/262145; one surrogate, malformed JSON, duplicate key, fraction, depth, and malformed unknown-child representatives | — | BOM, whitespace/comment/trailing variants, literal/escaped duplicates in every request object, and every safe-path class |
+| request-raw/path | byte 262143/262144/262145; one surrogate, malformed JSON, duplicate key, fraction, depth, and malformed unknown-child representatives | **CLOSED bounded subfamily:** BOM (leading); non-standard whitespace (form-feed, vertical-tab, NEL, line-separator, paragraph-separator); line/block comments; trailing garbage and trailing comma; literal/escaped duplicate key | literal/escaped duplicates in every request object, and every safe-path class |
 | independent-input | raw-text-only inputs and no request `envelope` member; representative request-before-envelope ordering | — | independent depth/byte collision vectors and double-encoding vectors |
 | depth/numeric | representative request depth and fraction; 4A retains its own vectors | — | request depth 8/9 and negative, `-0`, exponent, unsafe-integer boundaries |
 | precedence | representative request, envelope, denial, replay, and expiry ordering | — | mutation canary for each adjacent A00-A13 pair |
@@ -30,6 +30,14 @@ bytes, replay call count, and replay arguments.
 | `evidence.provenance-invalid` | `INVALID_AUTHENTICATION_EVIDENCE` at `$.authentication_evidence.provenance` | 0 |
 | `evidence.issued-at-evaluation-valid`, `evidence.lifetime-300000-valid` | `admission_plan` with the unchanged 4A digest | 1 |
 | `evidence.expires-at-evaluation-denied`, `evidence.lifetime-300001-denied` | `AUTHORIZATION_DENIED` at `$` | 0 |
+
+## Request-raw/path slice records
+
+| Case IDs | Required outcome | Replay calls |
+| --- | --- | --- |
+| `request.bom-leading` | `INVALID_UTF8` at `$` | 0 |
+| `request.whitespace-form-feed`, `request.whitespace-vertical-tab`, `request.whitespace-nel`, `request.whitespace-line-separator`, `request.whitespace-paragraph-separator`, `request.comment-line`, `request.comment-block`, `request.trailing-garbage`, `request.trailing-comma` | `MALFORMED_JSON` at `$` | 0 |
+| `request.literal-escaped-duplicate-key` | `DUPLICATE_JSON_KEY` at `$` | 0 |
 
 ## Authorization slice records
 

@@ -155,6 +155,72 @@ test("the raw boundary rejects invalid UTF-8 representatives without creating an
   );
 });
 
+test("the request-raw/path subfamily pins BOM, non-standard whitespace, comments, trailing garbage, and literal/escaped duplicate keys", () => {
+  const rawPathCases = corpus.cases.filter((item) => /^request\.(bom-|whitespace-|comment-|trailing-|literal-escaped-)/.test(item.id));
+  assert.deepEqual(
+    rawPathCases.map((item) => item.id),
+    [
+      "request.bom-leading",
+      "request.whitespace-form-feed",
+      "request.whitespace-vertical-tab",
+      "request.whitespace-nel",
+      "request.whitespace-line-separator",
+      "request.whitespace-paragraph-separator",
+      "request.comment-line",
+      "request.comment-block",
+      "request.trailing-garbage",
+      "request.trailing-comma",
+      "request.literal-escaped-duplicate-key",
+    ],
+  );
+  // Every case must reject before envelope decode: 0 oracle calls, no envelope
+  // digest, and one of the four raw-text codes at $. The single non-MALFORMED
+  // code is INVALID_UTF8 (BOM) and DUPLICATE_JSON_KEY (literal/escaped); the
+  // rest are MALFORMED_JSON. Pinning the codes catches any future regression
+  // that maps a non-standard whitespace or comment form to a different
+  // rejection path (e.g. INVALID_REQUEST at $.version).
+  for (const item of rawPathCases) {
+    const actual = evaluate(item);
+    if (item.id === "request.bom-leading") {
+      assert.deepEqual(
+        actual.result,
+        { kind: "rejected", code: "INVALID_UTF8", field_path: "$" },
+        item.id,
+      );
+    } else if (item.id === "request.literal-escaped-duplicate-key") {
+      assert.deepEqual(
+        actual.result,
+        { kind: "rejected", code: "DUPLICATE_JSON_KEY", field_path: "$" },
+        item.id,
+      );
+    } else {
+      assert.deepEqual(
+        actual.result,
+        { kind: "rejected", code: "MALFORMED_JSON", field_path: "$" },
+        item.id,
+      );
+    }
+    assert.equal(actual.replay_oracle_calls, 0, `${item.id} must not reach the oracle`);
+    assert.deepEqual(actual.replay_oracle_arguments, [], `${item.id} must record zero oracle arguments`);
+  }
+});
+
+test("red-on-revert guard: dropping request.bom-leading fails the request-raw/path subfamily pin", () => {
+  const mutated = structuredClone(corpus) as typeof corpus;
+  mutated.cases = mutated.cases.filter((item) => item.id !== "request.bom-leading");
+  mutated.mandatory_case_ids = mutated.cases.map((item) => item.id);
+  const rawPathCases = mutated.cases.filter((item) => /^request\.(bom-|whitespace-|comment-|trailing-|literal-escaped-)/.test(item.id));
+  assert.equal(
+    rawPathCases.length,
+    10,
+    "removing request.bom-leading must shrink the request-raw/path subfamily from 11 to 10",
+  );
+  assert.ok(
+    !mutated.cases.some((item) => item.id === "request.bom-leading"),
+    "removed case must not reappear via the spliced-corpus copy",
+  );
+});
+
 test("ingress recipient normalization is order-independent and agrees across witnesses", (t) => {
   const first = corpus.cases[0]!;
   const request = JSON.parse(first.invocation_args.request_json) as {
