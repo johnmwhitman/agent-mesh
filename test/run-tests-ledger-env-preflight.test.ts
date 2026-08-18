@@ -1,10 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { dirname, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 
 // The suite must refuse to run when a ledger PATH is set in the environment.
 //
@@ -31,8 +31,19 @@ const runner = join(repoRoot, "scripts", "run-tests.mjs");
 
 const preflightModulePath = join(repoRoot, "scripts", "lib", "ledger-env-preflight.mjs");
 const preflightModuleUrl = pathToFileURL(preflightModulePath).href;
-const { BANNED_LEDGER_ENV, findLedgerEnvOverrides, ledgerEnvRefusal } =
-  await import(preflightModuleUrl);
+const {
+  BANNED_LEDGER_ENV,
+  betterSqlite3NativeRefusal,
+  findBetterSqlite3NativeProblem,
+  findLedgerEnvOverrides,
+  findPython3ShimCandidate,
+  ledgerEnvRefusal,
+  parsePythonVersionOutput,
+  probePythonVersion,
+  pythonPathRefusal,
+  pythonVersionMeetsMinimum,
+  resolvePythonVersionPreflight,
+} = await import(preflightModuleUrl);
 
 test("every ledger path variable that actually overrides is banned", () => {
   // Pins the LIST. Dropping a name here — most plausibly the deprecated alias, which is
@@ -153,6 +164,122 @@ test("the runner refuses immediately, and does not run the suite", () => {
     "the refusal must come before any test executes"
   );
   assert.ok(Date.now() - started < 15_000, "the refusal must be immediate");
+});
+
+test("python version parsing and minimum check", () => {
+  assert.deepEqual(parsePythonVersionOutput("Python 3.9.6"), {
+    major: 3,
+    minor: 9,
+    patch: 6,
+    text: "Python 3.9.6",
+  });
+  assert.equal(pythonVersionMeetsMinimum(parsePythonVersionOutput("Python 3.9.6")), false);
+  assert.equal(pythonVersionMeetsMinimum(parsePythonVersionOutput("Python 3.10.0")), true);
+  assert.equal(pythonVersionMeetsMinimum(parsePythonVersionOutput("Python 3.14.6")), true);
+  assert.equal(pythonVersionMeetsMinimum(null), false);
+});
+
+test("probePythonVersion returns null when python3 is absent (ENOENT)", () => {
+  assert.equal(
+    probePythonVersion({}, () => ({ error: { code: "ENOENT" } })),
+    null,
+  );
+});
+
+test("resolvePythonVersionPreflight returns null when python3 is already 3.10+", () => {
+  const fakeRun = () => ({ stdout: "Python 3.14.6\n", stderr: "", status: 0 });
+  assert.equal(resolvePythonVersionPreflight({ PATH: "/usr/bin" }, fakeRun), null);
+});
+
+test("resolvePythonVersionPreflight auto-shims when python3 is <3.10 and a 3.10+ exists", () => {
+  // Simulate: `python3 --version` reports 3.9.6 (the problem), and `python3.12 --version`
+  // reports 3.12.13 (the shim candidate). The preflight should build a temp shim dir
+  // containing a `python3` symlink to the candidate.
+  const shimBinDir = mkdtempSync(join(tmpdir(), "meshfleet-py-shim-test-"));
+  const fakePy312 = join(shimBinDir, "python3.12");
+  symlinkSync(process.execPath, fakePy312); // symlink to anything that runs
+
+  const fakeRun = (cmd: string, args: string[], _opts?: object) => {
+    if (cmd === "python3" && args[0] === "--version") {
+      return { stdout: "Python 3.9.6\n", stderr: "", status: 0 };
+    }
+    if (cmd === fakePy312 && args[0] === "--version") {
+      return { stdout: "Python 3.12.13\n", stderr: "", status: 0 };
+    }
+    return { stdout: "", stderr: "", status: 1 };
+  };
+
+  const result = resolvePythonVersionPreflight(
+    { PATH: shimBinDir },
+    fakeRun,
+  );
+
+  assert.ok(result?.shimmed, "the preflight should report shimmed: true");
+  assert.equal(result.fromVersion.text, "Python 3.9.6");
+  assert.equal(result.toVersion.text, "Python 3.12.13");
+  assert.ok(existsSync(join(result.shimDir, "python3")), "the shim dir must contain a python3 symlink");
+});
+
+test("resolvePythonVersionPreflight refuses when python3 is <3.10 and no 3.10+ exists", () => {
+  const fakeRun = (cmd: string) => {
+    if (cmd === "python3") return { stdout: "Python 3.9.6\n", stderr: "", status: 0 };
+    // No python3.N candidates — all return errors.
+    return { error: { code: "ENOENT" } };
+  };
+
+  const result = resolvePythonVersionPreflight({ PATH: "/usr/bin" }, fakeRun);
+
+  assert.ok(result?.refused, "the preflight should report refused: true");
+  assert.equal(result.problem.version.text, "Python 3.9.6");
+
+  const text = pythonPathRefusal(result.problem);
+  assert.match(text, /PATH resolves python3/);
+  assert.match(text, /Python 3\.9\.6/);
+  assert.match(text, /PEP 604/);
+  assert.match(text, /four-test cascade/);
+  assert.match(text, /Python 3\.10\+/);
+  assert.match(text, /auto-shim/);
+});
+
+test("findPython3ShimCandidate picks the highest versioned candidate", () => {
+  const dirA = mkdtempSync(join(tmpdir(), "meshfleet-py-cand-a-"));
+  const dirB = mkdtempSync(join(tmpdir(), "meshfleet-py-cand-b-"));
+  symlinkSync(process.execPath, join(dirA, "python3.10"));
+  symlinkSync(process.execPath, join(dirB, "python3.12"));
+
+  const fakeRun = (cmd: string, args: string[]) => {
+    if (cmd.endsWith("python3.10") && args[0] === "--version")
+      return { stdout: "Python 3.10.0\n", stderr: "", status: 0 };
+    if (cmd.endsWith("python3.12") && args[0] === "--version")
+      return { stdout: "Python 3.12.13\n", stderr: "", status: 0 };
+    return { error: { code: "ENOENT" } };
+  };
+
+  const result = findPython3ShimCandidate(
+    { PATH: `${dirA}${delimiter}${dirB}` },
+    fakeRun,
+  );
+
+  assert.ok(result, "a candidate should be found");
+  assert.equal(result.version.minor, 12, "the highest version (3.12) should be picked");
+  assert.ok(result.path.endsWith("python3.12"));
+});
+
+test("better-sqlite3 preflight turns native ABI explosions into one refusal", () => {
+  assert.equal(findBetterSqlite3NativeProblem(() => ({})), null);
+  const problem = findBetterSqlite3NativeProblem(
+    () => {
+      throw new Error("The module was compiled against a different Node.js version using NODE_MODULE_VERSION 147");
+    },
+    { node: "24.18.1", modules: "137" },
+  );
+
+  assert.match(problem?.message ?? "", /NODE_MODULE_VERSION 147/);
+  const text = betterSqlite3NativeRefusal(problem);
+  assert.match(text, /better-sqlite3 cannot load/);
+  assert.match(text, /NODE_MODULE_VERSION=137/);
+  assert.match(text, /shell Node 26/);
+  assert.match(text, /npm rebuild better-sqlite3/);
 });
 
 test("this very run is the negative case", () => {
