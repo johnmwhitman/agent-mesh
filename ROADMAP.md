@@ -43,10 +43,14 @@ The ranked A2A strategy is canonical in
    specified, with an ephemeral non-acceptance plan, explicit
    assumed local adapter boundary, supplied fixture binding/all-recipient policy
    before replay, and no
-   public/auth/network/storage/runtime activation. The 44-case mandatory corpus,
-   independent Python witness, recipient normalization proof, strict corpus
-   canaries, and closed sidecar fixtures do not yet satisfy the profile's full
-   exhaustive coverage gate. No active, approved, remote, or multi-host claim.
+   public/auth/network/storage/runtime activation. The 70-case mandatory corpus
+   (44 base + 13 adjacent A00-A13 mutation canaries + 13 later-only
+   precedence controls), independent Python witness, recipient normalization
+   proof, strict corpus canaries, and closed sidecar fixtures close the
+   precedence row of the Section 9 coverage ledger as CLOSED bounded
+   subfamily; the other 10 Section 9 families live on 19 separate merge-ready
+   branches and are not in this tree's corpus. No active, approved, remote,
+   or multi-host claim.
 8. **Slices 4D and 4E** - the offline delivery-trace profile and its independent
    Python reference are implemented as conformance evidence. A deterministic
    two-host coordinator witness is also implemented under

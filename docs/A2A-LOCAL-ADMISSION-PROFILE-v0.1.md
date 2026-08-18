@@ -1,11 +1,14 @@
 # A2A Local Admission Profile v0.1
 
 > **STATUS — bounded evidence-alpha restored, 2026-07-29.** The TypeScript
-> evaluator, independent Python witness, shared 44-case corpus, and closed
-> StaticHarnessMapping sidecar fixtures are executable again on the current
-> branch. They remain test-only and outside package/MCP/CLI surfaces. The
-> corpus does not yet satisfy every exhaustive family and cardinality row in
-> Section 9, so this is not full Slice 4C-1 conformance or activation.
+> evaluator, independent Python witness, shared 70-case corpus (44 base + 13
+> adjacent A00-A13 mutation canaries + 13 later-only precedence controls), and
+> closed StaticHarnessMapping sidecar fixtures are executable again on the
+> current branch. They remain test-only and outside package/MCP/CLI surfaces.
+> The corpus does not yet satisfy every exhaustive family and cardinality row
+> in Section 9 (only the precedence row is CLOSED bounded subfamily on this
+> tree; the other 10 families live on 19 separate merge-ready branches), so
+> this is not full Slice 4C-1 conformance or activation.
 
 **Status:** Partially implemented as offline, dormant evidence. This Slice 4C-1
 contract creates no public ingress, authentication provider, trust root,

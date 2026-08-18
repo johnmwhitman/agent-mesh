@@ -18,6 +18,23 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
   CLOSED bounded subfamily. The corpus count moves from 44 to 70 mandatory cases; the
   reconciled count is published in `HANDOFF.md` (1767 → 1768).
 
+### Fixed
+
+- **Scope-correct the Slice 4C-1 closeout overclaim on origin/main docs.** The prior closeout
+  commit (`f892d1e`) marked all 11 Section 9 coverage-ledger families as CLOSED bounded
+  subfamily and bumped COMPATIBILITY.md / CONFORMANCE-MATRIX.yaml to a stronger registered
+  status, but on this tree only the precedence family is provably closed (corpus 70 = 44 base
+  + 13 canaries + 13 controls from the precedence-canary merge); the other 10 families live on
+  19 separate merge-ready branches at corpus 44–155 each. This commit reverts the closeout
+  overclaim and replaces it with the scope-correct consolidation: the coverage-ledger body
+  marks the precedence row CLOSED bounded subfamily (with the 26-case precedence slice records
+  table added under the authorization slice records), the `Slice-record provenance` paragraph
+  points at the 19 branches that hold the per-case proof tables for the other 10 families, the
+  `Base reviewed` line is updated to the actual origin/main SHA `c571928`, and the COMPATIBILITY
+  row stays `unverified` (the CONFORMANCE-MATRIX row is `unverified` today). The 4
+  `localAdmissionCorpusCountDocs` (which test 71 asserts say "70 mandatory cases") were not
+  touched by the closeout revert; the 70-case corpus count is real on this tree.
+
 ## [0.21.1] - 2026-08-10
 
 ### Fixed
