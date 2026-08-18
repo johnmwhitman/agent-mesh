@@ -179,9 +179,15 @@ function usage() {
   console.log("  --branch   restrict to specific branch (repeatable)");
 }
 
-function openTrainBranch() {
-  const co = shFn("git", ["checkout", "--quiet", "origin/main"]);
-  if (co.status !== 0) return { ok: false, reason: `checkout origin/main failed: ${(co.stderr || co.stdout || "").trim()}` };
+function openTrainBranch(basis) {
+  // basis defaults to "origin/main" so the train is a fast-forward off main, but the
+  // --basis flag lets the caller point the train at a different starting commit (used
+  // when the train must roll in a build-time prerequisite that lives on a feature
+  // branch — e.g. a .gitattributes change that has to be on the train tip before the
+  // candidates can merge).
+  const base = basis || "origin/main";
+  const co = shFn("git", ["checkout", "--quiet", base]);
+  if (co.status !== 0) return { ok: false, reason: `checkout ${base} failed: ${(co.stderr || co.stdout || "").trim()}` };
   const mk = shFn("git", ["checkout", "-b", TRAIN_BRANCH]);
   if (mk.status !== 0) return { ok: false, reason: `create ${TRAIN_BRANCH} failed: ${(mk.stderr || mk.stdout || "").trim()}` };
   return { ok: true };
@@ -331,7 +337,7 @@ function main() {
     console.log(`[merge-train] baseline measurement failed (${e?.message || e}); proceeding without baseline-aware verdict`);
   }
 
-  const op = openTrainBranch();
+  const op = openTrainBranch(args.basis);
   if (!op.ok) { console.error(`[merge-train] open train failed: ${op.reason}`); process.exit(4); }
 
   const merges = [];
