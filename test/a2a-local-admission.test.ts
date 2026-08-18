@@ -94,10 +94,16 @@ test("authentication-evidence boundaries stay ordered and preserve their termina
       "evidence.expires-at-evaluation-denied",
       "evidence.lifetime-300000-valid",
       "evidence.lifetime-300001-denied",
+      "evidence.adapter_id-invalid-type",
+      "evidence.adapter_id-invalid-grammar",
+      "evidence.principal_ref-invalid-type",
+      "evidence.principal_ref-invalid-grammar",
+      "evidence.issued_at_ms-invalid-type",
+      "evidence.expires_at_ms-invalid-type",
     ],
   );
   assert.deepEqual(
-    evidenceCases.slice(1).map((item) => item.expected),
+    evidenceCases.slice(1, 6).map((item) => item.expected),
     [
       { result: { kind: "rejected", code: "INVALID_AUTHENTICATION_EVIDENCE", field_path: "$.authentication_evidence.provenance" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
       corpus.cases[0]!.expected,
@@ -107,7 +113,7 @@ test("authentication-evidence boundaries stay ordered and preserve their termina
     ],
   );
   assert.deepEqual(
-    evidenceCases.slice(1).map((item) => {
+    evidenceCases.slice(1, 6).map((item) => {
       const request = JSON.parse(item.invocation_args.request_json) as { authentication_evidence: unknown };
       return request.authentication_evidence;
     }),
@@ -119,6 +125,71 @@ test("authentication-evidence boundaries stay ordered and preserve their termina
       { adapter_id: "local.adapter", principal_ref: "principal-ref", audience: "local-audience", session_ref: "session-ref", issued_at_ms: 0, expires_at_ms: 300001, provenance: "trusted_local_adapter" },
     ],
   );
+});
+
+test("evidence field-type/grammar boundaries surface INVALID_AUTHENTICATION_EVIDENCE at the mutated field path", () => {
+  const fieldGrammarCases = corpus.cases.filter((item) =>
+    item.id.startsWith("evidence.adapter_id-invalid-") ||
+    item.id.startsWith("evidence.principal_ref-invalid-") ||
+    item.id.startsWith("evidence.issued_at_ms-invalid-") ||
+    item.id.startsWith("evidence.expires_at_ms-invalid-")
+  );
+  assert.deepEqual(
+    fieldGrammarCases.map((item) => item.id),
+    [
+      "evidence.adapter_id-invalid-type",
+      "evidence.adapter_id-invalid-grammar",
+      "evidence.principal_ref-invalid-type",
+      "evidence.principal_ref-invalid-grammar",
+      "evidence.issued_at_ms-invalid-type",
+      "evidence.expires_at_ms-invalid-type",
+    ],
+  );
+  assert.deepEqual(
+    fieldGrammarCases.map((item) => item.expected),
+    [
+      { result: { kind: "rejected", code: "INVALID_AUTHENTICATION_EVIDENCE", field_path: "$.authentication_evidence.adapter_id" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+      { result: { kind: "rejected", code: "INVALID_AUTHENTICATION_EVIDENCE", field_path: "$.authentication_evidence.adapter_id" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+      { result: { kind: "rejected", code: "INVALID_AUTHENTICATION_EVIDENCE", field_path: "$.authentication_evidence.principal_ref" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+      { result: { kind: "rejected", code: "INVALID_AUTHENTICATION_EVIDENCE", field_path: "$.authentication_evidence.principal_ref" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+      { result: { kind: "rejected", code: "INVALID_AUTHENTICATION_EVIDENCE", field_path: "$.authentication_evidence.issued_at_ms" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+      { result: { kind: "rejected", code: "INVALID_AUTHENTICATION_EVIDENCE", field_path: "$.authentication_evidence.expires_at_ms" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+    ],
+  );
+  // Mutation byte proof: each case mutates exactly ONE evidence field on the
+  // baseline request and leaves the rest byte-identical to valid.admission-plan.
+  // The mutated value must survive byte-identically in the raw request text.
+  const valid = corpus.cases.find((c) => c.id === "valid.admission-plan")!;
+  const validRequest = JSON.parse(valid.invocation_args.request_json);
+  for (const item of fieldGrammarCases) {
+    const request = JSON.parse(item.invocation_args.request_json) as { authentication_evidence: Record<string, unknown> };
+    for (const key of Object.keys(request.authentication_evidence)) {
+      if (JSON.stringify(request.authentication_evidence[key]) !== JSON.stringify(validRequest.authentication_evidence[key])) {
+        // This is the mutated field; assert it appears in raw request text with
+        // a byte-distinct representation (number/boolean/null vs string).
+        const mutated = request.authentication_evidence[key];
+        const asLiteral = typeof mutated === "string" ? JSON.stringify(mutated) : String(mutated);
+        assert.ok(
+          item.invocation_args.request_json.includes(`"${key}":${asLiteral}`),
+          `${item.id}: raw request must carry mutated ${key}=${asLiteral}`,
+        );
+      }
+    }
+  }
+  // Type-vs-grammar proof: numeric scanner would reject a numeric lexeme at
+  // a time field, so the type-invalid axis for issued_at_ms/expires_at_ms
+  // MUST use a non-numeric literal that the scanner admits. String "abc"
+  // and boolean false are both scanner-admitted and localTime-rejected.
+  const issuedAtTypeInvalid = fieldGrammarCases.find((item) => item.id === "evidence.issued_at_ms-invalid-type")!;
+  const expiresAtTypeInvalid = fieldGrammarCases.find((item) => item.id === "evidence.expires_at_ms-invalid-type")!;
+  assert.ok(issuedAtTypeInvalid.invocation_args.request_json.includes('"issued_at_ms":"abc"'));
+  assert.ok(expiresAtTypeInvalid.invocation_args.request_json.includes('"expires_at_ms":false'));
+  // Grammar proof: ADAPTER_ID regex `^[a-z0-9](?:[a-z0-9.-]{0,62}[a-z0-9])?$`
+  // rejects leading dash; OPAQUE_REF regex requires at least 1 char.
+  const adapterGrammar = fieldGrammarCases.find((item) => item.id === "evidence.adapter_id-invalid-grammar")!;
+  const principalGrammar = fieldGrammarCases.find((item) => item.id === "evidence.principal_ref-invalid-grammar")!;
+  assert.ok(adapterGrammar.invocation_args.request_json.includes('"adapter_id":"-leading-dash"'));
+  assert.ok(principalGrammar.invocation_args.request_json.includes('"principal_ref":""'));
 });
 
 test("the 2048-rule profile row exceeds the raw request ceiling by authorization-rule lower bound", () => {

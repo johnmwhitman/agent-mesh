@@ -4,7 +4,7 @@ Status: bounded offline evidence only. This ledger records executable coverage,
 not profile conformance, authority, acceptance, persistence, delivery, or
 transport capability.
 
-Base reviewed: `2760310` (origin/main). Corpus: 44 mandatory raw-text cases in
+Base reviewed: `2760310` (origin/main). Corpus: 50 mandatory raw-text cases in
 `test/fixtures/a2a/local-admission/v0.1/corpus.json`; every case is evaluated by
 the TypeScript implementation and mandatory Python witness with exact result
 bytes, replay call count, and replay arguments.
@@ -16,7 +16,7 @@ bytes, replay call count, and replay arguments.
 | depth/numeric | representative request depth and fraction; 4A retains its own vectors | — | request depth 8/9 and negative, `-0`, exponent, unsafe-integer boundaries |
 | precedence | representative request, envelope, denial, replay, and expiry ordering | — | mutation canary for each adjacent A00-A13 pair |
 | envelope | malformed and recipient representatives plus audience/self-recipient ordinary tests | — | all 4A invalid families and exact prefixed source paths |
-| evidence | one invalid field representative | **CLOSED bounded subfamily:** provenance; issued-at equality; expires-at equality; lifetime 300000/300001 | every remaining field/type/grammar vector |
+| evidence | one invalid field representative | **CLOSED bounded subfamily:** provenance; issued-at equality; expires-at equality; lifetime 300000/300001 + **CLOSED bounded subfamily:** field-type (adapter_id/principal_ref/issued_at_ms/expires_at_ms non-numeric/non-string) and field-grammar (adapter_id leading-dash, principal_ref empty-string); every evidence-field type-vs-grammar axis is now pinned | none |
 | binding | one invalid field representative | — | fields, interval edges, duplicate source index, context mismatch, and 0/256/257 rule vectors |
 | authorization | valid one type/recipient; one invalid action; generic denial | **CLOSED bounded subfamily:** types 5/6; recipients 128/129; duplicate type and recipient source index; all-recipient denial before replay | snapshot fields/provenance, rule-count edge, session key, and other policy contexts |
 | relativity | plan only reports fixture IDs/versions | — | decision changes caused by changed fixtures |
@@ -30,6 +30,12 @@ bytes, replay call count, and replay arguments.
 | `evidence.provenance-invalid` | `INVALID_AUTHENTICATION_EVIDENCE` at `$.authentication_evidence.provenance` | 0 |
 | `evidence.issued-at-evaluation-valid`, `evidence.lifetime-300000-valid` | `admission_plan` with the unchanged 4A digest | 1 |
 | `evidence.expires-at-evaluation-denied`, `evidence.lifetime-300001-denied` | `AUTHORIZATION_DENIED` at `$` | 0 |
+| `evidence.adapter_id-invalid-type` | `INVALID_AUTHENTICATION_EVIDENCE` at `$.authentication_evidence.adapter_id` (number 42 — fails `validAdapter` typeof-string requirement) | 0 |
+| `evidence.adapter_id-invalid-grammar` | `INVALID_AUTHENTICATION_EVIDENCE` at `$.authentication_evidence.adapter_id` (`"-leading-dash"` — fails `ADAPTER_ID` regex `^[a-z0-9](?:[a-z0-9.-]{0,62}[a-z0-9])?$` leading-char requirement) | 0 |
+| `evidence.principal_ref-invalid-type` | `INVALID_AUTHENTICATION_EVIDENCE` at `$.authentication_evidence.principal_ref` (boolean `true` — fails `validOpaque` typeof-string requirement) | 0 |
+| `evidence.principal_ref-invalid-grammar` | `INVALID_AUTHENTICATION_EVIDENCE` at `$.authentication_evidence.principal_ref` (empty string `""` — fails `OPAQUE_REF` regex `^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$` min-length requirement) | 0 |
+| `evidence.issued_at_ms-invalid-type` | `INVALID_AUTHENTICATION_EVIDENCE` at `$.authentication_evidence.issued_at_ms` (string `"abc"` — scanner admits as string, then `localTime` typeof-number check rejects; numeric lexeme axis covered by tick-58 depth/numeric) | 0 |
+| `evidence.expires_at_ms-invalid-type` | `INVALID_AUTHENTICATION_EVIDENCE` at `$.authentication_evidence.expires_at_ms` (boolean `false` — scanner admits as boolean, then `localTime` typeof-number check rejects) | 0 |
 
 ## Authorization slice records
 

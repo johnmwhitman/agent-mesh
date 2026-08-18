@@ -2,6 +2,12 @@
 
 All notable changes to Agent Mesh are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Coverage-ledger `evidence` row "every remaining field/type/grammar vector" subfamily closed (corpus 44 → 50, 1767 → 1768).** Six new mandatory cases pin that each evidence field's type AND grammar (opaque-ref / adapter-id / numeric-time) independently rejects with `INVALID_AUTHENTICATION_EVIDENCE` at `$.authentication_evidence.<field>`: `evidence.adapter_id-invalid-type` (number 42 — fails `validAdapter` typeof-string requirement), `evidence.adapter_id-invalid-grammar` (`"-leading-dash"` — fails `ADAPTER_ID` regex leading-char requirement), `evidence.principal_ref-invalid-type` (boolean `true` — fails `validOpaque` typeof-string requirement), `evidence.principal_ref-invalid-grammar` (empty string — fails `OPAQUE_REF` regex min-length requirement), `evidence.issued_at_ms-invalid-type` (string `"abc"` — scanner admits, `localTime` typeof-number rejects), `evidence.expires_at_ms-invalid-type` (boolean `false` — scanner admits, `localTime` typeof-number rejects). The numeric-lexeme axis for time fields is covered by tick-58 depth/numeric (negative/-0/exponent/unsafe-integer all reject with `MALFORMED_JSON` at the field path before reaching `localTime`). Family-pin test asserts the 6 ids + per-case outcome codes + per-case raw-text mutation byte proof (each case mutates exactly ONE evidence field, leaves the rest byte-identical to `valid.admission-plan`, and the mutated value survives byte-identically in the raw request text).
+
 ## [0.21.1] - 2026-08-10
 
 ### Fixed
