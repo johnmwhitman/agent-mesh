@@ -2,6 +2,12 @@
 
 All notable changes to Agent Mesh are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Runner PRUNE set adds `.worktrees` and `.wt-meshfleet` so foreign worktree checkouts at the repo root no longer trigger the orphan-guard cascade.** `git worktree add .worktrees/<name>` is the lane's standard place for an isolated worktree (AGENTS.md / GOAL-PROMPT.md "Concurrency"); a foreign `test/*.test.ts` inside one of those directories used to refuse the primary suite with exit 1, indistinguishable from a code regression. The fix is one PRUNE entry plus a regression test (`test/run-tests-orphan-guard.test.ts`, 7 cases: PRUNE-list pin, TEST_ROOTS pin, `.worktrees/` ignore, `.wt-meshfleet/` ignore, sibling `worktrees/` still surfaced, sibling `extras/` still surfaced, symlink refusal still loud). The guard's `PRUNE`/`scanForTests`/`collectTests`/`TEST_ROOTS` are extracted into `scripts/lib/orphan-guard.mjs` so the regression test can exercise them without spawning the full runner; the wiring stays in `scripts/run-tests.mjs`. No public MCP tool, no CLI, no runtime, no live-ledger change.
+
 ## [0.21.1] - 2026-08-10
 
 ### Fixed

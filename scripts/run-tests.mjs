@@ -3,11 +3,12 @@
 // PowerShell) or the runner's native glob (Node >= 21 only). This script
 // expands the file list itself so the suite runs on Node 18/20/22 across
 // Linux, macOS, and Windows.
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
 import { spawnSync } from "node:child_process";
 import { findLedgerEnvOverrides, ledgerEnvRefusal } from "./lib/ledger-env-preflight.mjs";
+import { collectTests, scanForTests } from "./lib/orphan-guard.mjs";
 
 // Ledger-env preflight. FIRST, before any scan — a ledger path in the environment outranks
 // the isolation the tests install for themselves, and the suite then fails in files the
@@ -33,60 +34,10 @@ const TEST_ROOTS = ["test", "editors/vscode/src"];
 // including a secret-rejection suite, had never run in the matrix. A test that does not run
 // is indistinguishable from a test that passes, which is the failure this repo has already
 // paid for twice (npm-cache false-green, dropped-file silent skip).
-function collectTests(dir) {
-  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
-    const full = join(dir, entry.name);
-    if (entry.isDirectory()) return collectTests(full);
-    return entry.isFile() && entry.name.endsWith(".test.ts") ? [full] : [];
-  });
-}
-
-// Orphan guard. Recursing into `test/` fixed the subdirectory blind spot but left the
-// wider one: a suite outside `test/` entirely. `editors/vscode/src/model.test.ts` (10 tests)
-// sat there for two commits — its own package.json declared a `test` script, but no CI job
-// and no root script ever called it, and the extension's tsconfig `exclude`s it from tsc, so
-// not one gate in this repo could see it. It passed when finally run, which is the point:
-// nothing would have reported the day it stopped. This guard walks the whole repo and fails
-// if any *.test.ts is not under a declared root, so the next orphan is loud on arrival.
 //
-// `editors/vscode` is a SEPARATE, uninstalled package (its own devDependencies, no
-// node_modules, no CI job). Running its suite from here works only because `src/model.ts`
-// imports nothing at all — it is deliberately the pure seam, with `extension.ts` holding the
-// `vscode` dependency. If model.ts ever grows an import of `vscode`, root `npm test` breaks
-// loudly; that is the correct outcome and not a reason to drop the root.
-// Prune BUILD OUTPUT AND VCS ONLY. An adversarial review of the first version of this guard
-// caught it reproducing the very defect it was written to prevent: the prune list also held
-// "reference", matched by NAME AT ANY DEPTH, so a `*.test.ts` anywhere under any directory
-// so named would have been invisible to the scan and the guard would have reported a false
-// green. Nothing may be pruned here for being "probably not tests" — only for being
-// generated or not source.
-const PRUNE = new Set(["node_modules", "dist", "out", "coverage", ".git", ".github"]);
-
-function scanForTests(dir) {
-  let entries;
-  try {
-    entries = readdirSync(dir, { withFileTypes: true });
-  } catch (err) {
-    // A directory we cannot read is not evidence of no tests — it is an unknown, and an
-    // unknown reported as "clean" is the failure mode this whole guard exists to prevent.
-    throw new Error(`orphan scan could not read ${dir}: ${err.message}`, { cause: err });
-  }
-  return entries.flatMap((entry) => {
-    if (PRUNE.has(entry.name)) return [];
-    const full = join(dir, entry.name);
-    if (entry.isDirectory()) return scanForTests(full);
-    // A symlinked test file is neither isFile() nor isDirectory(), so the naive check would
-    // drop it from BOTH the collected list and this scan — silently skipped and silently
-    // blessed. Surface it instead of guessing.
-    if (entry.isSymbolicLink() && entry.name.endsWith(".test.ts")) {
-      throw new Error(
-        `orphan scan found a symlinked test file: ${full}. Resolve it to a real file; ` +
-          `a symlink is skipped by the collector and would pass this guard unnoticed.`,
-      );
-    }
-    return entry.isFile() && entry.name.endsWith(".test.ts") ? [full] : [];
-  });
-}
+// Orphan guard, collectTests, TEST_ROOTS, and PRUNE all live in scripts/lib/orphan-guard.mjs
+// so a regression test can exercise the PRUNE + scanForTests pair without spawning the full
+// runner. The runner here only owns the wiring between them.
 
 const files = TEST_ROOTS.flatMap((root) => collectTests(root)).sort();
 
