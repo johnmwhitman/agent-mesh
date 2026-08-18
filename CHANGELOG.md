@@ -2,6 +2,31 @@
 
 All notable changes to Agent Mesh are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Coverage ledger: closed the `binding` row's interval-edges subfamily.** Six new
+  mandatory corpus cases pin the binding/authorization interval equality boundaries at
+  `src/a2a/local-admission.ts:530-542`: `(binding|authorization).interval-zero-length`
+  (`effective_from_ms == effective_until_ms == 100` → `AUTHORIZATION_DENIED@$` because the
+  `from >= until` check is non-strict at equality), `(binding|authorization).interval-until-edge`
+  (`evaluation_time_ms == effective_until_ms == 100` → `AUTHORIZATION_DENIED@$` because the
+  `>=` boundary is non-strict at equality), and `(binding|authorization).interval-from-edge`
+  (`evaluation_time_ms == effective_from_ms == 100` → `admission_plan` because the `<`
+  boundary is strict at equality; the `policy_basis` mirrors the mutated snapshot
+  interval). The valid baseline uses `evaluation_time_ms=100` with both intervals `(0, 200)`;
+  each new case mutates exactly one snapshot's interval, leaves the other byte-identical,
+  and keeps `evaluation_time_ms=100` so the boundary semantics are isolated. Corpus 44→50.
+  Generator `scripts/gen-binding-interval-edges-cases.mjs` is idempotent, repo-root-relative,
+  and uses the pristine-44 sentinel at `/tmp/corpus-pristine-44.json`. Probe
+  `scripts/probe-binding-interval-edges.mjs` confirms TS and the witness agree on 6/6 cases
+  before splicing. Family-pin test in `test/a2a-local-admission.test.ts` asserts the 6 ids,
+  per-case outcome codes, per-case `policy_basis` (where applicable), and the per-case
+  interval byte proof (from=0 or 100; until=100 or 200; the *other* snapshot interval stays
+  byte-identical to baseline `(0, 200)`). Red-on-revert guard on `binding.interval-zero-length`
+  shrinks the family pin to 5.
+
 ## [0.21.1] - 2026-08-10
 
 ### Fixed
