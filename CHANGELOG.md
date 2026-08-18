@@ -2,6 +2,12 @@
 
 All notable changes to Agent Mesh are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`scripts/merge-train.mjs` + `test/merge-train.test.mjs` (30 verified branches queued, 1 read + 1 command collapse).** The lane now collapses the 19+ verifier-verified branches pooled at MERGE-READY to one operator decision per day. `--dry-run` (default) emits `MERGE-TRAIN-YYYYMMDD.md` with per-branch one-liner + diffstat + the canonical-verifier receipt on the train tip + the ONE operator command `git merge --ff-only train/YYYYMMDD`; `--apply` actually opens `train/YYYYMMDD` off `origin/main`, sequentially rolls in each candidate via `git merge --no-ff`, runs the train-tip through the canonical Node 24.18.1 + python3 3.10+ verifier under `flock heavy-build`, and emits the same report with `Final status: GREEN — NN/NN tests`. Candidates are filtered by (a) ahead of `origin/main` strictly, (b) tip subject `VERIFIED:` claim, (c) `git merge-tree` clean merge with `origin/main`, (d) no MERGE-READY ancestor-superset on the train (skipping the smaller one keeps the train lean). Branches that fail to merge or break the verifier get bisected out and listed as leftovers with the exact reason and a suggested operator action (`rebase or drop`). Six unit tests cover the selector against a mock git interface: empty repo, branch at exactly `origin/main`, `VERIFIED:` subject, non-`VERIFIED:` leftover, strict-ancestor redundancy, and unverified-superset no-redundancy. The first train run on the lane's current backlog (2026-08-18) is at `MERGE-TRAIN-20260818.md`: 30 branches --no-ff onto `train/20260818`, 3 leftovers (two redundant ancestor-superset branches; one unverified-subject). Reads the canonical receipt via `scripts/run-tests.mjs` (the same one CI runs); no new gate is invented.
+
 ## [0.21.1] - 2026-08-10
 
 ### Fixed
