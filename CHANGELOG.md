@@ -2,6 +2,24 @@
 
 All notable changes to Agent Mesh are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Section 9 relativity closed bounded subfamily — 8 mandatory corpus cases
+  pin that changed fixture metadata causes the expected decision change.**
+  Both `binding_snapshot` and `authorization_snapshot` get four cases:
+  `snapshot_version` differing from the profile constant is rejected with
+  `INVALID_*_SNAPSHOT` at the exact `$.*.snapshot_version` path; the same
+  for `fixture_provenance` (`$.*.fixture_provenance`) and an opaque-ref
+  grammar failure on `snapshot_id` (`$.*.snapshot_id`); a like-for-like
+  `snapshot_id` rename to a different valid opaque-ref keeps the decision
+  while the plan's `policy_basis` reports the renamed id byte-for-byte and
+  the unchanged 4A digest. The corpus grows 44→52 mandatory cases, the
+  coverage-ledger `relativity` row is closed, and profile Section 4.4
+  documents the structural-vs-semantic split between fixture metadata and
+  rule contents.
+
 ## [0.21.1] - 2026-08-10
 
 ### Fixed

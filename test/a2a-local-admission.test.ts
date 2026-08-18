@@ -399,3 +399,141 @@ test("local admission and sidecar stay offline, dormant, and outside renderer an
   assert.doesNotMatch(witnessSource, /^\s*(?:from|import)\s+(?:sqlite3|socket|urllib|http|requests|subprocess)\b/m);
   assert.doesNotMatch(readFileSync(join(root, "package.json"), "utf8"), /static-harness-mapping|local-admission|replay-decision/);
 });
+
+test("changed fixture values cause the expected decision changes for the relativity row", () => {
+  // Cases are in insertion order; the eight new ones are appended at the end
+  // (in the order scripts/gen-relativity-cases.mjs emitted them):
+  //   relativity.binding.snapshot-version-invalid
+  //   relativity.binding.fixture-provenance-invalid
+  //   relativity.binding.snapshot-id-invalid-opaque
+  //   relativity.binding.snapshot-id-renamed-valid
+  //   relativity.authorization.snapshot-version-invalid
+  //   relativity.authorization.fixture-provenance-invalid
+  //   relativity.authorization.snapshot-id-invalid-opaque
+  //   relativity.authorization.snapshot-id-renamed-valid
+  const relativityCases = corpus.cases.slice(-8);
+  assert.deepEqual(
+    relativityCases.map((item) => item.id),
+    [
+      "relativity.binding.snapshot-version-invalid",
+      "relativity.binding.fixture-provenance-invalid",
+      "relativity.binding.snapshot-id-invalid-opaque",
+      "relativity.binding.snapshot-id-renamed-valid",
+      "relativity.authorization.snapshot-version-invalid",
+      "relativity.authorization.fixture-provenance-invalid",
+      "relativity.authorization.snapshot-id-invalid-opaque",
+      "relativity.authorization.snapshot-id-renamed-valid",
+    ],
+  );
+  assert.deepEqual(
+    relativityCases.map((item) => item.expected),
+    [
+      // relativity.binding.snapshot-version-invalid: snapshot_version differs from BINDING_VERSION -> INVALID_BINDING_SNAPSHOT@$.binding_snapshot.snapshot_version
+      { result: { kind: "rejected", code: "INVALID_BINDING_SNAPSHOT", field_path: "$.binding_snapshot.snapshot_version" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+      // relativity.binding.fixture-provenance-invalid: fixture_provenance differs from FIXTURE_PROVENANCE -> INVALID_BINDING_SNAPSHOT@$.binding_snapshot.fixture_provenance
+      { result: { kind: "rejected", code: "INVALID_BINDING_SNAPSHOT", field_path: "$.binding_snapshot.fixture_provenance" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+      // relativity.binding.snapshot-id-invalid-opaque: snapshot_id fails opaque grammar (leading dash) -> INVALID_BINDING_SNAPSHOT@$.binding_snapshot.snapshot_id
+      { result: { kind: "rejected", code: "INVALID_BINDING_SNAPSHOT", field_path: "$.binding_snapshot.snapshot_id" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+      // relativity.binding.snapshot-id-renamed-valid: snapshot_id renamed to a different valid opaque-ref -> admit; plan mirrors new id
+      {
+        result: {
+          kind: "admission_plan",
+          version: "meshfleet.a2a.local-admission.v0.1",
+          request_identity: { principal_ref: "principal-ref", request_id: "request-ref" },
+          semantic_identity: { sender: { namespace: "local", agent_id: "agent-a" }, message_id: "message-ref" },
+          action: "a2a.message.admit",
+          audience: "local-audience",
+          message_type: "handoff",
+          recipients: [{ namespace: "local", agent_id: "agent-b" }],
+          envelope_digest: "meshfleet.a2a.fingerprint.v1:sha256:9dd42da42a919761fb2f5bc007c03dd948ba0e6f4dcd9be80d556c31339c5606",
+          evaluation_time_ms: 100,
+          policy_basis: {
+            binding_snapshot: { snapshot_version: "meshfleet.a2a.binding-snapshot.v0.1", snapshot_id: "binding-fixture-2", effective_from_ms: 0, effective_until_ms: 200 },
+            authorization_snapshot: { snapshot_version: "meshfleet.a2a.authorization-snapshot.v0.1", snapshot_id: "authorization-fixture", effective_from_ms: 0, effective_until_ms: 200 },
+          },
+        },
+        replay_oracle_calls: 1,
+        replay_oracle_arguments: [{ principal_ref: "principal-ref", request_id: "request-ref", sender: { namespace: "local", agent_id: "agent-a" }, message_id: "message-ref", envelope_digest: "meshfleet.a2a.fingerprint.v1:sha256:9dd42da42a919761fb2f5bc007c03dd948ba0e6f4dcd9be80d556c31339c5606" }],
+      },
+      // relativity.authorization.snapshot-version-invalid -> INVALID_AUTHORIZATION_SNAPSHOT@$.authorization_snapshot.snapshot_version
+      { result: { kind: "rejected", code: "INVALID_AUTHORIZATION_SNAPSHOT", field_path: "$.authorization_snapshot.snapshot_version" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+      // relativity.authorization.fixture-provenance-invalid -> INVALID_AUTHORIZATION_SNAPSHOT@$.authorization_snapshot.fixture_provenance
+      { result: { kind: "rejected", code: "INVALID_AUTHORIZATION_SNAPSHOT", field_path: "$.authorization_snapshot.fixture_provenance" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+      // relativity.authorization.snapshot-id-invalid-opaque -> INVALID_AUTHORIZATION_SNAPSHOT@$.authorization_snapshot.snapshot_id
+      { result: { kind: "rejected", code: "INVALID_AUTHORIZATION_SNAPSHOT", field_path: "$.authorization_snapshot.snapshot_id" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+      // relativity.authorization.snapshot-id-renamed-valid -> admit; plan mirrors new id
+      {
+        result: {
+          kind: "admission_plan",
+          version: "meshfleet.a2a.local-admission.v0.1",
+          request_identity: { principal_ref: "principal-ref", request_id: "request-ref" },
+          semantic_identity: { sender: { namespace: "local", agent_id: "agent-a" }, message_id: "message-ref" },
+          action: "a2a.message.admit",
+          audience: "local-audience",
+          message_type: "handoff",
+          recipients: [{ namespace: "local", agent_id: "agent-b" }],
+          envelope_digest: "meshfleet.a2a.fingerprint.v1:sha256:9dd42da42a919761fb2f5bc007c03dd948ba0e6f4dcd9be80d556c31339c5606",
+          evaluation_time_ms: 100,
+          policy_basis: {
+            binding_snapshot: { snapshot_version: "meshfleet.a2a.binding-snapshot.v0.1", snapshot_id: "binding-fixture", effective_from_ms: 0, effective_until_ms: 200 },
+            authorization_snapshot: { snapshot_version: "meshfleet.a2a.authorization-snapshot.v0.1", snapshot_id: "authorization-fixture-2", effective_from_ms: 0, effective_until_ms: 200 },
+          },
+        },
+        replay_oracle_calls: 1,
+        replay_oracle_arguments: [{ principal_ref: "principal-ref", request_id: "request-ref", sender: { namespace: "local", agent_id: "agent-a" }, message_id: "message-ref", envelope_digest: "meshfleet.a2a.fingerprint.v1:sha256:9dd42da42a919761fb2f5bc007c03dd948ba0e6f4dcd9be80d556c31339c5606" }],
+      },
+    ],
+  );
+  // Per-case byte proof: each case mutates exactly one snapshot field, keeps the
+  // other (and the other snapshot) byte-identical to the valid baseline, and the
+  // evaluation_time_ms stays at 100 so the boundary semantics are isolated.
+  for (const item of relativityCases) {
+    const request = JSON.parse(item.invocation_args.request_json) as {
+      evaluation_time_ms: number;
+      binding_snapshot: { snapshot_version: string; snapshot_id: string; fixture_provenance: string; effective_from_ms: number; effective_until_ms: number };
+      authorization_snapshot: { snapshot_version: string; snapshot_id: string; fixture_provenance: string; effective_from_ms: number; effective_until_ms: number };
+    };
+    assert.equal(request.evaluation_time_ms, 100, `${item.id} must keep evaluation_time_ms = 100`);
+    // every relativity case must keep the OTHER snapshot field byte-identical to baseline
+    if (item.id.startsWith("relativity.binding.")) {
+      assert.deepEqual(
+        { snapshot_version: request.authorization_snapshot.snapshot_version, snapshot_id: request.authorization_snapshot.snapshot_id, fixture_provenance: request.authorization_snapshot.fixture_provenance },
+        { snapshot_version: "meshfleet.a2a.authorization-snapshot.v0.1", snapshot_id: "authorization-fixture", fixture_provenance: "caller_supplied_fixture" },
+        `${item.id} must leave authorization_snapshot metadata byte-identical to baseline`,
+      );
+    } else {
+      assert.deepEqual(
+        { snapshot_version: request.binding_snapshot.snapshot_version, snapshot_id: request.binding_snapshot.snapshot_id, fixture_provenance: request.binding_snapshot.fixture_provenance },
+        { snapshot_version: "meshfleet.a2a.binding-snapshot.v0.1", snapshot_id: "binding-fixture", fixture_provenance: "caller_supplied_fixture" },
+        `${item.id} must leave binding_snapshot metadata byte-identical to baseline`,
+      );
+    }
+  }
+  // Specific mutation assertions (each is a single-field change):
+  const byId = (id: string) => relativityCases.find((c) => c.id === id)!;
+  const req = (id: string) => JSON.parse(byId(id).invocation_args.request_json) as {
+    binding_snapshot: { snapshot_version: string; snapshot_id: string; fixture_provenance: string };
+    authorization_snapshot: { snapshot_version: string; snapshot_id: string; fixture_provenance: string };
+  };
+  assert.equal(req("relativity.binding.snapshot-version-invalid").binding_snapshot.snapshot_version, "meshfleet.a2a.binding-snapshot.v9.9");
+  assert.equal(req("relativity.binding.fixture-provenance-invalid").binding_snapshot.fixture_provenance, "operator_supplied_fixture");
+  assert.equal(req("relativity.binding.snapshot-id-invalid-opaque").binding_snapshot.snapshot_id, "-binding-fixture");
+  assert.equal(req("relativity.binding.snapshot-id-renamed-valid").binding_snapshot.snapshot_id, "binding-fixture-2");
+  assert.equal(req("relativity.authorization.snapshot-version-invalid").authorization_snapshot.snapshot_version, "meshfleet.a2a.authorization-snapshot.v9.9");
+  assert.equal(req("relativity.authorization.fixture-provenance-invalid").authorization_snapshot.fixture_provenance, "operator_supplied_fixture");
+  assert.equal(req("relativity.authorization.snapshot-id-invalid-opaque").authorization_snapshot.snapshot_id, "-authorization-fixture");
+  assert.equal(req("relativity.authorization.snapshot-id-renamed-valid").authorization_snapshot.snapshot_id, "authorization-fixture-2");
+  // Red-on-revert guard: dropping relativity.binding.snapshot-version-invalid must shrink the
+  // family pin to 7 ids, independent of the corpus-level byte test.
+  const withoutBindingVersion = relativityCases.filter((c) => c.id !== "relativity.binding.snapshot-version-invalid");
+  assert.equal(withoutBindingVersion.length, 7);
+  assert.deepEqual(withoutBindingVersion.map((c) => c.id), [
+    "relativity.binding.fixture-provenance-invalid",
+    "relativity.binding.snapshot-id-invalid-opaque",
+    "relativity.binding.snapshot-id-renamed-valid",
+    "relativity.authorization.snapshot-version-invalid",
+    "relativity.authorization.fixture-provenance-invalid",
+    "relativity.authorization.snapshot-id-invalid-opaque",
+    "relativity.authorization.snapshot-id-renamed-valid",
+  ]);
+});
