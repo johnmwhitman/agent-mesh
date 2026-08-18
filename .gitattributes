@@ -11,3 +11,36 @@
 # `-text` disables translation for every path: what is committed is what is checked out, on
 # every platform. Editors on Windows handle \n fine; digests cannot handle \r\n.
 * -text
+
+# Merge driver: union for genuinely append-only docs.
+#
+# The merge train (scripts/merge-train.mjs) rolls N feature branches off origin/main in one
+# `--no-ff` chain. When every branch appends a top entry to the same file, the conventional
+# 3-way text merge produces a textual conflict even though no two branches edited the same
+# line — because git's 3-way merge has no notion of "two disjoint appends to the same file
+# are not a conflict". That cost the 20260818 train 28 of 31 candidates on CHANGELOG.md /
+# HANDOFF.md conflicts even though the branches' CODE diffs were disjoint.
+#
+# `merge=union` resolves that case: every distinct line from every parent appears in the
+# merge result. The trade-off is that union can:
+#   1. duplicate a line that two parents edited IDENTICALLY (harmless — textually equal)
+#   2. duplicate a line that two parents edited to two DIFFERENT new values (corrupting —
+#      the file now carries two inconsistent versions of the same line)
+#   3. misorder lines when two parents insert at the same anchor (acceptable for ledgers
+#      whose readers do not depend on order)
+#
+# We therefore mark ONLY files where every concurrent edit is a pure append to a disjoint
+# region (top of CHANGELOG.md under `## [Unreleased]`). Files where multiple branches
+# MUTATE an existing line (HANDOFF.md's `**current suite contract:** NNN/NNN`, COMPATIBILITY.md
+# table rows, GOAL-PROMPT.md prose sections) deliberately do NOT get `merge=union` — the
+# train will still hit conflicts there, and the leftovers with reasons are the honest
+# outcome. Reclassifying later requires a real audit of the new conflicts, not a blanket flip.
+#
+# Honest classification as of t_fca64917 (merge-train v2):
+#   CHANGELOG.md    UNION-SAFE   26/28 leftovers insert a new `## [Unreleased]` block at line 3.
+#   HANDOFF.md      UNION-UNSAFE 5/28 leftovers all mutate line 4 (suite count). Union would
+#                                Frankenstein 5 versions of one line — actively wrong.
+#   COMPATIBILITY.md UNION-UNSAFE feat/depth-numeric-gates-20260818 edits one table row in
+#                                place. Union duplicates the row.
+#   GOAL-PROMPT.md  UNION-UNSAFE structured prose; only one pending branch (low payoff).
+CHANGELOG.md merge=union
