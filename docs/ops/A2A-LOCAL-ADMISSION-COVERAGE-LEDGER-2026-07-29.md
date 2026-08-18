@@ -20,7 +20,7 @@ bytes, replay call count, and replay arguments.
 | binding | one invalid field representative | — | fields, interval edges, duplicate source index, context mismatch, and 0/256/257 rule vectors |
 | authorization | valid one type/recipient; one invalid action; generic denial | **CLOSED bounded subfamily:** types 5/6; recipients 128/129; duplicate type and recipient source index; all-recipient denial before replay | snapshot fields/provenance, rule-count edge, session key, and other policy contexts |
 | relativity | plan only reports fixture IDs/versions | — | decision changes caused by changed fixtures |
-| oracle/results | all four non-admission verdicts, unavailable, throw, unseen plan, unseen-only expiry, and exact query | — | malformed oracle case and every rejected-code inventory |
+| oracle/results | all four non-admission verdicts, unavailable, throw, unseen plan, unseen-only expiry, and exact query | **CLOSED bounded subfamily:** every rejected-code inventory; malformed-oracle cases (object, number, null, empty array, uppercase verdict, empty string) | remaining exact gap |
 | privacy | offline/import-surface checks and closed sidecar fixtures | — | dedicated ignored-input/diagnostic-invariance matrix |
 
 ## Authentication-evidence slice records
@@ -41,6 +41,12 @@ bytes, replay call count, and replay arguments.
 | `authorization.boundary.duplicate-message-type` | `INVALID_AUTHORIZATION_SNAPSHOT` at `$.authorization_snapshot.rules[0].message_types[1]` | 0 |
 | `authorization.boundary.duplicate-recipient` | `INVALID_AUTHORIZATION_SNAPSHOT` at `$.authorization_snapshot.rules[0].recipients[1]` | 0 |
 | `authorization.boundary.all-recipient-denied` | `AUTHORIZATION_DENIED` at `$` | 0 |
+
+## Oracle malformed-verdict slice records
+
+| Case IDs | Required outcome | Replay calls |
+| --- | --- | --- |
+| `oracle.malformed-object`, `oracle.malformed-number`, `oracle.malformed-null`, `oracle.malformed-empty-array`, `oracle.malformed-uppercase`, `oracle.malformed-empty-string` | `REPLAY_PROTECTION_UNAVAILABLE` at `$` | 1 |
 
 ## Unreachable profile row
 

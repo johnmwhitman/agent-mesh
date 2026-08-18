@@ -143,6 +143,64 @@ test("local admission evaluates every required corpus record with exact output b
   }
 });
 
+test("the malformed-oracle subfamily pins every non-verdict replay value to REPLAY_PROTECTION_UNAVAILABLE", () => {
+  const malformedCases = corpus.cases.filter((item) => item.id.startsWith("oracle.malformed-"));
+  assert.deepEqual(
+    malformedCases.map((item) => item.id),
+    [
+      "oracle.malformed-object",
+      "oracle.malformed-number",
+      "oracle.malformed-null",
+      "oracle.malformed-empty-array",
+      "oracle.malformed-uppercase",
+      "oracle.malformed-empty-string",
+    ],
+  );
+  // Each malformed case must be a one-call oracle rejection: the call is
+  // made (decideReplay is not a peek), the verdict is judged against the
+  // closed set of canonical strings, and any non-canonical value falls
+  // through to unavailable. The oracle/throws case proves the same
+  // code-at-$ path for the throw class, so we only assert the malformed
+  // half here.
+  for (const item of malformedCases) {
+    const actual = evaluate(item);
+    assert.deepEqual(
+      actual.result,
+      { kind: "rejected", code: "REPLAY_PROTECTION_UNAVAILABLE", field_path: "$" },
+      item.id,
+    );
+    assert.equal(actual.replay_oracle_calls, 1, `${item.id} must call the oracle once`);
+    assert.deepEqual(actual.replay_oracle_arguments, [
+      {
+        principal_ref: "principal-ref",
+        request_id: "request-ref",
+        sender: { namespace: "local", agent_id: "agent-a" },
+        message_id: "message-ref",
+        envelope_digest: "meshfleet.a2a.fingerprint.v1:sha256:9dd42da42a919761fb2f5bc007c03dd948ba0e6f4dcd9be80d556c31339c5606",
+      },
+    ], `${item.id} must call the oracle with the exact valid.admission-plan envelope digest`);
+  }
+});
+
+test("red-on-revert guard: dropping oracle.malformed-number fails the malformed subfamily pin", () => {
+  const mutated = structuredClone(corpus) as typeof corpus;
+  mutated.cases = mutated.cases.filter((item) => item.id !== "oracle.malformed-number");
+  mutated.mandatory_case_ids = mutated.cases.map((item) => item.id);
+  // The corpus-level test that runs every case against expected bytes
+  // cannot see the missing case because it's not in the corpus, so the
+  // red-on-revert guard has to assert the family pin directly.
+  const malformedCases = mutated.cases.filter((item) => item.id.startsWith("oracle.malformed-"));
+  assert.equal(
+    malformedCases.length,
+    5,
+    "removing oracle.malformed-number must shrink the malformed subfamily from 6 to 5",
+  );
+  assert.ok(
+    !mutated.cases.some((item) => item.id === "oracle.malformed-number"),
+    "removed case must not reappear via the spliced-corpus copy",
+  );
+});
+
 test("the raw boundary rejects invalid UTF-8 representatives without creating an object entrypoint", () => {
   const first = corpus.cases[0]!;
   assert.deepEqual(
