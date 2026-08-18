@@ -101,25 +101,16 @@ test("coverage-ledger named inventory pins the 19 merge-ready Section 9 closure 
   }
 });
 
-test("coverage-ledger named inventory branches all resolve to real local refs in this tree", () => {
-  for (const name of namedInventoryBranchNames) {
-    const result = spawnSync("git", ["rev-parse", "--verify", `refs/heads/${name}`], {
-      cwd: root,
-      encoding: "utf8",
-    });
-    assert.equal(
-      result.status,
-      0,
-      `git rev-parse --verify refs/heads/${name} must succeed (status=${result.status} stderr=${result.stderr.trim()})`,
-    );
-    const sha = result.stdout.trim();
-    assert.match(
-      sha,
-      /^[0-9a-f]{40}$/,
-      `git rev-parse --verify refs/heads/${name} must produce a 40-char SHA (got ${JSON.stringify(sha)})`,
-    );
-  }
-});
+// Tick-81 (2026-08-18): the local-refs existence pin introduced in 5b42642 was
+// dropped because the contract it asserts is unsatisfiable in the long-lived
+// lifecycle of this branch. CI `actions/checkout` materialises only the PR's
+// source branch + origin's default branch as `refs/heads/*`; the 19 named
+// merge-ready branches are not in `refs/remotes/origin/*`, so a fresh clone
+// fails the suite even when the ledger names are correct. The test also locks
+// permanently red once the merge-ready branches land and their worktrees are
+// pruned (the runner-prune-worktrees branch is queued MERGE-READY). The
+// text-presence pin above is the right contract for "this branch's name lives
+// in the ledger".
 
 test("authorization boundary evidence covers the next feasible Section 9 cardinality slice", () => {
   assert.deepEqual(
