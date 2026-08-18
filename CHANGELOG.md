@@ -2,6 +2,22 @@
 
 All notable changes to Agent Mesh are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Coverage ledger: closed the `binding` row's 0/256/257 rule-count subfamily.**
+  Three new mandatory corpus cases pin the binding `rules.length` boundary at
+  `src/a2a/local-admission.ts:389`: 0 rules (`AUTHORIZATION_DENIED@$` because no
+  rule matches the binding context tuple), 256 rules (max valid; admission_plan
+  with the unchanged 4A digest), 257 rules (cap exceeded;
+  `INVALID_BINDING_SNAPSHOT@$.binding_snapshot.rules`). Corpus 44→47. Generator
+  `scripts/gen-binding-rules-count-cases.mjs` keeps the 256-rule payload inside
+  the 262144-byte raw request cap (256 distinct `(adapter_id, principal_ref,
+  audience, session_ref)` tuples plus the original matching rule). New
+  family-pin test asserts the three ids, per-case outcomes, and the literal
+  `binding_snapshot.rules.length` of each generated case.
+
 ## [0.21.1] - 2026-08-10
 
 ### Fixed

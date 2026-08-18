@@ -4,7 +4,7 @@ Status: bounded offline evidence only. This ledger records executable coverage,
 not profile conformance, authority, acceptance, persistence, delivery, or
 transport capability.
 
-Base reviewed: `2760310` (origin/main). Corpus: 44 mandatory raw-text cases in
+Base reviewed: `2760310` (origin/main). Corpus: 47 mandatory raw-text cases in
 `test/fixtures/a2a/local-admission/v0.1/corpus.json`; every case is evaluated by
 the TypeScript implementation and mandatory Python witness with exact result
 bytes, replay call count, and replay arguments.
@@ -17,7 +17,7 @@ bytes, replay call count, and replay arguments.
 | precedence | representative request, envelope, denial, replay, and expiry ordering | — | mutation canary for each adjacent A00-A13 pair |
 | envelope | malformed and recipient representatives plus audience/self-recipient ordinary tests | — | all 4A invalid families and exact prefixed source paths |
 | evidence | one invalid field representative | **CLOSED bounded subfamily:** provenance; issued-at equality; expires-at equality; lifetime 300000/300001 | every remaining field/type/grammar vector |
-| binding | one invalid field representative | — | fields, interval edges, duplicate source index, context mismatch, and 0/256/257 rule vectors |
+| binding | one invalid field representative | **CLOSED bounded subfamily:** 0 rules (no match → AUTHORIZATION_DENIED@$); 256 rules (max valid → admission_plan with unchanged 4A digest); 257 rules (cap exceeded → INVALID_BINDING_SNAPSHOT@$.binding_snapshot.rules) | fields, interval edges, duplicate source index, context mismatch |
 | authorization | valid one type/recipient; one invalid action; generic denial | **CLOSED bounded subfamily:** types 5/6; recipients 128/129; duplicate type and recipient source index; all-recipient denial before replay | snapshot fields/provenance, rule-count edge, session key, and other policy contexts |
 | relativity | plan only reports fixture IDs/versions | — | decision changes caused by changed fixtures |
 | oracle/results | all four non-admission verdicts, unavailable, throw, unseen plan, unseen-only expiry, and exact query | — | malformed oracle case and every rejected-code inventory |
@@ -41,6 +41,14 @@ bytes, replay call count, and replay arguments.
 | `authorization.boundary.duplicate-message-type` | `INVALID_AUTHORIZATION_SNAPSHOT` at `$.authorization_snapshot.rules[0].message_types[1]` | 0 |
 | `authorization.boundary.duplicate-recipient` | `INVALID_AUTHORIZATION_SNAPSHOT` at `$.authorization_snapshot.rules[0].recipients[1]` | 0 |
 | `authorization.boundary.all-recipient-denied` | `AUTHORIZATION_DENIED` at `$` | 0 |
+
+## Binding rules-count slice records
+
+| Case IDs | Required outcome | Replay calls |
+| --- | --- | --- |
+| `binding.rules-empty-0` | `AUTHORIZATION_DENIED` at `$` (no rule matches the binding context tuple) | 0 |
+| `binding.rules-256-admit` | `admission_plan` with the unchanged 4A digest (max valid count; original matching rule plus 255 unique non-matching rules) | 1 |
+| `binding.rules-257-reject` | `INVALID_BINDING_SNAPSHOT` at `$.binding_snapshot.rules` (cap exceeded; the length check on line 389 rejects) | 0 |
 
 ## Unreachable profile row
 
