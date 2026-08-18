@@ -2,6 +2,12 @@
 
 All notable changes to Agent Mesh are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Local admission Section 9 `request-raw/path` row — per-object literal/escaped duplicate bounded subfamily.** 8 new mandatory corpus cases (corpus 44→52) pinning that the strict raw JSON parser's `RequestScanner` detects a literal-vs-escape duplicate key inside every request object: `authentication_evidence` (`adapter_id`, `principal_ref`), `binding_snapshot` (`snapshot_id`), `authorization_snapshot` (`snapshot_id`), `binding_snapshot.rules[0]` (`adapter_id`), `authorization_snapshot.rules[0]` (`action`, `message_types`, `recipients`). Each case rejects with `DUPLICATE_JSON_KEY` at the safe-path parent projection and never reaches the replay oracle. The injection uses raw-string surgery (`\uXXXX`) because `JSON.stringify` would normalize the escape back to its decoded form and collapse the duplicate. Family-pin test in `test/a2a-local-admission.test.ts` asserts the 8 ids, the per-case `field_path`, the per-case `replay_oracle_calls: 0`, the per-case raw-string-surgery byte proof, and the ordered id set (red-on-revert guard). TS dist + Python witness 52/52 ok.
+
 ## [0.21.1] - 2026-08-10
 
 ### Fixed
