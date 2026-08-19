@@ -1,7 +1,7 @@
 # A2A Local Admission Profile v0.1
 
 > **STATUS — bounded evidence-alpha restored, 2026-07-29.** The TypeScript
-> evaluator, independent Python witness, shared 49-case corpus, and closed
+> evaluator, independent Python witness, shared 52-case corpus, and closed
 > StaticHarnessMapping sidecar fixtures are executable again on the current
 > branch. They remain test-only and outside package/MCP/CLI surfaces. The
 > corpus does not yet satisfy every exhaustive family and cardinality row in
@@ -450,7 +450,11 @@ every case. Required families are:
 | oracle/results | six verdicts, throw/malformed; exact call arguments; sole success; five dispositions; every rejected code; no uppercase/generic replay; no second digest/extra field |
 | privacy | capability/profile/proof/model/runtime/receipt/conformance/provider/environment/secret input cannot affect authorization or diagnostics |
 
+<<<<<<< HEAD
 The current evidence-alpha corpus has 49 mandatory cases. It proves the closed
+=======
+The current evidence-alpha corpus has 47 mandatory cases. It proves the closed
+>>>>>>> feat/binding-rules-count-gates-20260818
 one-operation raw boundary, all replay verdict mappings, representative
 precedence and denial, exact TypeScript/Python bytes, recipient-order
 normalization, byte-limit edges, authorization message-type and recipient
