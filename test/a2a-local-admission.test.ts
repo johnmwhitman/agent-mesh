@@ -27,6 +27,85 @@ const localAdmissionCorpusCountDocs = [
   join(root, "docs", "A2A-LOCAL-ADMISSION-PROFILE-v0.1.md"),
 ];
 
+// ---------------------------------------------------------------------------
+// Rejected-code inventory. The profile's oracle/results row requires "every
+// rejected code" as exact required coverage; the ledger's "every rejected-code
+// inventory" gap stays open until something mechanically proves the corpus
+// covers the full union in BOTH witnesses. A hand-maintained list is exactly
+// the thing that goes stale, so the inventory is re-derived from source.
+// ---------------------------------------------------------------------------
+
+const REJECTED_CODE_LITERAL = /"([A-Z][A-Z0-9_]{2,})"/g;
+
+/** Every reject code the TypeScript RejectCode union can emit. */
+function tsRejectedCodes(source: string): Set<string> {
+  const codes = new Set<string>();
+  const unionMatch = source.match(/type RejectCode =\n([\s\S]*?);/);
+  assert.ok(unionMatch, "RejectCode union declaration must exist in local-admission.ts");
+  for (const m of unionMatch![1]!.matchAll(REJECTED_CODE_LITERAL)) codes.add(m[1]!);
+  return codes;
+}
+
+/**
+ * Every reject code the mandatory Python witness can emit. The witness emits
+ * codes through issue()/reject()/bad() calls AND through a `code = "..."`
+ * variable that is later passed to issue() (INVALID_BINDING_SNAPSHOT /
+ * INVALID_AUTHORIZATION_SNAPSHOT share one emission path), so the inventory is
+ * the set of all quoted uppercase literals — verified today to equal the
+ * TypeScript union exactly, with zero non-code literals. The agreement test
+ * below fails closed if a comment/constant ever slips in.
+ */
+function pythonRejectedCodes(source: string): Set<string> {
+  const codes = new Set<string>();
+  for (const m of source.matchAll(REJECTED_CODE_LITERAL)) codes.add(m[1]!);
+  return codes;
+}
+
+/** Reject codes the mandatory corpus cases exercise. */
+function corpusRejectedCodes(): Set<string> {
+  const codes = new Set<string>();
+  for (const item of corpus.cases) {
+    const result = item.expected.result as { kind?: string; code?: string };
+    if (result.kind === "rejected" && result.code !== undefined) codes.add(result.code);
+  }
+  return codes;
+}
+
+test("the corpus exercises every RejectCode the TypeScript implementation can emit", () => {
+  const ts = tsRejectedCodes(readFileSync(join(root, "src", "a2a", "local-admission.ts"), "utf8"));
+  assert.ok(ts.size >= 17, `RejectCode union shrank to ${ts.size} — did a code get deleted?`);
+  const covered = corpusRejectedCodes();
+  const uncovered = [...ts].filter((code) => !covered.has(code));
+  assert.deepEqual(uncovered, [], `these reject codes can fire but no corpus case pins them: ${uncovered.join(", ")}`);
+});
+
+test("the corpus exercises every reject code the mandatory Python witness can emit", () => {
+  const python = pythonRejectedCodes(readFileSync(pythonWitness, "utf8"));
+  assert.ok(python.size >= 17, `Python witness code inventory shrank to ${python.size}`);
+  const covered = corpusRejectedCodes();
+  const uncovered = [...python].filter((code) => !covered.has(code));
+  assert.deepEqual(uncovered, [], `Python witness can reject with codes no corpus case pins: ${uncovered.join(", ")}`);
+});
+
+test("the TypeScript and Python witness rejected-code inventories agree", () => {
+  const ts = tsRejectedCodes(readFileSync(join(root, "src", "a2a", "local-admission.ts"), "utf8"));
+  const python = pythonRejectedCodes(readFileSync(pythonWitness, "utf8"));
+  assert.deepEqual([...ts].sort(), [...python].sort());
+});
+
+test("rejected-code scanner self-test: multi-line and spacing variants are seen", () => {
+  const sample = `
+type RejectCode =
+  | "ONE_A" | "TWO_B"
+  | "THREE_C"
+  | "FOUR_D";
+function f() { return issue("ONE_A"); }
+`;
+  const found = tsRejectedCodes(sample);
+  assert.ok(found.has("ONE_A") && found.has("TWO_B") && found.has("THREE_C"));
+  assert.ok(found.has("FOUR_D"), "scanner missed a multi-line union member");
+});
+
 function evaluate(item: CorpusCase) {
   const calls: unknown[] = [];
   const result = admission.evaluateLocalAdmission(
