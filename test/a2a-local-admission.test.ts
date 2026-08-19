@@ -177,6 +177,131 @@ test("the raw boundary rejects invalid UTF-8 representatives without creating an
   );
 });
 
+test("binding/authorization interval edges cover the equality boundaries for from/until", () => {
+  // Cases are in insertion order; the six new ones are appended at the end
+  // (in the order scripts/gen-binding-interval-edges-cases.mjs emitted them):
+  //   binding.interval-zero-length
+  //   binding.interval-until-edge
+  //   binding.interval-from-edge
+  //   authorization.interval-zero-length
+  //   authorization.interval-until-edge
+  //   authorization.interval-from-edge
+  const intervalCases = corpus.cases.slice(-6);
+  assert.deepEqual(
+    intervalCases.map((item) => item.id),
+    [
+      "binding.interval-zero-length",
+      "binding.interval-until-edge",
+      "binding.interval-from-edge",
+      "authorization.interval-zero-length",
+      "authorization.interval-until-edge",
+      "authorization.interval-from-edge",
+    ],
+  );
+  assert.deepEqual(
+    intervalCases.map((item) => item.expected),
+    [
+      // binding.interval-zero-length: from == until == 100 -> AUTHORIZATION_DENIED@$
+      { result: { kind: "rejected", code: "AUTHORIZATION_DENIED", field_path: "$" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+      // binding.interval-until-edge: eval(100) == until(100) -> AUTHORIZATION_DENIED@$
+      { result: { kind: "rejected", code: "AUTHORIZATION_DENIED", field_path: "$" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+      // binding.interval-from-edge: eval(100) == from(100) -> admit; policy_basis mirrors the mutated binding interval (100, 200)
+      {
+        result: {
+          kind: "admission_plan",
+          version: "meshfleet.a2a.local-admission.v0.1",
+          request_identity: { principal_ref: "principal-ref", request_id: "request-ref" },
+          semantic_identity: { sender: { namespace: "local", agent_id: "agent-a" }, message_id: "message-ref" },
+          action: "a2a.message.admit",
+          audience: "local-audience",
+          message_type: "handoff",
+          recipients: [{ namespace: "local", agent_id: "agent-b" }],
+          envelope_digest: "meshfleet.a2a.fingerprint.v1:sha256:9dd42da42a919761fb2f5bc007c03dd948ba0e6f4dcd9be80d556c31339c5606",
+          evaluation_time_ms: 100,
+          policy_basis: {
+            binding_snapshot: { snapshot_version: "meshfleet.a2a.binding-snapshot.v0.1", snapshot_id: "binding-fixture", effective_from_ms: 100, effective_until_ms: 200 },
+            authorization_snapshot: { snapshot_version: "meshfleet.a2a.authorization-snapshot.v0.1", snapshot_id: "authorization-fixture", effective_from_ms: 0, effective_until_ms: 200 },
+          },
+        },
+        replay_oracle_calls: 1,
+        replay_oracle_arguments: [{ principal_ref: "principal-ref", request_id: "request-ref", sender: { namespace: "local", agent_id: "agent-a" }, message_id: "message-ref", envelope_digest: "meshfleet.a2a.fingerprint.v1:sha256:9dd42da42a919761fb2f5bc007c03dd948ba0e6f4dcd9be80d556c31339c5606" }],
+      },
+      // authorization.interval-zero-length: from == until == 100 -> AUTHORIZATION_DENIED@$
+      { result: { kind: "rejected", code: "AUTHORIZATION_DENIED", field_path: "$" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+      // authorization.interval-until-edge: eval(100) == until(100) -> AUTHORIZATION_DENIED@$
+      { result: { kind: "rejected", code: "AUTHORIZATION_DENIED", field_path: "$" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+      // authorization.interval-from-edge: eval(100) == from(100) -> admit; policy_basis mirrors the mutated authorization interval (100, 200)
+      {
+        result: {
+          kind: "admission_plan",
+          version: "meshfleet.a2a.local-admission.v0.1",
+          request_identity: { principal_ref: "principal-ref", request_id: "request-ref" },
+          semantic_identity: { sender: { namespace: "local", agent_id: "agent-a" }, message_id: "message-ref" },
+          action: "a2a.message.admit",
+          audience: "local-audience",
+          message_type: "handoff",
+          recipients: [{ namespace: "local", agent_id: "agent-b" }],
+          envelope_digest: "meshfleet.a2a.fingerprint.v1:sha256:9dd42da42a919761fb2f5bc007c03dd948ba0e6f4dcd9be80d556c31339c5606",
+          evaluation_time_ms: 100,
+          policy_basis: {
+            binding_snapshot: { snapshot_version: "meshfleet.a2a.binding-snapshot.v0.1", snapshot_id: "binding-fixture", effective_from_ms: 0, effective_until_ms: 200 },
+            authorization_snapshot: { snapshot_version: "meshfleet.a2a.authorization-snapshot.v0.1", snapshot_id: "authorization-fixture", effective_from_ms: 100, effective_until_ms: 200 },
+          },
+        },
+        replay_oracle_calls: 1,
+        replay_oracle_arguments: [{ principal_ref: "principal-ref", request_id: "request-ref", sender: { namespace: "local", agent_id: "agent-a" }, message_id: "message-ref", envelope_digest: "meshfleet.a2a.fingerprint.v1:sha256:9dd42da42a919761fb2f5bc007c03dd948ba0e6f4dcd9be80d556c31339c5606" }],
+      },
+    ],
+  );
+  // Per-case interval byte proof: confirm each generated case mutates exactly one snapshot
+  // interval, keeps the other one byte-identical to the valid baseline (0, 200), and the
+  // evaluation_time_ms stays at 100 so the boundary semantics are tested.
+  for (const item of intervalCases) {
+    const request = JSON.parse(item.invocation_args.request_json) as {
+      evaluation_time_ms: number;
+      binding_snapshot: { effective_from_ms: number; effective_until_ms: number };
+      authorization_snapshot: { effective_from_ms: number; effective_until_ms: number };
+    };
+    assert.equal(request.evaluation_time_ms, 100, `${item.id} must keep evaluation_time_ms = 100`);
+    if (item.id.startsWith("binding.")) {
+      // binding interval mutated, authorization interval byte-identical to baseline (0, 200)
+      assert.deepEqual(
+        { effective_from_ms: request.authorization_snapshot.effective_from_ms, effective_until_ms: request.authorization_snapshot.effective_until_ms },
+        { effective_from_ms: 0, effective_until_ms: 200 },
+        `${item.id} must leave authorization_snapshot interval byte-identical to baseline (0, 200)`,
+      );
+    } else {
+      // authorization interval mutated, binding interval byte-identical to baseline (0, 200)
+      assert.deepEqual(
+        { effective_from_ms: request.binding_snapshot.effective_from_ms, effective_until_ms: request.binding_snapshot.effective_until_ms },
+        { effective_from_ms: 0, effective_until_ms: 200 },
+        `${item.id} must leave binding_snapshot interval byte-identical to baseline (0, 200)`,
+      );
+    }
+    if (item.id.endsWith("interval-zero-length")) {
+      assert.equal(request[item.id.startsWith("binding.") ? "binding_snapshot" : "authorization_snapshot"].effective_from_ms, 100, `${item.id} must set from = 100`);
+      assert.equal(request[item.id.startsWith("binding.") ? "binding_snapshot" : "authorization_snapshot"].effective_until_ms, 100, `${item.id} must set until = 100`);
+    } else if (item.id.endsWith("interval-until-edge")) {
+      assert.equal(request[item.id.startsWith("binding.") ? "binding_snapshot" : "authorization_snapshot"].effective_from_ms, 0, `${item.id} must set from = 0`);
+      assert.equal(request[item.id.startsWith("binding.") ? "binding_snapshot" : "authorization_snapshot"].effective_until_ms, 100, `${item.id} must set until = 100`);
+    } else if (item.id.endsWith("interval-from-edge")) {
+      assert.equal(request[item.id.startsWith("binding.") ? "binding_snapshot" : "authorization_snapshot"].effective_from_ms, 100, `${item.id} must set from = 100`);
+      assert.equal(request[item.id.startsWith("binding.") ? "binding_snapshot" : "authorization_snapshot"].effective_until_ms, 200, `${item.id} must set until = 200`);
+    }
+  }
+  // Red-on-revert guard: dropping binding.interval-zero-length must shrink the family pin
+  // to 5 ids, independent of the corpus-level byte test.
+  const withoutZero = intervalCases.filter((c) => c.id !== "binding.interval-zero-length");
+  assert.equal(withoutZero.length, 5);
+  assert.deepEqual(withoutZero.map((c) => c.id), [
+    "binding.interval-until-edge",
+    "binding.interval-from-edge",
+    "authorization.interval-zero-length",
+    "authorization.interval-until-edge",
+    "authorization.interval-from-edge",
+  ]);
+});
+
 test("ingress recipient normalization is order-independent and agrees across witnesses", (t) => {
   const first = corpus.cases[0]!;
   const request = JSON.parse(first.invocation_args.request_json) as {
