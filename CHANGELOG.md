@@ -24,6 +24,7 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
   CLOSED for the bounded subfamily; the rule-count edge remains the only open
   item (262144-byte cap + 216-byte rule lower bound makes 2048 rules
   unrepresentable). Corpus 44 → 49 cases. Suite 1767 → 1768.
+- **Local-admission oracle/results "malformed oracle case" bounded subfamily closed.** Six new mandatory corpus cases pin every non-canonical replay-oracle value to `REPLAY_PROTECTION_UNAVAILABLE` at `$` with one oracle call: `oracle.malformed-object` (`{"verdict":"unseen"}`), `oracle.malformed-number` (`42`), `oracle.malformed-null` (`null`), `oracle.malformed-empty-array` (`[]`), `oracle.malformed-uppercase` (`"UNSEEN"`), and `oracle.malformed-empty-string` (`""`). The TypeScript `decideReplay` already mapped every non-verdict value to `unavailable`; the Python reference witness used `verdict in {"replayed_request", ...}` (a set), which raised `TypeError` on unhashable verdicts (object, array) and crashed the corpus run instead of mapping to `unavailable`. The fix swaps the set for a tuple so `in` uses equality instead of hashing, matching the TypeScript `===` semantics. Coverage-ledger `oracle/results` row now reads `CLOSED bounded subfamily: every rejected-code inventory; malformed-oracle cases (object, number, null, empty array, uppercase verdict, empty string)`; the new oracle-malformed-verdict slice-records table mirrors the existing authorization/evidence/depth-numeric precedent. Corpus 49 → 55 cases. Suite 1769 → 1771.
 
 ## [0.21.1] - 2026-08-10
 
