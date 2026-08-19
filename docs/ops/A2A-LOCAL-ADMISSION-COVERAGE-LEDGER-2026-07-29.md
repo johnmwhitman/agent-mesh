@@ -18,7 +18,7 @@ bytes, replay call count, and replay arguments.
 | envelope | malformed and recipient representatives plus audience/self-recipient ordinary tests | — | all 4A invalid families and exact prefixed source paths |
 | evidence | one invalid field representative | **CLOSED bounded subfamily:** provenance; issued-at equality; expires-at equality; lifetime 300000/300001 | every remaining field/type/grammar vector |
 | binding | one invalid field representative | — | fields, interval edges, duplicate source index, context mismatch, and 0/256/257 rule vectors |
-| authorization | valid one type/recipient; one invalid action; generic denial | **CLOSED bounded subfamily:** types 5/6; recipients 128/129; duplicate type and recipient source index; all-recipient denial before replay; session + context (adapter / principal / audience / session_ref / sender) mismatch each deny independently | rule-count edge (262144-byte cap with 216-byte rule lower bound makes 2048 rules unrepresentable; existing test pins this) |
+| authorization | valid one type/recipient; one invalid action; generic denial | **CLOSED bounded subfamily:** types 5/6; recipients 128/129; duplicate type and recipient source index; all-recipient denial before replay; session + context (adapter / principal / audience / session_ref / sender) mismatch each deny independently; snapshot fields – snapshot_version, snapshot_id, fixture_provenance, effective_from_ms, effective_until_ms, rules-not-array | rule-count edge (262144-byte cap with 216-byte rule lower bound makes 2048 rules unrepresentable; existing test pins this) |
 | relativity | plan only reports fixture IDs/versions | — | decision changes caused by changed fixtures |
 | oracle/results | all four non-admission verdicts, unavailable, throw, unseen plan, unseen-only expiry, and exact query | — | malformed oracle case and every rejected-code inventory |
 | privacy | offline/import-surface checks and closed sidecar fixtures | — | dedicated ignored-input/diagnostic-invariance matrix |
@@ -51,6 +51,17 @@ bytes, replay call count, and replay arguments.
 | `authorization.context.audience-mismatch` | `AUTHORIZATION_DENIED` at `$` | 0 |
 | `authorization.context.session-mismatch` | `AUTHORIZATION_DENIED` at `$` | 0 |
 | `authorization.context.sender-mismatch` | `AUTHORIZATION_DENIED` at `$` | 0 |
+
+## Authorization snapshot-field slice records
+
+| Case IDs | Required outcome | Replay calls |
+| --- | --- | --- |
+| `authorization.field-snapshot-version` | `INVALID_AUTHORIZATION_SNAPSHOT` at `$.authorization_snapshot.snapshot_version` | 0 |
+| `authorization.field-snapshot-id` | `INVALID_AUTHORIZATION_SNAPSHOT` at `$.authorization_snapshot.snapshot_id` | 0 |
+| `authorization.field-fixture-provenance` | `INVALID_AUTHORIZATION_SNAPSHOT` at `$.authorization_snapshot.fixture_provenance` | 0 |
+| `authorization.field-effective-from` | `INVALID_AUTHORIZATION_SNAPSHOT` at `$.authorization_snapshot.effective_from_ms` | 0 |
+| `authorization.field-effective-until` | `INVALID_AUTHORIZATION_SNAPSHOT` at `$.authorization_snapshot.effective_until_ms` | 0 |
+| `authorization.field-rules-not-array` | `INVALID_AUTHORIZATION_SNAPSHOT` at `$.authorization_snapshot.rules` | 0 |
 
 ## Unreachable profile row
 
