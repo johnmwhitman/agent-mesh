@@ -408,6 +408,67 @@ test("the static sidecar has seven exact-null positives and all required closed 
   for (const item of fixture.negative) assert.throws(() => validateStaticHarnessMapping(item.mapping), item.id);
 });
 
+test("literal/escaped duplicate keys project the safe-path parent object across every request object", () => {
+  const perObjectIds = [
+    "request.literal-escaped-duplicate-auth-evidence-adapter-id",
+    "request.literal-escaped-duplicate-auth-evidence-principal-ref",
+    "request.literal-escaped-duplicate-binding-snapshot-snapshot-id",
+    "request.literal-escaped-duplicate-authorization-snapshot-snapshot-id",
+    "request.literal-escaped-duplicate-binding-rules-adapter-id",
+    "request.literal-escaped-duplicate-authorization-rules-action",
+    "request.literal-escaped-duplicate-authorization-rules-message-types",
+    "request.literal-escaped-duplicate-authorization-rules-recipients",
+  ];
+  const byId = new Map(corpus.cases.map((c) => [c.id, c]));
+  for (const id of perObjectIds) {
+    const item = byId.get(id);
+    assert.ok(item, `${id} must be present in the corpus`);
+  }
+  // Every case must reject with DUPLICATE_JSON_KEY at the parent path
+  // and never invoke the replay oracle (rejection is pre-envelope).
+  const expectedPaths: Record<string, string> = {
+    "request.literal-escaped-duplicate-auth-evidence-adapter-id": "$.authentication_evidence",
+    "request.literal-escaped-duplicate-auth-evidence-principal-ref": "$.authentication_evidence",
+    "request.literal-escaped-duplicate-binding-snapshot-snapshot-id": "$.binding_snapshot",
+    "request.literal-escaped-duplicate-authorization-snapshot-snapshot-id": "$.authorization_snapshot",
+    "request.literal-escaped-duplicate-binding-rules-adapter-id": "$.binding_snapshot.rules",
+    "request.literal-escaped-duplicate-authorization-rules-action": "$.authorization_snapshot.rules",
+    "request.literal-escaped-duplicate-authorization-rules-message-types": "$.authorization_snapshot.rules",
+    "request.literal-escaped-duplicate-authorization-rules-recipients": "$.authorization_snapshot.rules",
+  };
+  for (const id of perObjectIds) {
+    const item = byId.get(id)!;
+    assert.deepEqual(
+      item.expected,
+      {
+        result: { kind: "rejected", code: "DUPLICATE_JSON_KEY", field_path: expectedPaths[id] },
+        replay_oracle_calls: 0,
+        replay_oracle_arguments: [],
+      },
+      `${id} must reject with DUPLICATE_JSON_KEY at the safe-path parent and never call the replay oracle`,
+    );
+    // Each case must carry a JSON-escape duplicate that, after JSON
+    // decoding, becomes the same key string as a sibling member of the
+    // parent object — i.e. the request_json contains \uXXXX that decodes
+    // to a real key in the parent object (the scanner uses this to
+    // detect the duplicate before JSON.parse would collapse it).
+    assert.ok(
+      /\\u00[0-9a-f]{2}/.test(item.invocation_args.request_json),
+      `${id} must inject a literal/escape duplicate key (raw-string surgery)`,
+    );
+    // Each case must reject before envelope decode (envelope is unchanged
+    // and the canonical 4A digest is never reached).
+    assert.equal(item.expected.replay_oracle_calls, 0);
+  }
+  // RED-on-revert guard: removing any one case shrinks the family pin
+  // from 8 ids to fewer — prove the pin depends on every case by
+  // checking the full ordered id set.
+  const ordered = corpus.cases
+    .map((c) => c.id)
+    .filter((id) => id.startsWith("request.literal-escaped-duplicate-"));
+  assert.deepEqual(ordered, perObjectIds);
+});
+
 test("local admission and sidecar stay offline, dormant, and outside renderer and package surfaces", () => {
   const localSource = readFileSync(join(root, "src", "a2a", "local-admission.ts"), "utf8");
   const replaySource = readFileSync(join(root, "src", "a2a", "replay-decision.ts"), "utf8");

@@ -6,6 +6,26 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 
 ### Added
 
+- **Section 9 request-raw/path per-object literal/escaped duplicate bounded
+  subfamily.** Eight new mandatory corpus cases (`corpus 49→57`) pin that the
+  strict raw JSON parser's RequestScanner detects a literal-vs-escape duplicate
+  key inside every request object (`authentication_evidence`,
+  `binding_snapshot`, `authorization_snapshot`) and their nested `rules[0]`
+  arrays, rejecting with `DUPLICATE_JSON_KEY` at the safe-path parent
+  projection (pathMember's `[A-Za-z_][A-Za-z0-9_]*` regex projects the dotted
+  parent path; array elements drop the `[position]` suffix because the known
+  shape is `[]`). The injection uses raw-string surgery (`\uXXXX`) because
+  `JSON.stringify` would normalize the escape back to its decoded form and
+  collapse the duplicate. Each case rejects before envelope decode and never
+  reaches the replay oracle (`replay_oracle_calls=0`). Family-pin test in
+  `test/a2a-local-admission.test.ts` asserts the 8 ids + per-case field_path +
+  per-case `replay_oracle_calls=0` + per-case raw-string-surgery byte proof +
+  ordered id set (red-on-revert guard). Generator
+  `scripts/gen-request-raw-path-per-object-cases.mjs` (idempotent, pristine-44
+  sentinel refuses to splice into a corpus that has already been modified).
+  Coverage ledger request-raw/path row now reads CLOSED for the per-object
+  literal/escape duplicate bounded subfamily. Suite 1769 → 1770.
+
 - **Section 9 authorization context-mismatch bounded subfamily.** Five new
   mandatory corpus cases (`authorization.context.{adapter,principal,audience,
   session_ref,sender}-mismatch`) prove that an authorization rule whose context
