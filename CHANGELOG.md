@@ -24,6 +24,7 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
   CLOSED for the bounded subfamily; the rule-count edge remains the only open
   item (262144-byte cap + 216-byte rule lower bound makes 2048 rules
   unrepresentable). Corpus 44 → 49 cases. Suite 1767 → 1768.
+- **Section 9 binding-family grammar gates closed further: corpus 44 → 51 mandatory cases.** Seven new mandatory `evaluate-local-admission` corpus cases pin the binding-rule sender agent-reference grammar classes beyond the wildcard case (missing `namespace`, missing `agent_id`, extra member, non-string `agent_id`, empty `namespace`) and the source-indexed authorization duplicate classes (duplicate rule key at `rules[1]`, duplicate recipient within one rule at `recipients[1]`). TypeScript and the independent Python witness agree byte-for-byte on all 51 cases.
 
 ## [0.21.1] - 2026-08-10
 
