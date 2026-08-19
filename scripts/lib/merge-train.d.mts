@@ -53,3 +53,10 @@ export function makeShell(
 ): GitShell;
 
 export function makeShellFromSpawn(): GitShell;
+
+export type StalenessBand = "fresh" | "stale" | "suspect" | "dead";
+
+export function classifyStaleness(
+  days: number,
+  staleDays?: number,
+): StalenessBand;

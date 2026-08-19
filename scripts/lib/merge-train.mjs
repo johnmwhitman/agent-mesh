@@ -178,4 +178,23 @@ export function makeShellFromSpawn() {
   return makeShell(shFn);
 }
 
+/**
+ * Classify a branch's last-activity age into a staleness bucket.
+ * Bands scale proportionally to `staleDays` so a tighter threshold tightens
+ * the bands. Naive UTC-day math — git tip dates are ISO 8601 with timezone,
+ * and the rounding matters for index-of-arrival comparisons.
+ *
+ * @param {number} days calendar days since tip commit (Infinity = no parse)
+ * @param {number} staleDays fresh-band ceiling in days (default 30)
+ * @returns {"fresh"|"stale"|"suspect"|"dead"}
+ */
+export function classifyStaleness(days, staleDays = 30) {
+  if (!Number.isFinite(days)) return "dead";
+  const sd = Math.max(1, staleDays | 0);
+  if (days <= sd) return "fresh";
+  if (days <= sd * 6) return "stale";
+  if (days <= sd * 12) return "suspect";
+  return "dead";
+}
+
 export { makeShell };
