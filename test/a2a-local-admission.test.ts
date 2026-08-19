@@ -105,6 +105,33 @@ test("authorization context mismatch on any single policy field denies the reque
   }
 });
 
+test("binding duplicate source index rejects the duplicate 4-tuple key at the non-zero source index", () => {
+  const required = ["binding.duplicate-source-index"];
+  const byId = new Map(corpus.cases.map((item) => [item.id, item]));
+  for (const id of required) {
+    assert.ok(corpus.mandatory_case_ids.includes(id), `mandatory case ${id} must stay in the corpus`);
+    const item = byId.get(id)!;
+    const actual = evaluate(item);
+    assert.equal(JSON.stringify(actual), JSON.stringify(item.expected), id);
+  }
+  const dup = byId.get("binding.duplicate-source-index")!;
+  assert.equal(
+    (dup.expected.result as { code: string }).code,
+    "INVALID_BINDING_SNAPSHOT",
+    "binding duplicate source index must reject with INVALID_BINDING_SNAPSHOT",
+  );
+  assert.equal(
+    (dup.expected.result as { field_path: string }).field_path,
+    "$.binding_snapshot.rules[1]",
+    "binding duplicate source index must pin the non-zero source index path",
+  );
+  assert.equal(dup.expected.replay_oracle_calls, 0, "snapshot validation must short-circuit before replay oracle");
+  // Byte proof: rules[1] must be a deep-equal copy of rules[0]; rules[0] stays byte-identical to baseline.
+  const req = JSON.parse(dup.invocation_args.request_json) as { binding_snapshot: { rules: unknown[] } };
+  assert.equal(req.binding_snapshot.rules.length, 2);
+  assert.deepEqual(req.binding_snapshot.rules[1], req.binding_snapshot.rules[0]);
+});
+
 test("authentication-evidence boundaries stay ordered and preserve their terminal semantics", () => {
   const evidenceCases = corpus.cases.filter((item) => item.id.startsWith("evidence."));
   assert.deepEqual(

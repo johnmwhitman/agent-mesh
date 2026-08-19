@@ -6,6 +6,26 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 
 ### Added
 
+- **Section 9 binding duplicate-source-index bounded subfamily.** One new
+  mandatory corpus case (`binding.duplicate-source-index`) proves that a
+  binding rule at `rules[1]` whose 4-tuple `(adapter_id, principal_ref,
+  audience, session_ref)` collides with `rules[0]` short-circuits with
+  `INVALID_BINDING_SNAPSHOT` at `$.binding_snapshot.rules[1]` and never
+  reaches the replay oracle. The case pushes a deep-equal copy of
+  `rules[0]` into `rules[1]` so the rest of `valid.admission-plan` stays
+  byte-identical and the collision is isolated to the source-index
+  vector. Generator: `scripts/gen-binding-dup-source-index-cases.mjs`
+  (idempotent, pristine-49 sentinel at
+  `/tmp/binding-dup-source-index-base-corpus.json`). Splice:
+  `scripts/splice-binding-dup-source-index-cases.mjs`. Family-pin test in
+  `test/a2a-local-admission.test.ts` asserts the id, the
+  `INVALID_BINDING_SNAPSHOT` code, the `$.binding_snapshot.rules[1]`
+  field path, `replay_oracle_calls == 0`, and the byte proof
+  (`rules[1]` deep-equals `rules[0]`; rules array length is 2). Coverage
+  ledger binding row now reads CLOSED for the duplicate-source-index
+  subfamily; fields, interval edges, context mismatch, and 0/256/257
+  rule vectors remain open. Corpus 49 → 50.
+
 - **Section 9 authorization context-mismatch bounded subfamily.** Five new
   mandatory corpus cases (`authorization.context.{adapter,principal,audience,
   session_ref,sender}-mismatch`) prove that an authorization rule whose context
