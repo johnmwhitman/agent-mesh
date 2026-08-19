@@ -22,3 +22,12 @@ docs/superpowers/
 # Python reference-witness bytecode (reference/python/)
 __pycache__/
 *.pyc
+
+# Merge-train local artefacts. The merge-train script and its portfolio
+# wrapper are tracked under scripts/, scripts/lib/, and test/, but the
+# per-run dossier + the operator's portable repo-list config are
+# machine-local (the dossier references absolute paths and the config
+# almost certainly will too).
+MERGE-TRAIN-*.md
+MERGE-TRAIN-PORTFOLIO-*.md
+.portfolio-merge-train.json
