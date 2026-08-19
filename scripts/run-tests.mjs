@@ -86,7 +86,7 @@ function collectTests(dir) {
 // so named would have been invisible to the scan and the guard would have reported a false
 // green. Nothing may be pruned here for being "probably not tests" — only for being
 // generated or not source.
-const PRUNE = new Set(["node_modules", "dist", "out", "coverage", ".git", ".github"]);
+const PRUNE = new Set(["node_modules", "dist", "out", "coverage", ".git", ".github", ".worktrees"]);
 
 function scanForTests(dir) {
   let entries;
