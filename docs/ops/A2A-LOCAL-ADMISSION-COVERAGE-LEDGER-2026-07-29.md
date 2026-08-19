@@ -4,7 +4,7 @@ Status: bounded offline evidence only. This ledger records executable coverage,
 not profile conformance, authority, acceptance, persistence, delivery, or
 transport capability.
 
-Base reviewed: `2760310` (origin/main). Corpus: 49 mandatory raw-text cases in
+Base reviewed: `4a7eb30` (origin/main). Corpus: 55 mandatory raw-text cases in
 `test/fixtures/a2a/local-admission/v0.1/corpus.json`; every case is evaluated by
 the TypeScript implementation and mandatory Python witness with exact result
 bytes, replay call count, and replay arguments.
@@ -20,7 +20,7 @@ bytes, replay call count, and replay arguments.
 | binding | one invalid field representative | — | fields, interval edges, duplicate source index, context mismatch, and 0/256/257 rule vectors |
 | authorization | valid one type/recipient; one invalid action; generic denial | **CLOSED bounded subfamily:** types 5/6; recipients 128/129; duplicate type and recipient source index; all-recipient denial before replay; session + context (adapter / principal / audience / session_ref / sender) mismatch each deny independently | rule-count edge (262144-byte cap with 216-byte rule lower bound makes 2048 rules unrepresentable; existing test pins this) |
 | relativity | plan only reports fixture IDs/versions | — | decision changes caused by changed fixtures |
-| oracle/results | all four non-admission verdicts, unavailable, throw, unseen plan, unseen-only expiry, and exact query | — | malformed oracle case and every rejected-code inventory |
+| oracle/results | all four non-admission verdicts, unavailable, throw, unseen plan, unseen-only expiry, and exact query | **CLOSED bounded subfamily:** rejected-code inventory — the corpus exercises every code in the TypeScript `RejectCode` union and every quoted uppercase literal the mandatory Python witness can emit, with a fail-closed agreement test and a scanner self-test; malformed-oracle cases (object, number, null, empty array, uppercase verdict, empty string) each map to `REPLAY_PROTECTION_UNAVAILABLE` at `$` with one oracle call | none |
 | privacy | offline/import-surface checks and closed sidecar fixtures | — | dedicated ignored-input/diagnostic-invariance matrix |
 
 ## Authentication-evidence slice records
@@ -51,6 +51,27 @@ bytes, replay call count, and replay arguments.
 | `authorization.context.audience-mismatch` | `AUTHORIZATION_DENIED` at `$` | 0 |
 | `authorization.context.session-mismatch` | `AUTHORIZATION_DENIED` at `$` | 0 |
 | `authorization.context.sender-mismatch` | `AUTHORIZATION_DENIED` at `$` | 0 |
+
+## Oracle/results slice records
+
+| Case IDs | Required outcome | Replay calls |
+| --- | --- | --- |
+| `oracle.malformed-object`, `oracle.malformed-number`, `oracle.malformed-null`, `oracle.malformed-empty-array`, `oracle.malformed-uppercase`, `oracle.malformed-empty-string` | `REPLAY_PROTECTION_UNAVAILABLE` at `$` | 1 |
+
+### Rejected-code inventory tests
+
+| Test | What it proves |
+| --- | --- |
+| `the corpus exercises every RejectCode the TypeScript implementation can emit` | Every code in the `RejectCode` union in `src/a2a/local-admission.ts` is pinned by at least one corpus case's expected `rejected` result; fails closed naming any uncovered code |
+| `the corpus exercises every reject code the mandatory Python witness can emit` | Every quoted uppercase literal in the Python witness is pinned by at least one corpus case; fails closed naming any uncovered code |
+| `the TypeScript and Python witness rejected-code inventories agree` | The two witnesses emit the exact same set of reject codes; a drift in either direction fails |
+| `rejected-code scanner self-test: multi-line and spacing variants are seen` | The source-scanning regex sees multi-line union members and spaced alternatives, not just single-line declarations |
+
+The inventory is re-derived from source on every test run — a hand-maintained
+list is exactly the thing that goes stale, so no such list exists. The scanner
+reads the `type RejectCode =\n…;` union body for TypeScript and all quoted
+uppercase literals for Python, verified today to agree with zero non-code
+literals.
 
 ## Unreachable profile row
 

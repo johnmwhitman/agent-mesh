@@ -435,6 +435,8 @@ def evaluate_local_admission(request_json: str, envelope_json: str, replay_oracl
         verdict = replay_oracle(argument)
     except Exception:
         return issue("REPLAY_PROTECTION_UNAVAILABLE", "$")
+    if not isinstance(verdict, str):
+        return issue("REPLAY_PROTECTION_UNAVAILABLE", "$")
     if verdict in {"replayed_request", "request_id_reuse", "duplicate", "message_id_conflict"}:
         return {"kind": "not_admitted", "disposition": verdict}
     if verdict != "unseen":

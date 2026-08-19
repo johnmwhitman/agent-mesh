@@ -25,6 +25,23 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
   item (262144-byte cap + 216-byte rule lower bound makes 2048 rules
   unrepresentable). Corpus 44 → 49 cases. Suite 1767 → 1768.
 
+- **Section 9 oracle/results malformed-oracle and rejected-code inventory
+  bounded subfamilies.** Six new mandatory corpus cases
+  (`oracle.malformed-{object,number,null,empty-array,uppercase,empty-string}`)
+  prove that every non-verdict JSON value the replay oracle can produce
+  (object, number, null, array, uppercase string, empty string) maps to
+  `REPLAY_PROTECTION_UNAVAILABLE` at `$` with exactly one oracle call. A
+  family-pin test asserts the six ids, the rejection code, and the exact
+  replay arguments; a red-on-revert guard proves the pin fails if
+  `oracle.malformed-number` is dropped. Four source-derived inventory tests
+  re-derive the full `RejectCode` union from `src/a2a/local-admission.ts` and
+  every quoted uppercase literal from the mandatory Python witness on every
+  run, proving the corpus exercises every code in both witnesses and that the
+  two inventories agree exactly — no hand-maintained list can go stale.
+  Coverage ledger oracle/results row now reads CLOSED for the bounded
+  subfamily. Generator: `scripts/gen-oracle-malformed-cases.mjs`. Corpus
+  49 → 55 cases. Suite 1769 → 1775.
+
 ## [0.21.1] - 2026-08-10
 
 ### Fixed

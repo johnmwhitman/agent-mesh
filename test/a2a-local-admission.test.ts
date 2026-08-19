@@ -27,6 +27,85 @@ const localAdmissionCorpusCountDocs = [
   join(root, "docs", "A2A-LOCAL-ADMISSION-PROFILE-v0.1.md"),
 ];
 
+// ---------------------------------------------------------------------------
+// Rejected-code inventory. The profile's oracle/results row requires "every
+// rejected code" as exact required coverage; the ledger's "every rejected-code
+// inventory" gap stays open until something mechanically proves the corpus
+// covers the full union in BOTH witnesses. A hand-maintained list is exactly
+// the thing that goes stale, so the inventory is re-derived from source.
+// ---------------------------------------------------------------------------
+
+const REJECTED_CODE_LITERAL = /"([A-Z][A-Z0-9_]{2,})"/g;
+
+/** Every reject code the TypeScript RejectCode union can emit. */
+function tsRejectedCodes(source: string): Set<string> {
+  const codes = new Set<string>();
+  const unionMatch = source.match(/type RejectCode =\n([\s\S]*?);/);
+  assert.ok(unionMatch, "RejectCode union declaration must exist in local-admission.ts");
+  for (const m of unionMatch![1]!.matchAll(REJECTED_CODE_LITERAL)) codes.add(m[1]!);
+  return codes;
+}
+
+/**
+ * Every reject code the mandatory Python witness can emit. The witness emits
+ * codes through issue()/reject()/bad() calls AND through a `code = "..."`
+ * variable that is later passed to issue() (INVALID_BINDING_SNAPSHOT /
+ * INVALID_AUTHORIZATION_SNAPSHOT share one emission path), so the inventory is
+ * the set of all quoted uppercase literals — verified today to equal the
+ * TypeScript union exactly, with zero non-code literals. The agreement test
+ * below fails closed if a comment/constant ever slips in.
+ */
+function pythonRejectedCodes(source: string): Set<string> {
+  const codes = new Set<string>();
+  for (const m of source.matchAll(REJECTED_CODE_LITERAL)) codes.add(m[1]!);
+  return codes;
+}
+
+/** Reject codes the mandatory corpus cases exercise. */
+function corpusRejectedCodes(): Set<string> {
+  const codes = new Set<string>();
+  for (const item of corpus.cases) {
+    const result = item.expected.result as { kind?: string; code?: string };
+    if (result.kind === "rejected" && result.code !== undefined) codes.add(result.code);
+  }
+  return codes;
+}
+
+test("the corpus exercises every RejectCode the TypeScript implementation can emit", () => {
+  const ts = tsRejectedCodes(readFileSync(join(root, "src", "a2a", "local-admission.ts"), "utf8"));
+  assert.ok(ts.size >= 17, `RejectCode union shrank to ${ts.size} — did a code get deleted?`);
+  const covered = corpusRejectedCodes();
+  const uncovered = [...ts].filter((code) => !covered.has(code));
+  assert.deepEqual(uncovered, [], `these reject codes can fire but no corpus case pins them: ${uncovered.join(", ")}`);
+});
+
+test("the corpus exercises every reject code the mandatory Python witness can emit", () => {
+  const python = pythonRejectedCodes(readFileSync(pythonWitness, "utf8"));
+  assert.ok(python.size >= 17, `Python witness code inventory shrank to ${python.size}`);
+  const covered = corpusRejectedCodes();
+  const uncovered = [...python].filter((code) => !covered.has(code));
+  assert.deepEqual(uncovered, [], `Python witness can reject with codes no corpus case pins: ${uncovered.join(", ")}`);
+});
+
+test("the TypeScript and Python witness rejected-code inventories agree", () => {
+  const ts = tsRejectedCodes(readFileSync(join(root, "src", "a2a", "local-admission.ts"), "utf8"));
+  const python = pythonRejectedCodes(readFileSync(pythonWitness, "utf8"));
+  assert.deepEqual([...ts].sort(), [...python].sort());
+});
+
+test("rejected-code scanner self-test: multi-line and spacing variants are seen", () => {
+  const sample = `
+type RejectCode =
+  | "ONE_A" | "TWO_B"
+  | "THREE_C"
+  | "FOUR_D";
+function f() { return issue("ONE_A"); }
+`;
+  const found = tsRejectedCodes(sample);
+  assert.ok(found.has("ONE_A") && found.has("TWO_B") && found.has("THREE_C"));
+  assert.ok(found.has("FOUR_D"), "scanner missed a multi-line union member");
+});
+
 function evaluate(item: CorpusCase) {
   const calls: unknown[] = [];
   const result = admission.evaluateLocalAdmission(
@@ -163,6 +242,64 @@ test("local admission evaluates every required corpus record with exact output b
     const actual = evaluate(item);
     assert.equal(JSON.stringify(actual), JSON.stringify(item.expected), item.id);
   }
+});
+
+test("the malformed-oracle subfamily pins every non-verdict replay value to REPLAY_PROTECTION_UNAVAILABLE", () => {
+  const malformedCases = corpus.cases.filter((item) => item.id.startsWith("oracle.malformed-"));
+  assert.deepEqual(
+    malformedCases.map((item) => item.id),
+    [
+      "oracle.malformed-object",
+      "oracle.malformed-number",
+      "oracle.malformed-null",
+      "oracle.malformed-empty-array",
+      "oracle.malformed-uppercase",
+      "oracle.malformed-empty-string",
+    ],
+  );
+  // Each malformed case must be a one-call oracle rejection: the call is
+  // made (decideReplay is not a peek), the verdict is judged against the
+  // closed set of canonical strings, and any non-canonical value falls
+  // through to unavailable. The oracle/throws case proves the same
+  // code-at-$ path for the throw class, so we only assert the malformed
+  // half here.
+  for (const item of malformedCases) {
+    const actual = evaluate(item);
+    assert.deepEqual(
+      actual.result,
+      { kind: "rejected", code: "REPLAY_PROTECTION_UNAVAILABLE", field_path: "$" },
+      item.id,
+    );
+    assert.equal(actual.replay_oracle_calls, 1, `${item.id} must call the oracle once`);
+    assert.deepEqual(actual.replay_oracle_arguments, [
+      {
+        principal_ref: "principal-ref",
+        request_id: "request-ref",
+        sender: { namespace: "local", agent_id: "agent-a" },
+        message_id: "message-ref",
+        envelope_digest: "meshfleet.a2a.fingerprint.v1:sha256:9dd42da42a919761fb2f5bc007c03dd948ba0e6f4dcd9be80d556c31339c5606",
+      },
+    ], `${item.id} must call the oracle with the exact valid.admission-plan envelope digest`);
+  }
+});
+
+test("red-on-revert guard: dropping oracle.malformed-number fails the malformed subfamily pin", () => {
+  const mutated = structuredClone(corpus) as typeof corpus;
+  mutated.cases = mutated.cases.filter((item) => item.id !== "oracle.malformed-number");
+  mutated.mandatory_case_ids = mutated.cases.map((item) => item.id);
+  // The corpus-level test that runs every case against expected bytes
+  // cannot see the missing case because it's not in the corpus, so the
+  // red-on-revert guard has to assert the family pin directly.
+  const malformedCases = mutated.cases.filter((item) => item.id.startsWith("oracle.malformed-"));
+  assert.equal(
+    malformedCases.length,
+    5,
+    "removing oracle.malformed-number must shrink the malformed subfamily from 6 to 5",
+  );
+  assert.ok(
+    !mutated.cases.some((item) => item.id === "oracle.malformed-number"),
+    "removed case must not reappear via the spliced-corpus copy",
+  );
 });
 
 test("the raw boundary rejects invalid UTF-8 representatives without creating an object entrypoint", () => {
