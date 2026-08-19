@@ -24,6 +24,16 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
   CLOSED for the bounded subfamily; the rule-count edge remains the only open
   item (262144-byte cap + 216-byte rule lower bound makes 2048 rules
   unrepresentable). Corpus 44 → 49 cases. Suite 1767 → 1768.
+- **Authorization-snapshot field/grammar gates for offline local admission.** The
+  `evaluate-local-admission` corpus grows from 44 to 62 mandatory cases: exact source-path
+  rejections for every authorization-snapshot member (version/id/provenance/effective-from/
+  effective-until), snapshot unknown-member and non-array rules, every rule member
+  (adapter/principal/audience/session/sender), rule unknown-member, and missing action; raw
+  negative/fractional/unsafe `effective_from_ms` lexemes reject at the scanner
+  (`MALFORMED_JSON`) with the member path; an inverted interval denies. TypeScript and the
+  independent Python witness agree byte-for-byte on all 62 cases. The 2048/2049 rule-count
+  boundary remains provably unrepresentable below the 262144-byte request cap (216-byte rule
+  lower bound, ledger row 47).
 
 ## [0.21.1] - 2026-08-10
 
