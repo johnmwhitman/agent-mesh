@@ -68,6 +68,28 @@ test("stable local-admission case-count prose reconciles against the canonical c
   }
 });
 
+test("binding snapshot field representatives each reject at their exact path with zero replay calls", () => {
+  const fieldCases = corpus.cases.filter((item) => item.id.startsWith("binding.field-"));
+  assert.deepEqual(
+    fieldCases.map((item) => item.id),
+    [
+      "binding.field-snapshot-id",
+      "binding.field-fixture-provenance",
+      "binding.field-effective-from",
+      "binding.field-effective-until",
+    ],
+  );
+  for (const item of fieldCases) {
+    const expectedResult = item.expected.result as { kind: string; code: string; field_path: string };
+    assert.deepEqual(
+      item.expected,
+      { result: { kind: "rejected", code: "INVALID_BINDING_SNAPSHOT", field_path: expectedResult.field_path }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+      item.id,
+    );
+    assert.equal(item.invocation_args.replay_oracle_result, "unseen", item.id);
+  }
+});
+
 test("authorization boundary evidence covers the next feasible Section 9 cardinality slice", () => {
   assert.deepEqual(
     corpus.mandatory_case_ids.filter((id) => id.startsWith("authorization.boundary.")),
