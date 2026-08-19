@@ -6,6 +6,25 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 
 ### Added
 
+- **Section 9 authentication-evidence field-type and field-grammar bounded
+  subfamily.** Six new mandatory corpus cases
+  (`evidence.{adapter_id,principal_ref,issued_at_ms,expires_at_ms}-invalid-type`
+  and `evidence.{adapter_id,principal_ref}-invalid-grammar`) pin every
+  authentication-evidence field's type-vs-grammar rejection axis. The four
+  type cases prove that `adapter_id` (number), `principal_ref` (boolean),
+  `issued_at_ms` (string), and `expires_at_ms` (boolean) each reject as
+  `INVALID_AUTHENTICATION_EVIDENCE` at the exact field path. The two grammar
+  cases prove that `adapter_id` `"-leading-dash"` (fails `ADAPTER_ID` regex
+  leading-char) and `principal_ref` `""` (fails `OPAQUE_REF` min-length) each
+  reject at their field path. `issued_at_ms`/`expires_at_ms` grammar is not
+  tested separately because the scanner admits numeric lexemes only and the
+  type check covers non-number values; numeric-lexeme boundaries belong to the
+  depth/numeric family. Family-pin test in
+  `test/a2a-local-admission.test.ts` asserts the six ids, their
+  `INVALID_AUTHENTICATION_EVIDENCE` code, their exact field paths, and
+  zero replay calls. Coverage ledger evidence row now reads CLOSED for the
+  full bounded subfamily; remaining gap is none. Corpus 49 → 55 cases.
+
 - **Section 9 authorization context-mismatch bounded subfamily.** Five new
   mandatory corpus cases (`authorization.context.{adapter,principal,audience,
   session_ref,sender}-mismatch`) prove that an authorization rule whose context
