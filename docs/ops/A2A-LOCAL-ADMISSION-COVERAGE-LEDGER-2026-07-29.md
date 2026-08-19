@@ -7,7 +7,10 @@ transport capability.
 Base reviewed: `2760310` (origin/main). Corpus: 49 mandatory raw-text cases in
 `test/fixtures/a2a/local-admission/v0.1/corpus.json`; every case is evaluated by
 the TypeScript implementation and mandatory Python witness with exact result
-bytes, replay call count, and replay arguments.
+bytes, replay call count, and replay arguments. This slice expands the corpus
+to **57 mandatory cases** with 8 relativity cases (4 binding + 4 authorization),
+each mutating exactly one snapshot metadata field while keeping the rest of
+the request byte-identical to the valid baseline.
 
 | Section 9 family | Existing executable proof | This slice | Remaining exact gap |
 | --- | --- | --- | --- |
@@ -19,7 +22,7 @@ bytes, replay call count, and replay arguments.
 | evidence | one invalid field representative | **CLOSED bounded subfamily:** provenance; issued-at equality; expires-at equality; lifetime 300000/300001 | every remaining field/type/grammar vector |
 | binding | one invalid field representative | — | fields, interval edges, duplicate source index, context mismatch, and 0/256/257 rule vectors |
 | authorization | valid one type/recipient; one invalid action; generic denial | **CLOSED bounded subfamily:** types 5/6; recipients 128/129; duplicate type and recipient source index; all-recipient denial before replay; session + context (adapter / principal / audience / session_ref / sender) mismatch each deny independently | rule-count edge (262144-byte cap with 216-byte rule lower bound makes 2048 rules unrepresentable; existing test pins this) |
-| relativity | plan only reports fixture IDs/versions | — | decision changes caused by changed fixtures |
+| relativity | plan only reports fixture IDs/versions | **CLOSED bounded subfamily:** changed fixture metadata (snapshot_version / fixture_provenance / snapshot_id invalid or renamed) causes the expected decision change for both binding_snapshot and authorization_snapshot; like-for-like snapshot_id rename keeps the decision while the plan reports the new fixture identity | — |
 | oracle/results | all four non-admission verdicts, unavailable, throw, unseen plan, unseen-only expiry, and exact query | — | malformed oracle case and every rejected-code inventory |
 | privacy | offline/import-surface checks and closed sidecar fixtures | — | dedicated ignored-input/diagnostic-invariance matrix |
 
@@ -51,6 +54,19 @@ bytes, replay call count, and replay arguments.
 | `authorization.context.audience-mismatch` | `AUTHORIZATION_DENIED` at `$` | 0 |
 | `authorization.context.session-mismatch` | `AUTHORIZATION_DENIED` at `$` | 0 |
 | `authorization.context.sender-mismatch` | `AUTHORIZATION_DENIED` at `$` | 0 |
+
+## Relativity slice records
+
+| Case IDs | Required outcome | Replay calls |
+| --- | --- | --- |
+| `relativity.binding.snapshot-version-invalid` | `INVALID_BINDING_SNAPSHOT` at `$.binding_snapshot.snapshot_version` | 0 |
+| `relativity.binding.fixture-provenance-invalid` | `INVALID_BINDING_SNAPSHOT` at `$.binding_snapshot.fixture_provenance` | 0 |
+| `relativity.binding.snapshot-id-invalid-opaque` | `INVALID_BINDING_SNAPSHOT` at `$.binding_snapshot.snapshot_id` | 0 |
+| `relativity.binding.snapshot-id-renamed-valid` | `admission_plan` with `policy_basis.binding_snapshot.snapshot_id` mirroring the renamed id and the unchanged 4A digest | 1 |
+| `relativity.authorization.snapshot-version-invalid` | `INVALID_AUTHORIZATION_SNAPSHOT` at `$.authorization_snapshot.snapshot_version` | 0 |
+| `relativity.authorization.fixture-provenance-invalid` | `INVALID_AUTHORIZATION_SNAPSHOT` at `$.authorization_snapshot.fixture_provenance` | 0 |
+| `relativity.authorization.snapshot-id-invalid-opaque` | `INVALID_AUTHORIZATION_SNAPSHOT` at `$.authorization_snapshot.snapshot_id` | 0 |
+| `relativity.authorization.snapshot-id-renamed-valid` | `admission_plan` with `policy_basis.authorization_snapshot.snapshot_id` mirroring the renamed id and the unchanged 4A digest | 1 |
 
 ## Unreachable profile row
 

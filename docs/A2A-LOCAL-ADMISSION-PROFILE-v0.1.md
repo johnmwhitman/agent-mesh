@@ -1,7 +1,7 @@
 # A2A Local Admission Profile v0.1
 
 > **STATUS — bounded evidence-alpha restored, 2026-07-29.** The TypeScript
-> evaluator, independent Python witness, shared 49-case corpus, and closed
+> evaluator, independent Python witness, shared 57-case corpus, and closed
 > StaticHarnessMapping sidecar fixtures are executable again on the current
 > branch. They remain test-only and outside package/MCP/CLI surfaces. The
 > corpus does not yet satisfy every exhaustive family and cardinality row in
@@ -255,6 +255,30 @@ supplied data; it proves no provenance, operational freshness, completeness,
 revocation state, administrative authority, or live-policy connection. The
 admission plan reports only snapshot IDs/versions as policy basis.
 
+Snapshot metadata is structural, not semantic. The fixture metadata fields
+(`snapshot_version`, `snapshot_id`, `fixture_provenance`) determine only
+whether the snapshot is well-formed; the *contents* of the rules determine
+whether admission is allowed. Concretely:
+
+- A snapshot with `snapshot_version` differing from the profile constant
+  (`meshfleet.a2a.binding-snapshot.v0.1` for binding,
+  `meshfleet.a2a.authorization-snapshot.v0.1` for authorization) is rejected
+  with `INVALID_*_SNAPSHOT` at `$.*.snapshot_version`.
+- A snapshot with `fixture_provenance` differing from
+  `caller_supplied_fixture` is rejected with `INVALID_*_SNAPSHOT` at
+  `$.*.fixture_provenance`.
+- A snapshot with `snapshot_id` that fails the opaque-ref grammar is rejected
+  with `INVALID_*_SNAPSHOT` at `$.*.snapshot_id`.
+- A snapshot with a different but equally-valid `snapshot_id` keeps the
+  decision; the admission plan's `policy_basis` reports the new fixture
+  identity byte-for-byte.
+
+Changing fixture metadata is therefore a strict relabeling: a fixture that
+admits in one form admits in any like-for-like renamed form, and a fixture
+that is invalid in one form is invalid in any mutated form. The corpus pins
+these four cases for both `binding_snapshot` and `authorization_snapshot`
+(8 mandatory cases).
+
 ## 5. Replay oracle
 
 The injected oracle is not JSON request data or a public protocol. It is called
@@ -450,7 +474,7 @@ every case. Required families are:
 | oracle/results | six verdicts, throw/malformed; exact call arguments; sole success; five dispositions; every rejected code; no uppercase/generic replay; no second digest/extra field |
 | privacy | capability/profile/proof/model/runtime/receipt/conformance/provider/environment/secret input cannot affect authorization or diagnostics |
 
-The current evidence-alpha corpus has 49 mandatory cases. It proves the closed
+The current evidence-alpha corpus has 57 mandatory cases. It proves the closed
 one-operation raw boundary, all replay verdict mappings, representative
 precedence and denial, exact TypeScript/Python bytes, recipient-order
 normalization, byte-limit edges, authorization message-type and recipient
