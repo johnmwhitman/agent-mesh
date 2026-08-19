@@ -4,14 +4,14 @@ Status: bounded offline evidence only. This ledger records executable coverage,
 not profile conformance, authority, acceptance, persistence, delivery, or
 transport capability.
 
-Base reviewed: `2760310` (origin/main). Corpus: 49 mandatory raw-text cases in
+Base reviewed: `2760310` (origin/main). Corpus: 57 mandatory raw-text cases in
 `test/fixtures/a2a/local-admission/v0.1/corpus.json`; every case is evaluated by
 the TypeScript implementation and mandatory Python witness with exact result
 bytes, replay call count, and replay arguments.
 
 | Section 9 family | Existing executable proof | This slice | Remaining exact gap |
 | --- | --- | --- | --- |
-| request-raw/path | byte 262143/262144/262145; one surrogate, malformed JSON, duplicate key, fraction, depth, and malformed unknown-child representatives | — | BOM, whitespace/comment/trailing variants, literal/escaped duplicates in every request object, and every safe-path class |
+| request-raw/path | byte 262143/262144/262145; one surrogate, malformed JSON, duplicate key, fraction, depth, and malformed unknown-child representatives | **CLOSED bounded subfamily:** literal/escape duplicate keys in `authentication_evidence` (`adapter_id`, `principal_ref`), `binding_snapshot` (`snapshot_id`), `authorization_snapshot` (`snapshot_id`), `binding_snapshot.rules[0]` (`adapter_id`), `authorization_snapshot.rules[0]` (`action`, `message_types`, `recipients`); every safe-path parent projection (pathMember's `[A-Za-z_][A-Za-z0-9_]*` regex projects `$.authentication_evidence`, `$.binding_snapshot`, `$.authorization_snapshot`, `$.binding_snapshot.rules`, `$.authorization_snapshot.rules`); array elements drop the `[position]` suffix because the known shape is `[]` | BOM, whitespace/comment/trailing variants (closed on tick-92 BOM/whitespace worktree, not yet on origin/main) |
 | independent-input | raw-text-only inputs and no request `envelope` member; representative request-before-envelope ordering | — | independent depth/byte collision vectors and double-encoding vectors |
 | depth/numeric | representative request depth and fraction; 4A retains its own vectors | — | request depth 8/9 and negative, `-0`, exponent, unsafe-integer boundaries |
 | precedence | representative request, envelope, denial, replay, and expiry ordering | — | mutation canary for each adjacent A00-A13 pair |
@@ -51,6 +51,19 @@ bytes, replay call count, and replay arguments.
 | `authorization.context.audience-mismatch` | `AUTHORIZATION_DENIED` at `$` | 0 |
 | `authorization.context.session-mismatch` | `AUTHORIZATION_DENIED` at `$` | 0 |
 | `authorization.context.sender-mismatch` | `AUTHORIZATION_DENIED` at `$` | 0 |
+
+## Request-raw/path per-object literal/escaped duplicate slice records
+
+| Case IDs | Required outcome | Replay calls |
+| --- | --- | --- |
+| `request.literal-escaped-duplicate-auth-evidence-adapter-id` | `DUPLICATE_JSON_KEY` at `$.authentication_evidence` | 0 |
+| `request.literal-escaped-duplicate-auth-evidence-principal-ref` | `DUPLICATE_JSON_KEY` at `$.authentication_evidence` | 0 |
+| `request.literal-escaped-duplicate-binding-snapshot-snapshot-id` | `DUPLICATE_JSON_KEY` at `$.binding_snapshot` | 0 |
+| `request.literal-escaped-duplicate-authorization-snapshot-snapshot-id` | `DUPLICATE_JSON_KEY` at `$.authorization_snapshot` | 0 |
+| `request.literal-escaped-duplicate-binding-rules-adapter-id` | `DUPLICATE_JSON_KEY` at `$.binding_snapshot.rules` (array element path drops `[0]` because the known shape is `[]`) | 0 |
+| `request.literal-escaped-duplicate-authorization-rules-action` | `DUPLICATE_JSON_KEY` at `$.authorization_snapshot.rules` | 0 |
+| `request.literal-escaped-duplicate-authorization-rules-message-types` | `DUPLICATE_JSON_KEY` at `$.authorization_snapshot.rules` | 0 |
+| `request.literal-escaped-duplicate-authorization-rules-recipients` | `DUPLICATE_JSON_KEY` at `$.authorization_snapshot.rules` | 0 |
 
 ## Unreachable profile row
 
