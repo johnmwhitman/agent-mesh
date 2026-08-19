@@ -24,6 +24,25 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
   CLOSED for the bounded subfamily; the rule-count edge remains the only open
   item (262144-byte cap + 216-byte rule lower bound makes 2048 rules
   unrepresentable). Corpus 44 → 49 cases. Suite 1767 → 1768.
+- **Section 9 binding row 0/256/257 rule-count bounded subfamily.** Three new
+  mandatory corpus cases (`binding.rules-empty-0`, `binding.rules-256-admit`,
+  `binding.rules-257-reject`) pin the binding rule-count boundary above the
+  authorization context-mismatch slice. 0 rules → `AUTHORIZATION_DENIED@$` (no
+  rule matches the binding context tuple); 256 rules (the maximum valid count
+  below the 257 cap) → `admission_plan` with the unchanged 4A digest; 257 rules
+  → `INVALID_BINDING_SNAPSHOT@$.binding_snapshot.rules` (cap exceeded). Each
+  rule below the matching one is a unique non-matching rule (sender/recipient/
+  session_ref/expires_at_ms pair distinct from the matched tuple), so the cap
+  cannot be inflated by cloning the matching rule. Generator:
+  `scripts/gen-binding-rules-count-cases.mjs` (idempotent, pristine-49
+  sentinel at `/tmp/corpus-pristine-49.json` referencing `origin/main
+  4a7eb30`). Family-pin test in `test/a2a-local-admission.test.ts` asserts
+  the three ids, the rule-count-for-each-id invariant, and the three
+  outcomes. Coverage ledger binding row now reads CLOSED for the 0/256/257
+  subfamily; the remaining binding gap is fields, interval edges, duplicate
+  source index, and context mismatch (the authorization row's rule-count edge
+  remains an unrepresentable-2048 ceiling, not a new gap). Corpus 49 → 52
+  cases. Suite 1769 → 1770.
 
 ## [0.21.1] - 2026-08-10
 

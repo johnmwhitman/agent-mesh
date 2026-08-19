@@ -158,6 +158,41 @@ test("the 2048-rule profile row exceeds the raw request ceiling by authorization
   assert.ok(216 * 2048 > 262144, "2048 minimum authorization rules exceed the request cap before array punctuation or request fields");
 });
 
+test("binding rules-count covers the 0/256/257 cardinality boundary for binding_snapshot.rules", () => {
+  // Cases are in insertion order; the three new ones are appended at the end
+  // (in the order scripts/gen-binding-rules-count-cases.mjs emitted them).
+  const bindingRulesCountCases = corpus.cases.slice(-3);
+  assert.deepEqual(
+    bindingRulesCountCases.map((item) => item.id),
+    [
+      "binding.rules-empty-0",
+      "binding.rules-256-admit",
+      "binding.rules-257-reject",
+    ],
+  );
+  assert.deepEqual(
+    bindingRulesCountCases.map((item) => item.expected),
+    [
+      // 0 rules: no rule matches -> AUTHORIZATION_DENIED at $
+      { result: { kind: "rejected", code: "AUTHORIZATION_DENIED", field_path: "$" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+      // 256 rules: max valid; original matching rule plus 255 unique non-matching rules
+      // -> admission_plan with the unchanged 4A digest
+      corpus.cases[0]!.expected,
+      // 257 rules: cap exceeded -> INVALID_BINDING_SNAPSHOT at $.binding_snapshot.rules
+      { result: { kind: "rejected", code: "INVALID_BINDING_SNAPSHOT", field_path: "$.binding_snapshot.rules" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+    ],
+  );
+  // Per-case rule-count proof: confirm the literal count of binding_snapshot.rules
+  // for each generated case matches the bounded-subfamily name.
+  for (const item of bindingRulesCountCases) {
+    const request = JSON.parse(item.invocation_args.request_json) as { binding_snapshot: { rules: unknown[] } };
+    const count = request.binding_snapshot.rules.length;
+    if (item.id === "binding.rules-empty-0") assert.equal(count, 0, `${item.id} must have 0 rules`);
+    if (item.id === "binding.rules-256-admit") assert.equal(count, 256, `${item.id} must have 256 rules`);
+    if (item.id === "binding.rules-257-reject") assert.equal(count, 257, `${item.id} must have 257 rules`);
+  }
+});
+
 test("local admission evaluates every required corpus record with exact output bytes and replay evidence", () => {
   for (const item of corpus.cases) {
     const actual = evaluate(item);
