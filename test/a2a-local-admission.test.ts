@@ -421,3 +421,67 @@ test("local admission and sidecar stay offline, dormant, and outside renderer an
   assert.doesNotMatch(witnessSource, /^\s*(?:from|import)\s+(?:sqlite3|socket|urllib|http|requests|subprocess)\b/m);
   assert.doesNotMatch(readFileSync(join(root, "package.json"), "utf8"), /static-harness-mapping|local-admission|replay-decision/);
 });
+
+test("request-raw/path cross-object / array-boundary / non-safe-member gates project the correct path", () => {
+  const ids = [
+    "request.cross-object-binding-rules-session-ref",
+    "request.array-boundary-binding-rules-adapter-id",
+    "request.non-safe-member-auth-evidence-session-ref-dash",
+    "request.non-safe-member-binding-snapshot-snapshot-id-dash",
+    "request.non-safe-member-auth-rules-message-types-dash",
+  ];
+  const byId = new Map(corpus.cases.map((c) => [c.id, c]));
+  for (const id of ids) {
+    assert.ok(byId.get(id), `${id} must be present in the corpus`);
+  }
+  // Expected outcomes — pinned by the TS dist probe (scripts/probe-cross-object.mjs)
+  // and the Python witness (49/49 ok):
+  //   - cross-object case: per-object Set keeps key duplicates
+  //     across request objects independent, so DUPLICATE_JSON_KEY is
+  //     NOT thrown; the binding tuple mismatch surfaces as
+  //     AUTHORIZATION_DENIED @ $.
+  //   - array-boundary case: per-array-element Set keeps key duplicates
+  //     across rules[] elements independent, so DUPLICATE_JSON_KEY is
+  //     NOT thrown; rules[0] still matches the evidence tuple so the
+  //     case admits with the unchanged 4A digest and 1 replay-oracle call.
+  //   - non-safe-member cases: Set detects the duplicate but pathMember()
+  //     drops the suffix because the safe-name regex
+  //     /^[A-Za-z_][A-Za-z0-9_]*$/ rejects names containing "-". The
+  //     projected path is the parent object (or the array path when
+  //     the duplicate is inside an array element whose known shape is []).
+  const expected: Record<string, { kind: "rejected" | "admission_plan"; code?: string; field_path?: string; replay_calls: number }> = {
+    "request.cross-object-binding-rules-session-ref": { kind: "rejected", code: "AUTHORIZATION_DENIED", field_path: "$", replay_calls: 0 },
+    "request.array-boundary-binding-rules-adapter-id": { kind: "admission_plan", replay_calls: 1 },
+    "request.non-safe-member-auth-evidence-session-ref-dash": { kind: "rejected", code: "DUPLICATE_JSON_KEY", field_path: "$.authentication_evidence", replay_calls: 0 },
+    "request.non-safe-member-binding-snapshot-snapshot-id-dash": { kind: "rejected", code: "DUPLICATE_JSON_KEY", field_path: "$.binding_snapshot", replay_calls: 0 },
+    "request.non-safe-member-auth-rules-message-types-dash": { kind: "rejected", code: "DUPLICATE_JSON_KEY", field_path: "$.authorization_snapshot.rules", replay_calls: 0 },
+  };
+  for (const id of ids) {
+    const item = byId.get(id)!;
+    const exp = expected[id];
+    if (exp.kind === "admission_plan") {
+      const admissionResult = item.expected.result as { kind: string; envelope_digest: string };
+      assert.equal(admissionResult.kind, "admission_plan", `${id} must admit`);
+      // The 4A digest must match the canonical valid.admission-plan baseline.
+      const valid = corpus.cases.find((c) => c.id === "valid.admission-plan")!;
+      const validResult = valid.expected.result as { kind: string; envelope_digest: string };
+      assert.equal(admissionResult.envelope_digest, validResult.envelope_digest, `${id} must reuse the unchanged 4A digest`);
+      assert.equal(item.expected.replay_oracle_calls, exp.replay_calls, `${id} replay-oracle calls`);
+      assert.deepEqual(item.expected.replay_oracle_arguments, valid.expected.replay_oracle_arguments, `${id} replay-oracle arguments must mirror the baseline query`);
+    } else {
+      assert.deepEqual(
+        item.expected.result,
+        { kind: "rejected", code: exp.code, field_path: exp.field_path },
+        `${id} must reject with ${exp.code} at ${exp.field_path}`,
+      );
+      assert.equal(item.expected.replay_oracle_calls, exp.replay_calls, `${id} replay-oracle calls`);
+    }
+  }
+  // RED-on-revert guard: removing any one case shrinks the family pin
+  // from 5 ids to fewer — prove the pin depends on every case by
+  // checking the full ordered id set.
+  const ordered = corpus.cases
+    .map((c) => c.id)
+    .filter((id) => id.startsWith("request.cross-object-") || id.startsWith("request.array-boundary-") || id.startsWith("request.non-safe-member-"));
+  assert.deepEqual(ordered, ids);
+});
