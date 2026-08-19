@@ -105,6 +105,30 @@ test("authorization context mismatch on any single policy field denies the reque
   }
 });
 
+test("authorization snapshot field representatives each reject at their exact path with zero replay calls", () => {
+  const fieldCases = corpus.cases.filter((item) => item.id.startsWith("authorization.field-"));
+  assert.deepEqual(
+    fieldCases.map((item) => item.id),
+    [
+      "authorization.field-snapshot-version",
+      "authorization.field-snapshot-id",
+      "authorization.field-fixture-provenance",
+      "authorization.field-effective-from",
+      "authorization.field-effective-until",
+      "authorization.field-rules-not-array",
+    ],
+  );
+  for (const item of fieldCases) {
+    const expectedResult = item.expected.result as { kind: string; code: string; field_path: string };
+    assert.deepEqual(
+      item.expected,
+      { result: { kind: "rejected", code: "INVALID_AUTHORIZATION_SNAPSHOT", field_path: expectedResult.field_path }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+      item.id,
+    );
+    assert.equal(item.invocation_args.replay_oracle_result, "unseen", item.id);
+  }
+});
+
 test("authentication-evidence boundaries stay ordered and preserve their terminal semantics", () => {
   const evidenceCases = corpus.cases.filter((item) => item.id.startsWith("evidence."));
   assert.deepEqual(
