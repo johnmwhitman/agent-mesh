@@ -4,7 +4,7 @@ Status: bounded offline evidence only. This ledger records executable coverage,
 not profile conformance, authority, acceptance, persistence, delivery, or
 transport capability.
 
-Base reviewed: `2760310` (origin/main). Corpus: 49 mandatory raw-text cases in
+Base reviewed: `2760310` (origin/main). Corpus: 50 mandatory raw-text cases in
 `test/fixtures/a2a/local-admission/v0.1/corpus.json`; every case is evaluated by
 the TypeScript implementation and mandatory Python witness with exact result
 bytes, replay call count, and replay arguments.
@@ -17,7 +17,7 @@ bytes, replay call count, and replay arguments.
 | precedence | representative request, envelope, denial, replay, and expiry ordering | — | mutation canary for each adjacent A00-A13 pair |
 | envelope | malformed and recipient representatives plus audience/self-recipient ordinary tests | — | all 4A invalid families and exact prefixed source paths |
 | evidence | one invalid field representative | **CLOSED bounded subfamily:** provenance; issued-at equality; expires-at equality; lifetime 300000/300001 | every remaining field/type/grammar vector |
-| binding | one invalid field representative | — | fields, interval edges, duplicate source index, context mismatch, and 0/256/257 rule vectors |
+| binding | one invalid field representative | **CLOSED bounded subfamily:** duplicate source index (non-zero `rules[1]` 4-tuple key collides with `rules[0]` → `INVALID_BINDING_SNAPSHOT` at `$.binding_snapshot.rules[1]`, 0 replay calls) | fields, interval edges, context mismatch, and 0/256/257 rule vectors |
 | authorization | valid one type/recipient; one invalid action; generic denial | **CLOSED bounded subfamily:** types 5/6; recipients 128/129; duplicate type and recipient source index; all-recipient denial before replay; session + context (adapter / principal / audience / session_ref / sender) mismatch each deny independently | rule-count edge (262144-byte cap with 216-byte rule lower bound makes 2048 rules unrepresentable; existing test pins this) |
 | relativity | plan only reports fixture IDs/versions | — | decision changes caused by changed fixtures |
 | oracle/results | all four non-admission verdicts, unavailable, throw, unseen plan, unseen-only expiry, and exact query | — | malformed oracle case and every rejected-code inventory |
@@ -51,6 +51,19 @@ bytes, replay call count, and replay arguments.
 | `authorization.context.audience-mismatch` | `AUTHORIZATION_DENIED` at `$` | 0 |
 | `authorization.context.session-mismatch` | `AUTHORIZATION_DENIED` at `$` | 0 |
 | `authorization.context.sender-mismatch` | `AUTHORIZATION_DENIED` at `$` | 0 |
+
+## Binding duplicate-source-index slice records
+
+| Case IDs | Required outcome | Replay calls |
+| --- | --- | --- |
+| `binding.duplicate-source-index` | `INVALID_BINDING_SNAPSHOT` at `$.binding_snapshot.rules[1]` | 0 |
+
+The duplicate-source-index subfamily is bounded by the binding-key
+collision detector at `src/a2a/local-admission.ts:413-414`: a non-zero
+source-index rule whose 4-tuple `(adapter_id, principal_ref, audience,
+session_ref)` matches an earlier rule short-circuits with
+`INVALID_BINDING_SNAPSHOT` at `$.binding_snapshot.rules[N]` and never
+reaches the replay oracle.
 
 ## Unreachable profile row
 
