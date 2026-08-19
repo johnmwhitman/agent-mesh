@@ -420,13 +420,13 @@ def validate_envelope(input_value: Any, now_ms: int | None = None, for_acceptanc
         keys.add(key)
     message_type = non_empty(item.get("type"), "type")
     if message_type not in TYPES:
-        raise InvalidEnvelope("unsupported message type " + message_type)
+        raise InvalidEnvelope("unsupported message type")
     issued_at = timestamp(item.get("issued_at_ms"), "issued_at_ms")
     expires_at = item.get("expires_at_ms")
     if expires_at is not None:
         expires_at = timestamp(expires_at, "expires_at_ms")
         if expires_at <= issued_at:
-            raise InvalidEnvelope("expires_at_ms must be greater than issued_at_ms")
+            raise InvalidEnvelope("expires_at_ms must be greater than the issued timestamp")
         if for_acceptance and expires_at <= (now_ms if now_ms is not None else 0):
             raise InvalidEnvelope("envelope is expired")
     payload = record(item.get("payload"), "payload")

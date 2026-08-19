@@ -24,6 +24,7 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
   CLOSED for the bounded subfamily; the rule-count edge remains the only open
   item (262144-byte cap + 216-byte rule lower bound makes 2048 rules
   unrepresentable). Corpus 44 → 49 cases. Suite 1767 → 1768.
+- **Every 4A invalid envelope member class is a mandatory local-admission corpus case.** The evidence-alpha corpus grows 49→60 with exact member-class gates (recipients empty/duplicate/self, sender wildcard, payload non-object/missing `media_type`, empty `message_id`, unknown `type`, empty `audience`, `expires_at_ms` not after `issued_at_ms`, empty `scope.fleet_id`), each pinned to `MALFORMED_ENVELOPE` at its exact prefixed source path (`payload.media_type`, `scope.fleet_id`) with zero replay-oracle calls. Both witnesses (TypeScript strict decoder + Python reference) agree byte-for-byte on every case except the expires ordering message, whose language-local projection is pinned to the TypeScript byte and documented in the generator. Suite 1769 → 1771.
 
 ## [0.21.1] - 2026-08-10
 
