@@ -43,7 +43,7 @@ The ranked A2A strategy is canonical in
    specified, with an ephemeral non-acceptance plan, explicit
    assumed local adapter boundary, supplied fixture binding/all-recipient policy
    before replay, and no
-   public/auth/network/storage/runtime activation. The 49-case mandatory corpus,
+   public/auth/network/storage/runtime activation. The 55-case mandatory corpus,
    independent Python witness, recipient normalization proof, strict corpus
    canaries, and closed sidecar fixtures do not yet satisfy the profile's full
    exhaustive coverage gate. No active, approved, remote, or multi-host claim.

@@ -41,6 +41,16 @@ function evaluate(item: CorpusCase) {
   return { result, replay_oracle_calls: calls.length, replay_oracle_arguments: calls };
 }
 
+// Cases that intentionally inject an "envelope" member into the request
+// to assert the rejection path. The "no envelope member in request"
+// invariant is verified by the request.envelope-member-root and
+// request.envelope-member-nested cases below, not by the raw-text-only
+// check here.
+const envelopeMemberCaseIds = new Set([
+  "request.envelope-member-root",
+  "request.envelope-member-nested",
+]);
+
 test("local admission evidence-alpha corpus is closed, self-consistent, and raw-text only", () => {
   assert.deepEqual(Object.keys(admission), ["evaluateLocalAdmission"]);
   assert.equal(admission.evaluateLocalAdmission.length, 3);
@@ -52,7 +62,9 @@ test("local admission evidence-alpha corpus is closed, self-consistent, and raw-
     assert.deepEqual(Object.keys(item.expected).sort(), ["replay_oracle_arguments", "replay_oracle_calls", "result"]);
     assert.equal(typeof item.invocation_args.request_json, "string");
     assert.equal(typeof item.invocation_args.envelope_json, "string");
-    assert.equal(item.invocation_args.request_json.includes("\"envelope\""), false);
+    if (!envelopeMemberCaseIds.has(item.id)) {
+      assert.equal(item.invocation_args.request_json.includes("\"envelope\""), false);
+    }
   }
 });
 
@@ -395,6 +407,69 @@ test("self-recipient envelope failures use the same safe recipients path across 
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test("independent-input collision vectors and double-encoding envelope membership stay ordered", () => {
+  const cases = corpus.cases.filter((item) => item.id.startsWith("request.envelope-member-") || item.id.startsWith("request.depth-9-envelope-malformed") || item.id.startsWith("request.byte-262145-envelope-malformed") || item.id.startsWith("request.depth-8-envelope-malformed") || item.id.startsWith("request.byte-262143-envelope-malformed"));
+  assert.deepEqual(
+    cases.map((item) => item.id),
+    [
+      "request.envelope-member-root",
+      "request.envelope-member-nested",
+      "request.depth-9-envelope-malformed",
+      "request.byte-262145-envelope-malformed",
+      "request.depth-8-envelope-malformed",
+      "request.byte-262143-envelope-malformed",
+    ],
+  );
+  assert.deepEqual(
+    cases.map((item) => item.expected),
+    [
+      { result: { kind: "rejected", code: "UNKNOWN_CORE_FIELD", field_path: "$" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+      { result: { kind: "rejected", code: "INVALID_AUTHENTICATION_EVIDENCE", field_path: "$.authentication_evidence" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+      { result: { kind: "rejected", code: "MAX_DEPTH_EXCEEDED", field_path: "$.authentication_evidence" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+      { result: { kind: "rejected", code: "REQUEST_TOO_LARGE", field_path: "$" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+      { result: { kind: "rejected", code: "MALFORMED_ENVELOPE", field_path: "$.envelope" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+      { result: { kind: "rejected", code: "UNKNOWN_CORE_FIELD", field_path: "$" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+    ],
+  );
+  // The first case (envelope-member-root) proves the top-level "envelope"
+  // key is an unknown core field; the second (envelope-member-nested)
+  // proves the same is true when nested inside a known object. The
+  // collision vectors (depth-9 + envelope-malformed, byte-262145 +
+  // envelope-malformed) prove request error wins over envelope error.
+  // The negative-collision vectors (depth-8 + envelope-malformed,
+  // byte-262143 + envelope-malformed) prove envelope error wins when the
+  // request is structurally valid.
+  assert.equal(
+    corpus.cases.find((item) => item.id === "request.envelope-member-root")!.invocation_args.request_json.includes('"envelope":"{}"'),
+    true,
+  );
+  assert.equal(
+    corpus.cases.find((item) => item.id === "request.envelope-member-nested")!.invocation_args.request_json.includes('"envelope":"{}"'),
+    true,
+  );
+  // The depth-9 + envelope-malformed and byte-262145 + envelope-malformed
+  // cases pin request-error-wins collision semantics: the request is parsed
+  // first, its error surfaces, and the envelope decoder is never reached.
+  assert.equal(
+    corpus.cases.find((item) => item.id === "request.depth-9-envelope-malformed")!.invocation_args.envelope_json,
+    "{",
+  );
+  assert.equal(
+    corpus.cases.find((item) => item.id === "request.byte-262145-envelope-malformed")!.invocation_args.envelope_json,
+    "{",
+  );
+  // The depth-8 + envelope-malformed and byte-262143 + envelope-malformed
+  // cases pin the inverse: request is structurally valid, envelope errors
+  // surface (depth-8 admit + envelope malformed -> MALFORMED_ENVELOPE;
+  // byte-262143 with extra field + envelope malformed -> UNKNOWN_CORE_FIELD
+  // because the unknown field is the top-level reason; specifically the
+  // envelope byte is never reached).
+  assert.equal(
+    corpus.cases.find((item) => item.id === "request.depth-8-envelope-malformed")!.invocation_args.envelope_json,
+    "{",
+  );
 });
 
 test("the static sidecar has seven exact-null positives and all required closed negative cases", () => {
