@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -365,25 +366,21 @@ def check_snapshot(value: Any, kind: str) -> dict[str, Any]:
         output.append(rule)
     return {**value, "rules": output}
 
+ENVELOPE_FIELD_RE = re.compile(
+    r"\b(payload\.media_type|scope\.fleet_id|payload\.body|sender(?:\.(?:namespace|agent_id))?|recipients(?:\[\d+\])?(?:\.(?:namespace|agent_id))?|payload|scope|extensions|protocol|version|kind|message_id|type|issued_at_ms|expires_at_ms|audience|correlation_id|dedupe_key)\b"
+)
+
+
 def envelope_path(error: Exception) -> str:
     text = str(error)
     if "recipient" in text:
+        match = re.search(r"\brecipients(?:\[\d+\])?(?:\.(?:namespace|agent_id))?\b", text)
+        if match:
+            return "$.envelope." + match.group(0)
         return "$.envelope.recipients"
-    # Exact member-name projection (mirrors the TypeScript projection):
-    # first member name present in the error text wins. The TS regex has the
-    # same ordered alternation and the same message corpus, so both witnesses
-    # agree on every member path. Order matters: "issued_at_ms" appears inside
-    # the expires message ("expires_at_ms must be greater than issued_at_ms")
-    # and "payload" appears inside payload.body errors, so those member names
-    # scan before the longer dotted names.
-    for field in [
-        "payload.media_type", "scope.fleet_id", "payload.body",
-        "sender", "recipients", "payload", "scope", "protocol", "version",
-        "kind", "message_id", "type", "issued_at_ms", "expires_at_ms",
-        "audience", "correlation_id", "dedupe_key",
-    ]:
-        if field in text:
-            return "$.envelope." + field
+    match = ENVELOPE_FIELD_RE.search(text)
+    if match:
+        return "$.envelope." + match.group(1)
     return "$.envelope"
 
 def evaluate_local_admission(request_json: str, envelope_json: str, replay_oracle) -> dict[str, Any]:

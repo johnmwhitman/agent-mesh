@@ -468,14 +468,17 @@ function snapshot<T extends BindingRule | AuthorizationRule>(
 
 function projectedEnvelopePath(error: unknown): string {
   const detail = error instanceof Error ? error.message : "";
-  if (detail.includes("recipient")) return "$.envelope.recipients";
+  if (detail.includes("recipient")) {
+    const member = detail.match(/\brecipients(?:\[\d+\])?(?:\.(?:namespace|agent_id))?\b/)?.[0];
+    return member === undefined ? "$.envelope.recipients" : `$.envelope.${member}`;
+  }
   // Exact path-prefix projection. Ordered grammar: the longest member path
   // appearing in the error text wins (same order as the Python witness).
   // codec.ts writes payload.body messages ("payload.body must be a string",
   // "payload.body must be valid JSON for a JSON media type"), so the dotted
   // root must appear before the bare "payload" alternative to keep both
   // witnesses byte-identical on those messages.
-  const field = detail.match(/\b(payload\.media_type|scope\.fleet_id|payload\.body|sender|recipients\[\d+\]|payload|scope|protocol|version|kind|message_id|type|issued_at_ms|expires_at_ms|audience|correlation_id|dedupe_key)\b/)?.[1];
+  const field = detail.match(/\b(payload\.media_type|scope\.fleet_id|payload\.body|sender(?:\.(?:namespace|agent_id))?|recipients\[\d+\]|payload|scope|extensions|protocol|version|kind|message_id|type|issued_at_ms|expires_at_ms|audience|correlation_id|dedupe_key)\b/)?.[1];
   return field === undefined ? "$.envelope" : `$.envelope.${field}`;
 }
 
