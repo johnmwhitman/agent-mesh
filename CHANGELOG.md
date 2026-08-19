@@ -6,6 +6,28 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 
 ### Added
 
+- **Section 9 request-raw/path safe-path rejection bounded subfamily.** Five
+  new mandatory corpus cases (`request.safe-path-{auth-evidence,binding-
+  snapshot,authorization-snapshot,binding-rules,authorization-rules}-
+  unknown-member`) prove that injecting an unknown member at the START of a
+  safe-path parent (`authentication_evidence`, `binding_snapshot`,
+  `authorization_snapshot`, and the per-rule arrays) is rejected at the
+  PARENT projection — never at the unknown member's projected dotted form,
+  because the member name is not in the allowlist. The unknown names match
+  `pathMember()`'s `/^[A-Za-z_][A-Za-z0-9_]*$/` regex so the dotted form
+  WOULD be visible if the evaluator ever tried to surface it; the parent-
+  rejection behavior is the gate this slice proves. Each case mutates
+  exactly one member at one safe-path parent of the existing
+  `valid.admission-plan` fixture and keeps the rest byte-identical, so the
+  parent-vs-member projection cannot be confused with any unrelated parser
+  branch. Generator: `scripts/gen-safe-path-rejection-cases.mjs`
+  (idempotent, pristine-49 sentinel at `/tmp/corpus-pristine-49.json`).
+  Family-pin test in `test/a2a-local-admission.test.ts` asserts the five
+  ids and the parent-path rejection outcomes. Coverage ledger
+  request-raw/path row now reads CLOSED for BOM/whitespace/comment/trailing
+  variants, literal/escaped duplicates in every request object, and every
+  safe-path class. Corpus 49 → 54 cases. Suite 1769 → 1770.
+
 - **Section 9 authorization context-mismatch bounded subfamily.** Five new
   mandatory corpus cases (`authorization.context.{adapter,principal,audience,
   session_ref,sender}-mismatch`) prove that an authorization rule whose context

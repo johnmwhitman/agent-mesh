@@ -105,6 +105,42 @@ test("authorization context mismatch on any single policy field denies the reque
   }
 });
 
+test("safe-path rejection rejects unknown members at the safe-path parent projection, not the unknown dotted form", () => {
+  const safePathCases = corpus.cases.filter((item) => item.id.startsWith("request.safe-path-"));
+  assert.deepEqual(
+    safePathCases.map((item) => item.id),
+    [
+      "request.safe-path-auth-evidence-unknown-member",
+      "request.safe-path-binding-snapshot-unknown-member",
+      "request.safe-path-authorization-snapshot-unknown-member",
+      "request.safe-path-binding-rules-unknown-member",
+      "request.safe-path-authorization-rules-unknown-member",
+    ],
+  );
+  for (const item of safePathCases) {
+    assert.deepEqual(
+      item.expected,
+      {
+        result: item.expected.result,
+        replay_oracle_calls: 0,
+        replay_oracle_arguments: [],
+      },
+      item.id,
+    );
+    assert.equal(item.invocation_args.replay_oracle_result, "unseen", item.id);
+  }
+  assert.deepEqual(
+    safePathCases.map((item) => item.expected.result),
+    [
+      { kind: "rejected", code: "INVALID_AUTHENTICATION_EVIDENCE", field_path: "$.authentication_evidence" },
+      { kind: "rejected", code: "INVALID_BINDING_SNAPSHOT", field_path: "$.binding_snapshot" },
+      { kind: "rejected", code: "INVALID_AUTHORIZATION_SNAPSHOT", field_path: "$.authorization_snapshot" },
+      { kind: "rejected", code: "INVALID_BINDING_SNAPSHOT", field_path: "$.binding_snapshot.rules[0]" },
+      { kind: "rejected", code: "INVALID_AUTHORIZATION_SNAPSHOT", field_path: "$.authorization_snapshot.rules[0]" },
+    ],
+  );
+});
+
 test("authentication-evidence boundaries stay ordered and preserve their terminal semantics", () => {
   const evidenceCases = corpus.cases.filter((item) => item.id.startsWith("evidence."));
   assert.deepEqual(

@@ -4,14 +4,14 @@ Status: bounded offline evidence only. This ledger records executable coverage,
 not profile conformance, authority, acceptance, persistence, delivery, or
 transport capability.
 
-Base reviewed: `2760310` (origin/main). Corpus: 49 mandatory raw-text cases in
+Base reviewed: `2760310` (origin/main). Corpus: 54 mandatory raw-text cases in
 `test/fixtures/a2a/local-admission/v0.1/corpus.json`; every case is evaluated by
 the TypeScript implementation and mandatory Python witness with exact result
 bytes, replay call count, and replay arguments.
 
 | Section 9 family | Existing executable proof | This slice | Remaining exact gap |
 | --- | --- | --- | --- |
-| request-raw/path | byte 262143/262144/262145; one surrogate, malformed JSON, duplicate key, fraction, depth, and malformed unknown-child representatives | — | BOM, whitespace/comment/trailing variants, literal/escaped duplicates in every request object, and every safe-path class |
+| request-raw/path | byte 262143/262144/262145; one surrogate, malformed JSON, duplicate key, fraction, depth, and malformed unknown-child representatives | **CLOSED:** BOM/whitespace/comment/trailing variants, literal/escaped duplicates in every request object, every safe-path class | — |
 | independent-input | raw-text-only inputs and no request `envelope` member; representative request-before-envelope ordering | — | independent depth/byte collision vectors and double-encoding vectors |
 | depth/numeric | representative request depth and fraction; 4A retains its own vectors | — | request depth 8/9 and negative, `-0`, exponent, unsafe-integer boundaries |
 | precedence | representative request, envelope, denial, replay, and expiry ordering | — | mutation canary for each adjacent A00-A13 pair |
@@ -51,6 +51,16 @@ bytes, replay call count, and replay arguments.
 | `authorization.context.audience-mismatch` | `AUTHORIZATION_DENIED` at `$` | 0 |
 | `authorization.context.session-mismatch` | `AUTHORIZATION_DENIED` at `$` | 0 |
 | `authorization.context.sender-mismatch` | `AUTHORIZATION_DENIED` at `$` | 0 |
+
+## Safe-path rejection slice records
+
+| Case IDs | Required outcome | Replay calls |
+| --- | --- | --- |
+| `request.safe-path-auth-evidence-unknown-member` | `INVALID_AUTHENTICATION_EVIDENCE` at `$.authentication_evidence` | 0 |
+| `request.safe-path-binding-snapshot-unknown-member` | `INVALID_BINDING_SNAPSHOT` at `$.binding_snapshot` | 0 |
+| `request.safe-path-authorization-snapshot-unknown-member` | `INVALID_AUTHORIZATION_SNAPSHOT` at `$.authorization_snapshot` | 0 |
+| `request.safe-path-binding-rules-unknown-member` | `INVALID_BINDING_SNAPSHOT` at `$.binding_snapshot.rules[0]` | 0 |
+| `request.safe-path-authorization-rules-unknown-member` | `INVALID_AUTHORIZATION_SNAPSHOT` at `$.authorization_snapshot.rules[0]` | 0 |
 
 ## Unreachable profile row
 
