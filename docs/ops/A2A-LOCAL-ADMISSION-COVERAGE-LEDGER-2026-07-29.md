@@ -4,14 +4,14 @@ Status: bounded offline evidence only. This ledger records executable coverage,
 not profile conformance, authority, acceptance, persistence, delivery, or
 transport capability.
 
-Base reviewed: `2760310` (origin/main). Corpus: 49 mandatory raw-text cases in
+Base reviewed: `2760310` (origin/main). Corpus: 53 mandatory raw-text cases in
 `test/fixtures/a2a/local-admission/v0.1/corpus.json`; every case is evaluated by
 the TypeScript implementation and mandatory Python witness with exact result
 bytes, replay call count, and replay arguments.
 
 | Section 9 family | Existing executable proof | This slice | Remaining exact gap |
 | --- | --- | --- | --- |
-| request-raw/path | byte 262143/262144/262145; one surrogate, malformed JSON, duplicate key, fraction, depth, and malformed unknown-child representatives | — | BOM, whitespace/comment/trailing variants, literal/escaped duplicates in every request object, and every safe-path class |
+| request-raw/path | byte 262143/262144/262145; one surrogate, malformed JSON, duplicate key, fraction, depth, and malformed unknown-child representatives | **CLOSED bounded subfamily:** BOM (U+FEFF) prefix, leading non-ASCII whitespace (U+000B vertical tab), JSON comment-style prefix, and trailing-content postfix at `$` | literal/escaped duplicates in every request object, and every safe-path class |
 | independent-input | raw-text-only inputs and no request `envelope` member; representative request-before-envelope ordering | — | independent depth/byte collision vectors and double-encoding vectors |
 | depth/numeric | representative request depth and fraction; 4A retains its own vectors | — | request depth 8/9 and negative, `-0`, exponent, unsafe-integer boundaries |
 | precedence | representative request, envelope, denial, replay, and expiry ordering | — | mutation canary for each adjacent A00-A13 pair |
@@ -51,6 +51,20 @@ bytes, replay call count, and replay arguments.
 | `authorization.context.audience-mismatch` | `AUTHORIZATION_DENIED` at `$` | 0 |
 | `authorization.context.session-mismatch` | `AUTHORIZATION_DENIED` at `$` | 0 |
 | `authorization.context.sender-mismatch` | `AUTHORIZATION_DENIED` at `$` | 0 |
+
+## Request-raw path-precision slice records
+
+| Case IDs | Required outcome | Replay calls |
+| --- | --- | --- |
+| `request.bom-prefixed` | `INVALID_UTF8` at `$` | 0 |
+| `request.leading-non-ascii-whitespace` | `MALFORMED_JSON` at `$` | 0 |
+| `request.json-comment` | `MALFORMED_JSON` at `$` | 0 |
+| `request.trailing-content` | `MALFORMED_JSON` at `$` | 0 |
+
+The scanner's whitespace allowlist is the four ASCII codes SP/TAB/LF/CR; the
+leading-non-ASCII-whitespace case exercises the path where a request opens
+with U+000B (vertical tab) and the scanner refuses to skip it, reporting
+`MALFORMED_JSON` at `$` instead of parsing past it.
 
 ## Unreachable profile row
 
