@@ -171,3 +171,66 @@ test("TypeScript and the Python witness agree on exact envelope projection paths
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+// Section 9 family-pin: request-raw/path BOM + non-ASCII whitespace + JSON-comment +
+// trailing-content variants. Each variant pins the exact code and field_path produced by
+// the TypeScript implementation and cross-checks against the Python witness, so any
+// future drift in the raw scanner's path projection (or in either witness's reading of it)
+// is caught on the next test run instead of at audit time.
+test("request-raw/path BOM + whitespace family agrees across witnesses", (t) => {
+  const available = spawnSync("python3", ["--version"], { encoding: "utf8" });
+  if (available.status !== 0) {
+    t.skip("python3 unavailable");
+    return;
+  }
+  const envelope = first.invocation_args.envelope_json;
+  const variants: Array<{ id: string; mutate: (request: string) => string }> = [
+    {
+      // The U+FEFF BOM at byte 0 is the only path where the raw scanner refuses before any
+      // structural parse; both witnesses must report INVALID_UTF8 at $.
+      id: "request.bom-prefixed",
+      mutate: (request) => "\ufeff" + request,
+    },
+    {
+      // The scanner's whitespace allowlist is the four ASCII codes (SP/TAB/LF/CR). A leading
+      // U+000B vertical tab is not in that set, so the scanner refuses at the root with
+      // MALFORMED_JSON at $ instead of parsing past it.
+      id: "request.leading-non-ascii-whitespace",
+      mutate: (request) => "\u000b" + request,
+    },
+    {
+      // JSON has no comment syntax. A /* … */ prefix is not JSON and is rejected at $.
+      id: "request.json-comment",
+      mutate: (request) => "/* not json */ " + request,
+    },
+    {
+      // Trailing content after a complete document is non-empty input past the end of the
+      // value; the scanner's after-value whitespace skip still fails to consume non-ASCII
+      // bytes, so MALFORMED_JSON at $ is the agreed outcome.
+      id: "request.trailing-content",
+      mutate: (request) => request + " garbage",
+    },
+  ];
+  const directory = mkdtempSync(join(tmpdir(), "meshfleet-request-raw-path-"));
+  try {
+    for (const variant of variants) {
+      const requestJson = variant.mutate(first.invocation_args.request_json);
+      const actual = admission.evaluateLocalAdmission(requestJson, envelope, () => "unseen") as { kind: "rejected"; code: string; field_path: string };
+      assert.equal(actual.kind, "rejected", variant.id);
+      const invocation = { request_json: requestJson, envelope_json: envelope, replay_oracle_result: "unseen" };
+      const path = join(directory, `${variant.id}.json`);
+      writeFileSync(path, JSON.stringify(invocation), "utf8");
+      const witness = spawnSync("python3", [pythonWitness, "--evaluate-file", path], { encoding: "utf8", timeout: 20_000 });
+      assert.equal(witness.status, 0, `${variant.id}: ${witness.stderr || witness.stdout}`);
+      const report = JSON.parse(witness.stdout) as {
+        result: { kind: string; code: string; field_path: string };
+        replay_oracle_calls: number;
+      };
+      assert.equal(report.result.code, actual.code, variant.id);
+      assert.equal(report.result.field_path, actual.field_path, variant.id);
+      assert.equal(report.replay_oracle_calls, 0, variant.id);
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

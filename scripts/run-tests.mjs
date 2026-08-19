@@ -7,7 +7,14 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
 import { spawnSync } from "node:child_process";
-import { findLedgerEnvOverrides, ledgerEnvRefusal } from "./lib/ledger-env-preflight.mjs";
+import {
+  findHandoffCountProblem,
+  findLedgerEnvOverrides,
+  handoffCountRefusal,
+  ledgerEnvRefusal,
+  findNodePathProblem,
+  nodePathRefusal,
+} from "./lib/ledger-env-preflight.mjs";
 
 // Ledger-env preflight. FIRST, before any scan — a ledger path in the environment outranks
 // the isolation the tests install for themselves, and the suite then fails in files the
@@ -20,6 +27,30 @@ import { findLedgerEnvOverrides, ledgerEnvRefusal } from "./lib/ledger-env-prefl
 const ledgerEnvOverrides = findLedgerEnvOverrides(process.env);
 if (ledgerEnvOverrides.length > 0) {
   console.error(ledgerEnvRefusal(ledgerEnvOverrides));
+  process.exit(1);
+}
+
+// Node version preflight. docs/ops/GOAL-PROMPT.md and AGENTS.md pin the verifier to Node
+// 24.18.1 (`.nvmrc`). A foreign-Node build of better-sqlite3 cascades through every SQLite
+// test; a different major produces different V8 intrinsics and JSON.parse surrogate
+// behavior. The preflight is PATH-first (spawnSync, not process.execPath) so a launchd or
+// cron-launched run that bypassed `nvm use` is loud on arrival rather than on the next
+// mystery cascade. The post-suite reconciliation cannot catch a foreign Node because a
+// foreign Node's `node --test` invocation does not even start the right ABI.
+const nodePathProblem = findNodePathProblem();
+if (nodePathProblem) {
+  console.error(nodePathRefusal(nodePathProblem));
+  process.exit(1);
+}
+
+// HANDOFF.md count preflight. HANDOFF.md publishes `**N/N** tests collected`, and the
+// post-run reconciliation guards behind `process.exit(result.status ?? 1)` — so a stale
+// HANDOFF.md is silently skipped when the suite itself is red. This preflight catches the
+// literal being unreadable or malformed BEFORE the suite runs, on the principle that an
+// unmeasured contract on arrival cannot be reconciled after a failing run.
+const handoffCountProblem = findHandoffCountProblem();
+if (handoffCountProblem) {
+  console.error(handoffCountRefusal(handoffCountProblem));
   process.exit(1);
 }
 
