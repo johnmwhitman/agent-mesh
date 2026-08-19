@@ -116,6 +116,12 @@ test("authentication-evidence boundaries stay ordered and preserve their termina
       "evidence.expires-at-evaluation-denied",
       "evidence.lifetime-300000-valid",
       "evidence.lifetime-300001-denied",
+      "evidence.adapter_id-invalid-type",
+      "evidence.adapter_id-invalid-grammar",
+      "evidence.principal_ref-invalid-type",
+      "evidence.principal_ref-invalid-grammar",
+      "evidence.issued_at_ms-invalid-type",
+      "evidence.expires_at_ms-invalid-type",
     ],
   );
   assert.deepEqual(
@@ -126,6 +132,12 @@ test("authentication-evidence boundaries stay ordered and preserve their termina
       { result: { kind: "rejected", code: "AUTHORIZATION_DENIED", field_path: "$" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
       corpus.cases[0]!.expected,
       { result: { kind: "rejected", code: "AUTHORIZATION_DENIED", field_path: "$" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+      { result: { kind: "rejected", code: "INVALID_AUTHENTICATION_EVIDENCE", field_path: "$.authentication_evidence.adapter_id" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+      { result: { kind: "rejected", code: "INVALID_AUTHENTICATION_EVIDENCE", field_path: "$.authentication_evidence.adapter_id" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+      { result: { kind: "rejected", code: "INVALID_AUTHENTICATION_EVIDENCE", field_path: "$.authentication_evidence.principal_ref" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+      { result: { kind: "rejected", code: "INVALID_AUTHENTICATION_EVIDENCE", field_path: "$.authentication_evidence.principal_ref" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+      { result: { kind: "rejected", code: "INVALID_AUTHENTICATION_EVIDENCE", field_path: "$.authentication_evidence.issued_at_ms" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+      { result: { kind: "rejected", code: "INVALID_AUTHENTICATION_EVIDENCE", field_path: "$.authentication_evidence.expires_at_ms" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
     ],
   );
   assert.deepEqual(
@@ -139,7 +151,47 @@ test("authentication-evidence boundaries stay ordered and preserve their termina
       { adapter_id: "local.adapter", principal_ref: "principal-ref", audience: "local-audience", session_ref: "session-ref", issued_at_ms: 0, expires_at_ms: 100, provenance: "trusted_local_adapter" },
       { adapter_id: "local.adapter", principal_ref: "principal-ref", audience: "local-audience", session_ref: "session-ref", issued_at_ms: 0, expires_at_ms: 300000, provenance: "trusted_local_adapter" },
       { adapter_id: "local.adapter", principal_ref: "principal-ref", audience: "local-audience", session_ref: "session-ref", issued_at_ms: 0, expires_at_ms: 300001, provenance: "trusted_local_adapter" },
+      { adapter_id: 42, principal_ref: "principal-ref", audience: "local-audience", session_ref: "session-ref", issued_at_ms: 0, expires_at_ms: 200, provenance: "trusted_local_adapter" },
+      { adapter_id: "-leading-dash", principal_ref: "principal-ref", audience: "local-audience", session_ref: "session-ref", issued_at_ms: 0, expires_at_ms: 200, provenance: "trusted_local_adapter" },
+      { adapter_id: "local.adapter", principal_ref: true, audience: "local-audience", session_ref: "session-ref", issued_at_ms: 0, expires_at_ms: 200, provenance: "trusted_local_adapter" },
+      { adapter_id: "local.adapter", principal_ref: "", audience: "local-audience", session_ref: "session-ref", issued_at_ms: 0, expires_at_ms: 200, provenance: "trusted_local_adapter" },
+      { adapter_id: "local.adapter", principal_ref: "principal-ref", audience: "local-audience", session_ref: "session-ref", issued_at_ms: "abc", expires_at_ms: 200, provenance: "trusted_local_adapter" },
+      { adapter_id: "local.adapter", principal_ref: "principal-ref", audience: "local-audience", session_ref: "session-ref", issued_at_ms: 0, expires_at_ms: false, provenance: "trusted_local_adapter" },
     ],
+  );
+});
+
+test("evidence field-type and field-grammar subfamily pins each type-vs-grammar axis", () => {
+  const fieldTypeCases = corpus.cases.filter((item) => item.id.startsWith("evidence.") && item.id.endsWith("-invalid-type"));
+  const fieldGrammarCases = corpus.cases.filter((item) => item.id.startsWith("evidence.") && item.id.endsWith("-invalid-grammar"));
+  assert.deepEqual(
+    fieldTypeCases.map((item) => item.id),
+    ["evidence.adapter_id-invalid-type", "evidence.principal_ref-invalid-type", "evidence.issued_at_ms-invalid-type", "evidence.expires_at_ms-invalid-type"],
+  );
+  assert.deepEqual(
+    fieldGrammarCases.map((item) => item.id),
+    ["evidence.adapter_id-invalid-grammar", "evidence.principal_ref-invalid-grammar"],
+  );
+  for (const item of [...fieldTypeCases, ...fieldGrammarCases]) {
+    assert.equal(item.expected.replay_oracle_calls, 0, item.id);
+    assert.deepEqual(item.expected.replay_oracle_arguments, [], item.id);
+    assert.equal(item.invocation_args.replay_oracle_result, "unseen", item.id);
+    const result = item.expected.result as { kind: string; code: string; field_path: string };
+    assert.equal(result.kind, "rejected", item.id);
+    assert.equal(result.code, "INVALID_AUTHENTICATION_EVIDENCE", item.id);
+  }
+  assert.deepEqual(
+    fieldTypeCases.map((item) => (item.expected.result as { field_path: string }).field_path),
+    [
+      "$.authentication_evidence.adapter_id",
+      "$.authentication_evidence.principal_ref",
+      "$.authentication_evidence.issued_at_ms",
+      "$.authentication_evidence.expires_at_ms",
+    ],
+  );
+  assert.deepEqual(
+    fieldGrammarCases.map((item) => (item.expected.result as { field_path: string }).field_path),
+    ["$.authentication_evidence.adapter_id", "$.authentication_evidence.principal_ref"],
   );
 });
 

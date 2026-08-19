@@ -43,7 +43,7 @@ The ranked A2A strategy is canonical in
    specified, with an ephemeral non-acceptance plan, explicit
    assumed local adapter boundary, supplied fixture binding/all-recipient policy
    before replay, and no
-   public/auth/network/storage/runtime activation. The 49-case mandatory corpus,
+   public/auth/network/storage/runtime activation. The 55-case mandatory corpus,
    independent Python witness, recipient normalization proof, strict corpus
    canaries, and closed sidecar fixtures do not yet satisfy the profile's full
    exhaustive coverage gate. No active, approved, remote, or multi-host claim.
@@ -310,7 +310,7 @@ observable, not a daemon, dashboard, or service claim.
   public intermediate-success APIs; its admission plan is not acceptance,
   persistence, receipt, delivery, execution, or reusable authority. No released
   package export, MCP tool, CLI, runtime, DB, transport, or network consumer.
-  The current 49-case direct TypeScript/Python evidence and sidecar fixtures do
+  The current 55-case direct TypeScript/Python evidence and sidecar fixtures do
   not close every exhaustive Section 9 family/cardinality/path gate. Keep the
   row open and do not treat it as authenticated ingress, acceptance, remote,
   multi-host, or released capability.
