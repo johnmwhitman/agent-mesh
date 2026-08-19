@@ -1,3 +1,35 @@
+## [Unreleased]
+
+### Added
+
+- **Coverage-ledger depth/numeric subfamily closed.** The local-admission
+  evidence-alpha corpus grew from 44 to 56 mandatory raw-text cases (stacking
+  the 7-case depth/numeric subfamily on top of the 5-case authorization
+  context-mismatch slice, 44+5+7=56): a scanner-vs-semantic depth pair at the
+  `MAX_REQUEST_DEPTH = 8` boundary
+  (`request.depth-8` is scanner-valid and lands on `INVALID_AUTHENTICATION_EVIDENCE`
+  at `$.authentication_evidence.adapter_id`; `request.depth-9` is
+  `MAX_DEPTH_EXCEEDED` at `$.authentication_evidence`), and five numeric
+  lexeme representatives for `evaluation_time_ms` injected by raw-string
+  surgery because JSON.stringify normalizes `-0`→`0` and `1e2`→`100`
+  (`request.number-negative` → `MALFORMED_JSON`;
+  `request.number-negative-zero` → `MALFORMED_JSON`;
+  `request.number-exponent` → `MALFORMED_JSON`;
+  `request.number-unsafe-integer` (9007199254740992) → `MALFORMED_JSON`;
+  `request.number-max-safe` (9007199254740991) is scanner-ADMITTED and
+  produces `AUTHORIZATION_DENIED` at `$` with 0 oracle calls). The TS evaluator
+  and the independent stdlib-only Python witness agree over the full 56-case
+  corpus; a generator script (`scripts/gen-depth-numeric-cases.mjs`) splices
+  the new cases and verifies both witnesses before commit. The
+  `depth/numeric` row of
+  `docs/ops/A2A-LOCAL-ADMISSION-COVERAGE-LEDGER-2026-07-29.md` is now marked
+  `CLOSED bounded subfamily`. The new cases are exercised by one
+  parameterized family-pin test (7 cases in 1 `test()` block), so the
+  measured test-count delta is +1 not +7: 1769→1770. No public ingress,
+  auth provider, replay store, persistence, MCP/CLI surface, package
+  export, runtime, network, transport, delivery, execution, or multi-host
+  behavior is claimed.
+
 # Changelog
 
 All notable changes to Agent Mesh are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
