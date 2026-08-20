@@ -148,10 +148,6 @@ authorize spend. Runtime execution and advisory ranking remain separate contract
 
 - Keep documentation and contract guards tied to source paths and generated
   evidence, not session history.
-- **Completed on feature branch:** compact status is an opt-in projection and
-  default output bytes remain guarded unchanged. Acceptance: `inspect --compact`
-  emits one row per fleet; `--compact --json` emits `fleets-compact`; empty-ledger
-  text/JSON behavior is pinned. Blockers: none. Last implementation SHA: `f7c43e7`.
 - Public authenticated A2A ingress, remote transport, and production multi-host
   coordination are out of scope for this project (scope ruling, 2026-08-02 —
   `docs/A2A-PROGRAM.md`). Additional vendor runtimes remain separate reviewed
