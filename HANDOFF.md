@@ -150,8 +150,16 @@ authorize spend. Runtime execution and advisory ranking remain separate contract
 
 - Keep documentation and contract guards tied to source paths and generated
   evidence, not session history.
-- Add compact status output only as an opt-in projection; preserve current output
-  bytes by default.
+- `fleet_status` now offers compact status output only as an opt-in projection;
+  omitted or false preserves the prior full response bytes. The compact response
+  retains fleet/agent identity, status, result-contract and crash-stop provenance,
+  but deliberately omits prompts, outputs, errors, diagnostics, pids and timestamps.
+  Acceptance: real MCP tests prove omitted and `compact: false` are byte-identical,
+  `compact: true` is smaller, and wrong-typed opt-in values are refused. Last
+  implementation SHA: `57f6d4b`. Blocker: the full verifier reached 1745/1746;
+  its sole failure is the pre-existing tracked `/private/tmp` fixture in
+  `test/worktree-dog.test.ts`, outside this item's file envelope. Focused MCP
+  contract tests pass 21/21 after typecheck and build.
 - Public authenticated A2A ingress, remote transport, and production multi-host
   coordination are out of scope for this project (scope ruling, 2026-08-02 —
   `docs/A2A-PROGRAM.md`). Additional vendor runtimes remain separate reviewed
