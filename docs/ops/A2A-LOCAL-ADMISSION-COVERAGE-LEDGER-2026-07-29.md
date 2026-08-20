@@ -4,7 +4,7 @@ Status: bounded offline evidence only. This ledger records executable coverage,
 not profile conformance, authority, acceptance, persistence, delivery, or
 transport capability.
 
-Base reviewed: `2760310` (origin/main). Corpus: 49 mandatory raw-text cases in
+Base reviewed: `2c2e392` (origin/main). Corpus: 52 mandatory raw-text cases in
 `test/fixtures/a2a/local-admission/v0.1/corpus.json`; every case is evaluated by
 the TypeScript implementation and mandatory Python witness with exact result
 bytes, replay call count, and replay arguments.
@@ -17,8 +17,8 @@ bytes, replay call count, and replay arguments.
 | precedence | representative request, envelope, denial, replay, and expiry ordering | — | mutation canary for each adjacent A00-A13 pair |
 | envelope | malformed and recipient representatives plus audience/self-recipient ordinary tests | — | all 4A invalid families and exact prefixed source paths |
 | evidence | one invalid field representative | **CLOSED bounded subfamily:** provenance; issued-at equality; expires-at equality; lifetime 300000/300001 | every remaining field/type/grammar vector |
-| binding | one invalid field representative | — | fields, interval edges, duplicate source index, context mismatch, and 0/256/257 rule vectors |
-| authorization | valid one type/recipient; one invalid action; generic denial | **CLOSED bounded subfamily:** types 5/6; recipients 128/129; duplicate type and recipient source index; all-recipient denial before replay; session + context (adapter / principal / audience / session_ref / sender) mismatch each deny independently | rule-count edge (262144-byte cap with 216-byte rule lower bound makes 2048 rules unrepresentable; existing test pins this) |
+| binding | one invalid field representative | **CLOSED bounded subfamily:** 0 rules (no match → AUTHORIZATION_DENIED@$); 256 rules (max valid → admission_plan with unchanged 4A digest); 257 rules (cap exceeded → INVALID_BINDING_SNAPSHOT@$.binding_snapshot.rules) | fields, interval edges, duplicate source index |
+| authorization | valid one type/recipient; one invalid action; generic denial | **CLOSED bounded subfamily:** types 5/6; recipients 128/129; duplicate type and recipient source index; all-recipient denial before replay; session + context (adapter / principal / audience / session_ref / sender) mismatch each deny independently; rule-count edge closed as structurally unreachable below the independent request-byte ceiling (executable contradiction proof below) | snapshot fields/provenance and other policy contexts |
 | relativity | plan only reports fixture IDs/versions | — | decision changes caused by changed fixtures |
 | oracle/results | all four non-admission verdicts, unavailable, throw, unseen plan, unseen-only expiry, and exact query | — | malformed oracle case and every rejected-code inventory |
 | privacy | offline/import-surface checks and closed sidecar fixtures | — | dedicated ignored-input/diagnostic-invariance matrix |
@@ -52,16 +52,19 @@ bytes, replay call count, and replay arguments.
 | `authorization.context.session-mismatch` | `AUTHORIZATION_DENIED` at `$` | 0 |
 | `authorization.context.sender-mismatch` | `AUTHORIZATION_DENIED` at `$` | 0 |
 
-## Unreachable profile row
+## Binding rules-count slice records
 
-The declared authorization `rules` maximum of 2048 and its 2049 rejection
-boundary cannot be represented below the independent 262144-byte request cap:
-every valid authorization rule has a 216-byte lexical lower bound before array
-punctuation. Thus 2048 rules alone require at least 442368 bytes, before
-commas, brackets, or any other request fields. This is a conservative lower
-bound, not an assertion of the exact maximum representable rule count. The
-row is a contract/cardinality tension to resolve in a later approved profile
-revision, not a reason to bypass the raw byte ceiling or claim it as covered.
+| Case IDs | Required outcome | Replay calls |
+| --- | --- | --- |
+| `binding.rules-empty-0` | `AUTHORIZATION_DENIED` at `$` (no rule matches the binding context tuple) | 0 |
+| `binding.rules-256-admit` | `admission_plan` with the unchanged 4A digest (max valid count; original matching rule plus 255 unique non-matching rules) | 1 |
+| `binding.rules-257-reject` | `INVALID_BINDING_SNAPSHOT` at `$.binding_snapshot.rules` (cap exceeded; the length check on line 389 rejects) | 0 |
+
+## Unreachable profile row (executable contradiction proof)
+
+The test `the 2048-rule profile row exceeds the raw request ceiling by
+authorization-rule lower bound` in `test/a2a-local-admission.test.ts` pins the
+contradiction. The declared authorization `rules` maximum of 2048 and its
 
 No authentication provider, credential, trust root, current policy, replay
 store, persistence, durable acceptance, public MCP/CLI/package export,
