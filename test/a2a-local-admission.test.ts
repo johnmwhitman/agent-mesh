@@ -105,6 +105,31 @@ test("authorization context mismatch on any single policy field denies the reque
   }
 });
 
+test("binding context mismatch denies the request before replay", () => {
+  const contextCases = corpus.cases.filter((item) => item.id === "binding.context-mismatch");
+  assert.deepEqual(
+    contextCases.map((item) => item.id),
+    ["binding.context-mismatch"],
+  );
+  for (const item of contextCases) {
+    assert.deepEqual(
+      item.expected,
+      { result: { kind: "rejected", code: "AUTHORIZATION_DENIED", field_path: "$" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+      item.id,
+    );
+    assert.equal(item.invocation_args.replay_oracle_result, "unseen", item.id);
+    const request = JSON.parse(item.invocation_args.request_json) as {
+      authentication_evidence: { principal_ref: string };
+      binding_snapshot: { rules: Array<{ principal_ref: string }> };
+    };
+    assert.notEqual(
+      request.binding_snapshot.rules[0]!.principal_ref,
+      request.authentication_evidence.principal_ref,
+      `${item.id}: binding rule context must differ from evidence`,
+    );
+  }
+});
+
 test("authentication-evidence boundaries stay ordered and preserve their terminal semantics", () => {
   const evidenceCases = corpus.cases.filter((item) => item.id.startsWith("evidence."));
   assert.deepEqual(
