@@ -16,7 +16,7 @@ worktree /Users/john/AI/.worktrees/agent-mesh-4c1-exhaustive-20260817
 HEAD cd3cdc25891f95593672c742643a1eaa0f0c22c9
 branch refs/heads/feat/4c1-exhaustive-profile-gates-20260817
 
-worktree /private/tmp/mf-c571928-fGneW
+worktree /tmp/mf-c571928-fGneW
 HEAD c571928322a8628c01f7d2804fcaa2eb3dd80802
 detached
 `;

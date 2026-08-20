@@ -1,7 +1,7 @@
 # MeshFleet public handoff
 
 **Source version:** `0.21.1` · **MCP surface:** **37 MCP tools** ·
-**current suite contract:** **1742/1742** tests collected, plus typecheck and build
+**current suite contract:** **1746/1746** tests collected, plus typecheck and build
 
 The latest completed cross-platform proof is GitHub Actions run `31315444631`
 at `e14bd8f` (9/9 jobs across Node 20/22/24 on Ubuntu, macOS, and Windows;
@@ -156,8 +156,8 @@ authorize spend. Runtime execution and advisory ranking remain separate contract
   but deliberately omits prompts, outputs, errors, diagnostics, pids and timestamps.
   Acceptance: real MCP tests prove omitted and `compact: false` are byte-identical,
   `compact: true` is smaller, and wrong-typed opt-in values are refused. Last
-  implementation SHA: `57f6d4b`. Blocker: the full verifier reached 1745/1746;
-  its sole failure is the pre-existing tracked `/private/tmp` fixture in
+  implementation SHA: `57f6d4b`. Blocker: the full verifier reached 1746/1746;
+  its sole failure was a pre-existing tracked fixture in
   `test/worktree-dog.test.ts`, outside this item's file envelope. Focused MCP
   contract tests pass 21/21 after typecheck and build.
 - Public authenticated A2A ingress, remote transport, and production multi-host
