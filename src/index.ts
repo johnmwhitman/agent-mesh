@@ -621,7 +621,16 @@ function handleTransientFailure(
 // Tool Definitions
 // ---------------------------------------------------------------------------
 
+// The advertised tool array is static source-order data and can change only
+// when a new server build is deployed. A 24-hour TTL lets clients reuse the
+// comparatively large 37-tool manifest across ordinary restarts while bounding
+// a cache that survives a deploy to one day of staleness. The scope is private
+// because the manifest belongs to this operator-local server/configuration.
+const TOOLS_LIST_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
+  ttlMs: TOOLS_LIST_CACHE_TTL_MS,
+  cacheScope: "private",
   tools: [
     {
       name: "spawn_fleet",

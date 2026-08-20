@@ -10,6 +10,14 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 
 const REPO_ROOT = join(fileURLToPath(new URL(".", import.meta.url)), "..");
 
+function mcpField(
+  value: Record<string, unknown>,
+  snakeCase: string,
+  camelCase: string,
+): unknown {
+  return value[snakeCase] ?? value[camelCase];
+}
+
 // MCP tool annotations contract:
 // Every tool advertised by meshfleet's MCP server must carry an `annotations`
 // object with the four spec hints the server knows about (readOnlyHint /
@@ -42,6 +50,8 @@ function spawnMeshfleet(tempProject: string, name: string): { transport: StdioCl
     env: {
       ...(process.env as Record<string, string>),
       MESHFLEET_DB_FILE: join(tempProject, `${name}.db`),
+      MESHFLEET_DATA_FILE: join(tempProject, `${name}.json`),
+      MESHFLEET_EVENT_LOG_FILE: join(tempProject, `${name}.events.log`),
       AGENT_MESH_CHILD: "1",
       MESHFLEET_RATIFY_SWEEP_MS: "0",
     },
@@ -128,6 +138,33 @@ test("tools/list payload size is measured, tool count = 37, under 60 KiB", async
         2,
       ),
     );
+  } finally {
+    await client.close();
+    rmSync(tempProject, { recursive: true, force: true });
+  }
+});
+
+test("tools/list publishes Hermes-readable private cache hints", async () => {
+  const tempProject = mkdtempSync(join(tmpdir(), "meshfleet-annotations-cache-"));
+  const { transport, client } = spawnMeshfleet(tempProject, "cache");
+  try {
+    await client.connect(transport);
+    const response = await client.listTools();
+    const serialized = JSON.stringify(response);
+    const wireResult = JSON.parse(serialized) as Record<string, unknown>;
+
+    assert.equal(
+      mcpField(wireResult, "ttl_ms", "ttlMs"),
+      86_400_000,
+      "Hermes must be able to read the 24-hour tools/list TTL from the serialized result",
+    );
+    assert.equal(
+      mcpField(wireResult, "cache_scope", "cacheScope"),
+      "private",
+      "Hermes must be able to read the private cache scope from the serialized result",
+    );
+    assert.ok(serialized.includes('\"ttlMs\":86400000'), "wire result must carry ttlMs");
+    assert.ok(serialized.includes('\"cacheScope\":\"private\"'), "wire result must carry cacheScope");
   } finally {
     await client.close();
     rmSync(tempProject, { recursive: true, force: true });
