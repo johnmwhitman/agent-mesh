@@ -6,6 +6,12 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 
 ### Added
 
+- **Real MCP stdio contract regression for `sweep_ratifications`.** The published
+  zero-input schema, empty-ledger projection, ignored extension arguments, and
+  durable deadline sweep now run through an actual MCP child process. The test
+  seeds one expired and one still-open council, asserts the sweep checks both
+  while resolving only the expired proposal, then reads both states back via
+  `tally_ratification`. Suite 1778 → 1779.
 - **Section 9 authorization context-mismatch bounded subfamily.** Five new
   mandatory corpus cases (`authorization.context.{adapter,principal,audience,
   session_ref,sender}-mismatch`) prove that an authorization rule whose context
