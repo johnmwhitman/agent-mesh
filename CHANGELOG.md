@@ -6,6 +6,24 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 
 ### Added
 
+- **`tally_ratification` MCP stdio contract regression.** New
+  `test/tally-ratification-mcp-contract.test.ts` drives the published
+  `tally_ratification` tool over real MCP stdio (`StdioClientTransport`
+  + `@modelcontextprotocol/sdk/client`) and asserts (a) `tools/list`
+  advertises it with `inputSchema {type:"object", properties:{message_id:
+  {type:"string"}}, required:["message_id"]}` deepEqual, (b) both `{}`
+  and `{message_id:42}` arguments return `isError:true` with text
+  matching `/'message_id' is required and must be a non-empty string/`,
+  (c) an absent proposal returns `isError:true` with text matching
+  `/No such ratification:/`, (d) a 3-voter open ratification with one
+  approval projects `status:"open"` and the full tally shape
+  (`approvals/declines/pending`, `reachable`, `signoffs_met`, weighted
+  arithmetic), and (e) a 3-voter ratified proposal with two approvals
+  projects `status:"ratified"` with the same shape and the persisted
+  terminal status. Closes the priority-3 published-contract gap for
+  `tally_ratification` from the contract lens audit. Suite contract
+  bumped 1778→1779.
+
 - **Section 9 authorization context-mismatch bounded subfamily.** Five new
   mandatory corpus cases (`authorization.context.{adapter,principal,audience,
   session_ref,sender}-mismatch`) prove that an authorization rule whose context
