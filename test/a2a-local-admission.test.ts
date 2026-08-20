@@ -25,6 +25,7 @@ const localAdmissionCorpusCountDocs = [
   join(root, "docs", "A2A-PROGRAM.md"),
   join(root, "docs", "A2A-HANDOFF-CURRENT.md"),
   join(root, "docs", "A2A-LOCAL-ADMISSION-PROFILE-v0.1.md"),
+  join(root, "docs", "ops", "A2A-LOCAL-ADMISSION-COVERAGE-LEDGER-2026-07-29.md"),
 ];
 
 function evaluate(item: CorpusCase) {
@@ -158,18 +159,43 @@ test("the 2048-rule profile row exceeds the raw request ceiling by authorization
   assert.ok(216 * 2048 > 262144, "2048 minimum authorization rules exceed the request cap before array punctuation or request fields");
 });
 
-test("binding rules-count covers the 0/256/257 cardinality boundary for binding_snapshot.rules", () => {
-  // Cases are in insertion order; the three new ones are appended at the end
-  // (in the order scripts/gen-binding-rules-count-cases.mjs emitted them).
-  const bindingRulesCountCases = corpus.cases.slice(-3);
-  assert.deepEqual(
-    bindingRulesCountCases.map((item) => item.id),
-    [
-      "binding.rules-empty-0",
-      "binding.rules-256-admit",
-      "binding.rules-257-reject",
-    ],
-  );
+test("binding rules-count covers the 0/255/256/257/258 cardinality boundary for binding_snapshot.rules", () => {
+  // Cases are in insertion order. The 0/256/257 trio is appended first (by
+  // scripts/gen-binding-rules-count-cases.mjs), then the 255/258 cap-threshold
+  // pair (by scripts/gen-binding-cap-threshold-pin-cases.mjs). Together the
+  // five-case family pins the evaluator cap (src/a2a/local-admission.ts:389,
+  // `value.rules.length > (kind === "binding" ? 256 : 2048)`) as exactly `> 256`:
+  // - 255 admits -> the cap is NOT `> 255`
+  // - 256 admits -> the admit ceiling is at least 256
+  // - 257 rejects -> the cap is at most 257
+  // - 258 rejects -> the cap is NOT `> 257`
+  // Use id-keyed lookups so a future corpus reorganization (sort-by-id,
+  // prepend, etc) does not silently break the digest coupling or the literal
+  // rule-count assertions.
+  const FIVE_NEW_IDS = [
+    "binding.rules-empty-0",
+    "binding.rules-255-admit",
+    "binding.rules-256-admit",
+    "binding.rules-257-reject",
+    "binding.rules-258-reject",
+  ];
+  for (const id of FIVE_NEW_IDS) {
+    assert.ok(
+      corpus.cases.some((c) => c.id === id),
+      `corpus must contain ${id}`,
+    );
+  }
+  // Last-five-window assertion covers the verbatim insertion order (the
+  // splice scripts append in id order; if a sibling slice ever reorders the
+  // tail, this assertion fails loudly so a reviewer can re-pin by id).
+  const lastFiveIds = corpus.cases.slice(-5).map((c) => c.id);
+  assert.deepEqual(lastFiveIds, [
+    "binding.rules-empty-0",
+    "binding.rules-256-admit",
+    "binding.rules-257-reject",
+    "binding.rules-255-admit",
+    "binding.rules-258-reject",
+  ]);
   // Strip any private (_-prefixed) fields before comparing expected bytes,
   // since the corpus shape is only the documented fields.
   const stripPrivate = (expected: Record<string, unknown>) => {
@@ -179,32 +205,65 @@ test("binding rules-count covers the 0/256/257 cardinality boundary for binding_
     }
     return out;
   };
+  const validBase = corpus.cases.find((c) => c.id === "valid.admission-plan");
+  assert.ok(validBase, "baseline valid.admission-plan must exist for digest coupling");
+  const validBaseEnvelopeDigest = (validBase!.expected.result as { kind: "admission_plan"; envelope_digest: string }).envelope_digest;
+  const byId = (id: string) => {
+    const item = corpus.cases.find((c) => c.id === id);
+    assert.ok(item, `${id} missing`);
+    return item!;
+  };
   assert.deepEqual(
-    bindingRulesCountCases.map((item) => stripPrivate(item.expected as Record<string, unknown>)),
-    [
-      // 0 rules: no rule matches -> AUTHORIZATION_DENIED at $
-      { result: { kind: "rejected", code: "AUTHORIZATION_DENIED", field_path: "$" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
-      // 256 rules: max valid; original matching rule plus 255 unique non-matching rules
-      // -> admission_plan with the unchanged 4A digest (same digest as the valid base)
-      { result: corpus.cases[0]!.expected.result, replay_oracle_calls: 1, replay_oracle_arguments: [{
-        principal_ref: "principal-ref",
-        request_id: "request-ref",
-        sender: { namespace: "local", agent_id: "agent-a" },
-        message_id: "message-ref",
-        envelope_digest: (corpus.cases[0]!.expected.result as { kind: "admission_plan"; envelope_digest: string }).envelope_digest,
-      }] },
-      // 257 rules: cap exceeded -> INVALID_BINDING_SNAPSHOT at $.binding_snapshot.rules
-      { result: { kind: "rejected", code: "INVALID_BINDING_SNAPSHOT", field_path: "$.binding_snapshot.rules" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
-    ],
+    stripPrivate(byId("binding.rules-empty-0").expected as Record<string, unknown>),
+    // 0 rules: no rule matches -> AUTHORIZATION_DENIED at $
+    { result: { kind: "rejected", code: "AUTHORIZATION_DENIED", field_path: "$" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+  );
+  assert.deepEqual(
+    stripPrivate(byId("binding.rules-255-admit").expected as Record<string, unknown>),
+    // 255 rules: cap-1 from the admit ceiling, original matching rule at index 0
+    // -> admission_plan with the unchanged 4A digest (same digest as the valid base)
+    { result: validBase!.expected.result, replay_oracle_calls: 1, replay_oracle_arguments: [{
+      principal_ref: "principal-ref",
+      request_id: "request-ref",
+      sender: { namespace: "local", agent_id: "agent-a" },
+      message_id: "message-ref",
+      envelope_digest: validBaseEnvelopeDigest,
+    }] },
+  );
+  assert.deepEqual(
+    stripPrivate(byId("binding.rules-258-reject").expected as Record<string, unknown>),
+    // 258 rules: cap+2 from the admit ceiling (258 > 256) -> INVALID_BINDING_SNAPSHOT at $.binding_snapshot.rules
+    { result: { kind: "rejected", code: "INVALID_BINDING_SNAPSHOT", field_path: "$.binding_snapshot.rules" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+  );
+  assert.deepEqual(
+    stripPrivate(byId("binding.rules-256-admit").expected as Record<string, unknown>),
+    // 256 rules: max valid; original matching rule plus 255 unique non-matching rules
+    // -> admission_plan with the unchanged 4A digest (same digest as the valid base)
+    { result: validBase!.expected.result, replay_oracle_calls: 1, replay_oracle_arguments: [{
+      principal_ref: "principal-ref",
+      request_id: "request-ref",
+      sender: { namespace: "local", agent_id: "agent-a" },
+      message_id: "message-ref",
+      envelope_digest: validBaseEnvelopeDigest,
+    }] },
+  );
+  assert.deepEqual(
+    stripPrivate(byId("binding.rules-257-reject").expected as Record<string, unknown>),
+    // 257 rules: cap exceeded -> INVALID_BINDING_SNAPSHOT at $.binding_snapshot.rules
+    { result: { kind: "rejected", code: "INVALID_BINDING_SNAPSHOT", field_path: "$.binding_snapshot.rules" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
   );
   // Per-case rule-count proof: confirm the literal count of binding_snapshot.rules
-  // for each generated case matches the bounded-subfamily name.
-  for (const item of bindingRulesCountCases) {
-    const request = JSON.parse(item.invocation_args.request_json) as { binding_snapshot: { rules: unknown[] } };
+  // for each generated case matches the bounded-subfamily name. The id-keyed
+  // assertions are immune to future corpus reordering, but the literal count
+  // check still proves the fixture shape itself.
+  for (const id of FIVE_NEW_IDS) {
+    const request = JSON.parse(byId(id).invocation_args.request_json) as { binding_snapshot: { rules: unknown[] } };
     const count = request.binding_snapshot.rules.length;
-    if (item.id === "binding.rules-empty-0") assert.equal(count, 0, `${item.id} must have 0 rules`);
-    if (item.id === "binding.rules-256-admit") assert.equal(count, 256, `${item.id} must have 256 rules`);
-    if (item.id === "binding.rules-257-reject") assert.equal(count, 257, `${item.id} must have 257 rules`);
+    if (id === "binding.rules-empty-0") assert.equal(count, 0, `${id} must have 0 rules`);
+    if (id === "binding.rules-255-admit") assert.equal(count, 255, `${id} must have 255 rules`);
+    if (id === "binding.rules-256-admit") assert.equal(count, 256, `${id} must have 256 rules`);
+    if (id === "binding.rules-257-reject") assert.equal(count, 257, `${id} must have 257 rules`);
+    if (id === "binding.rules-258-reject") assert.equal(count, 258, `${id} must have 258 rules`);
   }
 });
 
