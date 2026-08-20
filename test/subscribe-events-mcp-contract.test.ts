@@ -8,6 +8,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -70,6 +71,24 @@ async function withServer(
   } finally {
     await client.close().catch(() => {});
     rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+async function withOccupiedLoopbackPort(fn: (port: number) => Promise<void>): Promise<void> {
+  const blocker = createServer();
+  await new Promise<void>((resolve, reject) => {
+    blocker.once("error", reject);
+    blocker.listen(0, SSE_HOST, resolve);
+  });
+  const address = blocker.address();
+  assert.ok(address && typeof address === "object", "occupied loopback listener must expose its port");
+
+  try {
+    await fn(address.port);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      blocker.close((error) => (error ? reject(error) : resolve()));
+    });
   }
 }
 
@@ -164,27 +183,29 @@ test("subscribe_events publishes its schema, refuses a blank fleet_id, and retur
 });
 
 test("subscribe_events refuses to hand back a stream_url when the SSE listener failed to start", async () => {
-  // Force the SSE server start to fail by handing it a privileged port that
-  // cannot bind as an unprivileged user. startSseServer() logs to stderr and
-  // returns rejected; isSseServerRunning() then reads false on the next call,
-  // which is the exact precondition the handler guards on.
-  await withServer(
-    async (client) => {
-      const refused = await client.callTool({
-        name: "subscribe_events",
-        arguments: {},
-      });
-      assert.equal((refused as ToolResponse).isError, true);
-      // The contract is a single-error response, not the success envelope —
-      // a future regression that returns stream_url with a dead URL would
-      // leave callers polling a stranger's server. Pin the refusal shape
-      // and the explanatory text so the failure mode is loud.
-      const payload = JSON.parse(textOf(refused)) as Record<string, unknown>;
-      assert.equal(typeof payload.error, "string");
-      assert.match(payload.error as string, /subscribe_events: this server has no live SSE endpoint/);
-      assert.match(payload.error as string, /port is already in use by another meshfleet instance|durable source of truth|durable view/);
-      assert.ok(!("stream_url" in payload), "refusal must not include a stream_url");
-    },
-    { MESHFLEET_SSE_PORT: "22" }, // privileged port — bind() fails as unprivileged user
-  );
+  // Hold an ephemeral loopback port open in this process while the MCP child
+  // starts. This deterministically exercises EADDRINUSE on every supported
+  // platform; unlike a low-numbered port, it does not depend on Unix privilege
+  // rules or container sysctls.
+  await withOccupiedLoopbackPort(async (occupiedPort) => {
+    await withServer(
+      async (client) => {
+        const refused = await client.callTool({
+          name: "subscribe_events",
+          arguments: {},
+        });
+        assert.equal((refused as ToolResponse).isError, true);
+        // The contract is a single-error response, not the success envelope —
+        // a future regression that returns stream_url with a dead URL would
+        // leave callers polling a stranger's server. Pin the refusal shape
+        // and the explanatory text so the failure mode is loud.
+        const payload = JSON.parse(textOf(refused)) as Record<string, unknown>;
+        assert.equal(typeof payload.error, "string");
+        assert.match(payload.error as string, /subscribe_events: this server has no live SSE endpoint/);
+        assert.match(payload.error as string, /port is already in use by another meshfleet instance|durable source of truth|durable view/);
+        assert.ok(!("stream_url" in payload), "refusal must not include a stream_url");
+      },
+      { MESHFLEET_SSE_PORT: String(occupiedPort) },
+    );
+  });
 });
