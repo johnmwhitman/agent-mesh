@@ -685,10 +685,16 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     },
     {
       name: "fleet_status",
-      description: "Check fleet and agent status.",
+      description: "Check fleet and agent status. Set compact=true for status-only rows; omitted or false preserves the full response.",
       inputSchema: {
         type: "object",
-        properties: { fleet_id: { type: "string" } },
+        properties: {
+          fleet_id: { type: "string" },
+          compact: {
+            type: "boolean",
+            description: "Opt in to status-only fleet and agent rows. Omit or set false for the unchanged full response.",
+          },
+        },
         required: ["fleet_id"],
       },
       annotations: { readOnlyHint: true, idempotentHint: true, destructiveHint: false, openWorldHint: false },
@@ -1884,17 +1890,37 @@ toolHandlers["fleet_status"] = async (args) => {
     if (!checkRateLimit(ip, "read")) {
       return { content: [{ type: "text", text: JSON.stringify({ error: "Read rate limit exceeded. Slow down." }) }], isError: true };
     }
-    const { fleet_id } = args as { fleet_id: string };
+    const { fleet_id, compact } = args as { fleet_id: string; compact?: boolean };
     // A wrong-typed fleet_id never threw here — it just missed the lookup and
     // returned `fleet: undefined`, indistinguishable from "no such fleet".
     // A contract violation must be NAMED, not shrugged into a lookup miss.
-    const invalidFleetStatus = requireString("fleet_status", "fleet_id", fleet_id);
+    const invalidFleetStatus = firstError(
+      requireString("fleet_status", "fleet_id", fleet_id),
+      optionalBoolean("fleet_status", "compact", compact),
+    );
     if (invalidFleetStatus) return jsonError(invalidFleetStatus);
     const data = readLedger();
     const fleet = data.fleets[fleet_id];
     const agents = Object.values(data.agents).filter(
       (a) => a.fleet_id === fleet_id
     );
+    if (compact) {
+      return jsonResult({
+        projection: "compact",
+        fleet: fleet && {
+          id: fleet.id,
+          status: fleet.status,
+          stopped_reason: fleet.stopped_reason,
+        },
+        agents: agents.map((agent) => ({
+          id: agent.id,
+          role: agent.role,
+          status: agent.status,
+          result_contract: agent.result_contract,
+          stopped_reason: agent.stopped_reason,
+        })),
+      });
+    }
     return jsonResult({ fleet, agents });
 };
 

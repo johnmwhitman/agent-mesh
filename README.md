@@ -277,7 +277,7 @@ evidence, authenticated provenance, or external time.
 | `spawn_fleet` | Spawn N parallel agents as independent OS processes; each agent may select a registered `runtime` plus its required opaque `workspace_binding`, or use the default OpenCode runtime and optional `model` (`provider/model`) selector |
 | `spawn_from_template` | Spawn a fleet from a saved template |
 | `save_fleet_template` / `list_fleet_templates` | Reusable, versioned fleet configs |
-| `list_fleets` / `fleet_status` | All fleets, or one fleet's full state |
+| `list_fleets` / `fleet_status` | All fleet summaries, or one fleet's full state; `fleet_status` accepts opt-in `compact: true` for status-only fleet/agent rows while omitted/false preserves the original response bytes |
 | `collect_results` | Gather every agent's final output in one call |
 | `set_fleet_timeout` | Per-fleet timeout override (in ms) |
 | `attach_agent` | Dynamically attach a premade agent to a running fleet; the agent may set the same optional `model` (`provider/model`) selector |
