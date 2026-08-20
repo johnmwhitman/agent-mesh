@@ -6,7 +6,7 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 
 ### Added
 
-- **Section 9 authorization context-mismatch bounded subfamily.** Five new
+- **`test/subscribe-events-mcp-contract.test.ts` — real stdio contract regression for `subscribe_events`.** Two new tests pin the published tool surface over a real MCP stdio client: (1) the schema (`{fleet_id?: string}`) and the four-key success envelope (`stream_url`, `fleet_id`, `served_by_this_process_only`, `instructions`) with URL-encoded `?fleet_id=` filter, plus the blank-string refusal error contract; (2) the **negative path** where `MESHFLEET_SSE_HOST` is set to an invalid bind target so the listener refuses to start, and the handler returns the honest "no live SSE endpoint" error instead of handing back a stream URL it cannot serve. The latter closes the same class of bug the `subscribe_inbox` regression test guards (squatter-on-port produces 0 events indefinitely). Spawns the MCP server in **parent mode** (no `AGENT_MESH_CHILD=1`) because child mode skips SSE startup; migration/recovery/sweepers are no-ops against the temp dir, and the suite preflight keeps the parent's ledger env clean so `setDbPath()`/`withTempDb()` still isolate. Suite 1778 → 1780.- **Section 9 authorization context-mismatch bounded subfamily.** Five new
   mandatory corpus cases (`authorization.context.{adapter,principal,audience,
   session_ref,sender}-mismatch`) prove that an authorization rule whose context
   field disagrees with the binding/evidence/envelope on any one key denies the
