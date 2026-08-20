@@ -26,6 +26,37 @@ const localAdmissionCorpusCountDocs = [
   join(root, "docs", "A2A-HANDOFF-CURRENT.md"),
   join(root, "docs", "A2A-LOCAL-ADMISSION-PROFILE-v0.1.md"),
 ];
+const section9CoverageLedgerPath = join(
+  root,
+  "docs",
+  "ops",
+  "A2A-LOCAL-ADMISSION-COVERAGE-LEDGER-2026-07-29.md",
+);
+// Section 9 family names appear as the first column of the bounded-evidence table
+// in the coverage ledger. Order matches the source table so a future refactor that
+// renames a family row will surface here.
+const section9FamilyNames = [
+  "request-raw/path",
+  "independent-input",
+  "depth/numeric",
+  "precedence",
+  "envelope",
+  "evidence",
+  "binding",
+  "authorization",
+  "relativity",
+  "oracle/results",
+  "privacy",
+] as const;
+// Families whose "Remaining exact gap" cell is the em-dash placeholder ("—")
+// declare no remaining gap on this tree. As of tick-150, every Section 9
+// family row in the bounded-evidence table names a substantive remaining
+// gap (the authorization row's CLOSED bounded subfamily lives in the "This
+// slice" column, but its "Remaining exact gap" cell documents the structurally
+// unreachable rule-count edge). The set is kept for future use: a future
+// refactor that genuinely closes a remaining gap can move the family name
+// here, and the test will assert the cell is the em-dash placeholder.
+const section9ClosedRemainingGapFamilies = new Set<string>([]);
 
 function evaluate(item: CorpusCase) {
   const calls: unknown[] = [];
@@ -65,6 +96,45 @@ test("stable local-admission case-count prose reconciles against the canonical c
       new RegExp(`\\b${corpus.cases.length}\\s+mandatory cases\\b`),
       `${path} must state the canonical local-admission corpus count`,
     );
+  }
+});
+
+test("Section 9 remaining-gap table lists every family and each open gap names a closure candidate", () => {
+  const ledgerText = readFileSync(section9CoverageLedgerPath, "utf8");
+  // Slice out the bounded-evidence table only — between the header row and the
+  // first H2 ("## Authentication-evidence slice records" or similar). Tables
+  // elsewhere in the doc have different column counts; the bounded-evidence
+  // table is the unique one whose header is "| Section 9 family |".
+  const headerMatch = ledgerText.match(/^\|\s*Section 9 family\s*\|[\s\S]*?\n([\s\S]*?)\n##\s/m);
+  assert.ok(headerMatch, `${section9CoverageLedgerPath} must contain the Section 9 family table`);
+  const tableBody = headerMatch[1];
+  // Each body row is `| <family> | <proof> | <slice> | <remaining gap> |`.
+  // Splitting on `|\n|` gives one row per element; the leading/trailing pipes
+  // give empty first/last cells that we drop.
+  const rows = tableBody
+    .split(/\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith("|") && line.endsWith("|") && !line.startsWith("| ---"))
+    .map((line) => line.slice(1, -1).split("|").map((cell) => cell.trim()));
+  assert.equal(rows.length, section9FamilyNames.length, "Section 9 family table row count must equal expected family count");
+  for (const [i, row] of rows.entries()) {
+    assert.equal(row.length, 4, `Section 9 row ${i} must have exactly 4 cells (family, proof, slice, remaining gap)`);
+    assert.equal(row[0], section9FamilyNames[i], `Section 9 row ${i} family name must equal expected name`);
+  }
+  for (const [i, row] of rows.entries()) {
+    const family = row[0];
+    const remainingGap = row[3];
+    if (section9ClosedRemainingGapFamilies.has(family)) {
+      // Em-dash placeholder is the documented "no remaining gap" cell.
+      assert.equal(remainingGap, "—", `Section 9 ${family} row must have em-dash remaining gap on this tree`);
+    } else {
+      assert.ok(
+        remainingGap.length >= 16,
+        `Section 9 ${family} row remaining-gap cell must name a substantive closure candidate (>=16 chars), got: ${remainingGap}`,
+      );
+      assert.doesNotMatch(remainingGap, /^\s*$/, `Section 9 ${family} row remaining-gap cell must not be whitespace`);
+      assert.notEqual(remainingGap, "—", `Section 9 ${family} row remaining-gap cell must not be the em-dash placeholder`);
+    }
   }
 });
 
