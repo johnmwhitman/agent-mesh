@@ -6,6 +6,13 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 
 ### Added
 
+- **Real MCP stdio contract regression for `list_agents`.** The published
+  empty-input schema, ignored extension arguments, and durable projection
+  across both seeded `.opencode/agents/*.md` files now run through an actual
+  MCP child process. The test pins the exact `count`/`agents` envelope, the
+  `filename`/`name`/`description`/`mode` shape per agent, and asserts the
+  extra-arguments form is byte-identical to the empty-arguments form. Suite
+  1778 → 1779.
 - **Section 9 authorization context-mismatch bounded subfamily.** Five new
   mandatory corpus cases (`authorization.context.{adapter,principal,audience,
   session_ref,sender}-mismatch`) prove that an authorization rule whose context
