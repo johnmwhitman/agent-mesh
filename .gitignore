@@ -31,3 +31,5 @@ __pycache__/
 MERGE-TRAIN-*.md
 MERGE-TRAIN-PORTFOLIO-*.md
 .portfolio-merge-train.json
+heavy-build
+heavy-build.d/

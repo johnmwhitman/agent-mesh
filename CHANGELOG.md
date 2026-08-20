@@ -26,6 +26,28 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
   unrepresentable). Corpus 44 → 49 cases. Suite 1767 → 1768.
 - **`scripts/merge-train.mjs` + `test/merge-train.test.mjs` (30 verified branches queued, 1 read + 1 command collapse).** The lane now collapses the 19+ verifier-verified branches pooled at MERGE-READY to one operator decision per day. `--dry-run` (default) emits `MERGE-TRAIN-YYYYMMDD.md` with per-branch one-liner + diffstat + the canonical-verifier receipt on the train tip + the ONE operator command `git merge --ff-only train/YYYYMMDD`; `--apply` actually opens `train/YYYYMMDD` off `origin/main`, sequentially rolls in each candidate via `git merge --no-ff`, runs the train-tip through the canonical Node 24.18.1 + python3 3.10+ verifier under `flock heavy-build`, and emits the same report with `Final status: GREEN — NN/NN tests`. Candidates are filtered by (a) ahead of `origin/main` strictly, (b) tip subject `VERIFIED:` claim, (c) `git merge-tree` clean merge with `origin/main`, (d) no MERGE-READY ancestor-superset on the train (skipping the smaller one keeps the train lean). Branches that fail to merge or break the verifier get bisected out and listed as leftovers with the exact reason and a suggested operator action (`rebase or drop`). Six unit tests cover the selector against a mock git interface: empty repo, branch at exactly `origin/main`, `VERIFIED:` subject, non-`VERIFIED:` leftover, strict-ancestor redundancy, and unverified-superset no-redundancy. The first train run on the lane's current backlog (2026-08-18) is at `MERGE-TRAIN-20260818.md`: 30 branches --no-ff onto `train/20260818`, 3 leftovers (two redundant ancestor-superset branches; one unverified-subject). Reads the canonical receipt via `scripts/run-tests.mjs` (the same one CI runs); no new gate is invented.
 - **`scripts/portfolio-merge-train.mjs` — multi-repo dossier wrapper.** Step-2 generalisation of the merge-train: takes a list of repo paths (`--repo`, repeatable, or `--config` JSON file) and emits `MERGE-TRAIN-PORTFOLIO-YYYYMMDD.md` with one section per repo. Per-repo sections reuse the lane's `pickCandidates` selector (so cherry-pick order, subject gate, and merge-tree cleanliness are identical to the single-repo train), plus a fresh/stale/suspect/dead population roll-up so the lane can spot which branches are candidates for prune before the next sweep. Default staleness bands: fresh ≤30d, stale 31-180d, suspect 181-360d, dead >360d — proportional to `--stale-days N` so a tighter threshold tightens all four bands. `--apply` is documented as a per-repo step (the wrapper never pushes or merges); push, deploy, and runtime promotion remain operator-gated. Three unit tests pin the staleness band math so a future refactor cannot silently flip the boundaries.
+### Changed
+
+- **Coverage ledger: closed the `binding` row's interval-edges subfamily.** Six new
+  mandatory corpus cases pin the binding/authorization interval equality boundaries at
+  `src/a2a/local-admission.ts:530-542`: `(binding|authorization).interval-zero-length`
+  (`effective_from_ms == effective_until_ms == 100` → `AUTHORIZATION_DENIED@$` because the
+  `from >= until` check is non-strict at equality), `(binding|authorization).interval-until-edge`
+  (`evaluation_time_ms == effective_until_ms == 100` → `AUTHORIZATION_DENIED@$` because the
+  `>=` boundary is non-strict at equality), and `(binding|authorization).interval-from-edge`
+  (`evaluation_time_ms == effective_from_ms == 100` → `admission_plan` because the `<`
+  boundary is strict at equality; the `policy_basis` mirrors the mutated snapshot
+  interval). The valid baseline uses `evaluation_time_ms=100` with both intervals `(0, 200)`;
+  each new case mutates exactly one snapshot's interval, leaves the other byte-identical,
+  and keeps `evaluation_time_ms=100` so the boundary semantics are isolated. Corpus 44→50.
+  Generator `scripts/gen-binding-interval-edges-cases.mjs` is idempotent, repo-root-relative,
+  and uses the pristine-44 sentinel at `/tmp/corpus-pristine-44.json`. Probe
+  `scripts/probe-binding-interval-edges.mjs` confirms TS and the witness agree on 6/6 cases
+  before splicing. Family-pin test in `test/a2a-local-admission.test.ts` asserts the 6 ids,
+  per-case outcome codes, per-case `policy_basis` (where applicable), and the per-case
+  interval byte proof (from=0 or 100; until=100 or 200; the *other* snapshot interval stays
+  byte-identical to baseline `(0, 200)`). Red-on-revert guard on `binding.interval-zero-length`
+  shrinks the family pin to 5. Corpus 49 → 55 cases.
 
 ## [0.21.1] - 2026-08-10
 

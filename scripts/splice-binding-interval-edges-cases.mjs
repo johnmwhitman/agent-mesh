@@ -1,0 +1,35 @@
+#!/usr/bin/env node
+// Splice the 6 generated binding-interval-edges cases into the corpus: append cases
+// (in id order), append ids to mandatory_case_ids (in the same order), keep everything else.
+// Idempotent: refuses to splice if any id already present (so a stale /tmp file
+// from a prior run can't half-splice).
+import { readFileSync, writeFileSync } from "node:fs";
+
+const corpusPath = new URL("../test/fixtures/a2a/local-admission/v0.1/corpus.json", import.meta.url);
+const freshPath = "/tmp/binding-interval-edges-new-cases.json";
+
+const corpus = JSON.parse(readFileSync(corpusPath, "utf8"));
+const fresh = JSON.parse(readFileSync(freshPath, "utf8"));
+
+const existingIds = new Set(corpus.cases.map((c) => c.id));
+const existingMandatory = new Set(corpus.mandatory_case_ids);
+for (const item of fresh) {
+  if (existingIds.has(item.id)) throw new Error(`dup id ${item.id} already in cases`);
+  if (existingMandatory.has(item.id)) throw new Error(`dup id ${item.id} already in mandatory_case_ids`);
+}
+
+for (const item of fresh) {
+  const { _note, ...clean } = item;
+  corpus.cases.push(clean);
+}
+// cases[] preserves insertion order; mandatory_case_ids[] also preserves insertion order.
+// The "local admission evidence-alpha corpus is closed, self-consistent, and raw-text only"
+// test asserts that cases.map(id) deep-equals mandatory_case_ids, so they MUST agree on
+// order. Family-pin tests further expect a stable insertion sequence. We append.
+corpus.mandatory_case_ids = [...corpus.mandatory_case_ids, ...fresh.map((x) => x.id)];
+
+// Critical: compact JSON + trailing newline, matching every prior generator. Pretty-printed
+// JSON would break the existing "Python witness rejects ambiguous, nonstandard, and open
+// corpus documents" test whose first mutation expects compact whitespace.
+writeFileSync(corpusPath, JSON.stringify(corpus) + "\n");
+console.log("corpus now:", corpus.cases.length, "cases /", corpus.mandatory_case_ids.length, "mandatory");
