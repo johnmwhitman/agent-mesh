@@ -6,6 +6,20 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 
 ### Added
 
+- **Real MCP stdio contract regression for `collect_results`.**
+  `test/collect-results-mcp-contract.test.ts` drives the published tool over
+  a live stdio child of `src/index.ts` and asserts the schema advertised by
+  `tools/list` matches the runtime, that missing/wrong-type `fleet_id`
+  arguments are refused with `isError: true` and the documented message,
+  that an absent fleet returns the empty-collection envelope
+  (`{fleet_id, total:0, delivered:0, lost:0, still_running:0,
+  lost_agents:[], degraded_agents:[], results:[]}`), and that three seeded
+  agents (one `interrupted` lost, one `failed` with `result_contract: ok`
+  degraded, one `complete` delivered) return the correct tallies, the
+  `warning` that names the lost role, and the `lost_agents[0].meaning`
+  text that says "GONE … re-dispatch". This closes the unit-vs-boundary
+  gap the SDK cannot enforce. Suite 1778 → 1779.
+
 - **Section 9 authorization context-mismatch bounded subfamily.** Five new
   mandatory corpus cases (`authorization.context.{adapter,principal,audience,
   session_ref,sender}-mismatch`) prove that an authorization rule whose context
