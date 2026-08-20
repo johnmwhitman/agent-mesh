@@ -26,6 +26,28 @@ const localAdmissionCorpusCountDocs = [
   join(root, "docs", "A2A-HANDOFF-CURRENT.md"),
   join(root, "docs", "A2A-LOCAL-ADMISSION-PROFILE-v0.1.md"),
 ];
+const section9CoverageLedgerPath = join(
+  root,
+  "docs",
+  "ops",
+  "A2A-LOCAL-ADMISSION-COVERAGE-LEDGER-2026-07-29.md",
+);
+// Section 9 family names appear as the first column of the bounded-evidence table
+// in the coverage ledger. Order matches the source table so a future refactor that
+// renames a family row will surface here.
+const section9FamilyNames = [
+  "request-raw/path",
+  "independent-input",
+  "depth/numeric",
+  "precedence",
+  "envelope",
+  "evidence",
+  "binding",
+  "authorization",
+  "relativity",
+  "oracle/results",
+  "privacy",
+] as const;
 
 function evaluate(item: CorpusCase) {
   const calls: unknown[] = [];
@@ -420,4 +442,38 @@ test("local admission and sidecar stay offline, dormant, and outside renderer an
   assert.doesNotMatch(sidecarSource, /^\s*import /m);
   assert.doesNotMatch(witnessSource, /^\s*(?:from|import)\s+(?:sqlite3|socket|urllib|http|requests|subprocess)\b/m);
   assert.doesNotMatch(readFileSync(join(root, "package.json"), "utf8"), /static-harness-mapping|local-admission|replay-decision/);
+});
+
+test("Section 9 bounded-evidence table This-slice column stays machine-pin-able", () => {
+  const ledgerText = readFileSync(section9CoverageLedgerPath, "utf8");
+  // Slice out the bounded-evidence table only — between the header row and the
+  // first H2 ("## Authentication-evidence slice records" or similar). Tables
+  // elsewhere in the doc have different column counts; the bounded-evidence
+  // table is the unique one whose header is "| Section 9 family |".
+  const headerMatch = ledgerText.match(/^\|\s*Section 9 family\s*\|[\s\S]*?\n([\s\S]*?)\n##\s/m);
+  assert.ok(headerMatch, `${section9CoverageLedgerPath} must contain the Section 9 family table`);
+  const tableBody = headerMatch[1];
+  const rows = tableBody
+    .split(/\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith("|") && line.endsWith("|") && !line.startsWith("| ---"))
+    .map((line) => line.slice(1, -1).split("|").map((cell) => cell.trim()));
+  assert.equal(rows.length, section9FamilyNames.length, "Section 9 family table row count must equal expected family count");
+  for (const [i, row] of rows.entries()) {
+    assert.equal(row.length, 4, `Section 9 row ${i} must have exactly 4 cells (family, proof, slice, remaining gap)`);
+    assert.equal(row[0], section9FamilyNames[i], `Section 9 row ${i} family name must equal expected name`);
+    const sliceCell = row[2];
+    // The "This slice" column is either the em-dash placeholder ("—") meaning
+    // "no slice landed on this tree", or starts with the documented bounded
+    // marker ("**CLOSED bounded subfamily:**"). Any other content (freeform
+    // prose, a work-in-progress note, or a stray punctuation form) is a drift
+    // that breaks the machine-pin guarantee: future ticks should not need to
+    // pattern-match on freeform prose to know whether a slice is closed.
+    if (sliceCell === "—") continue;
+    assert.match(
+      sliceCell,
+      /^\*\*CLOSED bounded subfamily:\*\*/,
+      `Section 9 ${row[0]} row "This slice" cell must either be the em-dash placeholder or start with **CLOSED bounded subfamily:**, got: ${sliceCell}`,
+    );
+  }
 });
