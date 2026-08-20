@@ -6,6 +6,14 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 
 ### Added
 
+- **Real MCP stdio contract coverage for `get_receipts`.** The regression drives
+  the published tool through the SDK client, pins its advertised required-string
+  schema and missing/wrong-type refusals, proves an absent message returns an
+  empty receipt trail, and seeds the durable SQLite authority to verify filtered,
+  oldest-first acknowledgement and delivery receipt projection (including
+  notes). This closes one published-boundary gap that core-only receipt tests
+  could not detect. Suite 1778 → 1779.
+
 - **Section 9 authorization context-mismatch bounded subfamily.** Five new
   mandatory corpus cases (`authorization.context.{adapter,principal,audience,
   session_ref,sender}-mismatch`) prove that an authorization rule whose context
