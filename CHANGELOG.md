@@ -6,6 +6,27 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 
 ### Added
 
+- **HANDOFF.md cross-reference guard.** `scripts/run-tests.mjs` already pins
+  the `**N/N** tests` headline figure in HANDOFF.md against the measured suite
+  count (it reads the file, parses the headline, and fails the run if the two
+  disagree). A second drift shape it could NOT catch: a commit that bumps the
+  headline figure but leaves a prose mention at the old count — exactly what
+  happened on `train/20260820` at commit `137d4da` ("VERIFIED: train carries
+  binding row 0/256/257 closure (1785/1785, +1 family pin)"), which updated
+  the headline from 1784 → 1785 but left line 9 reading "the current
+  1784-test contract above". The headline-only guard passed; the file
+  contradicted itself. The new code sweeps the first 20 lines of HANDOFF.md
+  for every `(\d+)-test contract` and 4+ digit `\d+ tests` mention; any
+  number that disagrees with the headline fails the run with `HANDOFF.md
+  published baseline cross-reference is stale` and lists the stale prose so
+  the operator can see exactly which mention drifted. The sweep is bounded
+  to the contract summary so prior-release counts (base 1416, parity 1422,
+  etc.) below the summary window are not policed, and the 4-digit floor on
+  the prose-mention regex means short release-note phrases like "10 tests"
+  and "100 tests" are intentionally out of scope. New test:
+  `test/run-tests-handoff-cross-ref-guard.test.ts` pins the regex shapes,
+  the headline agreement check, and the synthetic-drift detection so a
+  future refactor cannot silently weaken the sweep. Suite 1778 → 1781.
 - **Section 9 authorization context-mismatch bounded subfamily.** Five new
   mandatory corpus cases (`authorization.context.{adapter,principal,audience,
   session_ref,sender}-mismatch`) prove that an authorization rule whose context

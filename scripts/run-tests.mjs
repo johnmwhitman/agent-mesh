@@ -242,4 +242,44 @@ if (Number(published[1]) !== measuredTotal || Number(published[2]) !== measuredT
   process.exit(1);
 }
 
+// Published-baseline cross-reference guard. The `**N/N**` headline is enforced above, but
+// HANDOFF.md also narrates the contract in prose ("the current N-test contract above", "N
+// tests collected", "N-test CI run", etc.). A line-4 bump that forgets to bump a prose
+// reference leaves a self-contradicting file that the headline guard alone cannot catch —
+// exactly the drift 137d4da (train/20260820) shipped: headline 1785/1785, prose still saying
+// "the current 1784-test contract above". Sweep the first 20 lines (the contract summary)
+// for every other `M-test contract` / `M tests` mention; any number that disagrees with
+// `published[1]` is a stale cross-reference and the run fails.
+//
+// Mitigations against false positives:
+//   * The sweep is bounded to lines 1-20 (the contract summary); the rest of the file (prior
+//     releases, base/parity snapshots, historical counts) is intentionally not policed.
+//   * The `M-test CI run` shape is excluded — that pattern refers to GitHub Actions runs and
+//     their nodejs-version matrices, not the contract.
+//   * The `M tests` shape only fires when M is a 4-digit figure > 1000 (so prose like "10
+//     tests" or "100 tests" in release notes is not policed; release notes below the
+//     summary window are also out of scope).
+const contractSummary = handoff.split("\n").slice(0, 20).join("\n");
+const staleRefs = [];
+const contractRefRe = /(\d+)-test contract/g;
+let m;
+while ((m = contractRefRe.exec(contractSummary)) !== null) {
+  if (Number(m[1]) !== Number(published[1])) staleRefs.push(`${m[1]}-test contract`);
+}
+const testsProseRe = /\b(\d{4,}) tests\b/g;
+while ((m = testsProseRe.exec(contractSummary)) !== null) {
+  if (Number(m[1]) !== Number(published[1])) staleRefs.push(`${m[1]} tests`);
+}
+if (staleRefs.length > 0) {
+  console.error(
+    `\nHANDOFF.md published baseline cross-reference is stale.\n` +
+      `  HANDOFF.md headline: **${published[1]}/${published[2]}** tests\n` +
+      `  Measured this run:   ${measured}\n` +
+      `  Stale prose in the first 20 lines: ${staleRefs.join(", ")}\n\n` +
+      `The headline figure is correct; the prose mention was missed. Update every other\n` +
+      `numeric reference in the contract summary to match the measured total.\n`,
+  );
+  process.exit(1);
+}
+
 process.exit(0);
