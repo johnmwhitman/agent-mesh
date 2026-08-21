@@ -4,14 +4,14 @@ Status: bounded offline evidence only. This ledger records executable coverage,
 not profile conformance, authority, acceptance, persistence, delivery, or
 transport capability.
 
-Base reviewed: `137d4da` (train/20260820). Corpus: 70 mandatory raw-text cases in
+Base reviewed: `137d4da` (train/20260820). Corpus: 77 mandatory raw-text cases in
 `test/fixtures/a2a/local-admission/v0.1/corpus.json`; every case is evaluated by
 the TypeScript implementation and mandatory Python witness with exact result
 bytes, replay call count, and replay arguments.
 
 | Section 9 family | Existing executable proof | This slice | Remaining exact gap |
 | --- | --- | --- | --- |
-| request-raw/path | byte 262143/262144/262145; one surrogate, malformed JSON, duplicate key, fraction, depth, and malformed unknown-child representatives | — | BOM, whitespace/comment/trailing variants, literal/escaped duplicates in every request object, and every safe-path class |
+\| request-raw/path | byte 262143/262144/262145; one surrogate, malformed JSON, duplicate key, fraction, depth, and malformed unknown-child representatives | **4C-1 slice:** BOM-at-start + leading TAB + JS `//` line-comment prefix + JS `/* * /` block-comment prefix + trailing LF TAB LF + leading CR + BOM-only | literal/escaped duplicates in every request object, and every safe-path class |
 | independent-input | raw-text-only inputs and no request `envelope` member; representative request-before-envelope ordering | — | independent depth/byte collision vectors and double-encoding vectors |
 | depth/numeric | representative request depth and fraction; 4A retains its own vectors | — | request depth 8/9 and negative, `-0`, exponent, unsafe-integer boundaries |
 | precedence | representative request, envelope, denial, replay, and expiry ordering | — | mutation canary for each adjacent A00-A13 pair |
@@ -22,6 +22,18 @@ bytes, replay call count, and replay arguments.
 | relativity | plan only reports fixture IDs/versions | — | decision changes caused by changed fixtures |
 | oracle/results | all four non-admission verdicts, unavailable, throw, unseen plan, unseen-only expiry, and exact query | — | malformed oracle case and every rejected-code inventory |
 | privacy | offline/import-surface checks and closed sidecar fixtures | — | dedicated ignored-input/diagnostic-invariance matrix |
+
+## Request-boundary slice records (4C-1)
+
+| Case ID | Required outcome | Replay calls |
+| --- | --- | --- |
+| `request.bom-at-start` | `INVALID_UTF8` at `$` (BOM `\uFEFF` triggers the parseRequest line-477 explicit short-circuit `value.charCodeAt(0) === 0xfeff` BEFORE the scanner sees the BOM) | 0 |
+| `request.leading-whitespace-tab` | `admission_plan` with the unchanged 4A digest (TAB 0x09 is in the scanner whitespace set; `JSON.parse` accepts leading tab whitespace) | 1 |
+| `request.js-line-comment-prefix` | `MALFORMED_JSON` at `$` (stdio `JSON.parse` rejects `// hi\n<base>` with "Expecting value") | 0 |
+| `request.js-block-comment-prefix` | `MALFORMED_JSON` at `$` (stdio `JSON.parse` rejects `/* hi *\/ <base>` with "Unexpected token") | 0 |
+| `request.trailing-whitespace-multiple` | `admission_plan` with the unchanged 4A digest (trailing LF TAB LF: all in the scanner whitespace set + `JSON.parse` accepts trailing JSON whitespace) | 1 |
+| `request.leading-carriage-return` | `admission_plan` with the unchanged 4A digest (CR 0x0d is in the scanner whitespace set; `JSON.parse` accepts leading CR whitespace) | 1 |
+| `request.bom-only` | `INVALID_UTF8` at `$` (lone BOM is non-JSON; it triggers the same line-477 short-circuit before the scanner runs) | 0 |
 
 ## Authentication-evidence slice records
 

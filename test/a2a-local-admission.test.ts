@@ -207,6 +207,119 @@ test("the 2048-rule profile row exceeds the raw request ceiling by authorization
   assert.ok(216 * 2048 > 262144, "2048 minimum authorization rules exceed the request cap before array punctuation or request fields");
 });
 
+test("request-boundary corpus pin covers the BOM/leading-CR/leading-TAB/js-comment-prefix/trailing-multiple slice (4C-1)", () => {
+  // Filter by id prefix so the request-boundary row stays correct after later
+  // slices append additional cases at the end of the corpus (mirrors the
+  // binding rules-count closure test shape at line ~210).
+  const requestBoundaryCases = corpus.cases.filter((item) => item.id.startsWith("request.") &&
+    [
+      "request.bom-at-start",
+      "request.leading-whitespace-tab",
+      "request.js-line-comment-prefix",
+      "request.js-block-comment-prefix",
+      "request.trailing-whitespace-multiple",
+      "request.leading-carriage-return",
+      "request.bom-only",
+    ].includes(item.id));
+  assert.deepEqual(
+    requestBoundaryCases.map((item) => item.id),
+    [
+      "request.bom-at-start",
+      "request.leading-whitespace-tab",
+      "request.js-line-comment-prefix",
+      "request.js-block-comment-prefix",
+      "request.trailing-whitespace-multiple",
+      "request.leading-carriage-return",
+      "request.bom-only",
+    ],
+  );
+  // 7 cases. Mirror the binding rules-count test's stripPrivate pattern.
+  const stripPrivate = (expected: Record<string, unknown>) => {
+    const out: Record<string, unknown> = {};
+    for (const k of Object.keys(expected)) {
+      if (!k.startsWith("_")) out[k] = (expected as Record<string, unknown>)[k]!;
+    }
+    return out;
+  };
+  assert.deepEqual(
+    requestBoundaryCases.map((item) => stripPrivate(item.expected as Record<string, unknown>)),
+    [
+      // BOM (\uFEFF) prefix: parseRequest short-circuits with INVALID_UTF8 at $
+      // (line 477 explicit BOM check: value.charCodeAt(0) === 0xfeff), so the
+      // BOM character never reaches the scanner character-switch.
+      { result: { kind: "rejected", code: "INVALID_UTF8", field_path: "$" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+      // leading TAB: 0x09 is in the scanner whitespace set (0x20/0x09/0x0a/0x0d)
+      // -> admission_plan with the unchanged 4A digest.
+      { result: corpus.cases[0]!.expected.result, replay_oracle_calls: 1, replay_oracle_arguments: [{
+        principal_ref: "principal-ref",
+        request_id: "request-ref",
+        sender: { namespace: "local", agent_id: "agent-a" },
+        message_id: "message-ref",
+        envelope_digest: (corpus.cases[0]!.expected.result as { kind: "admission_plan"; envelope_digest: string }).envelope_digest,
+      }] },
+      // JS "// hi\n<base>": not legal JSON (stdlib JSON.parse rejects
+      // "Expecting value"); scanner character-switch matches no branch
+      // -> MALFORMED_JSON at $.
+      { result: { kind: "rejected", code: "MALFORMED_JSON", field_path: "$" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+      // JS "/* hi *\/ <base>": not legal JSON (stdlib JSON.parse rejects
+      // "Unexpected token"); scanner character-switch matches no branch
+      // -> MALFORMED_JSON at $.
+      { result: { kind: "rejected", code: "MALFORMED_JSON", field_path: "$" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+      // trailing LF TAB LF: trailing whitespace in the same set is accepted
+      // by the scanner + stdlib JSON.parse -> admission_plan with unchanged 4A digest.
+      { result: corpus.cases[0]!.expected.result, replay_oracle_calls: 1, replay_oracle_arguments: [{
+        principal_ref: "principal-ref",
+        request_id: "request-ref",
+        sender: { namespace: "local", agent_id: "agent-a" },
+        message_id: "message-ref",
+        envelope_digest: (corpus.cases[0]!.expected.result as { kind: "admission_plan"; envelope_digest: string }).envelope_digest,
+      }] },
+      // leading CR: 0x0d is in the scanner whitespace set -> admission_plan.
+      { result: corpus.cases[0]!.expected.result, replay_oracle_calls: 1, replay_oracle_arguments: [{
+        principal_ref: "principal-ref",
+        request_id: "request-ref",
+        sender: { namespace: "local", agent_id: "agent-a" },
+        message_id: "message-ref",
+        envelope_digest: (corpus.cases[0]!.expected.result as { kind: "admission_plan"; envelope_digest: string }).envelope_digest,
+      }] },
+      // BOM-only: lone BOM triggers the same line-477 INVALID_UTF8 short-circuit.
+      { result: { kind: "rejected", code: "INVALID_UTF8", field_path: "$" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+    ],
+  );
+  // Per-case literal boundary proof: confirm the exact first / last character
+  // of each generated request_json matches the bounded-subfamily name.
+  for (const item of requestBoundaryCases) {
+    const rj = item.invocation_args.request_json;
+    if (item.id === "request.bom-at-start") {
+      assert.equal(rj.charCodeAt(0), 0xfeff, `${item.id} must start with U+FEFF BOM`);
+    }
+    if (item.id === "request.leading-whitespace-tab") {
+      assert.equal(rj.charCodeAt(0), 0x09, `${item.id} must start with U+0009 TAB`);
+    }
+    if (item.id === "request.js-line-comment-prefix") {
+      assert.equal(rj.slice(0, 2), "//", `${item.id} must start with "//"`);
+    }
+    if (item.id === "request.js-block-comment-prefix") {
+      assert.equal(rj.slice(0, 2), "/*", `${item.id} must start with "/*"`);
+    }
+    if (item.id === "request.trailing-whitespace-multiple") {
+      // trailing LF TAB LF (three bytes: 0x0a, 0x09, 0x0a)
+      assert.deepEqual(
+        [rj.charCodeAt(rj.length - 3), rj.charCodeAt(rj.length - 2), rj.charCodeAt(rj.length - 1)],
+        [0x0a, 0x09, 0x0a],
+        `${item.id} must end with LF TAB LF`,
+      );
+    }
+    if (item.id === "request.leading-carriage-return") {
+      assert.equal(rj.charCodeAt(0), 0x0d, `${item.id} must start with U+000D CR`);
+    }
+    if (item.id === "request.bom-only") {
+      assert.equal(rj.length, 1, `${item.id} must be the singleton BOM`);
+      assert.equal(rj.charCodeAt(0), 0xfeff, `${item.id} must be a single U+FEFF BOM`);
+    }
+  }
+});
+
 test("binding rules-count covers the 0/256/257 cardinality boundary for binding_snapshot.rules", () => {
   // Filter by id prefix so the binding rules-count row stays correct after
   // later slices (e.g. authorization snapshot/rule field/grammar) append
