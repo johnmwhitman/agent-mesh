@@ -1,34 +1,66 @@
 #!/usr/bin/env node
-// Build the binding-rules-count corpus addition: 3 new mandatory cases pinning
-// the binding rule-count boundary (lines src/a2a/local-admission.ts:389):
-//   - 0 rules -> AUTHORIZATION_DENIED at $ (no rule matches, line 551)
-//   - 256 rules (max valid) -> admission_plan with the unchanged 4A digest
-//   - 257 rules -> INVALID_BINDING_SNAPSHOT at $.binding_snapshot.rules
-// Usage: node scripts/gen-binding-rules-count-cases.mjs > /tmp/binding-rules-count-new-cases.json
-//
-// Re-homed onto origin/main (49-case baseline including the five
-// authorization.context.* cases from tick-127). The pristine sentinel
-// (`/tmp/corpus-pristine-49.json`) is extracted from origin/main's
-// test/fixtures/a2a/local-admission/v0.1/corpus.json so the script remains
-// idempotent against the current main branch.
-import { readFileSync, existsSync } from "node:fs";
+/**
+ * gen-binding-rules-count-cases.mjs
+ *
+ * Tick-158 refactor: rebuild the binding rule-count corpus on top of the
+ * in-repo pristine sentinel (`test/fixtures/a2a/local-admission/v0.1/
+ * corpus.json.pristine-49`).
+ *
+ * Three new mandatory cases pin the binding rule-count boundary
+ * (src/a2a/local-admission.ts:389):
+ *   - 0 rules   -> AUTHORIZATION_DENIED at $ (no rule matches, line 551)
+ *   - 256 rules -> admission_plan with the unchanged 4A digest
+ *   - 257 rules -> INVALID_BINDING_SNAPSHOT at $.binding_snapshot.rules
+ *
+ * Pure-node-fs design mirroring the 984465e (auth-snapshot) writer pattern:
+ *   - reads the in-repo pristine-49 fixture as the integrity baseline
+ *   - appends the three new cases to `corpus.json`
+ *   - refuses to partial-splice / re-run (if the corpus is already 52 or
+ *     longer, abort with a precise count + id diff)
+ * No `/tmp` sentinel, no `bash -c`, no `git show origin/main:...`.
+ * Run from `scripts/splice-binding-rules-count-cases.mjs` (which makes the
+ * pristine-49 backup of the current corpus first and then `await import()`s
+ * this script).
+ */
+import { readFileSync, writeFileSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const corpusPath = new URL("../test/fixtures/a2a/local-admission/v0.1/corpus.json", import.meta.url);
+const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+const corpusPath = join(root, "test", "fixtures", "a2a", "local-admission", "v0.1", "corpus.json");
+const pristinePath = join(root, "test", "fixtures", "a2a", "local-admission", "v0.1", "corpus.json.pristine-49");
+
 const corpus = JSON.parse(readFileSync(corpusPath, "utf8"));
+const pristine = JSON.parse(readFileSync(pristinePath, "utf8"));
+
+// Integrity: pristine must be exactly the 49-case origin/main state.
+if (pristine.cases.length !== 49) {
+  throw new Error(`pristine sentinel must be 49 cases, got ${pristine.cases.length}`);
+}
+
+// Integrity: current corpus must still BE the pristine 49-case state.
+// If it's already spliced (52) or drifted, refuse loudly — never partial-splice.
+if (corpus.cases.length !== pristine.cases.length) {
+  throw new Error(
+    `corpus already spliced or drifted: cases=${corpus.cases.length}, pristine=${pristine.cases.length} ` +
+      `(this writer is single-shot; re-running on a 49-case baseline only)`,
+  );
+}
+if (corpus.mandatory_case_ids.length !== pristine.mandatory_case_ids.length) {
+  throw new Error(
+    `mandatory_case_ids drift: corpus=${corpus.mandatory_case_ids.length}, pristine=${pristine.mandatory_case_ids.length}`,
+  );
+}
+for (let i = 0; i < pristine.cases.length; i += 1) {
+  if (corpus.cases[i].id !== pristine.cases[i].id) {
+    throw new Error(
+      `case[${i}].id drift: corpus="${corpus.cases[i].id}", pristine="${pristine.cases[i].id}"`,
+    );
+  }
+}
+
 const base = corpus.cases.find((c) => c.id === "valid.admission-plan");
 if (!base) throw new Error("baseline valid.admission-plan missing");
-
-// pristine-49 sentinel (other lane generators also use a pristine-X sentinel;
-// this script is idempotent and refuses partial splicing so we never
-// accidentally half-splice a count).
-const pristineSentinel = "/tmp/corpus-pristine-49.json";
-if (!existsSync(pristineSentinel)) {
-  const repoRoot = new URL("..", import.meta.url).pathname;
-  const { execFileSync } = await import("node:child_process");
-  execFileSync("bash", ["-c", `git -C "${repoRoot}" show origin/main:test/fixtures/a2a/local-admission/v0.1/corpus.json > ${pristineSentinel}`]);
-}
-const pristine = JSON.parse(readFileSync(pristineSentinel, "utf8"));
-if (pristine.cases.length !== 49) throw new Error(`pristine sentinel must be 49 cases, got ${pristine.cases.length}`);
 
 const baseReq = JSON.parse(base.invocation_args.request_json);
 const baseEnv = JSON.parse(base.invocation_args.envelope_json);
@@ -72,7 +104,6 @@ cases.push(mk(
   (r) => { r.binding_snapshot.rules = []; },
   null,
   DENIED,
-  // 0 binding rules; no rule matches the (adapter_id, principal_ref, audience, session_ref) tuple -> AUTHORIZATION_DENIED@$.
 ));
 
 // ---- 256 rules: max valid count ----
@@ -122,7 +153,6 @@ cases.push(mk(
       envelope_digest: basePlan.envelope_digest,
     }],
   },
-  // 256 binding rules (max valid); original matching rule at index 0 plus 255 unique non-matching rules; find returns the matching rule -> admission_plan with unchanged 4A digest.
 ));
 
 // ---- 257 rules: one beyond the cap ----
@@ -142,7 +172,6 @@ cases.push(mk(
   (r) => { r.binding_snapshot.rules = [...r.binding_snapshot.rules, ...extra257Rules]; },
   null,
   INVALID_BINDING("$.binding_snapshot.rules"),
-  // 257 binding rules (cap exceeded); line 389 length check rejects with INVALID_BINDING_SNAPSHOT at $.binding_snapshot.rules.
 ));
 
 // Refuse partial splice: every id in `cases` must be unique AND not already present.
@@ -153,6 +182,10 @@ for (const c of cases) {
   if (existingMandatory.has(c.id)) throw new Error(`dup id ${c.id} already in mandatory_case_ids`);
 }
 
-// stdout: the new cases array (idempotent re-run produces same output as long as
-// the corpus still starts from the 49-case base)
-process.stdout.write(JSON.stringify(cases, null, 2) + "\n");
+// Splice: append in the same order as the generator emitted them.
+const newIds = cases.map((c) => c.id);
+corpus.cases = [...corpus.cases, ...cases];
+corpus.mandatory_case_ids = [...corpus.mandatory_case_ids, ...newIds];
+
+writeFileSync(corpusPath, `${JSON.stringify(corpus)}\n`, "utf8");
+console.log(`Spliced ${newIds.length} binding-rules-count cases (corpus ${pristine.cases.length} -> ${corpus.cases.length}).`);
