@@ -158,6 +158,88 @@ test("the 2048-rule profile row exceeds the raw request ceiling by authorization
   assert.ok(216 * 2048 > 262144, "2048 minimum authorization rules exceed the request cap before array punctuation or request fields");
 });
 
+test("request depth-cap-threshold pin covers the 8/9 boundary for the local-admission parser", () => {
+  // The request parser enforces MAX_REQUEST_DEPTH = 8 (src/a2a/local-admission.ts:12
+  // and the depth guard at line 147: `if (depth > MAX_REQUEST_DEPTH) this.problem("MAX_DEPTH_EXCEEDED", knownPath)`).
+  // The pre-existing `request.depth-exceeded` case proves depth > 8 is rejected.
+  // It does NOT prove the boundary is exactly `> 8` rather than `> 7` or `> 9`.
+  // The depth-threshold-pin pair (request.depth-8, request.depth-9) fills the
+  // remaining boundary cells:
+  //   - request.depth-8: a request that recurses to depth 8 (six `{x:..}` wrappers
+  //     around a `{v:0}` leaf nested under authentication_evidence). The parser
+  //     advances past the depth=8 guard; the post-parse semantic check then
+  //     rejects with INVALID_AUTHENTICATION_EVIDENCE because the leaf replaces
+  //     the required `adapter_id` string. Proves the cap is NOT `> 7`.
+  //   - request.depth-9: a request that recurses one level deeper so the depth
+  //     guard fires at depth=9 with MAX_DEPTH_EXCEEDED at $.authentication_evidence.
+  //     Proves the cap is NOT `> 8`.
+  // Together the pair pins the request depth cap as exactly `> 8` (a depth=8
+  // nested object is parseable; a depth=9 nested object is not).
+  //
+  // Use id-keyed lookups so a future corpus reorganization (sort-by-id,
+  // prepend, etc) does not silently break the depth-count assertions.
+  const TWO_NEW_IDS = ["request.depth-8", "request.depth-9"];
+  for (const id of TWO_NEW_IDS) {
+    assert.ok(
+      corpus.cases.some((c) => c.id === id),
+      `corpus must contain ${id}`,
+    );
+  }
+  // Last-two-window assertion covers the verbatim insertion order (the
+  // splice scripts append in id order; if a sibling slice ever reorders the
+  // tail, this assertion fails loudly so a reviewer can re-pin by id).
+  const lastTwoIds = corpus.cases.slice(-2).map((c) => c.id);
+  assert.deepEqual(lastTwoIds, ["request.depth-8", "request.depth-9"]);
+  const stripPrivate = (expected: Record<string, unknown>) => {
+    const out: Record<string, unknown> = {};
+    for (const k of Object.keys(expected)) {
+      if (!k.startsWith("_")) out[k] = (expected as Record<string, unknown>)[k]!;
+    }
+    return out;
+  };
+  const byId = (id: string) => {
+    const item = corpus.cases.find((c) => c.id === id);
+    assert.ok(item, `${id} missing`);
+    return item!;
+  };
+  // Depth-8: parse succeeds, field-level check fires (adapter_id replaced by
+  // the nested `{v:0}` leaf). The id-keyed assertion is robust to corpus
+  // reordering.
+  assert.deepEqual(
+    stripPrivate(byId("request.depth-8").expected as Record<string, unknown>),
+    { result: { kind: "rejected", code: "INVALID_AUTHENTICATION_EVIDENCE", field_path: "$.authentication_evidence.adapter_id" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+    "request.depth-8 must reject at field-level after passing the depth=8 guard",
+  );
+  // Depth-9: parse-time depth guard fires.
+  assert.deepEqual(
+    stripPrivate(byId("request.depth-9").expected as Record<string, unknown>),
+    { result: { kind: "rejected", code: "MAX_DEPTH_EXCEEDED", field_path: "$.authentication_evidence" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+    "request.depth-9 must hit the depth guard",
+  );
+  // Per-case depth-count proof: confirm the literal nested depth of the
+  // authentication_evidence chain matches the bounded-subfamily name. The
+  // id-keyed expected-result assertions are robust to corpus reordering, but
+  // the literal count check still proves the fixture shape itself.
+  const chainDepth = (req: { authentication_evidence: unknown }): number => {
+    let depth = 2; // root (1) + authentication_evidence (2)
+    let node: unknown = req.authentication_evidence;
+    while (node !== null && typeof node === "object" && !Array.isArray(node)) {
+      const keys = Object.keys(node);
+      if (keys.length === 0) break;
+      const key = keys[0]!;
+      depth += 1;
+      node = (node as Record<string, unknown>)[key];
+    }
+    return depth;
+  };
+  for (const id of TWO_NEW_IDS) {
+    const req = JSON.parse(byId(id).invocation_args.request_json) as { authentication_evidence: unknown };
+    const d = chainDepth(req);
+    if (id === "request.depth-8") assert.equal(d, 8, `${id} must recurse to parse depth 8`);
+    if (id === "request.depth-9") assert.equal(d, 9, `${id} must recurse to parse depth 9`);
+  }
+});
+
 test("local admission evaluates every required corpus record with exact output bytes and replay evidence", () => {
   for (const item of corpus.cases) {
     const actual = evaluate(item);

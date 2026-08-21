@@ -450,7 +450,7 @@ every case. Required families are:
 | oracle/results | six verdicts, throw/malformed; exact call arguments; sole success; five dispositions; every rejected code; no uppercase/generic replay; no second digest/extra field |
 | privacy | capability/profile/proof/model/runtime/receipt/conformance/provider/environment/secret input cannot affect authorization or diagnostics |
 
-The current evidence-alpha corpus has 49 mandatory cases. It proves the closed
+The current evidence-alpha corpus has 51 mandatory cases. It proves the closed
 one-operation raw boundary, all replay verdict mappings, representative
 precedence and denial, exact TypeScript/Python bytes, recipient-order
 normalization, byte-limit edges, authorization message-type and recipient
