@@ -26,6 +26,28 @@ const localAdmissionCorpusCountDocs = [
   join(root, "docs", "A2A-HANDOFF-CURRENT.md"),
   join(root, "docs", "A2A-LOCAL-ADMISSION-PROFILE-v0.1.md"),
 ];
+const coverageLedgerPath = join(root, "docs", "ops", "A2A-LOCAL-ADMISSION-COVERAGE-LEDGER-2026-07-29.md");
+const namedInventoryBranchNames = [
+  "feat/request-raw-path-gates-20260818",
+  "feat/request-raw-path-per-object-gates-20260818",
+  "feat/request-raw-path-cross-object-gates-20260818",
+  "feat/independent-input-gates-20260818",
+  "feat/depth-numeric-gates-20260818",
+  "feat/envelope-member-gates-20260817",
+  "feat/envelope-path-precision-20260817",
+  "feat/evidence-field-gates-20260817",
+  "feat/evidence-field-grammar-20260818",
+  "feat/binding-grammar-gaps-20260817",
+  "feat/binding-interval-edges-20260818",
+  "feat/binding-rules-count-gates-20260818",
+  "feat/binding-slice-20260817",
+  "feat/authorization-snapshot-gates-20260817",
+  "feat/auth-context-gates-20260818",
+  "feat/relativity-changed-fixtures-20260818",
+  "feat/oracle-malformed-gates-20260818",
+  "feat/rejected-code-inventory-20260817",
+  "feat/privacy-invariance-matrix-20260817",
+];
 
 function evaluate(item: CorpusCase) {
   const calls: unknown[] = [];
@@ -64,6 +86,17 @@ test("stable local-admission case-count prose reconciles against the canonical c
       text,
       new RegExp(`\\b${corpus.cases.length}\\s+mandatory cases\\b`),
       `${path} must state the canonical local-admission corpus count`,
+    );
+  }
+});
+
+test("coverage-ledger named inventory pins the 19 merge-ready Section 9 closure branches", () => {
+  const text = readFileSync(coverageLedgerPath, "utf8");
+  for (const name of namedInventoryBranchNames) {
+    assert.match(
+      text,
+      new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+      `coverage-ledger must name the merge-ready branch ${name} (Section 9 named inventory)`,
     );
   }
 });

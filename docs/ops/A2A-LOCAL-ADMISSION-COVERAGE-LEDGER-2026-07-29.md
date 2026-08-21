@@ -23,6 +23,38 @@ bytes, replay call count, and replay arguments.
 | oracle/results | all four non-admission verdicts, unavailable, throw, unseen plan, unseen-only expiry, and exact query | — | malformed oracle case and every rejected-code inventory |
 | privacy | offline/import-surface checks and closed sidecar fixtures | — | dedicated ignored-input/diagnostic-invariance matrix |
 
+## Merge-ready branches (named inventory)
+
+Each Section 9 family has a specific closure branch that is merge-ready but
+not yet carried onto this base. The branches live as topic branches on the
+local repository; the test `coverage-ledger named inventory pins the 19
+merge-ready Section 9 closure branches` in `test/a2a-local-admission.test.ts`
+asserts that every name below stays referenced in this ledger. A future
+refactor that drops a branch from this table will fail the test, surfacing
+the coverage-ledger→family link that the named inventory pins.
+
+| Section 9 family | Merge-ready branch |
+| --- | --- |
+| request-raw/path | `feat/request-raw-path-gates-20260818` |
+| request-raw/path (per-object) | `feat/request-raw-path-per-object-gates-20260818` |
+| request-raw/path (cross-object) | `feat/request-raw-path-cross-object-gates-20260818` |
+| independent-input | `feat/independent-input-gates-20260818` |
+| depth/numeric | `feat/depth-numeric-gates-20260818` |
+| envelope (member) | `feat/envelope-member-gates-20260817` |
+| envelope (path) | `feat/envelope-path-precision-20260817` |
+| evidence (field) | `feat/evidence-field-gates-20260817` |
+| evidence (grammar) | `feat/evidence-field-grammar-20260818` |
+| binding (grammar/gaps) | `feat/binding-grammar-gaps-20260817` |
+| binding (interval edges) | `feat/binding-interval-edges-20260818` |
+| binding (rules count) | `feat/binding-rules-count-gates-20260818` |
+| binding (slice) | `feat/binding-slice-20260817` |
+| authorization (snapshot) | `feat/authorization-snapshot-gates-20260817` |
+| authorization (context) | `feat/auth-context-gates-20260818` |
+| relativity | `feat/relativity-changed-fixtures-20260818` |
+| oracle/results | `feat/oracle-malformed-gates-20260818` |
+| oracle/results (rejected codes) | `feat/rejected-code-inventory-20260817` |
+| privacy | `feat/privacy-invariance-matrix-20260817` |
+
 ## Authentication-evidence slice records
 
 | Case IDs | Required outcome | Replay calls |
