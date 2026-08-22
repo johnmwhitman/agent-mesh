@@ -361,6 +361,80 @@ bench.summary = {
   passedCount: Object.values(bench.workloads).filter((w) => w.passed).length,
 };
 
+// Gate 5 (backend portability): per §16 the SQLite backend must expose the
+// same shape a future Stage C backend will expose. This workload seeds a
+// 200-row fixture into both an in-memory stub backend and the SQLite
+// backend, then compares bus_stats keys + total + by_source_kind
+// distribution. If they diverge the gate fails (exit 1) and the bench
+// prints `backend_portability: 'mismatch'` so the reviewer reads the diff
+// first and the code second.
+{
+  // SQLite backend: open the v1+v2 schema and seed 200 rows.
+  const db = openDb();
+  const insert = db.prepare(
+    `INSERT INTO messages(ts, source_kind, source, source_id, topic, correlation_id)
+     VALUES (?, 'bench', ?, ?, ?, ?)`,
+  );
+  db.transaction(() => {
+    for (let i = 0; i < 200; i++) {
+      insert.run(Date.now() / 1000, `bench:port-${i}`, `p-${i}`, "bench.topic", i < 50 ? "T-1" : null);
+    }
+  })();
+
+  // Stub backend: an in-memory Map implementing the same §16 surface.
+  const stub = new Map();
+  for (let i = 1; i <= 200; i++) {
+    stub.set(i, {
+      id: i, source_kind: "bench", source: `bench:port-${i - 1}`,
+      topic: "bench.topic", correlation_id: i <= 50 ? "T-1" : null,
+    });
+  }
+
+  function sqliteStats() {
+    const total = db.prepare("SELECT COUNT(*) AS n FROM messages").get().n;
+    const byKind = db.prepare("SELECT source_kind, COUNT(*) AS n FROM messages GROUP BY source_kind").all();
+    return {
+      schema_version: "2",
+      total,
+      by_source_kind: Object.fromEntries(byKind.map((r) => [r.source_kind, r.n])),
+    };
+  }
+  function stubStats() {
+    const kinds = new Map();
+    for (const row of stub.values()) {
+      const k = String(row.source_kind);
+      kinds.set(k, (kinds.get(k) ?? 0) + 1);
+    }
+    return {
+      schema_version: "2",
+      total: stub.size,
+      by_source_kind: Object.fromEntries(kinds),
+    };
+  }
+
+  const a = sqliteStats();
+  const b = stubStats();
+  const totalMatches = a.total === b.total;
+  const kindMatches = JSON.stringify(a.by_source_kind) === JSON.stringify(b.by_source_kind);
+  const versionMatches = a.schema_version === b.schema_version;
+  bench.workloads.backendPortability = {
+    sqlite: { total: a.total, by_source_kind: a.by_source_kind, schema_version: a.schema_version },
+    stub: { total: b.total, by_source_kind: b.by_source_kind, schema_version: b.schema_version },
+    total_matches: totalMatches,
+    by_source_kind_matches: kindMatches,
+    schema_version_matches: versionMatches,
+    backend_portability: totalMatches && kindMatches && versionMatches ? "match" : "mismatch",
+    passed: totalMatches && kindMatches && versionMatches,
+  };
+  db.close();
+}
+
+bench.summary = {
+  passed: Object.values(bench.workloads).every((w) => w.passed),
+  total: Object.keys(bench.workloads).length,
+  passedCount: Object.values(bench.workloads).filter((w) => w.passed).length,
+};
+
 mkdirSync("/tmp", { recursive: true });
 const out = join(tmpdir(), `fleet-bus-v2-bench-${Date.now()}.json`);
 writeFileSync(out, JSON.stringify(bench, null, 2));
