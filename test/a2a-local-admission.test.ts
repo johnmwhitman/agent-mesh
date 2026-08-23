@@ -322,12 +322,14 @@ test("request-boundary corpus pin covers the BOM/leading-CR/leading-TAB/js-comme
 
 test("request-boundary reject-code text invariants pin whitespace, punctuation, and capitalization (4C-2)", () => {
   // 4C-2 slice: collect the error-message fixtures emitted by the
-  // request-boundary subfamily (4 of the 7 4C-1 cases reject at $) and pin
+  // request-boundary subfamily (all 21 request.* cases that reject) and pin
   // their text-shape invariants. The 4C-1 test pins the literal bytes of
-  // each code + field_path via deepEqual; 4C-2 pins the SEMANTIC shape
-  // (whitespace, punctuation, capitalization) so a refactor that changed
-  // "INVALID_UTF8" to "InvalidUtf8" or "INVALID-UTF8" or " INVALID_UTF8"
-  // would be caught here even if the deepEqual accidentally still passed.
+  // the 4C-1 subfamily (BOM/whitespace/comment, 4 of those 7 reject at $);
+  // 4C-2 pins the SEMANTIC shape (whitespace, punctuation, capitalization)
+  // AND the literal code + field_path bytes for the ENTIRE request-boundary
+  // reject family, so a refactor that changed "INVALID_UTF8" to
+  // "InvalidUtf8" or "INVALID-UTF8" or " INVALID_UTF8" would be caught
+  // here even if the deepEqual accidentally still passed.
   //
   // Filter by id prefix AND by kind === "rejected" so the row stays correct
   // after later slices append additional request-boundary cases (mirrors
@@ -337,40 +339,96 @@ test("request-boundary reject-code text invariants pin whitespace, punctuation, 
   // so they are out of scope for this text-invariant row.
   const requestBoundaryRejectCases = corpus.cases.filter((item) =>
     item.id.startsWith("request.") &&
-    [
-      "request.bom-at-start",
-      "request.leading-whitespace-tab",
-      "request.js-line-comment-prefix",
-      "request.js-block-comment-prefix",
-      "request.trailing-whitespace-multiple",
-      "request.leading-carriage-return",
-      "request.bom-only",
-    ].includes(item.id) &&
     (item.expected.result as { kind: string }).kind === "rejected"
   );
+  // Closure pin: exactly 21 request.*-rejected cases in the corpus today.
+  // If a later slice adds or removes a request-boundary reject case, this
+  // deepEqual fails first so the row is updated deliberately rather than
+  // silently drifting.
   assert.deepEqual(
     requestBoundaryRejectCases.map((item) => item.id),
     [
+      "request.too-large",
+      "request.invalid-utf8-surrogate",
+      "request.malformed-json",
+      "request.duplicate-key",
+      "request.depth-exceeded",
+      "request.invalid-root",
+      "request.missing-required",
+      "request.unknown-core",
+      "request.unsupported-version",
+      "request.invalid-evaluation",
+      "request.invalid-request-id",
+      "request.invalid-action",
+      "request.number-fraction",
+      "request.unknown-malformed-child",
+      "request.byte-262143",
+      "request.byte-262144",
+      "request.byte-262145",
       "request.bom-at-start",
       "request.js-line-comment-prefix",
       "request.js-block-comment-prefix",
       "request.bom-only",
     ],
-    "4C-2 row expects exactly 4 reject cases from the request-boundary subfamily",
+    "4C-2 row expects exactly 21 reject cases from the request-boundary subfamily (closure pin)",
   );
-  // Pin the exact bytes of the reject codes for the 4C-2 subfamily.
+  // Pin the exact bytes of the reject codes for the full 4C-2 subfamily.
   // A refactor that drops the underscore (e.g. "INVALIDUTF8") or adds
   // punctuation (e.g. "INVALID_UTF8.") would fail this deepEqual before
   // it ever reached the regex shape assertion below.
   assert.deepEqual(
     requestBoundaryRejectCases.map((item) => (item.expected.result as { code: string }).code),
-    ["INVALID_UTF8", "MALFORMED_JSON", "MALFORMED_JSON", "INVALID_UTF8"],
-    "4C-2 reject codes must be exactly the SCREAMING_SNAKE_CASE literals (INVALID_UTF8, MALFORMED_JSON)",
+    [
+      "REQUEST_TOO_LARGE",
+      "INVALID_UTF8",
+      "MALFORMED_JSON",
+      "DUPLICATE_JSON_KEY",
+      "MAX_DEPTH_EXCEEDED",
+      "INVALID_REQUEST",
+      "MISSING_REQUIRED_FIELD",
+      "UNKNOWN_CORE_FIELD",
+      "UNSUPPORTED_PROFILE_VERSION",
+      "INVALID_EVALUATION_TIME",
+      "INVALID_REQUEST_ID",
+      "INVALID_REQUEST",
+      "MALFORMED_JSON",
+      "MALFORMED_JSON",
+      "UNKNOWN_CORE_FIELD",
+      "UNKNOWN_CORE_FIELD",
+      "REQUEST_TOO_LARGE",
+      "INVALID_UTF8",
+      "MALFORMED_JSON",
+      "MALFORMED_JSON",
+      "INVALID_UTF8",
+    ],
+    "4C-2 reject codes must be exactly the SCREAMING_SNAKE_CASE literals for all 21 request-boundary reject cases",
   );
   assert.deepEqual(
     requestBoundaryRejectCases.map((item) => (item.expected.result as { field_path: string }).field_path),
-    ["$", "$", "$", "$"],
-    "4C-2 field_paths for the 4 request-boundary reject cases must be exactly the singleton '$' (root path, no whitespace, no segments)",
+    [
+      "$",
+      "$",
+      "$",
+      "$",
+      "$.authentication_evidence",
+      "$",
+      "$.version",
+      "$",
+      "$.version",
+      "$.evaluation_time_ms",
+      "$.request_id",
+      "$.action",
+      "$.evaluation_time_ms",
+      "$",
+      "$",
+      "$",
+      "$",
+      "$",
+      "$",
+      "$",
+      "$",
+    ],
+    "4C-2 field_paths for the 21 request-boundary reject cases must be exactly the documented source paths (root '$' OR '$.segment' dotted paths, no whitespace)",
   );
   // Text-shape invariants. These assertions hold for ANY RejectCode +
   // field_path the request-boundary scanner emits, so the slice is
