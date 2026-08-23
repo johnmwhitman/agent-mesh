@@ -320,6 +320,92 @@ test("request-boundary corpus pin covers the BOM/leading-CR/leading-TAB/js-comme
   }
 });
 
+test("request-boundary reject-code text invariants pin whitespace, punctuation, and capitalization (4C-2)", () => {
+  // 4C-2 slice: collect the error-message fixtures emitted by the
+  // request-boundary subfamily (4 of the 7 4C-1 cases reject at $) and pin
+  // their text-shape invariants. The 4C-1 test pins the literal bytes of
+  // each code + field_path via deepEqual; 4C-2 pins the SEMANTIC shape
+  // (whitespace, punctuation, capitalization) so a refactor that changed
+  // "INVALID_UTF8" to "InvalidUtf8" or "INVALID-UTF8" or " INVALID_UTF8"
+  // would be caught here even if the deepEqual accidentally still passed.
+  //
+  // Filter by id prefix AND by kind === "rejected" so the row stays correct
+  // after later slices append additional request-boundary cases (mirrors
+  // the binding rules-count closure test shape). The 3 admit cases
+  // (leading-tab, trailing-whitespace-multiple, leading-carriage-return)
+  // have result.kind === "admission_plan" and produce no rejection code,
+  // so they are out of scope for this text-invariant row.
+  const requestBoundaryRejectCases = corpus.cases.filter((item) =>
+    item.id.startsWith("request.") &&
+    [
+      "request.bom-at-start",
+      "request.leading-whitespace-tab",
+      "request.js-line-comment-prefix",
+      "request.js-block-comment-prefix",
+      "request.trailing-whitespace-multiple",
+      "request.leading-carriage-return",
+      "request.bom-only",
+    ].includes(item.id) &&
+    (item.expected.result as { kind: string }).kind === "rejected"
+  );
+  assert.deepEqual(
+    requestBoundaryRejectCases.map((item) => item.id),
+    [
+      "request.bom-at-start",
+      "request.js-line-comment-prefix",
+      "request.js-block-comment-prefix",
+      "request.bom-only",
+    ],
+    "4C-2 row expects exactly 4 reject cases from the request-boundary subfamily",
+  );
+  // Pin the exact bytes of the reject codes for the 4C-2 subfamily.
+  // A refactor that drops the underscore (e.g. "INVALIDUTF8") or adds
+  // punctuation (e.g. "INVALID_UTF8.") would fail this deepEqual before
+  // it ever reached the regex shape assertion below.
+  assert.deepEqual(
+    requestBoundaryRejectCases.map((item) => (item.expected.result as { code: string }).code),
+    ["INVALID_UTF8", "MALFORMED_JSON", "MALFORMED_JSON", "INVALID_UTF8"],
+    "4C-2 reject codes must be exactly the SCREAMING_SNAKE_CASE literals (INVALID_UTF8, MALFORMED_JSON)",
+  );
+  assert.deepEqual(
+    requestBoundaryRejectCases.map((item) => (item.expected.result as { field_path: string }).field_path),
+    ["$", "$", "$", "$"],
+    "4C-2 field_paths for the 4 request-boundary reject cases must be exactly the singleton '$' (root path, no whitespace, no segments)",
+  );
+  // Text-shape invariants. These assertions hold for ANY RejectCode +
+  // field_path the request-boundary scanner emits, so the slice is
+  // forward-compatible with later sub-slices that add more reject codes.
+  const codeShape = /^[A-Z][A-Z0-9_]*$/;
+  const fieldPathShape = /^(?:\$|\$\.[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*|\[\d+\])*)$/;
+  for (const item of requestBoundaryRejectCases) {
+    const code = (item.expected.result as { code: string }).code;
+    const fieldPath = (item.expected.result as { field_path: string }).field_path;
+    // Capitalization + punctuation invariant: SCREAMING_SNAKE_CASE,
+    // ASCII letters / digits / underscore only, leading char must be a
+    // capital letter (no leading digit, no leading underscore, no
+    // leading hyphen, no leading whitespace).
+    assert.match(code, codeShape, `${item.id}.code=${JSON.stringify(code)} must match ${codeShape} (SCREAMING_SNAKE_CASE, ASCII only, no punctuation other than '_')`);
+    // Whitespace invariants on code: explicit length-before/after check
+    // (the regex above already enforces this, but a redundant literal
+    // proof makes a regression in the regex itself visible — e.g. if a
+    // future edit changes the regex to allow leading whitespace, the
+    // explicit no-leading / no-trailing whitespace assertion still
+    // catches it).
+    assert.equal(code, code.trim(), `${item.id}.code=${JSON.stringify(code)} must have no leading or trailing whitespace`);
+    assert.equal(code.length, [...code].length, `${item.id}.code=${JSON.stringify(code)} must be ASCII (codepoint count equals code-unit count)`);
+    // Forbidden-punctuation invariants: no hyphen, no period, no comma,
+    // no colon, no semicolon, no slash, no backslash, no parentheses,
+    // no brackets, no braces, no quote characters, no space.
+    assert.ok(!/[ \-./,:;\\()\[\]{}'"]/.test(code), `${item.id}.code=${JSON.stringify(code)} must contain no whitespace, hyphen, period, comma, colon, semicolon, slash, backslash, paren, bracket, brace, or quote`);
+    // field_path shape: root '$' exactly OR dotted path with array
+    // indices, no whitespace, no empty segments, leading '$' is
+    // mandatory.
+    assert.match(fieldPath, fieldPathShape, `${item.id}.field_path=${JSON.stringify(fieldPath)} must match ${fieldPathShape} ('$' alone OR '$.segment.segment[N]' paths, no whitespace, no empty segments)`);
+    assert.equal(fieldPath, fieldPath.trim(), `${item.id}.field_path=${JSON.stringify(fieldPath)} must have no leading or trailing whitespace`);
+    assert.equal(fieldPath.length, [...fieldPath].length, `${item.id}.field_path=${JSON.stringify(fieldPath)} must be ASCII (codepoint count equals code-unit count)`);
+  }
+});
+
 test("binding rules-count covers the 0/256/257 cardinality boundary for binding_snapshot.rules", () => {
   // Filter by id prefix so the binding rules-count row stays correct after
   // later slices (e.g. authorization snapshot/rule field/grammar) append
