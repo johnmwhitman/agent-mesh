@@ -464,6 +464,227 @@ test("request-boundary reject-code text invariants pin whitespace, punctuation, 
   }
 });
 
+test("request-boundary admit-case summary text invariants pin the 4C-1 subfamily (4C-3)", () => {
+  // 4C-3 slice: collect the 3 admission_plan results emitted by the
+  // request-boundary subfamily (the 4C-1 subfamily's leading-whitespace-tab,
+  // trailing-whitespace-multiple, and leading-carriage-return cases) and
+  // pin their summary-field text-shape invariants.
+  //
+  // 4C-1 pinned the literal bytes of the 4 request-boundary reject outputs
+  // (BOM / comment-prefix cases); 4C-2 pinned the SEMANTIC shape of those
+  // 4 reject outputs (SCREAMING_SNAKE_CASE codes, dotted-path field_paths,
+  // no whitespace / ASCII / no forbidden punctuation). 4C-3 mirrors 4C-2
+  // for the 3 ADMIT cases in the same request-boundary subfamily: it pins
+  // the summary fields of the admission_plan result (kind, version,
+  // action, audience, message_type, request_identity.*, semantic_identity.*,
+  // envelope_digest shape) so a refactor that introduced "Admission_Plan"
+  // or "HANDOFF" or "a2a_message_admit" would be caught here even if the
+  // deepEqual accidentally still passed.
+  //
+  // Filter by id prefix + an explicit 3-id whitelist + kind === "admission_plan"
+  // so the row stays correct after later slices append additional
+  // request-boundary cases (mirrors the binding-rules-count closure test
+  // shape, and the explicit 4C-2 closure comment notes that the 3 admit
+  // cases are out of scope for 4C-2 by design).
+  const requestBoundaryAdmitCases = corpus.cases.filter((item) =>
+    item.id.startsWith("request.") &&
+    [
+      "request.leading-whitespace-tab",
+      "request.trailing-whitespace-multiple",
+      "request.leading-carriage-return",
+    ].includes(item.id) &&
+    (item.expected.result as { kind: string }).kind === "admission_plan"
+  );
+  // Closure pin: exactly 3 request.*-admitted cases from the 4C-1 subfamily.
+  // If a later slice adds or removes a request-boundary admit case, this
+  // deepEqual fails first so the row is updated deliberately rather than
+  // silently drifting.
+  assert.deepEqual(
+    requestBoundaryAdmitCases.map((item) => item.id),
+    [
+      "request.leading-whitespace-tab",
+      "request.trailing-whitespace-multiple",
+      "request.leading-carriage-return",
+    ],
+    "4C-3 row expects exactly 3 admit cases from the 4C-1 request-boundary subfamily",
+  );
+  // Pin the exact summary-field bytes for the 3 admit cases. A refactor
+  // that dropped the underscore in the version string, swapped the
+  // SCREAMING_SNAKE_CASE action for camelCase, or capitalized the
+  // lowercase-with-dashes message_type would fail this deepEqual before
+  // it ever reached the shape assertion below.
+  type AdmitSummary = {
+    kind: "admission_plan";
+    version: string;
+    action: string;
+    audience: string;
+    message_type: string;
+    envelope_digest: string;
+    request_identity: { principal_ref: string; request_id: string };
+    semantic_identity: {
+      sender: { namespace: string; agent_id: string };
+      message_id: string;
+    };
+    recipients: Array<{ namespace: string; agent_id: string }>;
+  };
+  const summaries = requestBoundaryAdmitCases.map((item) => {
+    const r = item.expected.result as AdmitSummary;
+    return {
+      kind: r.kind,
+      version: r.version,
+      action: r.action,
+      audience: r.audience,
+      message_type: r.message_type,
+      envelope_digest: r.envelope_digest,
+      request_identity: r.request_identity,
+      semantic_identity: r.semantic_identity,
+      recipients: r.recipients,
+    };
+  });
+  assert.deepEqual(
+    summaries.map((s) => s.kind),
+    ["admission_plan", "admission_plan", "admission_plan"],
+    "4C-3 admit kind must be exactly the snake_case literal 'admission_plan' for all 3 cases",
+  );
+  assert.deepEqual(
+    summaries.map((s) => s.version),
+    [
+      "meshfleet.a2a.local-admission.v0.1",
+      "meshfleet.a2a.local-admission.v0.1",
+      "meshfleet.a2a.local-admission.v0.1",
+    ],
+    "4C-3 admit version must be exactly the dotted prefix-and-version literal 'meshfleet.a2a.local-admission.v0.1' for all 3 cases",
+  );
+  assert.deepEqual(
+    summaries.map((s) => s.action),
+    ["a2a.message.admit", "a2a.message.admit", "a2a.message.admit"],
+    "4C-3 admit action must be exactly the lowercase-dotted literal 'a2a.message.admit' for all 3 cases",
+  );
+  assert.deepEqual(
+    summaries.map((s) => s.audience),
+    ["local-audience", "local-audience", "local-audience"],
+    "4C-3 admit audience must be exactly the literal 'local-audience' for all 3 cases",
+  );
+  assert.deepEqual(
+    summaries.map((s) => s.message_type),
+    ["handoff", "handoff", "handoff"],
+    "4C-3 admit message_type must be exactly the lowercase literal 'handoff' for all 3 cases",
+  );
+  assert.deepEqual(
+    summaries.map((s) => s.request_identity),
+    [
+      { principal_ref: "principal-ref", request_id: "request-ref" },
+      { principal_ref: "principal-ref", request_id: "request-ref" },
+      { principal_ref: "principal-ref", request_id: "request-ref" },
+    ],
+    "4C-3 admit request_identity must be exactly {principal_ref, request_id} for all 3 cases",
+  );
+  assert.deepEqual(
+    summaries.map((s) => s.semantic_identity),
+    [
+      { sender: { namespace: "local", agent_id: "agent-a" }, message_id: "message-ref" },
+      { sender: { namespace: "local", agent_id: "agent-a" }, message_id: "message-ref" },
+      { sender: { namespace: "local", agent_id: "agent-a" }, message_id: "message-ref" },
+    ],
+    "4C-3 admit semantic_identity must be exactly {sender, message_id} for all 3 cases",
+  );
+  assert.deepEqual(
+    summaries.map((s) => s.recipients),
+    [
+      [{ namespace: "local", agent_id: "agent-b" }],
+      [{ namespace: "local", agent_id: "agent-b" }],
+      [{ namespace: "local", agent_id: "agent-b" }],
+    ],
+    "4C-3 admit recipients must be exactly the singleton [{namespace:'local',agent_id:'agent-b'}] for all 3 cases",
+  );
+  // envelope_digest: literal prefix pin + per-case exact digest equality.
+  // The 3 admit cases share the same canonical digest (the unchanged 4A
+  // digest, because the 4C-1 subfamily intentionally only touches the
+  // scanner whitespace layer — the envelope payload is byte-identical so
+  // the digest cannot change). Pin both the prefix shape and the literal
+  // hex suffix in corpus order so a future edit that mutated the digest
+  // algorithm (or accidentally re-canonicalized the envelope) trips both
+  // the prefix regex AND the literal deepEqual at the same time.
+  const envelopeDigestPrefix = "meshfleet.a2a.fingerprint.v1:sha256:";
+  const envelopeDigestShape = new RegExp(`^${envelopeDigestPrefix.replace(/\./g, "\\.").replace(/:/g, ":")}[0-9a-f]{64}$`);
+  const digests = summaries.map((s) => s.envelope_digest);
+  assert.deepEqual(
+    digests,
+    [
+      "meshfleet.a2a.fingerprint.v1:sha256:9dd42da42a919761fb2f5bc007c03dd948ba0e6f4dcd9be80d556c31339c5606",
+      "meshfleet.a2a.fingerprint.v1:sha256:9dd42da42a919761fb2f5bc007c03dd948ba0e6f4dcd9be80d556c31339c5606",
+      "meshfleet.a2a.fingerprint.v1:sha256:9dd42da42a919761fb2f5bc007c03dd948ba0e6f4dcd9be80d556c31339c5606",
+    ],
+    "4C-3 admit envelope_digest must be the unchanged 4A literal digest for all 3 cases (scanner-whitespace-only mutations preserve the envelope fingerprint)",
+  );
+  // Text-shape invariants. These assertions hold for ANY summary field
+  // string the admission planner emits, so the slice is forward-compatible
+  // with later sub-slices that add more admit cases.
+  const versionShape = /^meshfleet\.a2a\.[a-z][a-z0-9-]*\.v\d+\.\d+$/;
+  const actionShape = /^[a-z][a-z0-9]*(?:\.[a-z][a-z0-9]*)+$/;
+  const audienceShape = /^[a-z][a-z0-9-]*$/;
+  const messageTypeShape = /^[a-z][a-z0-9-]*$/;
+  const principalRefShape = /^[a-z][a-z0-9-]*$/;
+  const requestIdShape = /^[a-z][a-z0-9-]*$/;
+  const namespaceShape = /^[a-z][a-z0-9-]*$/;
+  const agentIdShape = /^[a-z][a-z0-9-]*$/;
+  for (const [index, item] of requestBoundaryAdmitCases.entries()) {
+    const s = summaries[index]!;
+    // kind: literal snake_case
+    assert.equal(s.kind, "admission_plan", `${item.id}.kind must be exactly 'admission_plan' (literal snake_case, no leading or trailing whitespace)`);
+    assert.equal(s.kind, s.kind.trim(), `${item.id}.kind must have no leading or trailing whitespace`);
+    assert.equal(s.kind.length, [...s.kind].length, `${item.id}.kind must be ASCII`);
+    // version: dotted prefix + semantic version, no whitespace
+    assert.match(s.version, versionShape, `${item.id}.version=${JSON.stringify(s.version)} must match ${versionShape} ('meshfleet.a2a.<name>.v<major>.<minor>' with ASCII lowercase / digits / dashes / dots only)`);
+    assert.equal(s.version, s.version.trim(), `${item.id}.version must have no leading or trailing whitespace`);
+    assert.equal(s.version.length, [...s.version].length, `${item.id}.version must be ASCII`);
+    // action: dotted snake_case with at least one dot
+    assert.match(s.action, actionShape, `${item.id}.action=${JSON.stringify(s.action)} must match ${actionShape} (lowercase dotted snake_case, at least one '.' separator)`);
+    assert.equal(s.action, s.action.trim(), `${item.id}.action must have no leading or trailing whitespace`);
+    assert.equal(s.action.length, [...s.action].length, `${item.id}.action must be ASCII`);
+    assert.ok(!/[ \-/:;\\()\[\]{}'"]/.test(s.action), `${item.id}.action=${JSON.stringify(s.action)} must contain no whitespace, hyphen, slash, colon, semicolon, backslash, paren, bracket, brace, or quote`);
+    // audience: lowercase-with-dashes, no whitespace
+    assert.match(s.audience, audienceShape, `${item.id}.audience=${JSON.stringify(s.audience)} must match ${audienceShape} (lowercase ASCII, digits, dashes only)`);
+    assert.equal(s.audience, s.audience.trim(), `${item.id}.audience must have no leading or trailing whitespace`);
+    assert.equal(s.audience.length, [...s.audience].length, `${item.id}.audience must be ASCII`);
+    // message_type: lowercase-with-dashes, no whitespace
+    assert.match(s.message_type, messageTypeShape, `${item.id}.message_type=${JSON.stringify(s.message_type)} must match ${messageTypeShape} (lowercase ASCII, digits, dashes only)`);
+    assert.equal(s.message_type, s.message_type.trim(), `${item.id}.message_type must have no leading or trailing whitespace`);
+    assert.equal(s.message_type.length, [...s.message_type].length, `${item.id}.message_type must be ASCII`);
+    // request_identity.{principal_ref, request_id}: lowercase-with-dashes each
+    assert.match(s.request_identity.principal_ref, principalRefShape, `${item.id}.request_identity.principal_ref must match ${principalRefShape}`);
+    assert.equal(s.request_identity.principal_ref, s.request_identity.principal_ref.trim(), `${item.id}.request_identity.principal_ref must have no leading or trailing whitespace`);
+    assert.equal(s.request_identity.principal_ref.length, [...s.request_identity.principal_ref].length, `${item.id}.request_identity.principal_ref must be ASCII`);
+    assert.match(s.request_identity.request_id, requestIdShape, `${item.id}.request_identity.request_id must match ${requestIdShape}`);
+    assert.equal(s.request_identity.request_id, s.request_identity.request_id.trim(), `${item.id}.request_identity.request_id must have no leading or trailing whitespace`);
+    assert.equal(s.request_identity.request_id.length, [...s.request_identity.request_id].length, `${item.id}.request_identity.request_id must be ASCII`);
+    // semantic_identity.sender.{namespace, agent_id}: lowercase-with-dashes each
+    assert.match(s.semantic_identity.sender.namespace, namespaceShape, `${item.id}.semantic_identity.sender.namespace must match ${namespaceShape}`);
+    assert.equal(s.semantic_identity.sender.namespace, s.semantic_identity.sender.namespace.trim(), `${item.id}.semantic_identity.sender.namespace must have no leading or trailing whitespace`);
+    assert.equal(s.semantic_identity.sender.namespace.length, [...s.semantic_identity.sender.namespace].length, `${item.id}.semantic_identity.sender.namespace must be ASCII`);
+    assert.match(s.semantic_identity.sender.agent_id, agentIdShape, `${item.id}.semantic_identity.sender.agent_id must match ${agentIdShape}`);
+    assert.equal(s.semantic_identity.sender.agent_id, s.semantic_identity.sender.agent_id.trim(), `${item.id}.semantic_identity.sender.agent_id must have no leading or trailing whitespace`);
+    assert.equal(s.semantic_identity.sender.agent_id.length, [...s.semantic_identity.sender.agent_id].length, `${item.id}.semantic_identity.sender.agent_id must be ASCII`);
+    // semantic_identity.message_id: lowercase-with-dashes
+    assert.match(s.semantic_identity.message_id, requestIdShape, `${item.id}.semantic_identity.message_id must match ${requestIdShape}`);
+    assert.equal(s.semantic_identity.message_id, s.semantic_identity.message_id.trim(), `${item.id}.semantic_identity.message_id must have no leading or trailing whitespace`);
+    assert.equal(s.semantic_identity.message_id.length, [...s.semantic_identity.message_id].length, `${item.id}.semantic_identity.message_id must be ASCII`);
+    // envelope_digest: prefix + 64 lowercase hex chars
+    assert.match(s.envelope_digest, envelopeDigestShape, `${item.id}.envelope_digest=${JSON.stringify(s.envelope_digest)} must match ${envelopeDigestShape} ('${envelopeDigestPrefix}<64 hex chars>')`);
+    assert.equal(s.envelope_digest, s.envelope_digest.trim(), `${item.id}.envelope_digest must have no leading or trailing whitespace`);
+    assert.equal(s.envelope_digest.length, [...s.envelope_digest].length, `${item.id}.envelope_digest must be ASCII`);
+    // recipients: each entry's namespace and agent_id are lowercase-with-dashes
+    for (const recipient of s.recipients) {
+      assert.match(recipient.namespace, namespaceShape, `${item.id}.recipients[].namespace=${JSON.stringify(recipient.namespace)} must match ${namespaceShape}`);
+      assert.equal(recipient.namespace, recipient.namespace.trim(), `${item.id}.recipients[].namespace must have no leading or trailing whitespace`);
+      assert.equal(recipient.namespace.length, [...recipient.namespace].length, `${item.id}.recipients[].namespace must be ASCII`);
+      assert.match(recipient.agent_id, agentIdShape, `${item.id}.recipients[].agent_id=${JSON.stringify(recipient.agent_id)} must match ${agentIdShape}`);
+      assert.equal(recipient.agent_id, recipient.agent_id.trim(), `${item.id}.recipients[].agent_id must have no leading or trailing whitespace`);
+      assert.equal(recipient.agent_id.length, [...recipient.agent_id].length, `${item.id}.recipients[].agent_id must be ASCII`);
+    }
+  }
+});
+
 test("binding rules-count covers the 0/256/257 cardinality boundary for binding_snapshot.rules", () => {
   // Filter by id prefix so the binding rules-count row stays correct after
   // later slices (e.g. authorization snapshot/rule field/grammar) append
