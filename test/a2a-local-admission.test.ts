@@ -978,6 +978,155 @@ test("non-request-boundary admit-case recipients and envelope_digest invariants 
   }
 });
 
+test("non-request-boundary admit-case policy_basis and evaluation_time_ms invariants pin the 4C-1 subfamily (4C-6)", () => {
+  // 4C-6 slice: collect the same 6 admission_plan results from the
+  // non-request-boundary subfamily (valid.admission-plan,
+  // evidence.issued-at-evaluation-valid, evidence.lifetime-300000-valid,
+  // authorization.boundary.message-types-5,
+  // authorization.boundary.recipients-128, binding.rules-256-admit) and pin
+  // the summary fields that 4C-3 and 4C-5 deliberately did NOT cover:
+  // evaluation_time_ms and the full policy_basis tree (binding_snapshot +
+  // authorization_snapshot with their snapshot_version / snapshot_id /
+  // effective_from_ms / effective_until_ms sub-fields).
+  //
+  // 4C-3 pinned the summary's kind/version/action/audience/message_type/
+  // request_identity/semantic_identity/recipients/envelope_digest fields
+  // for the 3 request-boundary cases; 4C-4 pinned evaluation_time_ms and
+  // policy_basis for the same 3 cases; 4C-5 pinned recipients and
+  // envelope_digest for the 6 non-request-boundary cases. 4C-6 mirrors
+  // 4C-4's coverage for the 6 non-request-boundary cases so all 9
+  // admission_plan results have full literal + shape pinning across every
+  // field of their expected.result.
+  //
+  // Filter by id prefix exclusion + explicit 6-id whitelist +
+  // kind === "admission_plan" so the row stays correct after later slices
+  // append additional cases (mirrors 4C-4/4C-5 closure shape).
+  const nonRequestBoundaryAdmitCases = corpus.cases.filter((item) =>
+    !item.id.startsWith("request.") &&
+    [
+      "valid.admission-plan",
+      "evidence.issued-at-evaluation-valid",
+      "evidence.lifetime-300000-valid",
+      "authorization.boundary.message-types-5",
+      "authorization.boundary.recipients-128",
+      "binding.rules-256-admit",
+    ].includes(item.id) &&
+    (item.expected.result as { kind: string }).kind === "admission_plan",
+  );
+  // Closure pin: exactly 6 non-request.*-admitted cases.
+  assert.deepEqual(
+    nonRequestBoundaryAdmitCases.map((item) => item.id),
+    [
+      "valid.admission-plan",
+      "evidence.issued-at-evaluation-valid",
+      "evidence.lifetime-300000-valid",
+      "authorization.boundary.message-types-5",
+      "authorization.boundary.recipients-128",
+      "binding.rules-256-admit",
+    ],
+    "4C-6 row expects exactly 6 admit cases from the non-request-boundary subfamily",
+  );
+  type PolicyBasis = {
+    binding_snapshot: {
+      snapshot_version: string;
+      snapshot_id: string;
+      effective_from_ms: number;
+      effective_until_ms: number;
+    };
+    authorization_snapshot: {
+      snapshot_version: string;
+      snapshot_id: string;
+      effective_from_ms: number;
+      effective_until_ms: number;
+    };
+  };
+  const bases = nonRequestBoundaryAdmitCases.map((item) => {
+    const r = item.expected.result as {
+      evaluation_time_ms: number;
+      policy_basis: PolicyBasis;
+    };
+    return {
+      evaluation_time_ms: r.evaluation_time_ms,
+      policy_basis: r.policy_basis,
+    };
+  });
+  // Literal deepEqual pin: evaluation_time_ms must be exactly 100 for all 6.
+  assert.deepEqual(
+    bases.map((b) => b.evaluation_time_ms),
+    [100, 100, 100, 100, 100, 100],
+    "4C-6 admit evaluation_time_ms must be exactly the number 100 for all 6 cases",
+  );
+  // Literal deepEqual pin: policy_basis must be byte-identical for all 6.
+  // The non-request-boundary subfamily does not touch the scanner
+  // whitespace layer OR the policy evaluation layer — the policy_basis is
+  // the unchanged 4A fixture snapshot so all 6 admit cases share the same
+  // literal tree (byte-identical to 4C-4's canonical policy_basis).
+  const canonicalPolicyBasis: PolicyBasis = {
+    binding_snapshot: {
+      snapshot_version: "meshfleet.a2a.binding-snapshot.v0.1",
+      snapshot_id: "binding-fixture",
+      effective_from_ms: 0,
+      effective_until_ms: 200,
+    },
+    authorization_snapshot: {
+      snapshot_version: "meshfleet.a2a.authorization-snapshot.v0.1",
+      snapshot_id: "authorization-fixture",
+      effective_from_ms: 0,
+      effective_until_ms: 200,
+    },
+  };
+  assert.deepEqual(
+    bases.map((b) => b.policy_basis),
+    [
+      canonicalPolicyBasis,
+      canonicalPolicyBasis,
+      canonicalPolicyBasis,
+      canonicalPolicyBasis,
+      canonicalPolicyBasis,
+      canonicalPolicyBasis,
+    ],
+    "4C-6 admit policy_basis must be byte-identical to the canonical 4A fixture snapshot tree for all 6 cases",
+  );
+  // Shape invariants per sub-field. These hold for ANY policy_basis the
+  // admission planner emits, so the slice is forward-compatible with later
+  // sub-slices that add more admit cases.
+  const snapshotVersionShape = /^meshfleet\.a2a\.[a-z][a-z0-9-]*\.v\d+\.\d+$/;
+  const snapshotIdShape = /^[a-z][a-z0-9-]*$/;
+  for (const [index, item] of nonRequestBoundaryAdmitCases.entries()) {
+    const b = bases[index]!;
+    // evaluation_time_ms: must be a non-negative integer, no whitespace.
+    assert.equal(typeof b.evaluation_time_ms, "number", `${item.id}.evaluation_time_ms must be a number`);
+    assert.ok(Number.isInteger(b.evaluation_time_ms), `${item.id}.evaluation_time_ms=${b.evaluation_time_ms} must be an integer`);
+    assert.ok(b.evaluation_time_ms >= 0, `${item.id}.evaluation_time_ms=${b.evaluation_time_ms} must be non-negative`);
+    // binding_snapshot
+    const bs = b.policy_basis.binding_snapshot;
+    assert.match(bs.snapshot_version, snapshotVersionShape, `${item.id}.policy_basis.binding_snapshot.snapshot_version=${JSON.stringify(bs.snapshot_version)} must match ${snapshotVersionShape}`);
+    assert.equal(bs.snapshot_version, bs.snapshot_version.trim(), `${item.id}.policy_basis.binding_snapshot.snapshot_version must have no leading or trailing whitespace`);
+    assert.equal(bs.snapshot_version.length, [...bs.snapshot_version].length, `${item.id}.policy_basis.binding_snapshot.snapshot_version must be ASCII`);
+    assert.match(bs.snapshot_id, snapshotIdShape, `${item.id}.policy_basis.binding_snapshot.snapshot_id=${JSON.stringify(bs.snapshot_id)} must match ${snapshotIdShape}`);
+    assert.equal(bs.snapshot_id, bs.snapshot_id.trim(), `${item.id}.policy_basis.binding_snapshot.snapshot_id must have no leading or trailing whitespace`);
+    assert.equal(bs.snapshot_id.length, [...bs.snapshot_id].length, `${item.id}.policy_basis.binding_snapshot.snapshot_id must be ASCII`);
+    assert.equal(typeof bs.effective_from_ms, "number", `${item.id}.policy_basis.binding_snapshot.effective_from_ms must be a number`);
+    assert.ok(Number.isInteger(bs.effective_from_ms), `${item.id}.policy_basis.binding_snapshot.effective_from_ms must be an integer`);
+    assert.equal(typeof bs.effective_until_ms, "number", `${item.id}.policy_basis.binding_snapshot.effective_until_ms must be a number`);
+    assert.ok(Number.isInteger(bs.effective_until_ms), `${item.id}.policy_basis.binding_snapshot.effective_until_ms must be an integer`);
+    assert.ok(bs.effective_from_ms < bs.effective_until_ms, `${item.id}.policy_basis.binding_snapshot.effective_from_ms=${bs.effective_from_ms} must be strictly less than effective_until_ms=${bs.effective_until_ms}`);
+    // authorization_snapshot
+    const as = b.policy_basis.authorization_snapshot;
+    assert.match(as.snapshot_version, snapshotVersionShape, `${item.id}.policy_basis.authorization_snapshot.snapshot_version=${JSON.stringify(as.snapshot_version)} must match ${snapshotVersionShape}`);
+    assert.equal(as.snapshot_version, as.snapshot_version.trim(), `${item.id}.policy_basis.authorization_snapshot.snapshot_version must have no leading or trailing whitespace`);
+    assert.equal(as.snapshot_version.length, [...as.snapshot_version].length, `${item.id}.policy_basis.authorization_snapshot.snapshot_version must be ASCII`);
+    assert.match(as.snapshot_id, snapshotIdShape, `${item.id}.policy_basis.authorization_snapshot.snapshot_id=${JSON.stringify(as.snapshot_id)} must match ${snapshotIdShape}`);
+    assert.equal(as.snapshot_id, as.snapshot_id.trim(), `${item.id}.policy_basis.authorization_snapshot.snapshot_id must have no leading or trailing whitespace`);
+    assert.equal(as.snapshot_id.length, [...as.snapshot_id].length, `${item.id}.policy_basis.authorization_snapshot.snapshot_id must be ASCII`);
+    assert.equal(typeof as.effective_from_ms, "number", `${item.id}.policy_basis.authorization_snapshot.effective_from_ms must be a number`);
+    assert.ok(Number.isInteger(as.effective_from_ms), `${item.id}.policy_basis.authorization_snapshot.effective_from_ms must be an integer`);
+    assert.equal(typeof as.effective_until_ms, "number", `${item.id}.policy_basis.authorization_snapshot.effective_until_ms must be a number`);
+    assert.ok(Number.isInteger(as.effective_until_ms), `${item.id}.policy_basis.authorization_snapshot.effective_until_ms must be an integer`);
+    assert.ok(as.effective_from_ms < as.effective_until_ms, `${item.id}.policy_basis.authorization_snapshot.effective_from_ms=${as.effective_from_ms} must be strictly less than effective_until_ms=${as.effective_until_ms}`);
+  }
+});
+
 test("binding rules-count covers the 0/256/257 cardinality boundary for binding_snapshot.rules", () => {
   // Filter by id prefix so the binding rules-count row stays correct after
   // later slices (e.g. authorization snapshot/rule field/grammar) append
