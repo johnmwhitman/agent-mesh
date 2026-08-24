@@ -56,6 +56,15 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
   boundary remains provably unrepresentable below the 262144-byte request cap (216-byte rule
   lower bound, ledger row 47).
 
+### Fixed
+
+- **`tally_ratification` advertised `readOnlyHint: true` while its handler
+  persists terminal status via `resolveRatification`.** The published
+  description already said it persists; the annotation lied. Callers routing
+  on MCP hints would treat a write as a read. Hint is now `false`;
+  `idempotentHint` stays `true`. The annotation test pins the classified
+  read-only / open-world sets, not just boolean presence.
+
 ## [0.21.1] - 2026-08-10
 
 ### Fixed

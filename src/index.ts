@@ -905,7 +905,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         },
         required: ["message_id"],
       },
-      annotations: { readOnlyHint: true, idempotentHint: true, destructiveHint: false, openWorldHint: false },
+      // Handler calls resolveRatification — persists terminal status. Idempotent, not read-only.
+      annotations: { readOnlyHint: false, idempotentHint: true, destructiveHint: false, openWorldHint: false },
     },
     {
       name: "sweep_ratifications",
