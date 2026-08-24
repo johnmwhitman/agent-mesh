@@ -22,9 +22,40 @@ const REPO_ROOT = join(fileURLToPath(new URL(".", import.meta.url)), "..");
 // safe tools; we set them explicitly so callers can pick cheap read-only
 // candidates without re-reading every description.
 //
+// A boolean-presence check is not a classification check. `tally_ratification`
+// ships a description that admits it persists terminal status, and its handler
+// calls `resolveRatification`. Advertising that as readOnlyHint:true is a
+// published-contract lie: a caller routing on the hint would write. The named
+// read-only / open-world sets below are the load-bearing pin.
+//
 // The 6 "hot" read tools (most-called per §2c of the research report)
 // must each have a description of 200 chars or fewer. This caps per-call
 // prompt cost by trimming prose the JSON Schema already encodes.
+
+const READ_ONLY_TOOLS = [
+  "collect_results",
+  "compile_route_candidates",
+  "fleet_status",
+  "get_discussion",
+  "get_health",
+  "get_inbox",
+  "get_receipts",
+  "list_agents",
+  "list_fleet_templates",
+  "list_fleets",
+  "ping",
+  "plan_speculative_backlog",
+  "recommend_route",
+  "route_work",
+  "spawn_from_template",
+  "subscribe_events",
+  "subscribe_inbox",
+  "verify_ledger",
+  "verify_ledger_v2",
+  "verify_ledger_v3",
+] as const;
+
+const OPEN_WORLD_TOOLS = ["ask_peer", "attach_agent", "spawn_fleet", "wake_agent"] as const;
 
 function spawnMeshfleet(tempProject: string, name: string): { transport: StdioClientTransport; client: Client } {
   writeFileSync(
@@ -34,6 +65,10 @@ function spawnMeshfleet(tempProject: string, name: string): { transport: StdioCl
   // Run dist/index.js directly. `AGENT_MESH_CHILD=1` puts the server in child
   // mode (skips recovery, sweeper, SSE — see dist/index.js boot), which is
   // what an MCP client test wants.
+  // Isolation law: any spawn of the server sets ALL THREE storage overrides.
+  // Child mode skips the JSON→SQLite migrator, but listTools is not a promise
+  // this fixture will stay read-only, and a missing EVENT_LOG_FILE writes the
+  // operator's live log the moment anything appends.
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: [join(REPO_ROOT, "dist", "index.js")],
@@ -42,6 +77,8 @@ function spawnMeshfleet(tempProject: string, name: string): { transport: StdioCl
     env: {
       ...(process.env as Record<string, string>),
       MESHFLEET_DB_FILE: join(tempProject, `${name}.db`),
+      MESHFLEET_DATA_FILE: join(tempProject, `${name}.json`),
+      MESHFLEET_EVENT_LOG_FILE: join(tempProject, `${name}.events.jsonl`),
       AGENT_MESH_CHILD: "1",
       MESHFLEET_RATIFY_SWEEP_MS: "0",
     },
@@ -99,6 +136,14 @@ test("tools/list payload size is measured, tool count = 37, under 60 KiB", async
       `tools/list payload ${bytes} bytes exceeds 60 KiB ceiling — investigate before shipping`,
     );
 
+    const tally = response.tools.find((t) => t.name === "tally_ratification");
+    assert.ok(tally, "tally_ratification missing from tools/list");
+    assert.equal(
+      tally.annotations?.readOnlyHint,
+      false,
+      "tally_ratification calls resolveRatification and persists terminal status — readOnlyHint must be false",
+    );
+
     const readOnlyTools = response.tools
       .filter((t) => t.annotations?.readOnlyHint === true)
       .map((t) => t.name)
@@ -111,6 +156,15 @@ test("tools/list payload size is measured, tool count = 37, under 60 KiB", async
       .filter((t) => t.annotations?.idempotentHint === true)
       .map((t) => t.name)
       .sort();
+    const destructiveTools = response.tools
+      .filter((t) => t.annotations?.destructiveHint === true)
+      .map((t) => t.name)
+      .sort();
+
+    assert.deepEqual(readOnlyTools, [...READ_ONLY_TOOLS]);
+    assert.deepEqual(openWorldTools, [...OPEN_WORLD_TOOLS]);
+    assert.deepEqual(destructiveTools, []);
+
     // Save to a side file so tests/QA pipelines can surface it in HANDOFF
     // without scraping stdout.
     writeFileSync(
@@ -160,6 +214,11 @@ test("the 6 hot read tools each have a description of <=200 chars", async () => 
       assert.ok(
         len <= 200,
         `hot read tool ${name} description is ${len} chars (must be <=200): "${tool.description}"`,
+      );
+      assert.equal(
+        tool.annotations?.readOnlyHint,
+        true,
+        `hot read tool ${name} must be advertised readOnlyHint:true`,
       );
     }
   } finally {
