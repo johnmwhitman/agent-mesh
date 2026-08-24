@@ -49,9 +49,27 @@ function walk(dir: string): string[] {
   return out;
 }
 
-/** dist/a/b.js -> src/a/b.ts, in POSIX form for a readable assertion message. */
+/**
+ * Map a dist/ entry back to its source. Two valid tree shapes ship today:
+ *  - the main build emits src/<x>.ts -> dist/<x>.js (rootDir=./src).
+ *  - tsconfig.test.json's build emits src/<x>.ts -> dist/src/<x>.js AND
+ *    test/<x>.ts -> dist/test/<x>.js (rootDir=., outDir=./dist). That second
+ *    build is what populates dist/test/ so run-tests.mjs can find the
+ *    compiled test files, so dist/freshness must accept both layouts.
+ * For dist/src/<x>.js the source is src/<x>.ts; for dist/test/<x>.js the
+ * source is test/<x>.ts. For anything else the source is looked up directly
+ * under src/ — the only shape the main build can produce.
+ */
 function sourceFor(distFile: string): string {
   const rel = relative(distDir, distFile).replace(/\.js$/, ".ts");
+  const segments = rel.split(sep);
+  const top = segments[0];
+  if (top === "src") {
+    return join(repoRoot, "src", ...segments.slice(1));
+  }
+  if (top === "test") {
+    return join(repoRoot, "test", ...segments.slice(1));
+  }
   return join(srcDir, rel);
 }
 
