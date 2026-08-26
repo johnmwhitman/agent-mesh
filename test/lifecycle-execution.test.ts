@@ -131,16 +131,20 @@ test("durable fleet timeout cancels lifecycle authority and its owned runtime ha
       fleetId: "fleet-timeout", agentId: "agent-timeout", role: "worker", prompt: "work",
     }]);
     await waitUntil(() => runtime.starts.length === 1, "durable timeout runtime start");
+    // Gate #1 (t_db8af59c, 2026-08-26): setFleetTimeout clamps sub-floor
+    // values up to MIN_PER_WORKER_BUDGET_MS (1s). The original test used
+    // 100ms; the clamping rewrite keeps the intent — reaping at deadline —
+    // but bumps the timing to cross the clamped 1000ms deadline.
     setFleetTimeout("fleet-timeout", 100);
 
-    now = 1_100;
+    now = 2_100;
     const expired = coordinator.expireFleetTimeout("fleet-timeout", now);
     assert.deepEqual(expired.map((agent) => agent.agent_id), ["agent-timeout"]);
     assert.equal(new LifecycleStore().getState("agent-timeout")?.work.status, "cancelled");
     assert.equal(loadData().agents["agent-timeout"].status, "failed");
-    assert.match(loadData().agents["agent-timeout"].error ?? "", /fleet timeout.*100ms/i);
+    assert.match(loadData().agents["agent-timeout"].error ?? "", /fleet timeout.*1000ms/i);
     assert.equal(loadData().fleets["fleet-timeout"].status, "failed");
-    assert.deepEqual(runtime.cancellations, ["handle-1:Fleet timeout exceeded after 100ms"]);
+    assert.deepEqual(runtime.cancellations, ["handle-1:Fleet timeout exceeded after 1000ms"]);
     assert.deepEqual(contained, [], "an exact owned handle must not also take the PID fallback");
     coordinator.stop();
   } finally {
@@ -183,9 +187,12 @@ test("durable fleet timeout contains the current PID when its local handle is st
     replacementOwner.recover();
     await waitUntil(() => replacementRuntime.results.length === 1, "replacement durable handle start");
     assert.equal(loadData().agents["agent-stale-handle"].pid, 20_002);
+    // Gate #1 (t_db8af59c, 2026-08-26): setFleetTimeout clamps sub-floor
+    // values up to MIN_PER_WORKER_BUDGET_MS (1s); bump the reap clock to
+    // cross the clamped 1000ms deadline instead of the original 100ms.
     setFleetTimeout("fleet-stale-handle", 100);
 
-    now = 11_101;
+    now = 12_101;
     const expired = staleOwner.expireFleetTimeout("fleet-stale-handle", now);
     assert.deepEqual(expired.map((agent) => agent.agent_id), ["agent-stale-handle"]);
     assert.equal(new LifecycleStore().getState("agent-stale-handle")?.work.status, "cancelled");
@@ -218,11 +225,14 @@ test("durable fleet timeout contains a recorded PID after local handles are lost
       fleetId: "fleet-timeout-restart", agentId: "agent-timeout-restart", role: "worker", prompt: "work",
     }]);
     await waitUntil(() => runtime.starts.length === 1, "durable restart timeout runtime start");
+    // Gate #1 (t_db8af59c, 2026-08-26): setFleetTimeout clamps sub-floor
+    // values up to MIN_PER_WORKER_BUDGET_MS (1s); bump the reap clock past
+    // the clamped 1000ms deadline.
     setFleetTimeout("fleet-timeout-restart", 100);
 
     coordinator.stop();
     runtime.cancellations.length = 0;
-    now = 1_100;
+    now = 2_100;
     const expired = coordinator.expireFleetTimeout("fleet-timeout-restart", now);
 
     assert.deepEqual(expired.map((agent) => agent.agent_id), ["agent-timeout-restart"]);
@@ -251,11 +261,14 @@ test("durable recovery expires an offline fleet deadline before reclaiming its l
       prompt: "work",
     }]);
     await waitUntil(() => firstRuntime.starts.length === 1, "offline timeout runtime start");
+    // Gate #1 (t_db8af59c, 2026-08-26): setFleetTimeout clamps sub-floor
+    // values up to MIN_PER_WORKER_BUDGET_MS (1s); bump the reap clock past
+    // the clamped 1000ms deadline and update the assertion message.
     setFleetTimeout("fleet-offline-timeout", 50);
     first.stop();
     firstRuntime.cancellations.length = 0;
 
-    now = 1_100;
+    now = 2_100;
     const contained: number[] = [];
     const recoveredRuntime = new ControlledRuntime(() => now);
     const recovered = new LifecycleExecutionCoordinator(recoveredRuntime, {
@@ -269,7 +282,7 @@ test("durable recovery expires an offline fleet deadline before reclaiming its l
 
     assert.equal(new LifecycleStore().getState("agent-offline-timeout")?.work.status, "cancelled");
     assert.equal(loadData().agents["agent-offline-timeout"].status, "failed");
-    assert.match(loadData().agents["agent-offline-timeout"].error ?? "", /fleet timeout.*50ms/i);
+    assert.match(loadData().agents["agent-offline-timeout"].error ?? "", /fleet timeout.*1000ms/i);
     assert.equal(loadData().fleets["fleet-offline-timeout"].status, "failed");
     assert.equal(recoveredRuntime.starts.length, 0, "an elapsed deadline must not spend retry budget");
     assert.deepEqual(contained, [10_001], "offline runtime containment has exactly one owner");
@@ -298,6 +311,11 @@ test("durable runtime timeout settles as the configured fleet timeout without re
       fleetId: "fleet-runtime-timeout", agentId: "agent-runtime-timeout", role: "worker", prompt: "work",
     }]);
     await waitUntil(() => runtime.results.length === 1, "durable runtime timeout start");
+    // Gate #1 (t_db8af59c, 2026-08-26): setFleetTimeout clamps sub-floor
+    // values up to MIN_PER_WORKER_BUDGET_MS (1s); the runtime settles its
+    // own timer at this budget. The settlement path doesn't depend on the
+    // budget number — `runtime.results[0].resolve(timeout())` triggers it
+    // by hand — so we leave the rest of the assertions as-is.
     setFleetTimeout("fleet-runtime-timeout", 100);
 
     now = 1_100;
@@ -334,8 +352,11 @@ test("durable runtime timeout uses handle start time, not later ledger observati
       prompt: "work",
     }]);
     await runtime.startEntered.promise;
-    assert.equal(runtime.starts[0]?.timeoutMs, 100);
+    // Gate #1 (t_db8af59c, 2026-08-26): the env override path also clamps
+    // up to MIN_PER_WORKER_BUDGET_MS, so the runtime was told 1000 not 100.
+    assert.equal(runtime.starts[0]?.timeoutMs, 1_000);
     assert.equal(runtime.handleStartedAt, 1_000);
+    // setFleetTimeout clamps the same way; the original 200ms becomes 1000ms.
     setFleetTimeout("fleet-delayed-timeout", 200);
 
     now = 1_050;
@@ -347,7 +368,7 @@ test("durable runtime timeout uses handle start time, not later ledger observati
       throw new Error(`${error instanceof Error ? error.message : String(error)}; agent=${JSON.stringify(loadData().agents["agent-delayed-timeout"])}; lifecycle=${JSON.stringify(new LifecycleStore().getState("agent-delayed-timeout"))}`);
     });
     assert.equal(loadData().agents["agent-delayed-timeout"].started_at, 1_000);
-    assert.deepEqual(runtime.timeoutUpdates, [200], "pending-start timeout changes re-arm the observed handle");
+    assert.deepEqual(runtime.timeoutUpdates, [1_000], "pending-start timeout changes re-arm the observed handle with the clamped budget");
 
     now = 1_200;
     // The runtime's 200ms timer has already fired. A late extension cannot

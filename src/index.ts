@@ -35,6 +35,7 @@ import {
   nextFleetTimeoutDeadline,
   normalizePersistedFleetTimeouts,
   MAX_FLEET_TIMEOUT_MS,
+  MIN_PER_WORKER_BUDGET_MS,
   MAX_BATCH_MESSAGES,
   MAX_PAYLOAD_BYTES,
   MESSAGE_TYPES,
@@ -84,12 +85,15 @@ import { SweepHealth, runSweepTick } from "./sweep-health.js";
 import { summarizeCollection } from "./collection-summary.js";
 import { isHollowSuccess, HOLLOW_SUCCESS_REASON } from "./hollow-result.js";
 import {
+  parseAgentResultEnvelope,
   readResultContract,
   resultPathFor,
   withResultContract,
   withTextResultContract,
   type ResultContractStatus,
 } from "./result-contract.js";
+import { computeArtifactIntegrity } from "./artifact-integrity.js";
+import { readFileSync, statSync } from "node:fs";
 import { recommendRoute, type RecommendRouteInput } from "./recommend-route.js";
 import {
   planSpeculativeBacklog,
@@ -710,7 +714,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         type: "object",
         properties: {
           fleet_id: { type: "string" },
-          timeout_ms: { type: "integer", minimum: 1, maximum: MAX_FLEET_TIMEOUT_MS },
+          // Gate #1 (t_db8af59c, 2026-08-26): the JSON schema floor is the
+          // minimum per-worker budget. Sub-second values are rejected at the
+          // tool boundary, the env path, and the persisted-fleet fallback in
+          // core.ts — there is no way to set a budget too small to observe.
+          timeout_ms: { type: "integer", minimum: MIN_PER_WORKER_BUDGET_MS, maximum: MAX_FLEET_TIMEOUT_MS },
         },
         required: ["fleet_id", "timeout_ms"],
       },
@@ -1909,12 +1917,14 @@ toolHandlers["list_fleets"] = async (args) => {
 
 toolHandlers["set_fleet_timeout"] = async (args) => {
     const { fleet_id, timeout_ms } = args as { fleet_id: string; timeout_ms: number };
-    // The env path for this same value demands > 0; the tool path accepted 0,
-    // which stores a timeout that fails every agent the instant it starts.
+    // Gate #1 (t_db8af59c, 2026-08-26): the inline floor mirrors the JSON
+    // schema minimum so a caller that bypasses validation (a typed client) is
+    // still refused. setFleetTimeout enforces the same floor on the ledger
+    // write; this is the diagnostic surface for the caller.
     const badTimeout = firstError(
       requireString("set_fleet_timeout", "fleet_id", fleet_id),
       requireNumber("set_fleet_timeout", "timeout_ms", timeout_ms, {
-        min: 1,
+        min: MIN_PER_WORKER_BUDGET_MS,
         max: MAX_FLEET_TIMEOUT_MS,
         integer: true,
       }),
@@ -1959,6 +1969,39 @@ toolHandlers["collect_results"] = async (args) => {
     // counting. The summary goes FIRST in the object so it cannot be scrolled
     // past, and `warning` appears only when something was actually lost.
     const summary = summarizeCollection(agents);
+    // Gate #4 (t_db8af59c, 2026-08-26): for every agent that declared
+    // artifacts via the result envelope, verify the artifact files exist,
+    // are non-empty, and were modified at or after the agent's `started_at`.
+    // This is the per-worker integrity verdict the conductor hand-off
+    // required — "Fleet OK + 0 outputs" must be impossible to claim. The
+    // `statSync` oracle is wrapped in try/catch so a partial read on a
+    // mid-flight file never poisons the whole response.
+    const statOracle = (path: string) => {
+      try {
+        const stat = statSync(path);
+        return { size: stat.size, mtimeMs: stat.mtimeMs };
+      } catch {
+        return null;
+      }
+    };
+    const integrityReports = new Map<string, ReturnType<typeof computeArtifactIntegrity>>();
+    for (const a of agents) {
+      // Skip agents with no attempts: the attempt id is unknown so the result
+      // path cannot be derived. They stay `unverifiable` and the human can
+      // look at them.
+      const attemptCount = a.runtime_attempts?.length ?? 0;
+      if (attemptCount === 0) continue;
+      let envelopeArtifacts: string[] | undefined;
+      try {
+        const raw = readFileSync(resultPathFor(a.id, attemptCount), "utf8");
+        const parsed = parseAgentResultEnvelope(raw);
+        if (parsed.ok) envelopeArtifacts = parsed.envelope.artifacts;
+      } catch {
+        // Missing envelope on disk is `unverifiable`, not `inconsistent` —
+        // we cannot say the agent lied when we cannot read what it said.
+      }
+      integrityReports.set(a.id, computeArtifactIntegrity(a, envelopeArtifacts, { inspect: statOracle }));
+    }
     return jsonResult({
       fleet_id,
       ...summary,
@@ -1975,6 +2018,16 @@ toolHandlers["collect_results"] = async (args) => {
         // Why an interrupted row stopped, when boot reconciliation could attribute it
         // ('server_crash' | 'process_lost'). Absent when nothing could honestly say.
         stopped_reason: a.stopped_reason,
+        // Gate #4 (t_db8af59c, 2026-08-26): independent per-worker integrity
+        // verdict. `consistent` means the declared artifacts exist, are
+        // non-empty, and are at least as new as `started_at`. `inconsistent`
+        // means at least one declared artifact is missing, empty, or stale
+        // (older than the spawn) — a fabrication signature. `unverifiable`
+        // means we have no envelope to read (no declared artifacts, no
+        // attempts, or no `started_at`) and a human should look. The
+        // verdict is computed independently of `status` and `result_contract`
+        // — those are the agent's claims; this is the orchestrator's audit.
+        integrity: integrityReports.get(a.id) ?? { verdict: "unverifiable", violations: [], inspected: 0 },
       })),
     });
 };

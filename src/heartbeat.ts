@@ -16,7 +16,7 @@
  * For distributed heartbeats (cross-process), see v0.8/v1.0.
  */
 
-import { appendEvent } from "./core.js";
+import { appendEvent, recordAgentProgress } from "./core.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -120,6 +120,20 @@ export function createHeartbeat(
       });
     } catch {
       // appendEvent may fail in tests; ignore.
+    }
+
+    // Gate #2 (t_db8af59c, 2026-08-26): each heartbeat tick IS a progress
+    // signal — record it on the agent row so the staleness watchdog in
+    // core.ts (expireStaleAgents) can classify a worker that goes quiet as
+    // "stuck" without waiting for the full budget. The mutation is a separate
+    // ledger write so a heartbeat append-then-progress race does not lose
+    // either event; both are observable.
+    try {
+      recordAgentProgress(agentId, now);
+    } catch {
+      // Same policy as appendEvent: ledger write failures must not stop the
+      // heartbeat loop, which is the one observer that can prove the
+      // orchestrator itself is still alive.
     }
 
     options.onHeartbeat(event);

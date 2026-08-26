@@ -9,6 +9,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
+import { MIN_PER_WORKER_BUDGET_MS } from "../src/core.js";
+
 const repoRoot = join(fileURLToPath(new URL(".", import.meta.url)), "..");
 const tsxLoader = pathToFileURL(createRequire(import.meta.url).resolve("tsx")).href;
 const textOf = (result: unknown): string =>
@@ -106,7 +108,7 @@ test("set_fleet_timeout re-arms an already-running real MCP child", async () => 
 
     await client.callTool({
       name: "set_fleet_timeout",
-      arguments: { fleet_id: spawned.fleet_id, timeout_ms: 50 },
+      arguments: { fleet_id: spawned.fleet_id, timeout_ms: MIN_PER_WORKER_BUDGET_MS },
     });
 
     const ceiling = Date.now() + 3_000;
@@ -121,7 +123,7 @@ test("set_fleet_timeout re-arms an already-running real MCP child", async () => 
     }
     assert.equal(observed.fleet?.status, "failed");
     assert.equal(observed.agents?.[0]?.status, "failed");
-    assert.match(observed.agents?.[0]?.error ?? "", /fleet timeout.*50ms/i);
+    assert.match(observed.agents?.[0]?.error ?? "", new RegExp(`fleet timeout.*${MIN_PER_WORKER_BUDGET_MS}ms`, "i"));
   } finally {
     await client.close().catch(() => {});
     rmSync(dir, { recursive: true, force: true, maxRetries: 5 });

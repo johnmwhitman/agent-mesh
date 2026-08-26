@@ -1,4 +1,4 @@
-import { appendEvent, failRunningAgentForFleetRuntimeTimeout } from "./core.js";
+import { appendEvent, failRunningAgentForFleetRuntimeTimeout, expireStaleAgents } from "./core.js";
 
 export interface ExpiredFleetAgent {
   agent_id: string;
@@ -78,6 +78,10 @@ export interface FleetTimeoutEnforcerOptions {
   now?: () => number;
   nextDeadline: (fleetId: string) => number | undefined;
   expire: (fleetId: string, now: number) => ExpiredFleetAgent[];
+  /** Gate #2 (t_db8af59c, 2026-08-26): optional override for the staleness
+   * reap function. Defaults to the production `expireStaleAgents`. Tests
+   * inject a deterministic clock-bound version. */
+  expireStaleAgentsFn?: (fleetId: string, now: number) => ExpiredFleetAgent[];
   cancelAgent: (agent: ExpiredFleetAgent) => void | Promise<unknown>;
   onExpired?: (agent: ExpiredFleetAgent, now: number) => void | Promise<unknown>;
   onError?: (error: unknown) => void;
@@ -87,13 +91,22 @@ export interface FleetTimeoutEnforcerOptions {
 }
 
 /**
- * Owns only deadline scheduling. Ledger mutation and runtime cancellation stay
- * injected so the same scheduler can drive legacy and durable lifecycle modes.
- */
-export class FleetTimeoutEnforcer {
+ /** Owns only deadline scheduling. Ledger mutation and runtime cancellation stay
+  * injected so the same scheduler can drive legacy and durable lifecycle modes.
+  *
+  * Gate #2 of `t_db8af59c` (2026-08-26): every `refresh` also runs the
+  * staleness watchdog (`expireStaleAgents`) before checking the wall-clock
+  * budget. The two reapers are complementary — the budget reaper fires when
+  * the wall clock crosses zero, the staleness reaper fires well before that if
+  * the worker has been silent through the most recent quarter of its budget.
+  * Putting both behind one `refresh` is what gives a single supervisor cycle
+  * authority to detect and reap any stuck worker.
+  */
+ export class FleetTimeoutEnforcer {
   private readonly now: () => number;
   private readonly nextDeadline: FleetTimeoutEnforcerOptions["nextDeadline"];
   private readonly expire: FleetTimeoutEnforcerOptions["expire"];
+  private readonly expireStaleAgentsFn: NonNullable<FleetTimeoutEnforcerOptions["expireStaleAgentsFn"]>;
   private readonly cancelAgent: FleetTimeoutEnforcerOptions["cancelAgent"];
   private readonly onExpired?: FleetTimeoutEnforcerOptions["onExpired"];
   private readonly onError: NonNullable<FleetTimeoutEnforcerOptions["onError"]>;
@@ -106,6 +119,7 @@ export class FleetTimeoutEnforcer {
     this.now = options.now ?? Date.now;
     this.nextDeadline = options.nextDeadline;
     this.expire = options.expire;
+    this.expireStaleAgentsFn = options.expireStaleAgentsFn ?? ((fleetId, at) => expireStaleAgents(fleetId, at));
     this.cancelAgent = options.cancelAgent;
     this.onExpired = options.onExpired;
     this.onError = options.onError ?? (() => {});
@@ -124,6 +138,39 @@ export class FleetTimeoutEnforcer {
   refresh(fleetId: string): void {
     this.clearFleet(fleetId);
     const at = this.now();
+    // Gate #2 (t_db8af59c, 2026-08-26): reap stalled workers BEFORE checking
+    // the wall-clock deadline. A stalled worker whose budget has not yet
+    // elapsed would otherwise survive until the budget fires; the conductor
+    // hand-off's "21+ hour zombie" pattern is the failure mode this ordering
+    // removes. The two reapers are independent — this one (staleness) wins
+    // on the stuck case, the next one (budget) wins on the forever case.
+    let staleExpired: ExpiredFleetAgent[];
+    try {
+      staleExpired = this.expireStaleAgentsFn(fleetId, at);
+    } catch (error) {
+      this.onError(error);
+      staleExpired = [];
+    }
+    for (const agent of staleExpired) {
+      if (!agent.cancellation_attempted) {
+        try {
+          const cancellation = this.cancelAgent(agent);
+          if (cancellation && typeof (cancellation as Promise<unknown>).catch === "function") {
+            void (cancellation as Promise<unknown>).catch((error) => this.onError(error));
+          }
+        } catch (error) {
+          this.onError(error);
+        }
+      }
+      try {
+        const observed = this.onExpired?.(agent, at);
+        if (observed && typeof (observed as Promise<unknown>).catch === "function") {
+          void (observed as Promise<unknown>).catch((error) => this.onError(error));
+        }
+      } catch (error) {
+        this.onError(error);
+      }
+    }
     let expired: ExpiredFleetAgent[];
     try {
       expired = this.expire(fleetId, at);

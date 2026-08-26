@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess, type SpawnOptions } from "node:child_process";
+import { execFileSync, spawn, type ChildProcess, type SpawnOptions } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import type { CancelResult, ExecutionSpec, RuntimeEnvironmentPolicy, RuntimeHandle, RuntimeResult } from "./types.js";
 
@@ -77,12 +77,32 @@ export interface RecordedProcessContainmentOptions {
   schedule?: (callback: () => void, delayMs: number) => unknown;
   graceMs?: number;
   platform?: NodeJS.Platform;
+  /**
+   * Optional descendant enumerator, used by `walkAndKillDescendants` to find
+   * processes whose PGID is the supplied pid (or whose PPID is the pid) so
+   * that a child that called `setsid(2)` and broke away from the parent's
+   * process group is still terminated. Defaults to a POSIX `ps -o pid= -o
+   * ppid= -o pgid=` walker for live tests; injected in production so the
+   * caller can pre-cache the snapshot. `platform: "win32"` skips the walk.
+   */
+  listDescendants?: (pid: number, platform: NodeJS.Platform) => number[];
 }
 
 /**
  * Best-effort containment when a server restart preserved only a detached
  * runtime pid in SQLite. POSIX children are process-group leaders, so the
  * negative pid contains descendants just like the live-handle path.
+ *
+ * Gate #3 of `t_db8af59c` (2026-08-26): the negative-pid group kill is not
+ * enough. A child that called `setsid(2)` (typical of a long-lived tool
+ * wrapper that wants to outlive its parent) escapes the parent's process
+ * group, and `process.kill(-pgid)` does not reach it. `walkAndKillDescendants`
+ * is the second pass — it enumerates direct children of the leader by PPID,
+ * sends each the same TERM/KILL sequence, and recurses. On Windows the
+ * platform has no process-group signal semantics at all, so the same walker
+ * has to be the primary path. Without this second pass, a real OpenCode
+ * child that spawned `nohup … &` to detach from its CLI wrapper would
+ * survive any timeout reap and continue holding its SQLite lease.
  */
 export function containRecordedProcess(
   pid: number,
@@ -91,16 +111,109 @@ export function containRecordedProcess(
   if (!Number.isInteger(pid) || pid <= 0) return false;
   const kill = options.kill ?? process.kill.bind(process);
   const schedule = options.schedule ?? setTimeout;
-  const target = (options.platform ?? process.platform) === "win32" ? pid : -pid;
+  const platform = options.platform ?? process.platform;
+  const target = platform === "win32" ? pid : -pid;
   try {
     kill(target, "SIGTERM");
   } catch {
     return false;
   }
+  // Gate #3 second pass: walk the descendant tree and terminate anything
+  // that detached from the leader's process group. Best-effort: a child that
+  // is still spawning during the walk is not caught, but the grace-window
+  // escalation below still runs after the walk so the leader's own group is
+  // SIGKILLed on the deadline.
+  walkAndKillDescendants(pid, { ...options, platform }, kill);
   schedule(() => {
     try { kill(target, "SIGKILL"); } catch { /* already exited */ }
+    // Escalate the descendants too — a child that ignored SIGTERM gets the
+    // same grace window. Same shape as the leader's escalation above; the
+    // walk itself is cheap so re-walking on the grace timer is acceptable.
+    walkAndKillDescendants(pid, { ...options, platform }, kill, "SIGKILL");
   }, options.graceMs ?? DEFAULT_TERMINATION_GRACE_MS);
   return true;
+}
+
+/**
+ * Walk every direct child of `pid` and terminate it with `signal`, then
+ * recurse into each child. Intended as the second pass after a
+ * process-group kill so a child that broke away via `setsid(2)` still gets
+ * the same TERM/KILL escalation as the leader. Exported so tests can verify
+ * the walker without spawning a real process tree.
+ *
+ * The walker enumerates only DIRECT children of `pid` and recurses — a full
+ * ps-tree enumeration would scale O(processes on host), which is
+ * unacceptable when the only caller is the per-fleet reap path that fires
+ * once per worker. The recursion is bounded by the size of the worker's own
+ * tree, which the leader itself forked and can re-walk cheaply.
+ */
+export function walkAndKillDescendants(
+  pid: number,
+  options: RecordedProcessContainmentOptions & { platform: NodeJS.Platform },
+  kill: (pid: number, signal: NodeJS.Signals) => void = (options.kill ?? process.kill.bind(process)),
+  signal: NodeJS.Signals = "SIGTERM",
+): number {
+  if (!Number.isInteger(pid) || pid <= 0) return 0;
+  if (options.platform === "win32") return 0;
+  const list = options.listDescendants ?? defaultListDescendants;
+  let killed = 0;
+  for (const child of list(pid, options.platform)) {
+    try {
+      kill(child, signal);
+      killed += 1;
+    } catch {
+      // A child may already be gone; the walker is best-effort.
+    }
+    killed += walkAndKillDescendants(child, options, kill, signal);
+  }
+  return killed;
+}
+
+/**
+ * POSIX-only descendant enumerator: shells out to `ps -o pid=,ppid= -A` and
+ * filters to children whose PPID matches `pid`. Returned as a number array
+ * of PIDs.
+ *
+ * `ps` is the portable POSIX primitive; `pgrep -P` is BSD/macOS-only and
+ * `ps -e -o pid,ppid` is what every Linux distribution ships. The `-A`
+ * selector is BSD's "every process"; `-e` is SysV's. We pass `-A` because
+ * it works on both and on macOS, where the team typically runs.
+ *
+ * Not invoked on Windows — `walkAndKillDescendants` short-circuits the
+ * walker when `platform === "win32"`, and `defaultListDescendants` here
+ * throws if a caller ever tries. The throw is a guard against silent
+ * fallthrough, not an expected runtime path.
+ */
+function defaultListDescendants(pid: number, platform: NodeJS.Platform): number[] {
+  if (platform === "win32") {
+    throw new Error("defaultListDescendants is POSIX-only; walkAndKillDescendants short-circuits Windows");
+  }
+  let raw: string;
+  try {
+    raw = execFileSync("ps", ["-A", "-o", "pid=,ppid="], {
+      encoding: "utf8",
+      timeout: 2_000,
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+  } catch {
+    // `ps` is missing or timed out. Returning an empty list is the same
+    // outcome as "no descendants found" — the leader's negative-pid kill
+    // still runs, and a follow-up `containRecordedProcess` on the same pid
+    // will try again. The fallback intentionally does NOT throw, because
+    // the reap path is the wrong place to introduce a NEW failure mode.
+    return [];
+  }
+  const out: number[] = [];
+  for (const line of raw.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const [childStr, ppidStr] = trimmed.split(/\s+/);
+    const child = Number(childStr);
+    const ppid = Number(ppidStr);
+    if (!Number.isInteger(child) || !Number.isInteger(ppid)) continue;
+    if (ppid === pid) out.push(child);
+  }
+  return out;
 }
 
 /**

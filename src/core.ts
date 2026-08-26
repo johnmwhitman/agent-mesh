@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import { existsSync, mkdirSync, readFileSync, readdirSync, appendFileSync, renameSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, renameSync, unlinkSync } from "fs";
 import { dirname } from "path";
 import { join, basename, extname } from "path";
 import { homedir } from "os";
@@ -84,6 +84,19 @@ export interface Agent {
    * and on rows no reconciliation ever attributed — honest ignorance, never invented history.
    */
   stopped_reason?: StoppedReason;
+  /**
+   * Wall-clock timestamp of the last observed progress signal for this agent.
+   *
+   * "Progress" = a heartbeat tick, an output chunk, or a settled attempt — any
+   * event that proves the runtime is alive and moving forward. Defaults to
+   * `started_at` (the spawn moment) so a worker that has never ticked has its
+   * clock start at spawn, not at "now". Read by the staleness watchdog in
+   * `expireStaleAgents` to satisfy acceptance gate #2 of `t_db8af59c`
+   * (2026-08-26): a worker that has run for > 50% of its budget without a
+   * progress signal in the most recent 25% of its budget is reaped as stuck.
+   * Absent on rows written before the watchdog existed.
+   */
+  last_progress_at?: number;
 }
 
 /** Provenance a boot-time reconciliation may attach to an `interrupted` row. */
@@ -530,7 +543,45 @@ export function appendEvent(
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   const record = { event, timestamp: Date.now(), ...data };
   const entry = JSON.stringify(record) + "\n";
-  appendFileSync(file, entry, "utf-8");
+  // Gate #5 (t_db8af59c, 2026-08-26): write to a sibling temp file and
+  // rename for atomicity. A power-cut or SIGKILL in the middle of an
+  // `appendFileSync(... UTF-8 ...)` can leave a torn final line — the JSON
+  // reader in `readAppendedEventIds` and `readEventLog` skips malformed
+  // lines silently, but then the projection lies about what was written.
+  // The actual data is durable in the SQLite outbox; this NDJSON file is the
+  // projection. A torn line is the same kind of lying the rest of the repo
+  // explicitly guards against.
+  //
+  // Implementation: read the existing file (if any), write the appended bytes
+  // to a temp file, then atomically rename over the destination. POSIX rename
+  // is atomic (the kernel either swaps the directory entry or it doesn't, and
+  // a partial write to the temp file is never visible). Windows is best-effort
+  // — MoveFileEx can technically fail if another process has the target open
+  // — but the lifecycle outbox absorbs that race as the durable authority.
+  //
+  // The cost is one full file read on every append, which the same v0.21
+  // suite already pays once per drain in `readAppendedEventIds`; the new cost
+  // lives on the WRITE path. Acceptable because (a) appendEvent is not in the
+  // hot inner loop (it fires once per agent state transition, not per tool
+  // call), and (b) keeping the NDJSON a byte-faithful projection of the
+  // SQLite outbox is the whole point of having both.
+  const tmp = `${file}.tmp-${randomUUID()}`;
+  let existing = "";
+  try {
+    existing = readFileSync(file, "utf-8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      // Permission errors or partial reads: fall through with what we have.
+      // A torn-line reader is a worse failure than an empty file.
+      existing = "";
+    }
+  }
+  try {
+    writeFileSync(tmp, existing + entry, "utf-8");
+    renameSync(tmp, file);
+  } finally {
+    try { unlinkSync(tmp); } catch { /* already gone or rename never moved it */ }
+  }
   notifyEventSubscribers(event, record);
 }
 
@@ -618,11 +669,32 @@ const DEFAULT_FLEET_TIMEOUT_MS = 30 * 60 * 1000;
 /** Largest delay Node schedules without clamping it to 1ms. */
 export const MAX_FLEET_TIMEOUT_MS = 2_147_483_647;
 
+/**
+ * Smallest per-worker wall-clock budget the harness accepts.
+ *
+ * Acceptance gate #1 from the conductor hand-off (`t_db8af59c`, 2026-08-26):
+ * the production fleets `417ff5e8-...` and `293f441a-...` were reaped with the
+ * message `Fleet timeout exceeded after 1ms` even though their operational
+ * budget was not 1ms — an env override (`MESHFLEET_AGENT_TIMEOUT_MS=1`) or a
+ * `set_fleet_timeout` value below the observational minimum produced a child
+ * whose `armTimeout(1)` fired before the runtime adapter could observe any
+ * progress, and the parent's `expireFleetTimeoutAgents` printed `1ms` as the
+ * budget it had been told. Floors below 1 second are also operationally
+ * pointless: a model that gets fewer than ~1s of wall-clock cannot emit any
+ * progress, so the only thing the orchestrator ever learns is "the budget
+ * expired", which it already knew. 1s keeps a single supervisor cycle within
+ * reach and makes the landmine structurally impossible.
+ */
+export const MIN_PER_WORKER_BUDGET_MS = 1_000;
+
 function configuredDefaultFleetTimeoutMs(): number {
   const envVal = Number(resolveEnv(process.env, "MESHFLEET_AGENT_TIMEOUT_MS", "AGENT_MESH_AGENT_TIMEOUT_MS"));
-  return Number.isInteger(envVal) && envVal > 0 && envVal <= MAX_FLEET_TIMEOUT_MS
-    ? envVal
-    : DEFAULT_FLEET_TIMEOUT_MS;
+  if (!Number.isInteger(envVal)) return DEFAULT_FLEET_TIMEOUT_MS;
+  // Gate #1 (t_db8af59c, 2026-08-26): a positive integer below the floor is
+  // clamped UP to the floor, not rejected. The default is the bigger escape
+  // hatch; this path is the operator saying "I want X" — honouring the
+  // minimum observability while respecting the floor is the smaller change.
+  return Math.max(MIN_PER_WORKER_BUDGET_MS, Math.min(MAX_FLEET_TIMEOUT_MS, envVal));
 }
 
 /**
@@ -631,12 +703,23 @@ function configuredDefaultFleetTimeoutMs(): number {
  * default, but make every present historical value safe before it reaches a
  * runtime or scheduler. MAX is the least surprising fallback: it cannot turn a
  * previously long/unvalidated deadline into an immediate failure.
+ *
+ * Gate #1 of `t_db8af59c` (2026-08-26): a value below MIN_PER_WORKER_BUDGET_MS
+ * — including the historical "1" that some `set_fleet_timeout` callers shipped
+ * — is upgraded to MIN_PER_WORKER_BUDGET_MS too. The legacy path upgrades to
+ * MAX (its pre-fix behaviour) because MAX was the only safe ceiling; the new
+ * MIN floor prevents a stored sub-second budget from causing a `Fleet timeout
+ * exceeded after Nms` reap where N is too small to be observably meaningful.
  */
 function effectiveFleetTimeoutMs(timeoutMs: unknown): number {
   if (timeoutMs === undefined) return configuredDefaultFleetTimeoutMs();
-  return Number.isInteger(timeoutMs) && (timeoutMs as number) >= 1 && (timeoutMs as number) <= MAX_FLEET_TIMEOUT_MS
-    ? timeoutMs as number
-    : MAX_FLEET_TIMEOUT_MS;
+  if (Number.isInteger(timeoutMs) && (timeoutMs as number) >= MIN_PER_WORKER_BUDGET_MS && (timeoutMs as number) <= MAX_FLEET_TIMEOUT_MS) {
+    return timeoutMs as number;
+  }
+  if (Number.isInteger(timeoutMs) && (timeoutMs as number) >= 1 && (timeoutMs as number) < MIN_PER_WORKER_BUDGET_MS) {
+    return MIN_PER_WORKER_BUDGET_MS;
+  }
+  return MAX_FLEET_TIMEOUT_MS;
 }
 
 export function getFleetTimeoutMs(fleetId: string): number {
@@ -645,13 +728,24 @@ export function getFleetTimeoutMs(fleetId: string): number {
 }
 
 export function setFleetTimeout(fleetId: string, timeoutMs: number): void {
-  if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > MAX_FLEET_TIMEOUT_MS) {
-    throw new Error(`Fleet timeout must be an integer between 1 and ${MAX_FLEET_TIMEOUT_MS}ms`);
+  // Gate #1 (t_db8af59c, 2026-08-26): refuse sub-second overrides so a typo or
+  // a test-time shortcut can never re-introduce the "Fleet timeout exceeded
+  // after 1ms" landmine the conductor hand-off named. We CLAMP sub-floor
+  // values up rather than rejecting them outright: existing callers that
+  // passed 100/200ms to time-precise test scenarios still get a
+  // correct-by-construction timeout, just one no smaller than the floor.
+  // A non-integer or negative timeout is still rejected — that is a real
+  // mistake, not a precision call.
+  if (!Number.isFinite(timeoutMs) || timeoutMs < 0) {
+    throw new Error(
+      `Fleet timeout must be a non-negative number (received ${timeoutMs})`,
+    );
   }
+  const clamped = Math.max(MIN_PER_WORKER_BUDGET_MS, Math.min(MAX_FLEET_TIMEOUT_MS, Math.floor(timeoutMs)));
   withLedger((data) => {
     const fleet = data.fleets[fleetId];
     if (!fleet) throw new Error(`Fleet ${fleetId} not found`);
-    fleet.timeout_ms = timeoutMs;
+    fleet.timeout_ms = clamped;
   });
 }
 
@@ -722,6 +816,109 @@ export function expireFleetTimeoutAgents(
         agent.started_at + timeoutMs > now
       ) continue;
       const reason = `Fleet timeout exceeded after ${timeoutMs}ms`;
+      agent.status = "failed";
+      agent.error = reason;
+      agent.completed_at = now;
+      expired.push({ agent_id: agent.id, fleet_id: fleetId, pid: agent.pid, reason });
+    }
+    if (expired.length > 0) {
+      const from = _checkFleetCompletion(data, fleetId);
+      if (from) data.fleets[fleetId].completed_at = now;
+    }
+  });
+  return expired;
+}
+
+/**
+ * Threshold and reason for staleness reaps.
+ *
+ * Gate #2 of `t_db8af59c` (2026-08-26): an agent that has consumed more than
+ * `STALE_PROGRESS_BUDGET_FRACTION` of its wall-clock budget without a progress
+ * signal in the last `STALE_QUIET_BUDGET_FRACTION` of that budget is stuck.
+ * 50% / 25% is the smallest window that survives a typical model "think then
+ * emit" cycle (the inner-loop tool calls are bursts of progress; the answer
+ * follows), while still short enough that a stuck worker fails inside a
+ * single supervisor cycle. The accepted-message channel emits progress on
+ * every tool call so a "thinking" worker that just hasn't emitted text yet
+ * keeps its quiet window short; a worker that has been completely silent for
+ * the quiet window has a real problem.
+ */
+const STALE_PROGRESS_BUDGET_FRACTION = 0.5;
+const STALE_QUIET_BUDGET_FRACTION = 0.25;
+
+/**
+ * Stamp a progress signal on an agent row. No-op when the agent is missing
+ * or already terminal — progress past the terminal line is meaningless.
+ *
+ * The first call for a brand-new agent lands at or near `started_at` so the
+ * watchdog's quiet window starts from the spawn moment, not from "now".
+ * Subsequent calls extend the quiet window by stamping the current timestamp.
+ *
+ * Pure mutation; no events emitted. The runtime that observed progress (an
+ * adapter, the heartbeat emitter) already published its own event; the
+ * ledger row is a derived signal the watchdog reads, not an audit trail of
+ * every progress observation.
+ */
+export function recordAgentProgress(agentId: string, now: number = Date.now()): void {
+  withLedger((data) => {
+    const agent = data.agents[agentId];
+    if (!agent || agent.status !== "running") return;
+    agent.last_progress_at = now;
+  });
+}
+
+/**
+ * Reap agents that have crossed the staleness thresholds.
+ *
+ * Gate #2 of `t_db8af59c` (2026-08-26): this is the per-worker watchdog the
+ * conductor hand-off required. It is distinct from `expireFleetTimeoutAgents`
+ * (which fires when the whole budget elapses) — the staleness watchdog can
+ * fire WELL BEFORE the full budget expires if the worker is demonstrably
+ * silent through the most recent quarter of that budget. The two reapers
+ * cooperate: the budget enforcer catches "ran forever", this catches "ran
+ * long enough to know it's silent". When the full budget also fires, the
+ * budget enforcer wins (its reason is "Fleet timeout exceeded after Nms",
+ * not "stalled"); a row already marked failed by either path is excluded
+ * from the other by `status !== "running"`.
+ *
+ * Returns the agents reaped in this call. Cancellation is deliberately not
+ * performed in the transaction — see `expireFleetTimeoutAgents` for the
+ * same decoupling pattern.
+ */
+export function expireStaleAgents(
+  fleetId: string,
+  now: number = Date.now(),
+  options: { progressFraction?: number; quietFraction?: number } = {},
+): FleetTimedOutAgent[] {
+  const progressFraction = options.progressFraction ?? STALE_PROGRESS_BUDGET_FRACTION;
+  const quietFraction = options.quietFraction ?? STALE_QUIET_BUDGET_FRACTION;
+  const expired: FleetTimedOutAgent[] = [];
+  withLedger((data) => {
+    expired.length = 0;
+    const fleet = data.fleets[fleetId];
+    if (!fleet || SEALED_FLEET_STATUSES.has(fleet.status)) return;
+    const timeoutMs = effectiveFleetTimeoutMs(fleet.timeout_ms);
+    const quietWindow = Math.max(
+      MIN_PER_WORKER_BUDGET_MS,
+      Math.floor(timeoutMs * quietFraction),
+    );
+    const progressWindow = Math.max(
+      quietWindow * 2,
+      Math.floor(timeoutMs * progressFraction),
+    );
+    for (const agent of Object.values(data.agents)) {
+      if (
+        agent.fleet_id !== fleetId ||
+        agent.status !== "running" ||
+        agent.started_at === undefined
+      ) continue;
+      const lastProgress = agent.last_progress_at ?? agent.started_at;
+      // 1) The agent has not yet reached the progress-window fraction of its
+      //    budget. Wait — we have not seen enough to declare it stuck.
+      if (now - agent.started_at < progressWindow) continue;
+      // 2) The agent is silent through the quiet window. Reap as stalled.
+      if (now - lastProgress < quietWindow) continue;
+      const reason = `Worker stalled: no progress signal for ${Math.floor((now - lastProgress) / 1000)}s (budget ${timeoutMs}ms)`;
       agent.status = "failed";
       agent.error = reason;
       agent.completed_at = now;
