@@ -355,3 +355,154 @@ test("indexed symlinks are rejected without filesystem privilege", () => {
     /not a regular indexed file/,
   );
 });
+
+// ---------------------------------------------------------------------------
+// Fleet-bus v2 design regression guard (t_2b0907d0 follow-up to t_b315ad83)
+// ---------------------------------------------------------------------------
+//
+// Origin: the fleet-bus v2 design commit 9cde07c shipped with a §Scope section
+// naming the live operator store at literal `/Users/johnwhitman/AI/agents/.hermes/
+// fleet-bus.db`, four more `~/AI/...` references in the migration plan and
+// benchmark section, and the v2 migrate runner (`scripts/fleet-bus-v2-migrate.mjs`)
+// quoting `/Users/johnwhitman/...` as the default `--src` twice. The repo's
+// existing index-scanning guard was green at the pre-amend tree because the
+// literals had been COMMITTED (not staged) — the prior positive-control tests
+// walked uncommitted stage entries only. The amend in e4fcbf5 replaced those
+// literals with `${FLEET_BUS_HOME}/` / `${XDG_DATA_HOME:-$HOME/.local/share}/`
+// placeholders.
+//
+// The next regression of this shape is the next design doc / runner / evidence
+// note that names the operator's actual home path. The edit-time guard at
+// scripts/check-public-surface-edit-time.mjs is the seatbelt (runs on every
+// `npm run typecheck` and on `node scripts/check-public-surface-edit-time.mjs`
+// directly). This test is the audit: a SINGLE synthesized test case proves
+// the regression class cannot ship without breaking the suite. The case
+// walks the pre-amend tree (9cde07c) AND the post-amend tree (e4fcbf5) so a
+// future "fix" that doesn't actually close the class still fails.
+//
+// Cite both SHAs in the docblock above so the next reader does not have to
+// reconstruct the regression class from `git log -S`.
+//
+// Test count: this slice contributes 1 case (the targeted regression-class
+// pin); scripts/check-public-surface-edit-time.test.mjs contributes the
+// edit-time guard suite (see that file's header comment for its own
+// case list).
+
+test("committed-tree regression pin: pre-amend 9cde07c leaks operator paths that post-amend e4fcbf5 does not", () => {
+  // Run the existing index-based scanner against TWO non-checked-out commits.
+  // Both SHAs are stable on every clone; the test asserts the SAME scanner
+  // reports operator-path findings on the pre-amend tree and ZERO on the
+  // post-amend tree, for the same target paths. If either side regresses —
+  // a future design doc that re-introduces the literal, or an amend that
+  // claims to close the class without actually removing the literal — the
+  // suite fails.
+  const targetPaths = ["docs/FLEET-BUS-V2-DESIGN.md", "scripts/fleet-bus-v2-migrate.mjs"];
+
+  function scanCommittedTree(ref: string): { path: string; hits: string[] }[] {
+    // Walk the blob set at `ref` via `git ls-tree -r -z` + `git cat-file --batch`.
+    // The batch output format is `<oid> <type> <size>\n<bytes>\n` per record;
+    // we walk by the header's declared size and skip exactly one LF after
+    // each content record (the record separator is emitted even when the
+    // content itself ends with LF).
+    const listing = execFileSync("git", ["ls-tree", "-r", "-z", ref], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      maxBuffer: 4 * 1024 * 1024,
+    });
+    const records = listing.split("\0").filter(Boolean);
+    const inputs: string[] = [];
+    const paths: string[] = [];
+    for (const record of records) {
+      const tab = record.indexOf("\t");
+      if (tab <= 0) continue;
+      const meta = record.slice(0, tab).split(" ");
+      if (meta.length !== 3) continue;
+      const path = record.slice(tab + 1);
+      if (!targetPaths.includes(path)) continue;
+      inputs.push(`${ref}:${path}`);
+      paths.push(path);
+    }
+    if (inputs.length === 0) return [];
+    const output = execFileSync("git", ["cat-file", "--batch"], {
+      cwd: repoRoot,
+      maxBuffer: 16 * 1024 * 1024,
+      input: `${inputs.join("\n")}\n`,
+    });
+    const results: { path: string; hits: string[] }[] = [];
+    let cursor = 0;
+    for (let i = 0; i < inputs.length; i += 1) {
+      const path = paths[i];
+      const headerEnd = output.indexOf(0x0a, cursor);
+      assert.ok(headerEnd > 0, `cat-file header not found for ${path} at ${ref}`);
+      const sizeText = output.slice(cursor, headerEnd).toString("utf8").split(" ")[2];
+      const size = Number(sizeText);
+      assert.ok(
+        Number.isSafeInteger(size) && size >= 0 && size <= 2 * 1024 * 1024,
+        `${path} at ${ref} exceeds the 2 MiB scan limit`,
+      );
+      const bytesStart = headerEnd + 1;
+      const bytesEnd = bytesStart + size;
+      const content = output.slice(bytesStart, bytesEnd).toString("utf8");
+      const hits: string[] = [];
+      for (const forbidden of forbiddenContent) {
+        if (content.includes(forbidden)) hits.push(`${path}: ${forbidden}`);
+      }
+      results.push({ path, hits });
+      cursor = bytesEnd + 1;
+    }
+    return results;
+  }
+
+  const preAmend = scanCommittedTree("9cde07c");
+  const postAmend = scanCommittedTree("e4fcbf5");
+
+  assert.equal(
+    preAmend.length,
+    targetPaths.length,
+    `pre-amend tree 9cde07c must contain both target paths; got ${JSON.stringify(preAmend.map((r) => r.path))}`,
+  );
+  for (const target of targetPaths) {
+    const row = preAmend.find((r) => r.path === target);
+    assert.ok(row, `pre-amend tree must contain ${target}`);
+    assert.ok(
+      row!.hits.length > 0,
+      `pre-amend ${target} must leak at least one operator-path literal (RED proof for 9cde07c); got ${JSON.stringify(row!.hits)}`,
+    );
+    // Be specific about the substrings the regression class covers: the
+    // design doc + migrate runner at 9cde07c each quote the operator's
+    // home directory literally (`/Users/johnwhitman`) and the design doc
+    // additionally uses the `~/AI/` short-form. Pin all three so a future
+    // partial-amend that removes only the home and not the short-form
+    // still fails.
+    if (target === "docs/FLEET-BUS-V2-DESIGN.md") {
+      assert.ok(
+        row!.hits.some((h) => h.endsWith(": /Users/johnwhitman")),
+        `pre-amend ${target} must contain /Users/johnwhitman literal; got ${JSON.stringify(row!.hits)}`,
+      );
+      assert.ok(
+        row!.hits.some((h) => h.endsWith(": ~/AI/")),
+        `pre-amend ${target} must contain ~/AI/ literal; got ${JSON.stringify(row!.hits)}`,
+      );
+    } else {
+      assert.ok(
+        row!.hits.some((h) => h.endsWith(": /Users/johnwhitman")),
+        `pre-amend ${target} must contain /Users/johnwhitman literal; got ${JSON.stringify(row!.hits)}`,
+      );
+    }
+  }
+
+  assert.equal(
+    postAmend.length,
+    targetPaths.length,
+    `post-amend tree e4fcbf5 must contain both target paths; got ${JSON.stringify(postAmend.map((r) => r.path))}`,
+  );
+  for (const target of targetPaths) {
+    const row = postAmend.find((r) => r.path === target);
+    assert.ok(row, `post-amend tree must contain ${target}`);
+    assert.deepEqual(
+      row!.hits,
+      [],
+      `post-amend ${target} must not leak any operator-path literal (GREEN proof for e4fcbf5); got ${JSON.stringify(row!.hits)}`,
+    );
+  }
+});

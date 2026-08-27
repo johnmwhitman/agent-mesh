@@ -26,18 +26,36 @@ if (ledgerEnvOverrides.length > 0) {
 // Every directory whose `*.test.ts` files this runner executes. `npm test` is the
 // only test command CI invokes, so a suite absent from this list runs NOWHERE —
 // see the orphan guard below, which exists to make that impossible to do silently.
-const TEST_ROOTS = ["test", "editors/vscode/src"];
+//
+// `scripts/` is included because the lane's edit-time guards (e.g.
+// scripts/check-public-surface-edit-time.test.mjs) are `.test.mjs` rather
+// than `.test.ts` — they exercise Node ESM scripts that don't go through
+// `tsx`, and renaming them to .ts would require a tsconfig entry that adds
+// nothing the scanner can verify. The collector below discovers both
+// extensions inside each TEST_ROOTS entry, so adding `scripts` here
+// recruits every script-root test in one motion without changing the
+// runner's contract.
+const TEST_ROOTS = ["test", "editors/vscode/src", "scripts"];
 
 // Recurse. The original readdirSync was flat, so every *.test.ts in a subdirectory was
 // silently excluded from `npm test` and therefore from CI — three files under test/config/,
 // including a secret-rejection suite, had never run in the matrix. A test that does not run
 // is indistinguishable from a test that passes, which is the failure this repo has already
 // paid for twice (npm-cache false-green, dropped-file silent skip).
+//
+// `*.test.ts` is the canonical extension; `*.test.mjs` is the seam for pure-
+// Node tests of ESM scripts in `scripts/` that should not be transpiled. Both
+// extensions are accepted here so the orphan guard sees the same set the
+// collector will pick up — otherwise a `*.test.mjs` would be silently
+// orphaned AND pass this guard.
+const TEST_SUFFIXES = [".test.ts", ".test.mjs"];
+
 function collectTests(dir) {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const full = join(dir, entry.name);
     if (entry.isDirectory()) return collectTests(full);
-    return entry.isFile() && entry.name.endsWith(".test.ts") ? [full] : [];
+    const isTestFile = entry.isFile() && TEST_SUFFIXES.some((suffix) => entry.name.endsWith(suffix));
+    return isTestFile ? [full] : [];
   });
 }
 
@@ -89,14 +107,15 @@ function scanForTests(dir) {
     if (entry.isDirectory()) return scanForTests(full);
     // A symlinked test file is neither isFile() nor isDirectory(), so the naive check would
     // drop it from BOTH the collected list and this scan — silently skipped and silently
-    // blessed. Surface it instead of guessing.
-    if (entry.isSymbolicLink() && entry.name.endsWith(".test.ts")) {
+    // blessed. Surface it instead of guessing. The same suffix set applies here as in
+    // `collectTests` above: a `.test.mjs` symlink would otherwise be hidden the same way.
+    if (entry.isSymbolicLink() && TEST_SUFFIXES.some((suffix) => entry.name.endsWith(suffix))) {
       throw new Error(
         `orphan scan found a symlinked test file: ${full}. Resolve it to a real file; ` +
           `a symlink is skipped by the collector and would pass this guard unnoticed.`,
       );
     }
-    return entry.isFile() && entry.name.endsWith(".test.ts") ? [full] : [];
+    return entry.isFile() && TEST_SUFFIXES.some((suffix) => entry.name.endsWith(suffix)) ? [full] : [];
   });
 }
 
