@@ -45,6 +45,21 @@ say which of 1–4 it serves, it is not eligible.
 - the operator lock file (a row older than 4h is stale)
 - `git fetch` FIRST — the local `main` ref going stale made every ahead/behind figure in the
   queue wrong for an entire session
+- **branch-sprawl check** — when both `$BRANCHES_AHEAD > 0` (you have unpushed commits) and
+  `$BRANCHES_NO_MERGE > 25` (more than 25 unmerged local branches), the verified-work surface
+  has gone invisible and the QUEUE row must flag it. The threshold of 25 is the lane's standing
+  pattern (train + a few section-specific branches); anything beyond is sprawl. The flag surfaces
+  in the QUEUE row, it does NOT auto-prune (branch deletion is operator-law deny-list):
+  ```
+  BRANCHES_AHEAD=$(git rev-list --count origin/main..HEAD)
+  BRANCHES_NO_MERGE=$(git branch --no-merged origin/main | wc -l | tr -d ' ')
+  if [ "$BRANCHES_AHEAD" -gt 0 ] && [ "$BRANCHES_NO_MERGE" -gt 25 ]; then
+    echo "[drain-loop] ${BRANCHES_AHEAD} unpushed commits and ${BRANCHES_NO_MERGE} unmerged branches — flag as branch-sprawl in next QUEUE row"
+  fi
+  ```
+  Proven, not reasoned: 2026-08-27 (`t_e8f15f28`) found 19 unpushed commits on
+  `fix/verifier-test-compile` against 100+ unmerged local branches — verified work that had
+  gone invisible to the lane's drain loop for the gap between two sessions.
 
 **End every iteration with:** a queue write-back (§6 + §7 + a §9 line), a commit whose message is
 a receipt, and a green verifier. A run that changes the repo but not the queue has failed, however
