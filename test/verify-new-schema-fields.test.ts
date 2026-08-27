@@ -66,9 +66,40 @@ test('an adjacent duplicate runtime attempt is a fabricated hop; a non-adjacent 
       !ids({ agents: { a1: agent({ status: 'complete', started_at: 1, completed_at: 2, runtime_attempts: attempts }) } })
         .includes('agent.runtime_attempt_duplicated'),
       `${JSON.stringify(attempts)} is a legitimate history and must stay silent`
-    )
+    );
   }
-})
+});
+
+test('release N+1: a complete row paired with a non-ok contract is caught; complete|ok is silent', () => {
+  // THE LIE: the writer banked `complete` despite a non-`ok` contract — exactly the false
+  // completion release N existed to surface, exactly what release N+1 seals in
+  // `src/index.ts` (recordAttemptSettlement) and `src/lifecycle-execution.ts`. A row written
+  // under N+1's settlement cannot reach this state, so the check is a regression guard,
+  // not a normal-case rule. Pre-N+1 history (rows that exist before the upgrade) will
+  // surface here too — that is the proof the auditor caught the bug.
+  for (const rc of ['refused', 'blocked', 'artifact_missing', 'invalid', 'absent'] as const) {
+    assert.ok(
+      ids({ agents: { a1: agent({ status: 'complete', started_at: 1, completed_at: 2, result_contract: rc }) } })
+        .includes('agent.complete_with_non_ok_contract'),
+      `complete + result_contract=${rc} must be caught (release N+1 forbids the pairing)`
+    );
+  }
+  // NEGATIVE CONTROL — `complete` paired with `ok` is the only honest pairing.
+  assert.ok(
+    !ids({ agents: { a1: agent({ status: 'complete', started_at: 1, completed_at: 2, result_contract: 'ok' }) } })
+      .includes('agent.complete_with_non_ok_contract'),
+    'complete + result_contract=ok must stay silent'
+  );
+  // NEGATIVE CONTROL — `failed` paired with any contract is also honest (a failed agent
+  // is allowed to carry whatever contract value the agent declared).
+  for (const rc of ['refused', 'blocked', 'artifact_missing', 'invalid', 'absent'] as const) {
+    assert.ok(
+      !ids({ agents: { a1: agent({ status: 'failed', started_at: 1, completed_at: 2, result_contract: rc }) } })
+        .includes('agent.complete_with_non_ok_contract'),
+      `failed + result_contract=${rc} must stay silent (the check is complete-only)`
+    );
+  }
+});
 
 test('an abandoned fleet whose members deny its crash claim is caught; reopened and mixed fleets are not', () => {
   const fleet = (over: Record<string, unknown>) => ({ id: 'f1', created_at: 1, ...over }) as never

@@ -1,12 +1,12 @@
 # MeshFleet public handoff
 
 **Source version:** `0.21.1` · **MCP surface:** **37 MCP tools** ·
-**current suite contract:** **1789/1789** tests collected, plus typecheck and build
+**current suite contract:** **1780/1780** tests collected, plus typecheck and build
 
 The latest completed cross-platform proof is GitHub Actions run `31315444631`
 at `e14bd8f` (9/9 jobs across Node 20/22/24 on Ubuntu, macOS, and Windows). It
 prove that prior revision, not the newer source and test bytes that establish
-the current 1789-test contract above; those require their own fresh 9/9 run
+the current 1780-test contract above; those require their own fresh 9/9 run
 before merge.
 
 Base `01f0fa0` passed 1416/1416; the parity snapshot that introduced this document
@@ -32,22 +32,22 @@ adapters are fixture-verified and disabled unless configured; MiniMax is an
 explicit-only text lane with no workspace authority. Runtime and model labels are
 evidence, not account, entitlement, billing, availability, or identity proof.
 
-**What `complete` means, and what it will mean.** An agentic runtime is handed a `RESULT_PATH`
-and asked to write one JSON envelope declaring `done`, `refused` or `blocked` before it stops.
-A restricted text runtime receives the same outcome contract as a structured final-text envelope,
-with no impossible file instruction. What the runtime declared is recorded on the agent row and
-returned by `collect_results` as `result_contract`
-(`ok` | `refused` | `blocked` | `artifact_missing` | `invalid` | `absent`). **This release records
-that value and nothing more** — `status` is banked exactly as it was before — so callers can
-measure adoption before behaviour moves. A following release makes `ok` the only value that may
-bank `complete`, with an absent or invalid envelope banking `failed`. Callers wanting the stronger
-guarantee today should read `status === "complete" && result_contract === "ok"`. Rows written
-before this release carry no value and are never backfilled. The contract is a **declared**
-outcome plus optional path existence: it is not a fabrication, effort, or quality check, and it is
-not evidence that the work is correct. A caller may additionally declare `expects_artifact` on a
-spawned agent: the agent is told artifacts are required, and a `done` envelope naming no produced
-files is recorded `artifact_missing` instead of `ok` — a declared-output check with the same
-scope limits as the rest of the contract.
+**What `complete` means.** An agentic runtime is handed a `RESULT_PATH` and asked to write
+one JSON envelope declaring `done`, `refused` or `blocked` before it stops. A restricted
+text runtime receives the same outcome contract as a structured final-text envelope, with
+no impossible file instruction. What the runtime declared is recorded on the agent row
+and returned by `collect_results` as `result_contract`
+(`ok` | `refused` | `blocked` | `artifact_missing` | `invalid` | `absent`). **`ok` is the
+only value that may bank `complete`**; anything else banks `failed`, terminally, with the
+contract value carried so a caller asking "why failed?" gets the agent's chosen outcome
+(refused / blocked / artifact_missing / invalid / absent). Rows written before this
+release carry no value and are never backfilled — a value inferred for a run nobody
+observed would be a fabricated measurement. The contract is a **declared** outcome plus
+optional path existence: it is not a fabrication, effort, or quality check, and it is
+not evidence that the work is correct. A caller may additionally declare `expects_artifact`
+on a spawned agent: the agent is told artifacts are required, and a `done` envelope naming
+no produced files is recorded `artifact_missing` instead of `ok` — a declared-output check
+with the same scope limits as the rest of the contract.
 
 **What a crash leaves behind.** A crashing server writes one journal line naming its in-flight
 agents (never SQLite — the native binding is a prime suspect in any crash). The next healthy
@@ -115,7 +115,7 @@ authorize spend. Runtime execution and advisory ranking remain separate contract
 
 ## Current audit evidence
 
-- The ledger fixture corpus contains **83 total** cases: **59 caught**, **14
+- The ledger fixture corpus contains **72 total** cases: **48 caught**, **14
   anomaly**, and 10 deliberately undetectable. `test/fixtures/corpus/README.md`
   and its generated manifest are the count authorities.
 - `test/blackbox-corpus-transcript-integrity.test.ts` independently discovers the

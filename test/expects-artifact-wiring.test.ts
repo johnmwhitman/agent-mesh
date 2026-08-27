@@ -94,7 +94,7 @@ test("wired (durable): a spawned agent with the flag is taught it in the prompt 
   }
 });
 
-test("judged: done with no artifacts is recorded artifact_missing; naming a real file is ok — status banks as before", async () => {
+test("ENFORCE: done with no artifacts is recorded artifact_missing and banks failed; naming a real file is ok and banks complete", async () => {
   const dir = mkdtempSync(join(tmpdir(), "mf-expects-artifact-"));
   const realFile = join(dir, "report.md");
   writeFileSync(realFile, "the report");
@@ -102,13 +102,23 @@ test("judged: done with no artifacts is recorded artifact_missing; naming a real
   try {
     const missing = await runAgent("owner-artifact-missing", true, (path) => writeFileSync(path, doneEnvelope()));
     assert.equal(missing.agent.result_contract, "artifact_missing", "a done that names nothing is not ok");
-    assert.equal(missing.agent.status, "complete", "OBSERVE-ONLY: the recorded value still decides nothing");
+    // 🔴 The flip: release N banked `complete` here on the declared-output miss; this release
+    // banks `failed`. The artifact was required by the caller (`expects_artifact: true`),
+    // the agent knew it, and the agent still declared `done` with nothing produced — the
+    // caller can no longer trust the row's `complete`, so it cannot claim it.
+    assert.equal(missing.agent.status, "failed", "ENFORCE: artifact_missing banks failed, not complete");
+    assert.ok(
+      missing.agent.error?.includes("result_contract=artifact_missing"),
+      `the row's error names the recorded contract value, got ${JSON.stringify(missing.agent.error)}`,
+    );
 
     const ok = await runAgent("owner-artifact-ok", true, (path) => writeFileSync(path, doneEnvelope([realFile])));
     assert.equal(ok.agent.result_contract, "ok", "naming a file that exists satisfies the declared expectation");
+    assert.equal(ok.agent.status, "complete", "ok with artifacts present still banks complete");
 
     const unflagged = await runAgent("owner-artifact-unflagged", false, (path) => writeFileSync(path, doneEnvelope()));
     assert.equal(unflagged.agent.result_contract, "ok", "no declared expectation, no artifact demand — unchanged behaviour");
+    assert.equal(unflagged.agent.status, "complete", "ok without artifacts and no expectation still banks complete");
   } finally {
     temp.cleanup();
     rmSync(dir, { recursive: true, force: true });

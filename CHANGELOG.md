@@ -4,6 +4,25 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 
 ## [Unreleased]
 
+### Changed
+
+- **The result contract now ENFORCES (release N+1).** Release N (2026-08-19) shipped
+  observe-only: every spawned agent was taught the contract, what it declared was recorded
+  on the agent row as `result_contract`, and banking was unchanged so callers could measure
+  adoption before behaviour moved. This release flips the banking decision in
+  `src/index.ts` (recordAttemptSettlement) and `src/lifecycle-execution.ts` (durable
+  settlement): **anything but `ok` banks `failed`**, with the contract value carried on the
+  row so a caller asking "why failed?" gets the answer the agent chose. The contract value
+  is the agent's final word — refused, blocked, missing artifact, invalid envelope, silent
+  — and burning the retry budget proving the same silence is exactly the overclaim release
+  N existed to surface. Rows written before this release carry no contract value and are
+  **never backfilled** — a value inferred for a run nobody observed would be a fabricated
+  measurement. Callers wanting the stronger guarantee today no longer need a
+  `status === "complete" && result_contract === "ok"` post-filter: by construction, a row
+  banked `complete` carries `result_contract === "ok"`, and the auditor adds
+  `agent.complete_with_non_ok_contract` as a regression guard for any future writer that
+  tries to bank `complete` despite a non-`ok` contract again.
+
 ### Added
 
 - **Section 9 authorization context-mismatch bounded subfamily.** Five new
