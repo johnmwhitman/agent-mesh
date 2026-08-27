@@ -188,7 +188,9 @@ test("spawn_fleet delivers through an explicitly selected MiniMax subscription r
       "the blocked delivery must still answer the caller",
     );
     const blocked = await waitForTerminalAgent(dir, "BLOCKED_WORKER needs input");
-    assert.equal(blocked.status, "complete", "this release observes declared blocking without changing banking");
+    // 🔴 The flip: a declared `blocked` (the text-contract equivalent of the file-contract
+    // ladder) is the agent's chosen outcome, so it seals `failed`, not `complete`.
+    assert.equal(blocked.status, "failed", "ENFORCE: a declared blocked outcome banks failed");
     assert.equal(blocked.result_contract, "blocked");
     assert.equal(blocked.output, "fixture could not continue\n\nReason: required input was missing");
   } finally {

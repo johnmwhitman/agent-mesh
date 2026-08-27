@@ -92,7 +92,7 @@ test("a valid done envelope is recorded as result_contract ok", async () => {
   }
 });
 
-test("OBSERVE-ONLY: a refusal is recorded, and this release still banks the status it always did", async () => {
+test("OBSERVE-ONLY → ENFORCE: a refusal is recorded, and this release banks failed", async () => {
   const temp = withTempDb();
   try {
     const { agent } = await runAgent("owner-refused", (path) => {
@@ -104,20 +104,54 @@ test("OBSERVE-ONLY: a refusal is recorded, and this release still banks the stat
       }));
     });
     assert.equal(agent.result_contract, "refused");
-    // 🔴 Deliberate, and the single line that will change in the enforcing release. Asserting it
-    // here means the behaviour change is visible as a test diff rather than a surprise in prod.
-    assert.equal(agent.status, "complete", "this release observes; it does not enforce");
+    // 🔴 The single line that flipped between release N (observe-only) and release N+1
+    // (enforce): a non-`ok` contract from a runtime exit 0 seals `failed`, not `complete`.
+    // Refusal is the agent's chosen outcome — banked honestly so a caller asking
+    // `agent.status === "complete" && agent.result_contract === "ok"` (the contract that
+    // release N published) now holds by construction, without a caller-side post-filter.
+    assert.equal(agent.status, "failed", "this release enforces: refused banks failed");
+    assert.ok(
+      agent.error?.includes("result_contract=refused"),
+      `the row's error names the recorded contract value, got ${JSON.stringify(agent.error)}`,
+    );
   } finally {
     temp.cleanup();
   }
 });
 
-test("an agent that writes nothing is recorded as absent — the '\"I could not.\"' case", async () => {
+test("ENFORCE: an agent that writes nothing is recorded as absent and banks failed", async () => {
   const temp = withTempDb();
   try {
     const { agent } = await runAgent("owner-absent", () => {});
     assert.equal(agent.result_contract, "absent");
-    assert.equal(agent.status, "complete", "this release observes; it does not enforce");
+    // 🔴 The deliberate-'invalid'/'absent' proof the card acceptance demands. The agent
+    // exited 0 having written no envelope; release N would bank `complete` here, this
+    // release banks `failed`. The runtime was never asked to retry — a contract failure
+    // is the agent's final word, not a transient runtime fault.
+    assert.equal(agent.status, "failed", "this release enforces: absent banks failed");
+    assert.ok(
+      agent.error?.includes("result_contract=absent"),
+      `the row's error names the recorded contract value, got ${JSON.stringify(agent.error)}`,
+    );
+  } finally {
+    temp.cleanup();
+  }
+});
+
+test("ENFORCE: a deliberately invalid envelope (not JSON at all) is recorded as invalid and banks failed", async () => {
+  const temp = withTempDb();
+  try {
+    const { agent } = await runAgent("owner-invalid", (path) => {
+      // Bytes that are syntactically present and structurally unparseable. Same shape
+      // as a runtime that wrote a partial file or its model output leaked into the path.
+      writeFileSync(path, "{not valid json at all");
+    });
+    assert.equal(agent.result_contract, "invalid");
+    assert.equal(agent.status, "failed", "this release enforces: invalid banks failed");
+    assert.ok(
+      agent.error?.includes("result_contract=invalid"),
+      `the row's error names the recorded contract value, got ${JSON.stringify(agent.error)}`,
+    );
   } finally {
     temp.cleanup();
   }

@@ -675,6 +675,16 @@ const CHECK_EXPLANATIONS: Record<string, CheckExplanation> = {
     benign: "rarely benign: the value is recorded only in a terminal branch, alongside completed_at. A ledger edited to requeue a settled agent without clearing its declaration produces this",
     investigate: "agent-mesh inspect --export | jq '.agents[] | select(.result_contract != null and (.status == \"running\" or .status == \"pending\"))'",
   },
+  "agent.complete_with_non_ok_contract": {
+    // Release N+1 (2026-08-19 → enforce): the regression-guard for the settlement flip.
+    // A row written by N+1's settlement cannot reach this state — non-`ok` contracts bank
+    // `failed` at write time. Pre-N+1 rows carrying this shape are legitimate history (the
+    // adoption figure N was designed to surface) and will appear here until the ledger is
+    // re-imported under N+1, at which point the writer would bank `failed` instead.
+    what: "an agent is recorded `complete` while carrying a non-`ok` result_contract — release N+1 forbids this pairing (only `result_contract=ok` may bank `complete`); surviving rows are pre-N+1 history the auditor is catching",
+    benign: "rarely benign for new writes: N+1's settlement path seals non-`ok` contracts as `failed` at write time, so any new row here would be a writer regression. Pre-N+1 history is the expected case until a ledger re-import under N+1 replaces those rows with `failed` seals",
+    investigate: "agent-mesh inspect --export | jq '.agents[] | select(.status == \"complete\" and .result_contract != null and .result_contract != \"ok\")'",
+  },
   "agent.runtime_attempt_duplicated": {
     what: "an agent's runtime_attempts repeats the same runtime in ADJACENT positions, asserting a failover hop to the runtime it was already using",
     benign: "not benign by any known write path: recordRuntimeAttempt collapses a repeated last entry precisely so a re-entry cannot inflate the history into evidence of a hop that never happened. Non-adjacent repeats (A, B, A) are legitimate hop-backs and are not flagged",

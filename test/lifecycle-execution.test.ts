@@ -70,7 +70,17 @@ class DelayedStartRuntime implements RuntimeAdapter {
 }
 
 function success(stdout = "ok"): RuntimeResult {
-  return { status: "success", stdout, stderr: "", exitCode: 0, diagnostics: [], identity: { adapterId: "controlled", evidence: "none" } };
+  // Release N+1 (2026-08-19 → enforce): a successful runtime exit 0 must be paired with
+  // `resultContract: "ok"` to bank `complete`. The lifecycle-execution tests exercise the
+  // banking decision (pending → running → succeeded / failed), not the contract ladder —
+  // declaring `ok` here means the test asserts banking under the post-N+1 contract rule
+  // without coupling to the filesystem write path the ladder exercises in
+  // test/result-contract.test.ts.
+  return {
+    status: "success", stdout, stderr: "", exitCode: 0, diagnostics: [],
+    identity: { adapterId: "controlled", evidence: "none" },
+    resultContract: "ok",
+  };
 }
 
 function failure(error = "transient"): RuntimeResult {

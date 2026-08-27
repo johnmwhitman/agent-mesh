@@ -283,6 +283,17 @@ const V: Vector[] = [
       { op: "delete", path: "agents|a3|completed_at" },
       { op: "set", path: "agents|a3|result_contract", value: "ok" },
     ] },
+  { id: "agent-complete-with-non-ok-contract", primary: "agent.complete_with_non_ok_contract", classification: "caught",
+    // Release N+1 (2026-08-19 → enforce): `complete` is only honest when paired with
+    // `result_contract === "ok"`. This is the regression-guard check for the flip — a row
+    // written under N+1's settlement cannot reach this state, so the check is a guard against
+    // a future writer that tries to bank `complete` despite a non-`ok` contract again.
+    lie: "a complete agent row carries a non-ok result_contract — release N banked these on purpose, but release N+1 seals them as failed at settlement; surviving rows are pre-N+1 history the auditor should flag",
+    ops: [
+      { op: "set", path: "agents|a3|status", value: "complete" },
+      { op: "set", path: "agents|a3|completed_at", value: T0 + 700 },
+      { op: "set", path: "agents|a3|result_contract", value: "absent" },
+    ] },
   { id: "agent-runtime-attempt-duplicated", primary: "agent.runtime_attempt_duplicated", classification: "caught",
     lie: "an agent's runtime history repeats the same runtime in adjacent positions, asserting a failover hop to the runtime it was already using — evidence the writer's own idempotence collapses, so no spawn path could have produced it",
     ops: [{ op: "set", path: "agents|a3|runtime_attempts", value: ["opencode-cli", "opencode-cli"] }] },

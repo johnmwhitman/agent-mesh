@@ -86,6 +86,7 @@ import { isHollowSuccess, HOLLOW_SUCCESS_REASON } from "./hollow-result.js";
 import {
   readResultContract,
   resultPathFor,
+  RESULT_CONTRACT_FAILURE_REASON,
   withResultContract,
   withTextResultContract,
   type ResultContractStatus,
@@ -397,9 +398,20 @@ function settleLegacyNonTimeout(
   const hollowFailureDetail = isHollowSuccess(result)
     ? buildFailureDetail(result.stderr, HOLLOW_SUCCESS_REASON)
     : undefined;
-  // OBSERVE-ONLY THIS RELEASE. The status is read and recorded; it decides nothing. The next
-  // release makes anything but `ok` bank `failed`. Reading it here — on the same result the
-  // banking decision uses — is what makes the adoption figure honest before it is enforced.
+  // OBSERVE-ONLY WAS RELEASED 2026-08-19. THIS RELEASE ENFORCES.
+  //
+  // The status is read on the same path the banking decision uses — that is what made
+  // release N's adoption figure honest. Enforce-mode here means: anything but `ok` banks
+  // `failed`. Reading it in one place keeps the rule auditable; reading it twice would
+  // let the two paths drift.
+  //
+  // Why not just call the existing failure branch? `handleTransientFailure` retries —
+  // a contract failure is the agent's FINAL word (it chose not to write an envelope, or
+  // wrote one that does not parse), not a transient runtime fault. Retrying would burn
+  // the budget proving the same silent outcome, exactly the overclaim release N existed
+  // to surface. So the failure is sealed in one statement, same `markAgentFinished` call
+  // shape the success branch uses, with the contract value carried so the row tells the
+  // whole story.
   const resultContract = result.resultContract ??
     readResultContract(resultPath, { cwd: spec.cwd, expectsArtifact: input.expectsArtifact === true });
   if (result.status === "success") {
@@ -420,6 +432,27 @@ function settleLegacyNonTimeout(
         "failed",
         result.stdout,
         hollowFailureDetail,
+        result.identity.agent,
+        result.identity.model,
+        undefined,
+        resultContract,
+      );
+      return;
+    }
+    // RESULT CONTRACT (2026-08-19): `ok` is the only value that may bank
+    // `complete`. A `done` envelope without produced files (when `expects_artifact`
+    // was declared) lands as `artifact_missing`; a refusal or block is its own
+    // declared outcome — both bank `failed` here, with the contract value carried
+    // on the row so a caller asking "why failed?" gets the answer the agent chose.
+    // The detail composer forbids the runtime transcript in this region (see the
+    // comment above on success-carries-no-error); `RESULT_CONTRACT_FAILURE_REASON`
+    // is bounded and names the rule.
+    if (resultContract !== "ok") {
+      markAgentFinished(
+        agentId,
+        "failed",
+        result.stdout,
+        RESULT_CONTRACT_FAILURE_REASON(resultContract),
         result.identity.agent,
         result.identity.model,
         undefined,
@@ -2471,10 +2504,11 @@ toolHandlers["attach_agent"] = async (args) => {
       model?: string;
       expects_artifact?: boolean;
     };
-    // Same unenforced-contract hole as spawn_fleet, and attach_agent also spawns.
-    // It is additionally the ONLY in-place path that reopens an `abandoned` fleet,
-    // so a corrupt row written here lands on the one remedy a truthful terminal
-    // status leaves available.
+    // `trySpawn` is shared between spawn_fleet and attach_agent, so the result-contract
+    // flip in its settlement path applies to BOTH spawn entry points. attach_agent is the
+    // ONLY in-place path that reopens an `abandoned` fleet — nothing anywhere re-runs an
+    // interrupted agent — so a corrupt row written here lands on the one remedy a truthful
+    // terminal status leaves available.
     const badAttach = firstError(
       requireString("attach_agent", "fleet_id", fleet_id),
       requireString("attach_agent", "role", role),

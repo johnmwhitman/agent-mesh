@@ -60,6 +60,25 @@ export type ResultContractStatus =
   | "invalid"
   | "absent";
 
+/**
+ * The prose every caller shows when a successful runtime exit is sealed `failed` because the
+ * result contract says so. Mirrors {@link HOLLOW_SUCCESS_REASON}'s shape: a single bounded
+ * sentence that names the sealed status, the recorded contract value, and the rule that decided
+ * — so the row's `error` reads as a diagnosis and not a transcript.
+ *
+ * The contract value is interpolated (not the agent's stdout) because this string is the
+ * `failureDetail` passed to `markAgentFinished(..., "failed", ..., failureDetail, ...)`, and
+ * that path's success-carries-no-error guard forbids raw runtime text in the same region
+ * (`src/index.ts` lines 393–397). The contract value is a one-token enum; the agent's prose is
+ * not, and recording it would recreate the exact indistinguishability this release is closing.
+ */
+export const RESULT_CONTRACT_FAILURE_REASON = (
+  status: ResultContractStatus,
+): string =>
+  `Runtime exited successfully but result_contract=${status}; sealed as failed because ` +
+  `ok is the only value that may bank complete. Re-run with a valid envelope ` +
+  `({"schema":"${RESULT_CONTRACT_SCHEMA}","outcome":"done","summary":"<one line>"}) to complete.`;
+
 export interface AgentResultEnvelope {
   schema: string;
   outcome: ResultContractOutcome;

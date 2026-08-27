@@ -26,7 +26,12 @@ test('adoption report: unset and absent stay separate, terminal filter holds, re
       silent: { id: 'silent', fleet_id: 'f', role: 'r', prompt: 'p', status: 'failed', started_at: 1, completed_at: 2, result_contract: 'absent' },
       crashed: { id: 'crashed', fleet_id: 'f', role: 'r', prompt: 'p', status: 'interrupted', started_at: 1, completed_at: 2, stopped_reason: 'server_crash' },
       stillRunning: { id: 'stillRunning', fleet_id: 'f', role: 'r', prompt: 'p', status: 'running', started_at: 1, pid: process.pid },
-      flagged: { id: 'flagged', fleet_id: 'f', role: 'r', prompt: 'p', status: 'complete', started_at: 1, completed_at: 2, result_contract: 'artifact_missing', expects_artifact: true },
+      // Release N+1 enforces: any non-`ok` contract banks `failed`, so the fixture row's status
+      // matches its contract. (Under release N the row would have been `complete` and the test
+      // would have measured adoption; under N+1 the test still measures adoption, but the row
+      // is the shape N+1 actually writes. Flipping only the test would let a future change
+      // regress this without anyone noticing.)
+      flagged: { id: 'flagged', fleet_id: 'f', role: 'r', prompt: 'p', status: 'failed', started_at: 1, completed_at: 2, result_contract: 'artifact_missing', expects_artifact: true },
     },
     messages: {}, inboxes: {}, capabilities: {},
   })

@@ -81,7 +81,13 @@ async function runFleet(dir: string, port: string, opts: Options): Promise<Recor
   // The default runtime refuses the way the live provider did, then exits nonzero.
   writeStub(join(dir, "fake-opencode"), `cat >/dev/null\nprintf '%s' ${JSON.stringify(opts.refusal ?? REAL_REFUSAL)} >&2\nexit 1`);
   // The backup runtime does real work: it writes a file and emits one valid final frame.
-  writeStub(join(dir, "fake-kimi"), `cat >/dev/null\necho DID > "${marker}"\nprintf '%s\\n' '{"role":"assistant","content":"ok"}'`);
+  // Release N+1 (2026-08-19 → enforce): the runtime must ALSO write a result envelope to the
+  // path MeshFleet taught it via $RESULT_PATH, or the agent bank `failed` (the new contract
+  // rule). Without the envelope the row would claim the work happened when the contract was
+  // absent — exactly the false completion release N existed to surface. The envelope uses the
+  // file-contract schema; the fixture deliberately does not write artifacts (none required),
+  // so a `done` with no `artifacts` and no `expects_artifact` reads as `ok`.
+  writeStub(join(dir, "fake-kimi"), `cat >/dev/null\necho DID > "${marker}"\nprintf '%s\\n' '{"role":"assistant","content":"ok"}'\nif [ -n "$RESULT_PATH" ]; then\n  printf '%s' '{"schema":"mf.agent.result/v1","outcome":"done","summary":"kimi did the work"}' > "$RESULT_PATH"\nfi`);
 
   const env: Record<string, string> = {
     ...(process.env as Record<string, string>),
