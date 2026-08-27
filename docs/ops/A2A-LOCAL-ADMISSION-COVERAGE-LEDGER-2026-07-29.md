@@ -73,6 +73,39 @@ bound, not an assertion of the exact maximum representable rule count. The
 row is a contract/cardinality tension to resolve in a later approved profile
 revision, not a reason to bypass the raw byte ceiling or claim it as covered.
 
+## Merge-ready Section 9 closure branches (named inventory + short-SHA)
+
+The 19 Section 9 closure branches carry the bounded slices that have already
+landed on `train/20260820` via earlier train rolls. Their names AND their
+short-SHAs are pinned in the same row of this ledger so the companion tests in
+`test/a2a-local-admission.test.ts` can prove each name appears alongside its
+8-hex SHA AND that every pinned SHA still resolves to a local git ref in this
+tree. Short-SHAs are recorded as the first 8 hex characters of the branch's
+tip commit at the time of inventory capture; a future tip change must move
+this row, not silently drift it.
+
+| Branch | Short-SHA |
+| --- | --- |
+| `feat/request-raw-path-gates-20260818` | `913a8a3` |
+| `feat/request-raw-path-per-object-gates-20260818` | `0ef39e4` |
+| `feat/request-raw-path-cross-object-gates-20260818` | `1f82842` |
+| `feat/independent-input-gates-20260818` | `37c82f7` |
+| `feat/depth-numeric-gates-20260818` | `ca13734` |
+| `feat/envelope-member-gates-20260817` | `705e47a` |
+| `feat/envelope-path-precision-20260817` | `ff5d365` |
+| `feat/evidence-field-gates-20260817` | `cb8f057` |
+| `feat/evidence-field-grammar-20260818` | `5a2c552` |
+| `feat/binding-grammar-gaps-20260817` | `0fc23d8` |
+| `feat/binding-interval-edges-20260818` | `f37c01e` |
+| `feat/binding-rules-count-gates-20260818` | `f2a2525` |
+| `feat/binding-slice-20260817` | `930d9a0` |
+| `feat/authorization-snapshot-gates-20260817` | `dd903d0` |
+| `feat/auth-context-gates-20260818` | `34ec478` |
+| `feat/relativity-changed-fixtures-20260818` | `583b6cc` |
+| `feat/oracle-malformed-gates-20260818` | `1ae0aaf` |
+| `feat/rejected-code-inventory-20260817` | `ac7fc63` |
+| `feat/privacy-invariance-matrix-20260817` | `a435d7a` |
+
 No authentication provider, credential, trust root, current policy, replay
 store, persistence, durable acceptance, public MCP/CLI/package export,
 transport, network, delivery, execution, or remote/multi-host behavior is

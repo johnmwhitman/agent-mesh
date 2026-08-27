@@ -26,6 +26,49 @@ const localAdmissionCorpusCountDocs = [
   join(root, "docs", "A2A-HANDOFF-CURRENT.md"),
   join(root, "docs", "A2A-LOCAL-ADMISSION-PROFILE-v0.1.md"),
 ];
+const coverageLedgerPath = join(root, "docs", "ops", "A2A-LOCAL-ADMISSION-COVERAGE-LEDGER-2026-07-29.md");
+const namedInventoryBranchNames = [
+  "feat/request-raw-path-gates-20260818",
+  "feat/request-raw-path-per-object-gates-20260818",
+  "feat/request-raw-path-cross-object-gates-20260818",
+  "feat/independent-input-gates-20260818",
+  "feat/depth-numeric-gates-20260818",
+  "feat/envelope-member-gates-20260817",
+  "feat/envelope-path-precision-20260817",
+  "feat/evidence-field-gates-20260817",
+  "feat/evidence-field-grammar-20260818",
+  "feat/binding-grammar-gaps-20260817",
+  "feat/binding-interval-edges-20260818",
+  "feat/binding-rules-count-gates-20260818",
+  "feat/binding-slice-20260817",
+  "feat/authorization-snapshot-gates-20260817",
+  "feat/auth-context-gates-20260818",
+  "feat/relativity-changed-fixtures-20260818",
+  "feat/oracle-malformed-gates-20260818",
+  "feat/rejected-code-inventory-20260817",
+  "feat/privacy-invariance-matrix-20260817",
+];
+const namedInventoryBranchShortShas = [
+  "913a8a3",
+  "0ef39e4",
+  "1f82842",
+  "37c82f7",
+  "ca13734",
+  "705e47a",
+  "ff5d365",
+  "cb8f057",
+  "5a2c552",
+  "0fc23d8",
+  "f37c01e",
+  "f2a2525",
+  "930d9a0",
+  "dd903d0",
+  "34ec478",
+  "583b6cc",
+  "1ae0aaf",
+  "ac7fc63",
+  "a435d7a",
+];
 
 function evaluate(item: CorpusCase) {
   const calls: unknown[] = [];
@@ -64,6 +107,57 @@ test("stable local-admission case-count prose reconciles against the canonical c
       text,
       new RegExp(`\\b${corpus.cases.length}\\s+mandatory cases\\b`),
       `${path} must state the canonical local-admission corpus count`,
+    );
+  }
+});
+
+test("coverage-ledger named inventory pins the 19 merge-ready Section 9 closure branches", () => {
+  const text = readFileSync(coverageLedgerPath, "utf8");
+  for (const name of namedInventoryBranchNames) {
+    assert.match(
+      text,
+      new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+      `coverage-ledger must name the merge-ready branch ${name} (Section 9 named inventory)`,
+    );
+  }
+});
+
+test("coverage-ledger named inventory lists each of the 19 merge-ready branches by short-SHA", () => {
+  const text = readFileSync(coverageLedgerPath, "utf8");
+  for (let i = 0; i < namedInventoryBranchNames.length; i++) {
+    const name = namedInventoryBranchNames[i];
+    const shortSha = namedInventoryBranchShortShas[i];
+    const branchLine = text
+      .split(/\r?\n/)
+      .find((line) => line.includes(name));
+    assert.ok(branchLine, `coverage-ledger must contain a row naming ${name}`);
+    assert.match(
+      branchLine,
+      new RegExp(`\\b${shortSha}\\b`),
+      `coverage-ledger row for ${name} must also list its short-SHA ${shortSha} on the same line`,
+    );
+  }
+});
+
+test("coverage-ledger named inventory short-SHAs each resolve to a local git ref in this tree", () => {
+  for (let i = 0; i < namedInventoryBranchNames.length; i++) {
+    const name = namedInventoryBranchNames[i];
+    const expectedShort = namedInventoryBranchShortShas[i];
+    const result = spawnSync("git", ["rev-parse", "--verify", `refs/heads/${name}`], {
+      cwd: root,
+      encoding: "utf8",
+    });
+    assert.equal(
+      result.status,
+      0,
+      `git rev-parse --verify refs/heads/${name} must succeed (status=${result.status} stderr=${result.stderr.trim()})`,
+    );
+    const sha = result.stdout.trim();
+    assert.match(sha, /^[0-9a-f]{40}$/, `git rev-parse --verify refs/heads/${name} must produce a 40-char SHA (got ${JSON.stringify(sha)})`);
+    assert.equal(
+      sha.slice(0, expectedShort.length),
+      expectedShort,
+      `git rev-parse --verify refs/heads/${name} must produce SHA whose first 8 hex chars match the pinned short-SHA ${expectedShort} (got ${sha})`,
     );
   }
 });
