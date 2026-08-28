@@ -128,3 +128,56 @@ test("an unknown status is treated as delivered, not silently dropped", () => {
   assert.equal(s.total, 1);
   assert.equal(s.delivered + s.lost + s.still_running, 1);
 });
+
+test("projects declared contract conformance separately from transport delivery", () => {
+  const s = summarizeCollection([
+    { role: "ok", status: "complete", output: "answer", result_contract: "ok" },
+    { role: "absent", status: "complete", output: "answer", result_contract: "absent" },
+    { role: "invalid", status: "complete", output: "answer", result_contract: "invalid" },
+    { role: "refused", status: "complete", output: "answer", result_contract: "refused" },
+    { role: "blocked", status: "complete", output: "answer", result_contract: "blocked" },
+    { role: "artifact-missing", status: "complete", output: "answer", result_contract: "artifact_missing" },
+    { role: "historical", status: "complete", output: "answer" },
+  ]);
+
+  assert.equal(s.contract_conforming, 1);
+  assert.equal(s.contract_nonconforming, 6);
+  assert.deepEqual(s.nonconforming_agents, [
+    { role: "absent", status: "complete", result_contract: "absent" },
+    { role: "artifact-missing", status: "complete", result_contract: "artifact_missing" },
+    { role: "blocked", status: "complete", result_contract: "blocked" },
+    { role: "historical", status: "complete", result_contract: null },
+    { role: "invalid", status: "complete", result_contract: "invalid" },
+    { role: "refused", status: "complete", result_contract: "refused" },
+  ]);
+
+  // Compatibility: contract conformance is an independent axis, so old loss
+  // counts keep reporting transport reality rather than being reinterpreted.
+  assert.equal(s.delivered, 7);
+  assert.equal(s.lost, 0);
+  assert.equal(s.still_running, 0);
+});
+
+test("only an ok declaration with output or artifacts is contract-conforming", () => {
+  const s = summarizeCollection([
+    { role: "output-only", status: "complete", output: "answer", result_contract: "ok" },
+    { role: "artifact-only", status: "complete", output: "", artifacts: ["report.md"], result_contract: "ok" },
+    { role: "empty", status: "complete", output: "  ", artifacts: [], result_contract: "ok" },
+    { role: "failed-but-declared", status: "failed", output: "answer", result_contract: "ok" },
+    { role: "still-running", status: "running", output: "answer", result_contract: "ok" },
+  ]);
+
+  assert.equal(s.contract_conforming, 3);
+  assert.equal(s.contract_nonconforming, 1);
+  assert.deepEqual(s.nonconforming_agents, [
+    { role: "empty", status: "complete", result_contract: "ok" },
+  ]);
+  assert.equal(s.delivered, 4, "existing transport delivery includes a completed empty row");
+  assert.equal(s.lost, 0, "a failed runtime with a reported result stays delivered");
+  assert.equal(s.still_running, 1);
+  assert.equal(
+    s.contract_conforming + s.contract_nonconforming,
+    4,
+    "a non-terminal row is excluded from contract totals because no result is collectable yet",
+  );
+});

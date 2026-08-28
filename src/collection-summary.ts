@@ -43,6 +43,13 @@ export interface DegradedAgent {
   error?: string
 }
 
+export interface NonconformingAgent {
+  role: string
+  status: string
+  /** Null means this row predates result contracts; "absent" is a distinct declaration. */
+  result_contract: string | null
+}
+
 export interface CollectionSummary {
   total: number
   /** Terminal and reported: the caller has something to read. */
@@ -53,6 +60,10 @@ export interface CollectionSummary {
   still_running: number
   lost_agents: LostAgent[]
   degraded_agents: DegradedAgent[]
+  /** Declared envelope conformance only; never correctness or independent outcome evidence. */
+  contract_conforming: number
+  contract_nonconforming: number
+  nonconforming_agents: NonconformingAgent[]
   /** Present ONLY when something was lost. Absence is a real all-clear. */
   warning?: string
 }
@@ -82,20 +93,32 @@ function meaningOf(status: string): string {
 export function summarizeCollection(agents: readonly CollectableAgent[]): CollectionSummary {
   const lost_agents: LostAgent[] = []
   const degraded_agents: DegradedAgent[] = []
+  const nonconforming_agents: NonconformingAgent[] = []
   let delivered = 0
   let still_running = 0
+  let contract_conforming = 0
 
   for (const agent of agents) {
     const status = agent.status ?? 'unknown'
+    const result_contract = agent.result_contract
+    const hasReportedResult = agent.output?.trim() !== '' || (agent.artifacts?.length ?? 0) > 0
     if (NON_TERMINAL.has(status)) {
       still_running++
       continue
     }
-    const result_contract = agent.result_contract
+    if (result_contract === 'ok' && hasReportedResult) {
+      contract_conforming++
+    } else {
+      nonconforming_agents.push({
+        role: agent.role ?? '(unnamed)',
+        status,
+        result_contract: result_contract ?? null,
+      })
+    }
     const reportedAfterFailure =
       status === 'failed' &&
       result_contract === 'ok' &&
-      (agent.output?.trim() !== '' || (agent.artifacts?.length ?? 0) > 0)
+      hasReportedResult
     if (reportedAfterFailure) {
       degraded_agents.push({
         role: agent.role ?? '(unnamed)',
@@ -120,6 +143,11 @@ export function summarizeCollection(agents: readonly CollectableAgent[]): Collec
     still_running,
     lost_agents,
     degraded_agents,
+    contract_conforming,
+    contract_nonconforming: nonconforming_agents.length,
+    nonconforming_agents: nonconforming_agents.sort((left, right) =>
+      left.role < right.role ? -1 : left.role > right.role ? 1 : 0,
+    ),
   }
 
   if (lost_agents.length > 0) {
