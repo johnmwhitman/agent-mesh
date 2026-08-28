@@ -675,6 +675,21 @@ const CHECK_EXPLANATIONS: Record<string, CheckExplanation> = {
     benign: "rarely benign: the value is recorded only in a terminal branch, alongside completed_at. A ledger edited to requeue a settled agent without clearing its declaration produces this",
     investigate: "agent-mesh inspect --export | jq '.agents[] | select(.result_contract != null and (.status == \"running\" or .status == \"pending\"))'",
   },
+  "agent.result_artifacts_while_live": {
+    what: "an agent is recorded pending or running while carrying result_artifacts — terminal settle-time path declarations on a row that says no result is available yet",
+    benign: "rarely benign: the writers persist these paths only with a terminal result contract. Reopening or hand-editing a settled row without clearing them produces this; the paths are declarations, not proof of contents, provenance, execution, or current availability",
+    investigate: "agent-mesh inspect --export | jq '.agents[] | select(.result_artifacts != null and (.status == \"running\" or .status == \"pending\"))'",
+  },
+  "agent.result_artifacts_invalid": {
+    what: "an agent carries malformed, empty, or over-limit result_artifacts instead of the bounded nonempty string-path declaration the settle writer can record",
+    benign: "nothing benign in this build: the writer rejects rather than truncates invalid envelopes. This indicates a hand-edited, migrated, or foreign ledger row; even valid paths remain declaration-only settle-time evidence",
+    investigate: "agent-mesh inspect --export | jq '.agents[] | select(.result_artifacts != null) | {id, status, result_contract, result_artifacts}'",
+  },
+  "agent.result_artifacts_without_ok": {
+    what: "an agent carries result_artifacts but its result_contract is not ok — persisted paths would imply an accepted done declaration that the same row denies",
+    benign: "nothing benign from the current writer: it retains paths only after a done envelope parsed, every path existed at settle, and the outcome was ok. This is not a content or provenance claim",
+    investigate: "agent-mesh inspect --export | jq '.agents[] | select(.result_artifacts != null and .result_contract != \"ok\") | {id, status, result_contract, result_artifacts}'",
+  },
   "agent.runtime_attempt_duplicated": {
     what: "an agent's runtime_attempts repeats the same runtime in ADJACENT positions, asserting a failover hop to the runtime it was already using",
     benign: "not benign by any known write path: recordRuntimeAttempt collapses a repeated last entry precisely so a re-entry cannot inflate the history into evidence of a hop that never happened. Non-adjacent repeats (A, B, A) are legitimate hop-backs and are not flagged",
