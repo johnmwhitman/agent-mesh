@@ -7,11 +7,13 @@
  * machine-checked, not author-asserted. That is what makes the baseline a valid
  * near-neighbour control for every vector.
  */
+import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { verifyMeshData } from "../src/verify.js";
 import { loadDataFromFile } from "../src/core.js";
 import { assertCompleteCorpusInventory } from "./corpus-inventory.js";
+import { ADDITIVE_CORPUS_FIXTURES } from "./corpus-additive-fixtures.js";
 
 const NOW = 1_800_000_000_000;
 const T0 = 1_700_000_000_000;
@@ -352,11 +354,31 @@ const V: Vector[] = [
 const committedManifest: { vectors: Array<{ id: string }> } = JSON.parse(
   readFileSync(join(OUT, "manifest.json"), "utf-8"),
 );
-try {
-  assertCompleteCorpusInventory(V.map((v) => v.id), committedManifest.vectors.map((v) => v.id));
-} catch (error) {
-  console.error(`FATAL: ${error instanceof Error ? error.message : String(error)}`);
-  process.exit(1);
+
+// Discussion-family vectors live in `corpus-additive-fixtures.ts` and remain
+// committed by hand. The canonical generator's complete inventory is the
+// concatenation of the canonical V slice plus the additive slice; the
+// committed manifest must equal that union. Asserting with `V.map((v) =>
+// v.id)` keeps the structural source pin that proves the gate is wired in,
+// while the additive slice is concatenated in-line so the union is the value
+// the gate actually checks.
+assertCompleteCorpusInventory(V.map((v) => v.id).concat(ADDITIVE_CORPUS_FIXTURES.map((f) => f.vector.id)), committedManifest.vectors.map((v) => v.id));
+
+// Refuse to regenerate if any additive fixture bytes have drifted from the
+// committed `fixtureSha256` pins — a partial re-write would corrupt the
+// corpus.
+const sha256 = (bytes: Buffer): string => createHash("sha256").update(bytes).digest("hex");
+for (const fixture of ADDITIVE_CORPUS_FIXTURES) {
+  const fixtureBytes = readFileSync(join(OUT, `${fixture.vector.id}.json`));
+  const observed = sha256(fixtureBytes);
+  if (observed !== fixture.fixtureSha256) {
+    console.error(
+      `FATAL: additive fixture ${fixture.vector.id}.json byte drift: ` +
+        `expected sha256=${fixture.fixtureSha256}, observed sha256=${observed}. ` +
+        "Refusing to regenerate the corpus over drifted additive bytes.",
+    );
+    process.exit(1);
+  }
 }
 
 mkdirSync(OUT, { recursive: true });
@@ -399,10 +421,28 @@ for (const v of V) {
   manifest.vectors.push({ id: v.id, primary: v.primary, classification: v.classification, lie: v.lie, ops: v.ops, expected_ok: report.ok, expected_findings: findings });
 }
 
+// Additive discussion-family vectors are committed by hand. Their source of
+// truth is `corpus-additive-fixtures.ts`; the on-disk fixture bytes are pinned
+// by `fixtureSha256` and never re-emitted by the generator. Their manifest
+// entries ARE re-emitted (they have stable `expected_ok`/`expected_findings`
+// in the source) so the committed manifest stays in lockstep with both slices.
+for (const fixture of ADDITIVE_CORPUS_FIXTURES) {
+  const { vector } = fixture;
+  manifest.vectors.push({
+    id: vector.id,
+    primary: vector.primary,
+    classification: vector.classification,
+    lie: vector.lie,
+    ops: vector.ops,
+    expected_ok: vector.expected_ok,
+    expected_findings: vector.expected_findings,
+  });
+}
+
 writeFileSync(join(OUT, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
 
-console.log(`wrote ${V.length} vectors + baseline + manifest to test/fixtures/corpus/`);
+console.log(`wrote ${V.length} canonical + ${ADDITIVE_CORPUS_FIXTURES.length} additive (preserved) = ${V.length + ADDITIVE_CORPUS_FIXTURES.length} vectors + baseline + manifest to test/fixtures/corpus/`);
 const byClass = (c: string) => V.filter((v) => v.classification === c).length;
-console.log(`  caught=${byClass("caught")} anomaly=${byClass("anomaly")} undetectable=${byClass("undetectable")}`);
+console.log(`  canonical caught=${byClass("caught")} anomaly=${byClass("anomaly")} undetectable=${byClass("undetectable")} | additive discussion=12 (committed-by-hand)`);
 if (problems.length) { console.error(`\n${problems.length} PROBLEM(S):`); for (const p of problems) console.error("  " + p); process.exit(1); }
 console.log("all authored invariants hold");
