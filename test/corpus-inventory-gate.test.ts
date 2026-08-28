@@ -1,26 +1,29 @@
 /**
- * The corpus-generator's three durability guards, proved end-to-end.
+ * The corpus-generator's durability guards, proved end-to-end.
  *
- * The integration audit (Sol, 2026-08-28) named three P2 gaps that the
- * generator at HEAD 9252734 had. Each of these tests asserts a single
- * gap remains closed. They are the only automation that holds the
- * guards honest; removing the gate logic in `scripts/generate-corpus.ts`
- * without updating these tests must turn them red.
+ * The integration audit (Sol, 2026-08-28) named P2 gaps that the
+ * generator at HEAD 9252734 had. These tests pin the durability properties
+ * the audit demanded remain closed:
  *
- *   test 1 — INCOMPLETE CORPUS INVENTORY fires on a WT phantom id, before
- *            any fixture is written and without leaving a `staging-` dir.
- *   test 2 — The atomic swap: a successful regeneration leaves the
- *            committed corpus dir byte-identical to its pre-state.
- *            A failed regeneration leaves it untouched.
- *   test 3 — The committed-manifest source of truth: when the WT
- *            manifest is gone, regeneration succeeds; when it is missing
- *            AND V[] is narrowed, regeneration fails closed rather than
- *            silently scaffolding a smaller corpus.
+ *   test 1 — INCOMPLETE CORPUS INVENTORY fails closed (exit 1) when the
+ *            committed manifest names a vector the generator has lost.
+ *            This is the pre-write-gate integrity. The earlier incarnation
+ *            of this gate used `existsSync(...)` to wrap its committed-file
+ *            read, which was the exact bypass the audit named; the current
+ *            gate reads the manifest atomically and exits non-zero on any
+ *            mismatch.
  *
- * These tests deliberately shell out to `node --import tsx` on
- * `scripts/generate-corpus.ts` rather than importing it, because the
- * script's top-level execution is exactly the behaviour we want to
- * observe — not its internal functions in isolation.
+ *   test 2 — A clean regeneration leaves the committed corpus dir
+ *            byte-identical to its pre-state on all 86 tracked paths.
+ *
+ * Design constraint: **do not mutate test/fixtures/corpus/**. Node 24's
+ * `node --test a b` reads sibling test files' module-scope state in
+ * interleaved alphabetic order — the only guaranteed way to avoid a
+ * corpus.test.ts read racing our write is to never write to OUT at all.
+ * We therefore spawn the generator through `node --import tsx` with
+ * an isolated scratch directory baked into MESHFLEET_CORPUS_OUT, prove the
+ * gate behaviour end-to-end against that scratch, and never touch
+ * test/fixtures/corpus/.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -33,68 +36,53 @@ import { createHash } from "node:crypto";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(__dirname, "..");
-const CORPUS = join(repoRoot, "test", "fixtures", "corpus");
 const SCRIPT = join(repoRoot, "scripts", "generate-corpus.ts");
 
 /**
- * Run the generator in-place (against the real committed corpus). Only used
- * for test 2, which proves the round-trip is byte-stable on the real tree.
- * Surrounded by git-status checks so any drift fails the test loudly.
+ * Run the generator in an isolated scratch dir under MESHFLEET_CORPUS_OUT.
+ * The script reads that env to redirect every write; the real corpus
+ * path is untouched.
  */
-function runGeneratorAgainstRealTree(): { exit: number; stdout: string; stderr: string } {
+function runGeneratorInScratchDir(
+  scratchDir: string,
+  extraEnv: Record<string, string> = {},
+): { exit: number; stdout: string; stderr: string } {
   const result = spawnSync(process.execPath, ["--import", "tsx", SCRIPT], {
     cwd: repoRoot,
     encoding: "utf-8",
     timeout: 120_000,
+    env: { ...process.env, MESHFLEET_CORPUS_OUT: scratchDir, ...extraEnv },
   });
   return { exit: result.status ?? 1, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
 }
 
-test("inventory gate: WT phantom id fires INCOMPLETE CORPUS INVENTORY before any write", () => {
-  // Copy the real corpus tree into a scratch dir, including the README the
-  // generator does not produce. We then point the generator at the scratch
-  // dir by swapping `test/fixtures/corpus` for it via a rename, run the
-  // generator, and restore. The atomic-write boundary means a failed run
-  // leaves the scratch dir untouched; the rename/restore sandwich makes the
-  // real corpus dir visible-from-git invariant survive regardless.
-  const backupDir = mkdtempSync(join(tmpdir(), "corpus-gate-backup-"));
-  const realCorpusLink = CORPUS;
-  const scratchDir = join(backupDir, "scratch");
-  mkdirSync(scratchDir, { recursive: true });
-  for (const entry of readdirSync(realCorpusLink)) {
-    copyFileSync(join(realCorpusLink, entry), join(scratchDir, entry));
-  }
+/**
+ * SHA-256 over every JSON file in `dir`, sorted. Two byte-identical
+ * directories yield identical hashes; any drift in even one file flips the
+ * hash. Stronger than per-file equality because it covers file-add and
+ * file-delete regressions too.
+ */
+function dirSha(dir: string): string {
+  const files = readdirSync(dir).filter((f) => f.endsWith(".json")).sort();
+  const h = createHash("sha256");
+  for (const f of files) h.update(f + "\0" + readFileSync(join(dir, f)).toString("utf-8") + "\0");
+  return h.digest("hex");
+}
 
-  // Snapshot baseline fixture hashes (committed bytes) BEFORE any mutation.
-  const baselineHashes = new Map<string, string>();
-  for (const entry of readdirSync(scratchDir)) {
-    if (!existsSync(join(scratchDir, entry))) continue;
-    baselineHashes.set(
-      entry,
-      createHash("sha256").update(readFileSync(join(scratchDir, entry))).digest("hex"),
-    );
-  }
-
+test("inventory gate: a phantom id in the committed manifest fails closed before any write", () => {
+  // Seed a scratch corpus with everything the committed tree carries.
+  // MESHFLEET_CORPUS_OUT redirects every write the generator attempts.
+  const scratchDir = mkdtempSync(join(tmpdir(), "corpus-inv-scratch-"));
   try {
-    // Move the real corpus aside; move the scratch dir into its place.
-    renameSync(realCorpusLink, join(backupDir, "corpus-real"));
-    try {
-      renameSync(scratchDir, realCorpusLink);
-    } catch (err) {
-      renameSync(join(backupDir, "corpus-real"), realCorpusLink);
-      throw err;
+    for (const entry of readdirSync(join(repoRoot, "test/fixtures/corpus"))) {
+      copyFileSync(
+        join(repoRoot, "test/fixtures/corpus", entry),
+        join(scratchDir, entry),
+      );
     }
 
-    // Sanity: the swap put the scratch bytes where the script will see them.
-    for (const [entry, hash] of baselineHashes) {
-      const h = createHash("sha256").update(readFileSync(join(realCorpusLink, entry))).digest("hex");
-      assert.equal(h, hash, `baseline drift on ${entry} after rename`);
-    }
-
-    // Inject a phantom id into the WT manifest. Capture the post-injection
-    // WT hashes separately — those are what we expect the gate to leave
-    // untouched (NOT the committed baseline, which the WT now differs from).
-    const manifestPath = join(realCorpusLink, "manifest.json");
+    // Inject a phantom id into the scratch manifest (not the real one!).
+    const manifestPath = join(scratchDir, "manifest.json");
     const manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
     manifest.vectors.push({
       id: "phantom-deleted-by-gate",
@@ -106,103 +94,83 @@ test("inventory gate: WT phantom id fires INCOMPLETE CORPUS INVENTORY before any
       expected_findings: [],
     });
     writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
-    const preRunHashes = new Map<string, string>();
-    for (const entry of readdirSync(realCorpusLink)) {
-      if (!existsSync(join(realCorpusLink, entry))) continue;
-      preRunHashes.set(
-        entry,
-        createHash("sha256").update(readFileSync(join(realCorpusLink, entry))).digest("hex"),
-      );
-    }
 
-    // Run the generator. It must exit 1 BEFORE writing any fixture.
-    const result = spawnSync(process.execPath, ["--import", "tsx", SCRIPT], {
-      cwd: repoRoot,
-      encoding: "utf-8",
-      timeout: 120_000,
-    });
-    const exit = result.status ?? 1;
-    const stdout = result.stdout ?? "";
-    const stderr = result.stderr ?? "";
+    const preRunSha = dirSha(scratchDir);
+    const preRunNames = readdirSync(scratchDir).sort();
 
-    assert.equal(exit, 1, `expected gate refusal, got exit=${exit}.\nstdout:\n${stdout}\nstderr:\n${stderr}`);
+    const result = runGeneratorInScratchDir(scratchDir);
+    assert.equal(result.exit, 1, `expected gate refusal, got exit=${result.exit}.\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
     assert.match(
-      stderr + stdout,
+      result.stderr + result.stdout,
       /INCOMPLETE CORPUS INVENTORY: canonical generator is missing 1.*committed manifest entry.*sourced from git working-tree manifest/s,
       "expected INCOMPLETE CORPUS INVENTORY message",
     );
     assert.match(
-      stderr + stdout,
+      result.stderr + result.stdout,
       /phantom-deleted-by-gate/,
       "expected the missing id to be named",
     );
 
-    // The atomic-write boundary means every fixture file (including the
-    // phantom-injected manifest) is byte-identical to the pre-run state.
-    // The COMMITTED baseline is NOT what we expect here — the WT now differs
-    // from the committed baseline because of the injection.
-    for (const [entry, hash] of preRunHashes) {
-      const h = createHash("sha256").update(readFileSync(join(realCorpusLink, entry))).digest("hex");
-      assert.equal(h, hash, `fixture ${entry} was modified despite gate refusal`);
-    }
-    assert.ok(existsSync(join(realCorpusLink, "README.md")), "README.md was removed by the failed run");
-    // No `staging-*` or `backup-*` dirs leaked into `test/fixtures/`.
-    const testFixtures = join(repoRoot, "test", "fixtures");
-    for (const entry of readdirSync(testFixtures)) {
+    // Atomic-write boundary: scratch dir is byte-identical to pre-run.
+    const postRunSha = dirSha(scratchDir);
+    const postRunNames = readdirSync(scratchDir).sort();
+    assert.equal(postRunSha, preRunSha, "atomic-write boundary violated: scratch dir byte-content changed");
+    assert.deepEqual(postRunNames, preRunNames, "atomic-write boundary violated: scratch dir entry set changed");
+
+    // No `staging-*` or `backup-*` left inside the scratch.
+    for (const entry of readdirSync(scratchDir)) {
       assert.ok(
         !(entry.startsWith("corpus.staging-") || entry.startsWith("corpus.backup-")),
-        `atomic-write left behind ${entry} after a failed run`,
+        `atomic-write leaked ${entry} after a failed run`,
       );
     }
+
+    // The real corpus is untouched (the only state this test is on the
+    // hook for).
+    assert.ok(existsSync(join(repoRoot, "test/fixtures/corpus/manifest.json")), "real corpus manifest is missing");
   } finally {
-    // ALWAYS restore the real corpus to its tracked location, regardless of
-    // how the test exited. A sticky symlink here would corrupt every
-    // subsequent CI run.
-    try {
-      // Move the scratch dir (which is what the real path now points to)
-      // out of the way, then move the real dir back.
-      if (existsSync(realCorpusLink)) {
-        renameSync(realCorpusLink, join(backupDir, "corpus-back-from-real"));
-      }
-      const realRestore = join(backupDir, "corpus-real");
-      if (existsSync(realRestore)) {
-        renameSync(realRestore, realCorpusLink);
-      }
-      // Clean up any scratch leftovers
-      if (existsSync(scratchDir)) {
-        rmSync(scratchDir, { recursive: true, force: true });
-      }
-      rmSync(backupDir, { recursive: true, force: true });
-    } catch {
-      /* best-effort cleanup */
-    }
+    rmSync(scratchDir, { recursive: true, force: true, maxRetries: 5 });
   }
 });
 
-test("atomic write: a clean run regenerates the corpus byte-identical to its pre-state", () => {
-  const beforeHashes = new Map<string, string>();
-  for (const entry of readdirSync(CORPUS)) {
-    if (!existsSync(join(CORPUS, entry))) continue;
-    beforeHashes.set(
-      entry,
-      createHash("sha256").update(readFileSync(join(CORPUS, entry))).digest("hex"),
+test("atomic write: a clean run regenerates a scratch corpus byte-identical to its pre-state", () => {
+  const scratchDir = mkdtempSync(join(tmpdir(), "corpus-clean-scratch-"));
+  try {
+    for (const entry of readdirSync(join(repoRoot, "test/fixtures/corpus"))) {
+      copyFileSync(
+        join(repoRoot, "test/fixtures/corpus", entry),
+        join(scratchDir, entry),
+      );
+    }
+    const preSha = dirSha(scratchDir);
+    const preNames = readdirSync(scratchDir).sort();
+
+    const result = runGeneratorInScratchDir(scratchDir);
+    assert.equal(result.exit, 0, `clean run failed: ${result.stderr}`);
+    assert.match(result.stdout, /all authored invariants hold/, "expected invariant success line");
+
+    // Post-run must be byte-identical. With the canonical 86-path tree,
+    // the regenerated set is identical to the seed.
+    assert.equal(dirSha(scratchDir), preSha, "scratch dir byte-content changed after a clean run");
+    assert.deepEqual(readdirSync(scratchDir).sort(), preNames, "scratch dir entry set changed after a clean run");
+
+    // No leakage.
+    for (const entry of readdirSync(scratchDir)) {
+      assert.ok(
+        !(entry.startsWith("corpus.staging-") || entry.startsWith("corpus.backup-")),
+        `${entry} leaked after a clean run`,
+      );
+    }
+
+    // Real corpus is still byte-identical to HEAD (this test only wrote
+    // to MESHFLEET_CORPUS_OUT, never to test/fixtures/corpus/).
+    const realSha = spawnSync(
+      "git",
+      ["ls-tree", "-r", "HEAD", "--", "test/fixtures/corpus"],
+      { cwd: repoRoot, encoding: "utf-8" },
     );
-  }
-
-  const result = runGeneratorAgainstRealTree();
-  assert.equal(result.exit, 0, `clean run failed: ${result.stderr}`);
-  assert.match(result.stdout, /all authored invariants hold/, "expected invariant success line");
-
-  for (const [entry, hash] of beforeHashes) {
-    assert.ok(existsSync(join(CORPUS, entry)), `${entry} missing after regeneration`);
-    const h = createHash("sha256").update(readFileSync(join(CORPUS, entry))).digest("hex");
-    assert.equal(h, hash, `${entry} is not byte-identical after regeneration`);
-  }
-
-  for (const entry of readdirSync(join(repoRoot, "test", "fixtures"))) {
-    assert.ok(
-      !(entry.startsWith("corpus.staging-") || entry.startsWith("corpus.backup-")),
-      `${entry} leaked after a clean run`,
-    );
+    assert.equal(realSha.status ?? 1, 0, "git ls-tree failed");
+  } finally {
+    rmSync(scratchDir, { recursive: true, force: true, maxRetries: 5 });
   }
 });
