@@ -4,7 +4,9 @@ A published set of deliberately falsified ledgers, and what the verifier does wi
 each one. This exists because "who saw this, who approved it, prove it" is a claim,
 and a claim about detection is only worth what its falsification tests are worth.
 
-Regenerate with `npx tsx scripts/generate-corpus.ts`. Enforced by
+Canonical regeneration command: `npx tsx scripts/generate-corpus.ts`. Before its
+first write, the generator compares its vector ids with the committed manifest and
+fails closed if its inventory is incomplete. Enforced by
 [`test/corpus.test.ts`](../../corpus.test.ts).
 
 ## How to read it
