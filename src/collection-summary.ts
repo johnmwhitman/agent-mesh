@@ -104,7 +104,9 @@ export function summarizeCollection(agents: readonly CollectableAgent[]): Collec
     const status = agent.status ?? 'unknown'
     const result_contract = agent.result_contract
     const hasOutput = typeof agent.output === 'string' && agent.output.trim() !== ''
-    const hasReportedResult = hasOutput || (agent.result_artifacts?.length ?? 0) > 0
+    const hasArtifacts = Array.isArray(agent.result_artifacts) && agent.result_artifacts.length > 0 &&
+      agent.result_artifacts.every((artifact) => typeof artifact === 'string' && artifact.trim() !== '')
+    const hasReportedResult = hasOutput || hasArtifacts
     if (NON_TERMINAL.has(status)) {
       still_running++
       continue

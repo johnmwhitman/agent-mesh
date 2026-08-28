@@ -14,6 +14,9 @@ import {
   resultPathFor,
   withResultContract,
   withTextResultContract,
+  MAX_RESULT_ARTIFACTS,
+  MAX_RESULT_ARTIFACT_PATH_BYTES,
+  MAX_RESULT_ARTIFACT_TOTAL_BYTES,
 } from "../src/result-contract.js";
 
 const never = () => false;
@@ -75,6 +78,18 @@ test("artifacts must be an array of non-empty strings", () => {
   assert.equal(parseAgentResultEnvelope(done({ artifacts: "docs/audit.md" })).ok, false);
   assert.equal(parseAgentResultEnvelope(done({ artifacts: ["docs/audit.md", ""] })).ok, false);
   assert.equal(parseAgentResultEnvelope(done({ artifacts: [] })).ok, true);
+});
+
+test("artifact declarations have exact count, path-byte, and aggregate-byte bounds", () => {
+  assert.equal(parseAgentResultEnvelope(done({ artifacts: Array(MAX_RESULT_ARTIFACTS).fill("a") })).ok, true);
+  assert.equal(parseAgentResultEnvelope(done({ artifacts: Array(MAX_RESULT_ARTIFACTS + 1).fill("a") })).ok, false);
+  assert.equal(parseAgentResultEnvelope(done({ artifacts: ["a".repeat(MAX_RESULT_ARTIFACT_PATH_BYTES)] })).ok, true);
+  assert.equal(parseAgentResultEnvelope(done({ artifacts: ["a".repeat(MAX_RESULT_ARTIFACT_PATH_BYTES + 1)] })).ok, false);
+  const total = Array(Math.ceil(MAX_RESULT_ARTIFACT_TOTAL_BYTES / MAX_RESULT_ARTIFACT_PATH_BYTES)).fill("a".repeat(MAX_RESULT_ARTIFACT_PATH_BYTES));
+  total[total.length - 1] = "a".repeat(MAX_RESULT_ARTIFACT_TOTAL_BYTES - MAX_RESULT_ARTIFACT_PATH_BYTES * (total.length - 1));
+  assert.equal(parseAgentResultEnvelope(done({ artifacts: total })).ok, true);
+  total[total.length - 1] += "a";
+  assert.equal(parseAgentResultEnvelope(done({ artifacts: total })).ok, false);
 });
 
 test("the outcome ladder banks ok on exactly one row", () => {

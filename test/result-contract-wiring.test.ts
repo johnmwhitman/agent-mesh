@@ -104,6 +104,7 @@ test("OBSERVE-ONLY: a refusal is recorded, and this release still banks the stat
       }));
     });
     assert.equal(agent.result_contract, "refused");
+    assert.equal(agent.result_artifacts, undefined, "a refused envelope never retains artifact declarations");
     // 🔴 Deliberate, and the single line that will change in the enforcing release. Asserting it
     // here means the behaviour change is visible as a test diff rather than a surprise in prod.
     assert.equal(agent.status, "complete", "this release observes; it does not enforce");

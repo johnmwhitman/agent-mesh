@@ -400,6 +400,17 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
           `agent ${a.id} is recorded ${a.status} but carries result_contract=${a.result_contract} — a declared settle outcome on a row whose own status says it has not settled`
         );
       }
+      if (a.result_artifacts !== undefined) {
+        error("agent.result_artifacts_while_live", a.id, `agent ${a.id} is ${a.status} but carries terminal result_artifacts`);
+      }
+    }
+
+    if (a.result_artifacts !== undefined) {
+      const validArtifacts = Array.isArray(a.result_artifacts) && a.result_artifacts.length <= 32 &&
+        a.result_artifacts.every((artifact) => typeof artifact === "string" && artifact.trim() !== "" && Buffer.byteLength(artifact, "utf8") <= 1024) &&
+        a.result_artifacts.reduce((total, artifact) => total + Buffer.byteLength(String(artifact), "utf8"), 0) <= 8192;
+      if (!validArtifacts) error("agent.result_artifacts_invalid", a.id, `agent ${a.id} has malformed or oversized result_artifacts`);
+      if (a.result_contract !== "ok") error("agent.result_artifacts_without_ok", a.id, `agent ${a.id} carries result_artifacts without result_contract=ok`);
     }
 
     // A failover hop the writer could not have recorded. `recordRuntimeAttempt`

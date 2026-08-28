@@ -103,6 +103,7 @@ test("judged: done with no artifacts is recorded artifact_missing; naming a real
   try {
     const missing = await runAgent("owner-artifact-missing", true, (path) => writeFileSync(path, doneEnvelope()));
     assert.equal(missing.agent.result_contract, "artifact_missing", "a done that names nothing is not ok");
+    assert.equal(missing.agent.result_artifacts, undefined, "non-ok declarations never retain artifact paths");
     assert.equal(missing.agent.status, "complete", "OBSERVE-ONLY: the recorded value still decides nothing");
 
     const ok = await runAgent("owner-artifact-ok", true, (path) => writeFileSync(path, doneEnvelope([realFile])));

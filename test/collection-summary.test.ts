@@ -194,3 +194,11 @@ test("nonconforming agents are unambiguous and stable for duplicate roles", () =
     { agent_id: "z-agent", role: "duplicate", status: "complete", result_contract: "absent" },
   ]);
 });
+
+test("malformed persisted artifact evidence never manufactures conformance", () => {
+  for (const result_artifacts of ["report.md", [""], [null], ["report.md", 1]]) {
+    const s = summarizeCollection([{ id: "hostile", role: "hostile", status: "complete", result_contract: "ok", output: undefined, result_artifacts } as never]);
+    assert.equal(s.contract_conforming, 0);
+    assert.equal(s.contract_nonconforming, 1);
+  }
+});

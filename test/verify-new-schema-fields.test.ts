@@ -54,6 +54,14 @@ test('a settle-only field on a live row is an error; the same field on a termina
   assert.ok(!terminal.includes('agent.result_contract_while_live'), 'a contract on a terminal row is the normal case')
 })
 
+test('result artifacts are terminal bounded declarations correlated to ok only', () => {
+  const base = { status: 'complete', started_at: 1, completed_at: 2, result_contract: 'ok', result_artifacts: ['report.md'] }
+  assert.deepEqual(ids({ agents: { a1: agent(base) } }).filter((id) => id.startsWith('agent.result_artifacts')), [])
+  assert.ok(ids({ agents: { a1: agent({ ...base, status: 'running' }) } }).includes('agent.result_artifacts_while_live'))
+  assert.ok(ids({ agents: { a1: agent({ ...base, result_contract: 'refused' }) } }).includes('agent.result_artifacts_without_ok'))
+  assert.ok(ids({ agents: { a1: agent({ ...base, result_artifacts: [''] }) } }).includes('agent.result_artifacts_invalid'))
+})
+
 test('an adjacent duplicate runtime attempt is a fabricated hop; a non-adjacent repeat is a real hop-back', () => {
   assert.ok(
     ids({ agents: { a1: agent({ status: 'complete', started_at: 1, completed_at: 2, runtime_attempts: ['opencode-cli', 'opencode-cli'] }) } })

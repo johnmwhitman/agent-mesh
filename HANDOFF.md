@@ -36,9 +36,11 @@ evidence, not account, entitlement, billing, availability, or identity proof.
 and asked to write one JSON envelope declaring `done`, `refused` or `blocked` before it stops.
 A restricted text runtime receives the same outcome contract as a structured final-text envelope,
 with no impossible file instruction. What the runtime declared is recorded on the agent row and
-returned by `collect_results` as `result_contract`
+returned by `collect_results` as `result_contract`, with `result_artifacts` present only for a
+bounded `done` declaration whose paths existed at settle time. Those are declared paths, not
+evidence of content, provenance, execution, correctness, or current availability.
 (`ok` | `refused` | `blocked` | `artifact_missing` | `invalid` | `absent`). **This release records
-that value and nothing more** — `status` is banked exactly as it was before — so callers can
+that value plus those bounded settle-time path declarations — `status` is banked exactly as it was before — so callers can
 measure adoption before behaviour moves. A following release makes `ok` the only value that may
 bank `complete`, with an absent or invalid envelope banking `failed`. Callers wanting the stronger
 guarantee today should read `status === "complete" && result_contract === "ok"`. Rows written

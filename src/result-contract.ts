@@ -40,6 +40,10 @@ export const TEXT_RESULT_CONTRACT_SCHEMA = "mf.agent.text-result/v1";
 
 /** The environment variable naming the file. Also inlined in the prompt — agents skip env. */
 export const RESULT_PATH_ENV = "RESULT_PATH";
+/** Bounded declaration storage; bytes are UTF-8, and invalid envelopes are never truncated. */
+export const MAX_RESULT_ARTIFACTS = 32;
+export const MAX_RESULT_ARTIFACT_PATH_BYTES = 1_024;
+export const MAX_RESULT_ARTIFACT_TOTAL_BYTES = 8_192;
 
 /** What the agent declares. `refused` = cannot/will not; `blocked` = missing input. Both honest. */
 export type ResultContractOutcome = "done" | "refused" | "blocked";
@@ -162,6 +166,10 @@ export function parseAgentResultEnvelope(raw: string): ParseResult {
     if (!Array.isArray(obj.artifacts) || obj.artifacts.some((a) => typeof a !== "string" || a.trim() === "")) {
       return { ok: false, reason: "artifacts must be an array of non-empty strings" };
     }
+    if (obj.artifacts.length > MAX_RESULT_ARTIFACTS) return { ok: false, reason: "too many artifacts" };
+    const bytes = obj.artifacts.map((artifact) => Buffer.byteLength(artifact, "utf8"));
+    if (bytes.some((count) => count > MAX_RESULT_ARTIFACT_PATH_BYTES)) return { ok: false, reason: "artifact path exceeds byte limit" };
+    if (bytes.reduce((total, count) => total + count, 0) > MAX_RESULT_ARTIFACT_TOTAL_BYTES) return { ok: false, reason: "artifact paths exceed total byte limit" };
     artifacts = obj.artifacts as string[];
   }
   return {
@@ -246,7 +254,7 @@ export function readResultContractEvidence(
   const status = evaluateResultContract({ raw, expectsArtifact: options.expectsArtifact, exists: existsSync, cwd: options.cwd });
   return {
     status,
-    ...(parsed.ok && parsed.envelope.artifacts && parsed.envelope.artifacts.length > 0
+    ...(status === "ok" && parsed.ok && parsed.envelope.outcome === "done" && parsed.envelope.artifacts && parsed.envelope.artifacts.length > 0
       ? { resultArtifacts: [...parsed.envelope.artifacts] }
       : {}),
   };
