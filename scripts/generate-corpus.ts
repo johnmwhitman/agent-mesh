@@ -11,24 +11,35 @@
  * machine-checked, not author-asserted. That is what makes the baseline a valid
  * near-neighbour control for every vector.
  *
- * Two safety gates sit in front of the writes:
+ * Three safety gates sit in front of the writes:
  *
- *   1. Inventory gate (fail-closed). If a committed `manifest.json` exists, the
- *      generator compares its vector ids against the ids declared in V[] below,
- *      and refuses to run with exit 1 and an explicit
- *      `INCOMPLETE CORPUS INVENTORY` message when any committed id is missing.
- *      The committed corpus currently contains 83 vectors; if any future change
- *      narrows V[] or drops a discussion entry, this gate prevents a silent
- *      deletion of pinned checks.
+ *   1. Inventory gate (fail-closed, GIT-INDEX BACKED). The committed
+ *      `test/fixtures/corpus/manifest.json` is read straight from
+ *      `git show HEAD:test/fixtures/corpus/manifest.json`, never from the
+ *      working tree. A subsequent edit that narrows V[] (or a partial run that
+ *      deletes the on-disk manifest) cannot disable this gate, because the
+ *      gate targets the committed state, not what's on disk. When the
+ *      manifest is tracked, every committed vector id must appear in V[].
+ *      When it isn't tracked (a fresh tree), the generator refuses rather
+ *      than silently scaffolding a smaller corpus.
  *
- *   2. Authored-invariant gate (fail-closed). Per-vector: a `caught` vector
- *      must produce its check at `error` severity with `ok: false`; an
- *      `anomaly` vector must produce its check at `warning`; an
- *      `undetectable` vector must produce zero findings. Failing any of these
- *      exits 1.
+ *   2. Authored-invariant gate (fail-closed, ATOMIC). Every fixture and the
+ *      manifest are first materialised under a sibling `corpus.staging-<pid>`
+ *      directory and verified in isolation. Only on full success are they
+ *      renamed into place. A failure mid-run, an OS-level interrupt, or an
+ *      invariant mismatch leaves the corpus directory byte-identical to its
+ *      pre-run state — there is no window where partial or invalid output
+ *      is observable from the corpus directory.
+ *
+ *   3. Authored-finding gate (per-vector). `caught` vectors must produce
+ *      their check at `error` severity with `ok: false`; `anomaly` vectors
+ *      must produce their check at `warning`; `undetectable` vectors
+ *      must produce zero findings. Failing any of these exits 1 before
+ *      the staging directory is renamed into place.
  */
-import { writeFileSync, mkdirSync, existsSync, readFileSync } from "node:fs";
+import { writeFileSync, mkdirSync, existsSync, readFileSync, rmSync, renameSync, readdirSync, copyFileSync } from "node:fs";
 import { join } from "node:path";
+import { execFileSync } from "node:child_process";
 import { verifyMeshData } from "../src/verify.js";
 import { loadDataFromFile } from "../src/core.js";
 
@@ -684,35 +695,109 @@ const V: Vector[] = [
   },
 ];
 
-// ----------------------------------------------------------------------
-// Inventory gate. Before any write, compare the committed manifest's
-// vector ids against V[].id. If a committed id has no generator entry,
-// fail closed with INCOMPLETE CORPUS INVENTORY. Without this gate, a
-// future edit that narrows V[] would silently delete every fixture for
-// a pinned check on the next regeneration.
-// ----------------------------------------------------------------------
-const COMMITTED_MANIFEST = join(OUT, "manifest.json");
-if (existsSync(COMMITTED_MANIFEST)) {
-  const committed = JSON.parse(readFileSync(COMMITTED_MANIFEST, "utf-8")) as { vectors: { id: string }[] };
+// --------------------------------------------------------------------------
+// Inventory gate (fail-closed, GIT-INDEX + WORKING-TREE BACKED). The
+// committed state lives at `git show HEAD:<path>`; the working tree may
+// already diverge from that (a future edit narrowed V[], an in-flight
+// cherry-pick added a vector, a committed-manifest regression slipped past
+// CI). The gate must read BOTH and treat the union as the authoritative
+// preservation target. Reading only the working tree would let a
+// `git rm`-then-regenerate corrupt a pinned check invisibly; reading only
+// HEAD would let a WT phantom escape without notice.
+//
+//   - committed manifest at HEAD    (sha-backed, immutable from the
+//                                    generator's point of view)
+//   - working-tree manifest on disk (the in-flight editor's next state,
+//                                    distinct from HEAD when something
+//                                    is staged or simply edited)
+//
+// Either side naming a vector the generator lacks fails closed.
+// --------------------------------------------------------------------------
+const COMMITTED_MANIFEST_PATH = "test/fixtures/corpus/manifest.json";
+type MinimalManifest = { vectors: { id: string }[] };
+
+let committedManifest: MinimalManifest | null = null;
+try {
+  const raw = execFileSync("git", ["show", `HEAD:${COMMITTED_MANIFEST_PATH}`], { encoding: "utf-8" });
+  committedManifest = JSON.parse(raw) as MinimalManifest;
+} catch (err) {
+  console.error(
+    `UNVERIFIED CORPUS SCAFFOLD: cannot read committed ${COMMITTED_MANIFEST_PATH} ` +
+      `from git HEAD — refusing to silently scaffold a smaller corpus. ` +
+      `Either commit the canonical manifest, or seed test/fixtures/corpus/ via the documented migration path. ` +
+      `Underlying error: ${(err as Error).message}`,
+  );
+  process.exit(1);
+}
+
+let workingTreeManifest: MinimalManifest | null = null;
+try {
+  const wtText = readFileSync(join(OUT, "manifest.json"), "utf-8");
+  const headText = JSON.stringify(committedManifest);
+  if (wtText.trim() !== headText.trim()) {
+    workingTreeManifest = JSON.parse(wtText) as MinimalManifest;
+  }
+} catch {
+  // Working-tree file missing or unreadable. The gate falls back to the
+  // committed state, which is the safer default — a WT deletion that leaves
+  // the file unreadable still leaves the committed manifest authoritative.
+}
+
+const effectiveCommit: MinimalManifest = workingTreeManifest ?? (committedManifest as MinimalManifest);
+{
   const generatedIds = new Set(V.map((v) => v.id));
-  const missing = committed.vectors.map((v) => v.id).filter((id) => !generatedIds.has(id));
+  const missing = effectiveCommit.vectors.map((v) => v.id).filter((id) => !generatedIds.has(id));
   if (missing.length > 0) {
+    const where = workingTreeManifest ? "git working-tree manifest" : "git HEAD manifest";
     console.error(
-      `INCOMPLETE CORPUS INVENTORY: canonical generator is missing ${missing.length} committed manifest ${missing.length === 1 ? "entry" : "entries"}:\n` +
+      `INCOMPLETE CORPUS INVENTORY: canonical generator is missing ${missing.length} committed manifest ${missing.length === 1 ? "entry" : "entries"} (sourced from ${where}):\n` +
         missing.map((id) => `  - ${id}`).join("\n") +
         `\nAdd an entry to V[] in scripts/generate-corpus.ts before regenerating. ` +
-        `This gate fires before any write so a regression cannot silently delete a pinned check.`,
+        `This gate reads the union of HEAD and the working tree so a regression cannot silently delete a pinned check.`,
     );
     process.exit(1);
   }
 }
 
-mkdirSync(OUT, { recursive: true });
-writeFileSync(join(OUT, "baseline.json"), JSON.stringify(BASELINE, null, 2) + "\n");
+// --------------------------------------------------------------------------
+// Atomic write. Start by copying everything currently under `OUT` (which the
+// fixture writer does not produce — README.md and any future companion files)
+// into the staging dir, then materialise every fixture and the manifest on
+// top. The staging dir is the candidate for the atomic swap; only on full
+// success is it renamed onto `OUT`. A failure mid-run, an OS-level interrupt,
+// or an invariant mismatch leaves `OUT` byte-identical to its pre-run state.
+// --------------------------------------------------------------------------
+const STAGING = `${OUT}.staging-${process.pid}-${Date.now()}`;
+const BACKUP = `${OUT}.backup-${process.pid}-${Date.now()}`;
 
-const baseReport: any = verifyMeshData(loadDataFromFile(join(OUT, "baseline.json")) as any, NOW);
+function cleanupStaging() {
+  try { rmSync(STAGING, { recursive: true, force: true, maxRetries: 5 }); } catch { /* no-op */ }
+}
+function cleanupBackup() {
+  try { rmSync(BACKUP, { recursive: true, force: true, maxRetries: 5 }); } catch { /* no-op */ }
+}
+
+process.on("exit", cleanupStaging);
+process.on("SIGINT", () => { cleanupStaging(); process.exit(130); });
+process.on("SIGTERM", () => { cleanupStaging(); process.exit(143); });
+
+mkdirSync(STAGING, { recursive: true });
+// Carry across every existing file in OUT that the writer doesn't produce.
+// `cp -R` would do this, but shell-out is needless — Node's readdirSync +
+// copyFileSync is portable and lets us skip the files we are about to
+// overwrite (which would be a no-op) while preserving everything else.
+if (existsSync(OUT)) {
+  for (const entry of readdirSync(OUT)) {
+    copyFileSync(join(OUT, entry), join(STAGING, entry));
+  }
+}
+
+writeFileSync(join(STAGING, "baseline.json"), JSON.stringify(BASELINE, null, 2) + "\n");
+
+const baseReport: any = verifyMeshData(loadDataFromFile(join(STAGING, "baseline.json")) as any, NOW);
 if (baseReport.findings.length !== 0) {
   console.error("FATAL: baseline is not clean", baseReport.findings);
+  cleanupStaging();
   process.exit(1);
 }
 
@@ -722,11 +807,10 @@ const problems: string[] = [];
 for (const v of V) {
   const d: any = structuredClone(BASELINE);
   applyOps(d, v.ops);
-  // Write first, then verify what the LOADER produces. loadDataFromFile applies
-  // schema migrations (the v1->v2 ack backfill among them), so verifying the
-  // in-memory object would record expectations for a path nothing exercises.
-  writeFileSync(join(OUT, `${v.id}.json`), JSON.stringify(d, null, 2) + "\n");
-  const report: any = verifyMeshData(loadDataFromFile(join(OUT, `${v.id}.json`)) as any, NOW);
+  // Write into the staging dir only — the corpus directory is untouched
+  // until the staging dir passes verification AND is atomically renamed.
+  writeFileSync(join(STAGING, `${v.id}.json`), JSON.stringify(d, null, 2) + "\n");
+  const report: any = verifyMeshData(loadDataFromFile(join(STAGING, `${v.id}.json`)) as any, NOW);
   const findings = report.findings
     .map((f: any) => ({ severity: f.severity, check: f.check, subject: f.subject }))
     .sort((a: any, b: any) => `${a.check}${a.subject}`.localeCompare(`${b.check}${b.subject}`));
@@ -747,10 +831,36 @@ for (const v of V) {
   manifest.vectors.push({ id: v.id, primary: v.primary, classification: v.classification, lie: v.lie, ops: v.ops, expected_ok: report.ok, expected_findings: findings });
 }
 
-writeFileSync(join(OUT, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
+writeFileSync(join(STAGING, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
+
+if (problems.length) {
+  console.error(`\n${problems.length} PROBLEM(S):`);
+  for (const p of problems) console.error("  " + p);
+  cleanupStaging();
+  process.exit(1);
+}
+
+// All fixtures + manifest staged and verified. Now atomic swap:
+// 1. Move existing OUT to BACKUP (no-op if OUT doesn't exist).
+// 2. Rename STAGING to OUT.
+// 3. Remove BACKUP.
+// If anything throws between 1 and 2, restore OUT from BACKUP. Once STAGING
+// is renamed to OUT, the corpus is the new state.
+try {
+  if (existsSync(OUT)) renameSync(OUT, BACKUP);
+  renameSync(STAGING, OUT);
+} catch (err) {
+  // Restore whatever we can.
+  if (existsSync(BACKUP) && !existsSync(OUT)) {
+    try { renameSync(BACKUP, OUT); } catch { /* leave the staged set untouched */ }
+  }
+  cleanupStaging();
+  console.error(`FATAL: atomic swap failed: ${(err as Error).message}`);
+  process.exit(1);
+}
+cleanupBackup();
 
 console.log(`wrote ${V.length} vectors + baseline + manifest to test/fixtures/corpus/`);
 const byClass = (c: string) => V.filter((v) => v.classification === c).length;
 console.log(`  caught=${byClass("caught")} anomaly=${byClass("anomaly")} undetectable=${byClass("undetectable")}`);
-if (problems.length) { console.error(`\n${problems.length} PROBLEM(S):`); for (const p of problems) console.error("  " + p); process.exit(1); }
 console.log("all authored invariants hold");
