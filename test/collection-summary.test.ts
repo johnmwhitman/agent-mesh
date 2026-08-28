@@ -96,7 +96,7 @@ test("failed agent with a valid ok contract and output is delivered but degraded
 
 test("failed agent with a valid ok contract and declared artifacts is delivered but degraded", () => {
   const s = summarizeCollection([
-    { role: "artifact-only", status: "failed", output: "", result_contract: "ok", artifacts: ["report.md"] },
+    { id: "artifact-only", role: "artifact-only", status: "failed", output: "", result_contract: "ok", result_artifacts: ["report.md"] },
   ]);
   assert.equal(s.delivered, 1);
   assert.equal(s.lost, 0);
@@ -131,24 +131,24 @@ test("an unknown status is treated as delivered, not silently dropped", () => {
 
 test("projects declared contract conformance separately from transport delivery", () => {
   const s = summarizeCollection([
-    { role: "ok", status: "complete", output: "answer", result_contract: "ok" },
-    { role: "absent", status: "complete", output: "answer", result_contract: "absent" },
-    { role: "invalid", status: "complete", output: "answer", result_contract: "invalid" },
-    { role: "refused", status: "complete", output: "answer", result_contract: "refused" },
-    { role: "blocked", status: "complete", output: "answer", result_contract: "blocked" },
-    { role: "artifact-missing", status: "complete", output: "answer", result_contract: "artifact_missing" },
-    { role: "historical", status: "complete", output: "answer" },
+    { id: "ok", role: "ok", status: "complete", output: "answer", result_contract: "ok" },
+    { id: "absent", role: "absent", status: "complete", output: "answer", result_contract: "absent" },
+    { id: "invalid", role: "invalid", status: "complete", output: "answer", result_contract: "invalid" },
+    { id: "refused", role: "refused", status: "complete", output: "answer", result_contract: "refused" },
+    { id: "blocked", role: "blocked", status: "complete", output: "answer", result_contract: "blocked" },
+    { id: "artifact-missing", role: "artifact-missing", status: "complete", output: "answer", result_contract: "artifact_missing" },
+    { id: "historical", role: "historical", status: "complete", output: "answer" },
   ]);
 
   assert.equal(s.contract_conforming, 1);
   assert.equal(s.contract_nonconforming, 6);
   assert.deepEqual(s.nonconforming_agents, [
-    { role: "absent", status: "complete", result_contract: "absent" },
-    { role: "artifact-missing", status: "complete", result_contract: "artifact_missing" },
-    { role: "blocked", status: "complete", result_contract: "blocked" },
-    { role: "historical", status: "complete", result_contract: null },
-    { role: "invalid", status: "complete", result_contract: "invalid" },
-    { role: "refused", status: "complete", result_contract: "refused" },
+    { agent_id: "absent", role: "absent", status: "complete", result_contract: "absent" },
+    { agent_id: "artifact-missing", role: "artifact-missing", status: "complete", result_contract: "artifact_missing" },
+    { agent_id: "blocked", role: "blocked", status: "complete", result_contract: "blocked" },
+    { agent_id: "historical", role: "historical", status: "complete", result_contract: null },
+    { agent_id: "invalid", role: "invalid", status: "complete", result_contract: "invalid" },
+    { agent_id: "refused", role: "refused", status: "complete", result_contract: "refused" },
   ]);
 
   // Compatibility: contract conformance is an independent axis, so old loss
@@ -160,24 +160,37 @@ test("projects declared contract conformance separately from transport delivery"
 
 test("only an ok declaration with output or artifacts is contract-conforming", () => {
   const s = summarizeCollection([
-    { role: "output-only", status: "complete", output: "answer", result_contract: "ok" },
-    { role: "artifact-only", status: "complete", output: "", artifacts: ["report.md"], result_contract: "ok" },
-    { role: "empty", status: "complete", output: "  ", artifacts: [], result_contract: "ok" },
-    { role: "failed-but-declared", status: "failed", output: "answer", result_contract: "ok" },
-    { role: "still-running", status: "running", output: "answer", result_contract: "ok" },
+    { id: "output-only", role: "output-only", status: "complete", output: "answer", result_contract: "ok" },
+    { id: "artifact-only", role: "artifact-only", status: "complete", output: "", result_artifacts: ["report.md"], result_contract: "ok" },
+    { id: "empty", role: "empty", status: "complete", output: "  ", result_artifacts: [], result_contract: "ok" },
+    { id: "failed-but-declared", role: "failed-but-declared", status: "failed", output: "answer", result_contract: "ok" },
+    { id: "still-running", role: "still-running", status: "running", output: "answer", result_contract: "ok" },
+    { id: "undefined-output", role: "undefined-output", status: "complete", result_contract: "ok" },
   ]);
 
   assert.equal(s.contract_conforming, 3);
-  assert.equal(s.contract_nonconforming, 1);
+  assert.equal(s.contract_nonconforming, 2);
   assert.deepEqual(s.nonconforming_agents, [
-    { role: "empty", status: "complete", result_contract: "ok" },
+    { agent_id: "empty", role: "empty", status: "complete", result_contract: "ok" },
+    { agent_id: "undefined-output", role: "undefined-output", status: "complete", result_contract: "ok" },
   ]);
-  assert.equal(s.delivered, 4, "existing transport delivery includes a completed empty row");
+  assert.equal(s.delivered, 5, "existing transport delivery includes completed rows without a declaration payload");
   assert.equal(s.lost, 0, "a failed runtime with a reported result stays delivered");
   assert.equal(s.still_running, 1);
   assert.equal(
     s.contract_conforming + s.contract_nonconforming,
-    4,
+    5,
     "a non-terminal row is excluded from contract totals because no result is collectable yet",
   );
+});
+
+test("nonconforming agents are unambiguous and stable for duplicate roles", () => {
+  const s = summarizeCollection([
+    { id: "z-agent", role: "duplicate", status: "complete", result_contract: "absent" },
+    { id: "a-agent", role: "duplicate", status: "complete", result_contract: "invalid" },
+  ]);
+  assert.deepEqual(s.nonconforming_agents, [
+    { agent_id: "a-agent", role: "duplicate", status: "complete", result_contract: "invalid" },
+    { agent_id: "z-agent", role: "duplicate", status: "complete", result_contract: "absent" },
+  ]);
 });

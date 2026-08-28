@@ -21,12 +21,13 @@
 
 /** The agent shape this module needs. Kept structural so tests need no ledger. */
 export interface CollectableAgent {
+  id?: string
   role?: string
   status?: string
   output?: string
   error?: string
   result_contract?: string
-  artifacts?: readonly string[]
+  result_artifacts?: readonly string[]
 }
 
 export interface LostAgent {
@@ -44,6 +45,7 @@ export interface DegradedAgent {
 }
 
 export interface NonconformingAgent {
+  agent_id: string
   role: string
   status: string
   /** Null means this row predates result contracts; "absent" is a distinct declaration. */
@@ -101,7 +103,8 @@ export function summarizeCollection(agents: readonly CollectableAgent[]): Collec
   for (const agent of agents) {
     const status = agent.status ?? 'unknown'
     const result_contract = agent.result_contract
-    const hasReportedResult = agent.output?.trim() !== '' || (agent.artifacts?.length ?? 0) > 0
+    const hasOutput = typeof agent.output === 'string' && agent.output.trim() !== ''
+    const hasReportedResult = hasOutput || (agent.result_artifacts?.length ?? 0) > 0
     if (NON_TERMINAL.has(status)) {
       still_running++
       continue
@@ -110,6 +113,7 @@ export function summarizeCollection(agents: readonly CollectableAgent[]): Collec
       contract_conforming++
     } else {
       nonconforming_agents.push({
+        agent_id: agent.id ?? '(unknown)',
         role: agent.role ?? '(unnamed)',
         status,
         result_contract: result_contract ?? null,
@@ -146,7 +150,8 @@ export function summarizeCollection(agents: readonly CollectableAgent[]): Collec
     contract_conforming,
     contract_nonconforming: nonconforming_agents.length,
     nonconforming_agents: nonconforming_agents.sort((left, right) =>
-      left.role < right.role ? -1 : left.role > right.role ? 1 : 0,
+      left.role < right.role ? -1 : left.role > right.role ? 1 :
+        left.agent_id < right.agent_id ? -1 : left.agent_id > right.agent_id ? 1 : 0,
     ),
   }
 

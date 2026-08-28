@@ -84,7 +84,7 @@ import { SweepHealth, runSweepTick } from "./sweep-health.js";
 import { summarizeCollection } from "./collection-summary.js";
 import { isHollowSuccess, HOLLOW_SUCCESS_REASON } from "./hollow-result.js";
 import {
-  readResultContract,
+  readResultContractEvidence,
   resultPathFor,
   withResultContract,
   withTextResultContract,
@@ -400,8 +400,10 @@ function settleLegacyNonTimeout(
   // OBSERVE-ONLY THIS RELEASE. The status is read and recorded; it decides nothing. The next
   // release makes anything but `ok` bank `failed`. Reading it here — on the same result the
   // banking decision uses — is what makes the adoption figure honest before it is enforced.
-  const resultContract = result.resultContract ??
-    readResultContract(resultPath, { cwd: spec.cwd, expectsArtifact: input.expectsArtifact === true });
+  const resultEvidence = result.resultContract === undefined
+    ? readResultContractEvidence(resultPath, { cwd: spec.cwd, expectsArtifact: input.expectsArtifact === true })
+    : { status: result.resultContract };
+  const resultContract = resultEvidence.status;
   if (result.status === "success") {
     // HOLLOW SUCCESS (2026-08-01): a runtime can exit 0 having produced no
     // output at all — the model burned its turn on tool calls and never
@@ -424,6 +426,7 @@ function settleLegacyNonTimeout(
         result.identity.model,
         undefined,
         resultContract,
+        resultEvidence.resultArtifacts,
       );
       return;
     }
@@ -447,6 +450,7 @@ function settleLegacyNonTimeout(
       result.identity.model,
       projectSuccessDiagnostics(result.diagnostics),
       resultContract,
+      resultEvidence.resultArtifacts,
     );
     return;
   }
@@ -460,6 +464,7 @@ function settleLegacyNonTimeout(
     result.identity.agent,
     result.identity.model,
     resultContract,
+    resultEvidence.resultArtifacts,
   );
 }
 
@@ -555,6 +560,7 @@ function handleTransientFailure(
   // Undefined when no attempt ever ran (the spawn itself threw). Recording `absent` there would
   // blame an agent for a silence it had no chance to break.
   resultContract?: ResultContractStatus,
+  resultArtifacts?: readonly string[],
 ): void {
   if (readLedger().agents[agentId]?.status !== "running") return;
   const failureDetail = buildFailureDetail(stderr, errorDetail);
@@ -575,6 +581,7 @@ function handleTransientFailure(
       runtimeModel,
       undefined,
       resultContract,
+      resultArtifacts,
     );
     return;
   }
@@ -715,7 +722,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "collect_results",
       description:
-        "Get all agent outputs from a fleet, with an explicit loss tally. Returns total/delivered/lost/still_running, named lost_agents and degraded_agents lists, and a `warning` string present ONLY when work was actually lost. `degraded_agents` means the agent reported a valid `result_contract: 'ok'` with output or declared artifacts, but its runtime status was not clean; it is delivered, not proven successful. `contract_conforming`, `contract_nonconforming`, and deterministically named `nonconforming_agents` are a separate projection of terminal declared envelopes: only `result_contract: 'ok'` with output or declared artifacts conforms; non-terminal rows are excluded, and null contract state distinguishes historical rows from explicit `absent`. It is not correctness, artifact provenance, execution verification, or independent outcome evidence. Check `lost` before treating the collection as finished: interrupted or failed agents without a reported result remain lost. Each result also carries `result_contract` — what the agent declared about its own outcome ('ok' | 'refused' | 'blocked' | 'artifact_missing' | 'invalid' | 'absent'), absent on runs that predate the contract.",
+        "Get all agent outputs from a fleet, with an explicit loss tally. Returns total/delivered/lost/still_running, named lost_agents and degraded_agents lists, and a `warning` string present ONLY when work was actually lost. `degraded_agents` means the agent reported a valid `result_contract: 'ok'` with output or declared artifacts, but its runtime status was not clean; it is delivered, not proven successful. `contract_conforming`, `contract_nonconforming`, and deterministically named `nonconforming_agents` are a separate projection of terminal declared envelopes: only `result_contract: 'ok'` with output or declared artifacts conforms; non-terminal rows are excluded, and null contract state distinguishes historical rows from explicit `absent`. Each result's `result_artifacts`, when present, is the parsed path declaration existence-checked at settle, not content, provenance, execution, or independent outcome evidence. Check `lost` before treating the collection as finished: interrupted or failed agents without a reported result remain lost. Each result also carries `result_contract` — what the agent declared about its own outcome ('ok' | 'refused' | 'blocked' | 'artifact_missing' | 'invalid' | 'absent'), absent on runs that predate the contract.",
       inputSchema: {
         type: "object",
         properties: { fleet_id: { type: "string" } },
@@ -1934,6 +1941,9 @@ toolHandlers["collect_results"] = async (args) => {
         // contract existed, and never backfilled. This release records it without acting on it,
         // so a caller wanting the stronger guarantee today asks for BOTH facts.
         result_contract: a.result_contract,
+        // Paths declared by a parsed terminal envelope and existence-checked at settle. They do
+        // not establish contents, provenance, execution, or current availability.
+        result_artifacts: a.result_artifacts,
         // Why an interrupted row stopped, when boot reconciliation could attribute it
         // ('server_crash' | 'process_lost'). Absent when nothing could honestly say.
         stopped_reason: a.stopped_reason,

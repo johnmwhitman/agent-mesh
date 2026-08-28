@@ -187,6 +187,13 @@ export interface EvaluateInput {
   cwd?: string;
 }
 
+/** A terminal declaration observed at settle, including only parsed artifact paths. */
+export interface ResultContractEvidence {
+  status: ResultContractStatus;
+  /** Declared paths, existence-checked at settle when status is `ok`; never provenance evidence. */
+  resultArtifacts?: string[];
+}
+
 /**
  * The outcome ladder. Pure — the caller supplies the bytes and an existence oracle.
  *
@@ -216,14 +223,33 @@ export function readResultContract(
   path: string,
   options: { expectsArtifact?: boolean; cwd?: string } = {},
 ): ResultContractStatus {
+  return readResultContractEvidence(path, options).status;
+}
+
+/**
+ * Read the same settle-time contract evidence used for `result_contract`, retaining declared
+ * artifact paths only after the envelope itself parsed. Path existence is a settle-time check,
+ * not an assertion about contents, provenance, or later filesystem state.
+ */
+export function readResultContractEvidence(
+  path: string,
+  options: { expectsArtifact?: boolean; cwd?: string } = {},
+): ResultContractEvidence {
   let raw: string | undefined;
   try {
     raw = readFileSync(path, "utf8");
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") raw = undefined;
-    else return "invalid";
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return { status: "absent" };
+    return { status: "invalid" };
   }
-  return evaluateResultContract({ raw, expectsArtifact: options.expectsArtifact, exists: existsSync, cwd: options.cwd });
+  const parsed = parseAgentResultEnvelope(raw);
+  const status = evaluateResultContract({ raw, expectsArtifact: options.expectsArtifact, exists: existsSync, cwd: options.cwd });
+  return {
+    status,
+    ...(parsed.ok && parsed.envelope.artifacts && parsed.envelope.artifacts.length > 0
+      ? { resultArtifacts: [...parsed.envelope.artifacts] }
+      : {}),
+  };
 }
 
 /**

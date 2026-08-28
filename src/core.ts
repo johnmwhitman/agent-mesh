@@ -66,6 +66,11 @@ export interface Agent {
    */
   result_contract?: ResultContractStatus;
   /**
+   * Parsed artifact paths declared by the terminal result envelope. Paths were existence-checked
+   * at settle only; they do not prove contents, provenance, execution, or later availability.
+   */
+  result_artifacts?: string[];
+  /**
    * Caller-declared expectation that this agent's result envelope must name at least one
    * produced file. Consumed by the result-contract ladder at settle: a valid `done` envelope
    * with no artifacts is recorded `artifact_missing` instead of `ok`. Persisted on the row so a
@@ -960,6 +965,7 @@ export function markAgentFinished(
   runtimeModel?: string,
   diagnostics?: readonly RuntimeDiagnostic[],
   resultContract?: ResultContractStatus,
+  resultArtifacts?: readonly string[],
 ): void {
   // ONE transaction: mark the agent AND decide+set fleet completion from the same
   // snapshot (was two RMW cycles — two finishers could both read "not all done").
@@ -978,6 +984,7 @@ export function markAgentFinished(
     // unrelated reason is still a refusal, and an adoption figure computed only over successes
     // would measure the population that was never the problem.
     if (resultContract !== undefined) agent.result_contract = resultContract;
+    if (resultArtifacts !== undefined) agent.result_artifacts = [...resultArtifacts];
     agent.completed_at = Date.now();
     _checkFleetCompletion(data, agent.fleet_id);
   });

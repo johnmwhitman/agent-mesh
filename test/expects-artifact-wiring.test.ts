@@ -21,6 +21,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LifecycleExecutionCoordinator } from "../src/lifecycle-execution.js";
 import { loadData } from "../src/core.js";
+import { summarizeCollection } from "../src/collection-summary.js";
 import { RESULT_CONTRACT_SCHEMA, resultContractPreamble, withResultContract } from "../src/result-contract.js";
 import type { ExecutionSpec, RuntimeAdapter, RuntimeHandle, RuntimeResult } from "../src/runtime/types.js";
 import { withTempDb } from "./helpers/with-temp-db.js";
@@ -106,6 +107,8 @@ test("judged: done with no artifacts is recorded artifact_missing; naming a real
 
     const ok = await runAgent("owner-artifact-ok", true, (path) => writeFileSync(path, doneEnvelope([realFile])));
     assert.equal(ok.agent.result_contract, "ok", "naming a file that exists satisfies the declared expectation");
+    assert.deepEqual(ok.agent.result_artifacts, [realFile], "the validated declaration is persisted on the real Agent row");
+    assert.equal(summarizeCollection([ok.agent]).contract_conforming, 1, "an artifact-only settled Agent conforms without invented mock fields");
 
     const unflagged = await runAgent("owner-artifact-unflagged", false, (path) => writeFileSync(path, doneEnvelope()));
     assert.equal(unflagged.agent.result_contract, "ok", "no declared expectation, no artifact demand — unchanged behaviour");

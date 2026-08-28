@@ -23,7 +23,7 @@ import { containRecordedProcess } from "./runtime/process.js";
 import { projectSuccessDiagnostics } from "./spawn-attempt.js";
 import { isHollowSuccess, HOLLOW_SUCCESS_REASON } from "./hollow-result.js";
 import {
-  readResultContract,
+  readResultContractEvidence,
   resultPathFor,
   withResultContract,
   type ResultContractStatus,
@@ -546,8 +546,9 @@ export class LifecycleExecutionCoordinator {
     // The expectation is read from the durable row — the same source a retry's teaching used —
     // so the ladder judges the envelope against what the agent was actually told.
     const expectsArtifact = loadData().agents[agentId]?.expects_artifact === true;
-    const resultContract = result.resultContract ??
-      readResultContract(resultPathFor(agentId, attemptId), { cwd: process.cwd(), expectsArtifact });
+    const resultEvidence = result.resultContract === undefined
+      ? readResultContractEvidence(resultPathFor(agentId, attemptId), { cwd: process.cwd(), expectsArtifact })
+      : { status: result.resultContract };
     const settled = withLedgerAndStorage((data, db) => {
       const store = lifecycle(db, this.now);
       // HOLLOW SUCCESS (2026-08-01): exit 0 with no output at all is not success.
@@ -564,7 +565,7 @@ export class LifecycleExecutionCoordinator {
       const outcome = success ? store.settle({ workId: agentId, attemptId, ownerId: this.ownerId, ownerEpoch: epoch, outcome: "success", result: output })
         : store.settleWithRetry({ workId: agentId, attemptId, ownerId: this.ownerId, ownerEpoch: epoch, outcome: "failure", result: output, error: redact(hollow ? hollowError : (result.error ?? result.stderr)) });
       if (!outcome.accepted) return undefined;
-      this.projectPending(data, outcome.state, result, resultContract);
+      this.projectPending(data, outcome.state, result, resultEvidence.status, resultEvidence.resultArtifacts);
       const agent = data.agents[agentId];
       if (agent) {
         if (outcome.state.work.status === "succeeded") queueEvent(db, "agent_completed", { fleet_id: agent.fleet_id, agent_id: agentId }, this.now());
@@ -639,6 +640,7 @@ export class LifecycleExecutionCoordinator {
     state: LifecycleState,
     result?: RuntimeResult,
     resultContract?: ResultContractStatus,
+    resultArtifacts?: readonly string[],
   ): void {
     const agent = state.work.agent_id ? data.agents[state.work.agent_id] : undefined;
     if (!agent) return;
@@ -657,6 +659,7 @@ export class LifecycleExecutionCoordinator {
       // Recorded on both terminal statuses, and only where an attempt actually ran — a projection
       // reached during recovery, with no result to speak of, leaves the field as it found it.
       if (resultContract !== undefined) agent.result_contract = resultContract;
+      if (resultArtifacts !== undefined) agent.result_artifacts = [...resultArtifacts];
       agent.completed_at = this.now();
       _checkFleetCompletion(data, agent.fleet_id);
     }
