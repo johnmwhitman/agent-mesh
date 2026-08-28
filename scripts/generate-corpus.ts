@@ -43,9 +43,21 @@ import { execFileSync } from "node:child_process";
 import { verifyMeshData } from "../src/verify.js";
 import { loadDataFromFile } from "../src/core.js";
 
+// `MESHFLEET_CORPUS_OUT` is an opt-in fault-injection seam for the
+// negative-path tests in `test/corpus-inventory-gate.test.ts`. It points the
+// canonical generator at an isolated corpus directory so the real
+// `test/fixtures/corpus/` is never touched. Reading from the env is
+// intentional — exposing this as a CLI flag would invite its use in
+// production paths, and that is exactly the second-writer the canonical
+// command refuses to be. The override is read here, BEFORE any other code
+// touches `OUT` (HEAD is unaffected: the inventory gate still reads
+// `git -C OUT show HEAD:test/fixtures/corpus/manifest.json`, which is the
+// authoritative source on the real tree).
 const NOW = 1_800_000_000_000;
 const T0 = 1_700_000_000_000;
-const OUT = join(import.meta.dirname, "..", "test", "fixtures", "corpus");
+const OUT = process.env.MESHFLEET_CORPUS_OUT
+  ? process.env.MESHFLEET_CORPUS_OUT
+  : join(import.meta.dirname, "..", "test", "fixtures", "corpus");
 
 const BASELINE = {
   schema_version: 2,
