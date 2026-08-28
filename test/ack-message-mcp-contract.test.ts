@@ -21,6 +21,7 @@ import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { registerAgentInLedger, type Agent } from "../src/core.js";
+import { closeDb } from "../src/db.js";
 
 const repoRoot = join(fileURLToPath(new URL(".", import.meta.url)), "..");
 
@@ -96,8 +97,16 @@ async function withServer(
     await fn(client);
   } finally {
     await client.close().catch(() => {});
+    // The broadcast witness seeds agents through the parent process before the
+    // child connects. That leaves the parent's cached better-sqlite3 handle open;
+    // POSIX permits unlinking the directory anyway, while Windows reliably returns
+    // EBUSY/EPERM. Close both process boundaries before deleting the fixture so the
+    // hosted Windows matrix proves behavior rather than filesystem semantics.
+    closeDb();
     rmSync(fix.dir, { recursive: true, force: true });
     delete process.env.MESHFLEET_DB_FILE;
+    delete process.env.MESHFLEET_DATA_FILE;
+    delete process.env.MESHFLEET_EVENT_LOG_FILE;
   }
 }
 
