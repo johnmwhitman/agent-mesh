@@ -1,12 +1,12 @@
 # MeshFleet public handoff
 
 **Source version:** `0.21.1` · **MCP surface:** **37 MCP tools** ·
-**current suite contract:** **1810/1810** tests collected, plus typecheck and build
+**current suite contract:** **1814/1814** tests collected, plus typecheck and build
 
 The latest completed cross-platform proof is GitHub Actions run `31315444631`
 at `e14bd8f` (9/9 jobs across Node 20/22/24 on Ubuntu, macOS, and Windows). It
 prove that prior revision, not the newer source and test bytes that establish
-the current 1810-test contract above; those require their own fresh 9/9 run
+the current 1814-test contract above; those require their own fresh 9/9 run
 before merge.
 
 Base `01f0fa0` passed 1416/1416; the parity snapshot that introduced this document
@@ -71,7 +71,7 @@ only. Failover's unit-level spec and registry tests run on every platform.
 
 ## Platform-skipped tests (what does not run on Windows)
 
-The suite collects the same total everywhere, but **21 tests skip on
+The suite collects the same total everywhere, but **22 tests skip on
 `windows-2022`**, consistent across Node 20, 22, and 24. Every skip is a
 deliberate `process.platform === "win32"` (or equivalent) predicate, not flake.
 This repository's own rule is that a test that does not run is indistinguishable
@@ -86,6 +86,7 @@ silently:
 | 5 | **runtime failover end-to-end** (refusal → hop → receipts, plus three negative controls) | the backup-runtime leg cannot be stubbed: the Kimi adapter scrubs its child environment by design, so the `process.execPath`+`NODE_OPTIONS` stub that serves the default runtime has no channel to the Kimi child |
 | 1 | MiniMax `spawn_fleet` wiring | POSIX shell/chmod fixture; adapter behavior is covered cross-platform with `process.execPath` |
 | 3 | doctor checks (two unwritable-directory cases, one PATH probe) | POSIX permission semantics / platform predicate |
+| 1 | corpus explicit dangling-root-link recovery | creating a dangling file symlink is not portable under standard Windows CI privileges; the junction root proof remains cross-platform |
 
 The signal-semantics rows are structural platform differences and are expected to
 remain skipped. The capability-contradiction tests formerly in this table now run

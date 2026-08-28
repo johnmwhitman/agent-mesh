@@ -21,7 +21,8 @@
  *      smaller corpus.
  *
  *   2. Authored-invariant gate (fail-closed, recoverable). Every fixture and the
- *      manifest are first materialised under a sibling `corpus.staging-<pid>`
+ *      manifest are first materialised under a token-bound sibling
+ *      `corpus.staging.<token>`
  *      directory and verified in isolation. Catchable publication failures
  *      restore the previous corpus immediately. SIGKILL between directory
  *      renames is a portable filesystem limit: it leaves exact-token recovery
@@ -694,7 +695,7 @@ const V: Vector[] = [
 ];
 
 // --------------------------------------------------------------------------
-// Inventory gate (fail-closed, GIT-INDEX + WORKING-TREE BACKED). The
+// Inventory gate (fail-closed, HEAD + WORKING-TREE BACKED). The
 // committed state lives at `git show HEAD:<path>`; the working tree may
 // already diverge from that (a future edit narrowed V[], an in-flight
 // cherry-pick added a vector, a committed-manifest regression slipped past
@@ -721,12 +722,14 @@ const INTENT = join(OUT_PARENT, `${OUT_NAME}.publish-intent.json`);
 const MAX_TEST_PAUSE_MS = 1_000;
 type LockOwner = { version: 1; token: string };
 type PublishIntent = {
-  version: 1;
+  version: 2;
   token: string;
   backup: string;
   staging: string;
-  phase: "backup-prepared";
-  tree_digest: string;
+  phase: "pre-backup" | "backup-prepared" | "installed" | "restored";
+  old_digest: string;
+  new_digest: string;
+  head: string;
 };
 
 function sleep(ms: number): void {
@@ -765,11 +768,11 @@ function releaseWriterLock(owner: LockOwner): void {
 }
 
 function ownArtifact(kind: "staging" | "backup", token: string): string {
-  return join(OUT_PARENT, `${OUT_NAME}.${kind}-${token}`);
+  return join(OUT_PARENT, `${OUT_NAME}.${kind}.${token}`);
 }
 
 function siblingResidues(): string[] {
-  const prefixes = [`${OUT_NAME}.staging-`, `${OUT_NAME}.backup-`, `${OUT_NAME}.lock.claim-`, `${OUT_NAME}.lock.expired-`];
+  const prefixes = [`${OUT_NAME}.staging-`, `${OUT_NAME}.staging.`, `${OUT_NAME}.backup-`, `${OUT_NAME}.backup.`, `${OUT_NAME}.lock-`, `${OUT_NAME}.lock.`];
   try {
     return readdirSync(OUT_PARENT).filter((entry) => entry === basename(INTENT) || prefixes.some((prefix) => entry.startsWith(prefix)));
   } catch (err) {
@@ -857,21 +860,32 @@ function readIntentOrThrow(token: string): PublishIntent {
     throw new Error(`UNVERIFIED CORPUS RECOVERY: cannot read publication intent: ${(err as Error).message}`);
   }
   const candidate = intent as PublishIntent;
-  if (candidate?.version !== 1 || candidate.token !== token || candidate.phase !== "backup-prepared" ||
+  if (candidate?.version !== 2 || candidate.token !== token ||
       candidate.backup !== ownArtifact("backup", token) || candidate.staging !== ownArtifact("staging", token) ||
-      typeof candidate.tree_digest !== "string" || !/^[0-9a-f]{64}$/i.test(candidate.tree_digest)) {
+      !["pre-backup", "backup-prepared", "installed", "restored"].includes(candidate.phase) ||
+      typeof candidate.old_digest !== "string" || typeof candidate.new_digest !== "string" ||
+      !/^[0-9a-f]{64}$/i.test(candidate.old_digest) || !/^[0-9a-f]{64}$/i.test(candidate.new_digest) ||
+      !/^[0-9a-f]{40}$/i.test(candidate.head)) {
     throw new Error("UNVERIFIED CORPUS RECOVERY: intent token, phase, digest, or sibling paths do not bind this recovery");
   }
   return candidate;
 }
 
-function writeExclusiveIntent(intent: PublishIntent): void {
-  const fd = openSync(INTENT, "wx");
+function writeIntent(intent: PublishIntent, replace = false): void {
+  const privateIntent = `${INTENT}.${intent.token}.next`;
+  const fd = openSync(privateIntent, "wx");
   try {
     writeFileSync(fd, JSON.stringify(intent) + "\n");
     fsyncSync(fd);
   } finally {
     closeSync(fd);
+  }
+  try {
+    if (!replace && existsSync(INTENT)) throw new Error("publication intent already exists");
+    renameSync(privateIntent, INTENT);
+  } catch (err) {
+    try { unlinkSync(privateIntent); } catch { /* fail-closed sibling residue */ }
+    throw err;
   }
 }
 
@@ -889,24 +903,41 @@ function recoverExplicitly(token: string): void {
   const residues = siblingResidues().filter((entry) => !allowed.has(entry));
   if (residues.length > 0) throw new Error(`UNVERIFIED CORPUS RECOVERY: unknown sibling residue prevents recovery: ${residues.join(", ")}`);
   const publishedRoot = lstatIfPresent(OUT_PATH);
-  if (publishedRoot) {
-    if (!publishedRoot.isDirectory() || publishedRoot.isSymbolicLink()) {
-      throw new Error("UNSUPPORTED CORPUS ROOT: explicit recovery refuses a symlink or Windows junction");
+  const backupRoot = lstatIfPresent(intent.backup);
+  const validDirectory = (stat: ReturnType<typeof lstatSync> | null) => !!stat && stat.isDirectory() && !stat.isSymbolicLink();
+  const cleanupInstalled = () => {
+    if (lstatIfPresent(intent.backup)) removeExactDirectory(intent.backup);
+    if (lstatIfPresent(intent.staging)) removeExactDirectory(intent.staging);
+    unlinkSync(INTENT);
+    releaseWriterLock(owner);
+  };
+  if (intent.phase === "installed" || intent.phase === "restored") {
+    if (!validDirectory(publishedRoot) || treeDigest(OUT_PATH) !== intent.new_digest && intent.phase === "installed") {
+      throw new Error("UNVERIFIED CORPUS RECOVERY: installed topology or digest is not bound to this intent");
     }
-    throw new Error("UNVERIFIED CORPUS RECOVERY: OUT plus backup is ambiguous; preserving both without deletion");
+    cleanupInstalled();
+    return;
   }
-  const backup = lstatSync(intent.backup);
-  if (!backup.isDirectory() || backup.isSymbolicLink()) throw new Error("UNVERIFIED CORPUS RECOVERY: backup is not a real directory");
-  if (treeDigest(intent.backup) !== intent.tree_digest) throw new Error("UNVERIFIED CORPUS RECOVERY: backup digest does not match the pre-publication corpus");
-  removeExactDirectory(intent.staging);
-  renameSync(intent.backup, OUT_PATH);
-  unlinkSync(INTENT);
-  releaseWriterLock(owner);
+  if (publishedRoot && !validDirectory(publishedRoot)) throw new Error("UNSUPPORTED CORPUS ROOT: explicit recovery refuses a symlink or Windows junction");
+  // A crash after OUT->BACKUP but before the truthful phase replacement still
+  // has an absent OUT and an old-digest backup; topology reconciles it safely.
+  if (!publishedRoot && validDirectory(backupRoot) && treeDigest(intent.backup) === intent.old_digest) {
+    renameSync(intent.backup, OUT_PATH);
+    intent.phase = "restored";
+    writeIntent(intent, true);
+    if (lstatIfPresent(intent.staging)) removeExactDirectory(intent.staging);
+    unlinkSync(INTENT);
+    releaseWriterLock(owner);
+    return;
+  }
+  throw new Error("UNVERIFIED CORPUS RECOVERY: topology is ambiguous; preserving all bound artifacts");
 }
 
 let pauseAfterLock: number;
+let pauseAfterValidation: number;
 try {
   pauseAfterLock = boundedEnvInteger("MESH_FLEET_CORPUS_PAUSE_AFTER_LOCK_MS", 0, MAX_TEST_PAUSE_MS);
+  pauseAfterValidation = boundedEnvInteger("MESH_FLEET_CORPUS_PAUSE_AFTER_VALIDATION_MS", 0, MAX_TEST_PAUSE_MS);
 } catch (err) {
   console.error((err as Error).message);
   process.exit(1);
@@ -940,12 +971,14 @@ function readManifestOrThrow(label: string, read: () => string): MinimalManifest
 }
 
 let lockOwner: LockOwner | undefined;
+let pinnedHead = "";
 try {
   assertNoNormalPublicationResidue();
   assertPublishTreeIsRegularFiles();
   lockOwner = acquireWriterLock();
+  pinnedHead = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf-8" }).trim();
   const committedManifest = readManifestOrThrow("git HEAD", () =>
-    execFileSync("git", ["show", `HEAD:${COMMITTED_MANIFEST_PATH}`], { encoding: "utf-8" }),
+    execFileSync("git", ["show", `${pinnedHead}:${COMMITTED_MANIFEST_PATH}`], { encoding: "utf-8" }),
   );
   const workingTreeManifest = readManifestOrThrow("git working-tree", () => readFileSync(join(OUT, "manifest.json"), "utf-8"));
   const generatedIds = new Set(V.map((v) => v.id));
@@ -1064,17 +1097,35 @@ if (stagedManifest.vectors.length !== V.length || !existsSync(join(STAGING, "bas
   process.exit(1);
 }
 
+if (Number.isFinite(pauseAfterValidation) && pauseAfterValidation > 0) sleep(pauseAfterValidation);
+
 try {
   const intent: PublishIntent = {
-    version: 1,
+    version: 2,
     token: lockOwner.token,
     backup: BACKUP,
     staging: STAGING,
-    phase: "backup-prepared",
-    tree_digest: treeDigest(OUT_PATH),
+    phase: "pre-backup",
+    old_digest: treeDigest(OUT_PATH),
+    new_digest: treeDigest(STAGING),
+    head: pinnedHead,
   };
-  writeExclusiveIntent(intent);
+  writeIntent(intent);
   renameSync(OUT_PATH, BACKUP);
+  if (process.env.MESH_FLEET_CORPUS_FAILPOINT === "after-backup-before-phase-sigkill") {
+    process.kill(process.pid, "SIGKILL");
+  }
+  // Rebind to the object that was actually renamed, not a stale OUT snapshot.
+  if (treeDigest(BACKUP) !== intent.old_digest) throw new Error("UNVERIFIED CORPUS SCAFFOLD: renamed backup differs from the pre-publication corpus");
+  const headManifest = readManifestOrThrow("pinned git HEAD", () =>
+    execFileSync("git", ["show", `${intent.head}:${COMMITTED_MANIFEST_PATH}`], { encoding: "utf-8" }),
+  );
+  const backupManifest = readManifestOrThrow("renamed backup", () => readFileSync(join(BACKUP, "manifest.json"), "utf-8"));
+  const generatedIds = new Set(V.map((v) => v.id));
+  const postRenameMissing = [...new Set([...headManifest.vectors, ...backupManifest.vectors].map((v) => v.id))].filter((id) => !generatedIds.has(id));
+  if (postRenameMissing.length > 0) throw new Error(`INCOMPLETE CORPUS INVENTORY: renamed backup contains unknown ids: ${postRenameMissing.join(", ")}`);
+  intent.phase = "backup-prepared";
+  writeIntent(intent, true);
   if (process.env.MESH_FLEET_CORPUS_FAILPOINT === "after-backup") {
     const fault: Error & { exit_code?: number } = new Error("requested after-backup interruption");
     fault.exit_code = 92;
@@ -1084,18 +1135,24 @@ try {
     process.kill(process.pid, "SIGKILL");
   }
   renameSync(STAGING, OUT_PATH);
+  if (treeDigest(OUT_PATH) !== intent.new_digest) throw new Error("UNVERIFIED CORPUS SCAFFOLD: installed corpus differs from staged digest");
+  intent.phase = "installed";
+  writeIntent(intent, true);
+  if (process.env.MESH_FLEET_CORPUS_FAILPOINT === "after-install-cleanup") {
+    throw new Error("requested post-install cleanup failure");
+  }
   removeExactDirectory(BACKUP);
   unlinkSync(INTENT);
 } catch (err) {
-  // Catchable faults restore reader availability before this process exits.
-  // SIGKILL cannot be caught and leaves the bound intent for explicit recovery.
-  try {
-    if (!lstatIfPresent(OUT_PATH) && existsSync(BACKUP)) renameSync(BACKUP, OUT_PATH);
-    if (existsSync(INTENT)) unlinkSync(INTENT);
-  } catch { /* preserve bound evidence if rollback itself failed */ }
-  cleanupStaging();
-  releaseWriterLock(lockOwner);
-  console.error(`FATAL: corpus publication rolled back: ${(err as Error).message}`);
+  // Installed output is committed: cleanup failure must retain evidence for a
+  // retry, never enter the pre-install rollback path.
+  const installed = (() => { try { return readIntentOrThrow(lockOwner.token).phase === "installed"; } catch { return false; } })();
+  if (!installed) {
+    try { recoverExplicitly(lockOwner.token); } catch { /* preserve bound evidence for exact-token retry */ }
+  }
+  if (!installed) cleanupStaging();
+  if (!installed && !existsSync(INTENT)) releaseWriterLock(lockOwner);
+  console.error(`FATAL: corpus publication ${installed ? "is installed; cleanup requires exact-token retry" : "did not complete"}: ${(err as Error).message}`);
   process.exit((err as Error & { exit_code?: number }).exit_code ?? 1);
 }
 releaseWriterLock(lockOwner);

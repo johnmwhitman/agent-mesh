@@ -135,6 +135,10 @@ function interruptedPublish(root: string): { before: string; token: string } {
   return { before, token: intent.token };
 }
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 test("HEAD-only manifest ids are preserved even when the working tree has no matching id", () => {
   const root = fixture();
   try {
@@ -213,6 +217,71 @@ test("a catchable mid-publish interruption restores the published corpus immedia
     assert.equal(interrupted.exit, 92, `after-backup failpoint must interrupt.\n${interrupted.stderr}`);
     assert.ok(existsSync(join(root, CORPUS)), "interruption left readers with no corpus directory");
     assert.equal(digestTree(join(root, CORPUS)), before, "interruption changed published corpus bytes");
+    assertNoPublishResidue(root);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a working-tree manifest mutation after initial validation is rechecked from the renamed backup", async () => {
+  const root = fixture();
+  try {
+    const writer = runAsync(root, { MESH_FLEET_CORPUS_PAUSE_AFTER_VALIDATION_MS: "300" });
+    await delay(75);
+    addPhantom(root);
+    const result = await writer;
+    assert.equal(result.exit, 1, `post-validation manifest mutation must fail closed.\n${result.stderr}`);
+    assert.match(readFileSync(join(root, MANIFEST), "utf-8"), /phantom-deleted-by-gate/, "rollback did not preserve the exact mutated backup bytes");
+    assertNoPublishResidue(root);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a root link injected after initial validation is rechecked from the renamed backup", async () => {
+  const root = fixture();
+  try {
+    const writer = runAsync(root, { MESH_FLEET_CORPUS_PAUSE_AFTER_VALIDATION_MS: "300" });
+    await delay(75);
+    symlinkSync(join(root, "outside"), join(root, CORPUS, "late-link"));
+    const result = await writer;
+    assert.equal(result.exit, 1, `post-validation link injection must fail closed.\n${result.stderr}`);
+    assert.ok(lstatSync(join(root, CORPUS, "late-link")).isSymbolicLink(), "generator dereferenced or deleted the injected link");
+    assertNoPublishResidue(root);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("post-install cleanup failure leaves installed evidence for exact-token retry, never rollback", () => {
+  const root = fixture();
+  try {
+    const result = run(root, { MESH_FLEET_CORPUS_FAILPOINT: "after-install-cleanup" });
+    assert.equal(result.exit, 1, `post-install cleanup fault must stop with evidence.\n${result.stderr}`);
+    assert.ok(existsSync(join(root, CORPUS)), "post-install fault removed the installed corpus");
+    const intent = JSON.parse(readFileSync(join(root, INTENT), "utf-8"));
+    assert.equal(intent.phase, "installed", "post-install fault did not record the installed phase");
+    assert.ok(existsSync(join(root, LOCK)), "post-install fault released ownership evidence");
+    const retry = run(root, { MESH_FLEET_CORPUS_RECOVER_TOKEN: intent.token });
+    assert.equal(retry.exit, 0, `exact-token cleanup retry failed.\n${retry.stderr}`);
+    assertNoPublishResidue(root);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a kill between backup rename and phase update is topology-reconciled by exact-token recovery", () => {
+  const root = fixture();
+  try {
+    const before = digestTree(join(root, CORPUS));
+    const interrupted = run(root, { MESH_FLEET_CORPUS_FAILPOINT: "after-backup-before-phase-sigkill" });
+    assert.equal(interrupted.exit, 1);
+    assert.ok(!existsSync(join(root, CORPUS)), "phase-window kill did not leave the backup topology");
+    const intent = JSON.parse(readFileSync(join(root, INTENT), "utf-8"));
+    assert.equal(intent.phase, "pre-backup", "intent was not truthful before the backup rename");
+    const recovered = run(root, { MESH_FLEET_CORPUS_RECOVER_TOKEN: intent.token });
+    assert.equal(recovered.exit, 0, `phase-window exact recovery failed.\n${recovered.stderr}`);
+    assert.equal(digestTree(join(root, CORPUS)), before);
     assertNoPublishResidue(root);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -377,7 +446,7 @@ test("generator documentation names the HEAD plus working-tree union and not a f
   const source = readFileSync(join(REPO, SCRIPT), "utf-8");
   const handoff = readFileSync(join(REPO, "HANDOFF.md"), "utf-8");
   assert.match(source, /HEAD.*working tree|working tree.*HEAD/i);
-  assert.doesNotMatch(source, /GIT-INDEX BACKED|fail-closed, ATOMIC|atomic swap/i);
+  assert.doesNotMatch(source, /GIT-INDEX|HEAD-only|staging-<pid>|fail-closed, ATOMIC|atomic swap/i);
   assert.doesNotMatch(handoff, /1789-test contract/i);
 });
 
