@@ -1,13 +1,33 @@
 /**
  * Generates the tampered-ledger corpus: a clean baseline plus one declarative
- * delta per vector. Run: npx tsx scratch/corpus/generate.ts
+ * delta per vector. Run: npx tsx scripts/generate-corpus.ts
+ *
+ * This is the canonical, single command for regenerating every committed
+ * tampered-ledger vector under `test/fixtures/corpus/`, including the
+ * `discussion.*` family. There is intentionally no second writer.
  *
  * Deltas are DECLARATIVE (op/path/value) so the harness can prove each tampered
  * ledger differs from the baseline in exactly the declared paths — minimality is
  * machine-checked, not author-asserted. That is what makes the baseline a valid
  * near-neighbour control for every vector.
+ *
+ * Two safety gates sit in front of the writes:
+ *
+ *   1. Inventory gate (fail-closed). If a committed `manifest.json` exists, the
+ *      generator compares its vector ids against the ids declared in V[] below,
+ *      and refuses to run with exit 1 and an explicit
+ *      `INCOMPLETE CORPUS INVENTORY` message when any committed id is missing.
+ *      The committed corpus currently contains 83 vectors; if any future change
+ *      narrows V[] or drops a discussion entry, this gate prevents a silent
+ *      deletion of pinned checks.
+ *
+ *   2. Authored-invariant gate (fail-closed). Per-vector: a `caught` vector
+ *      must produce its check at `error` severity with `ok: false`; an
+ *      `anomaly` vector must produce its check at `warning`; an
+ *      `undetectable` vector must produce zero findings. Failing any of these
+ *      exits 1.
  */
-import { writeFileSync, mkdirSync } from "node:fs";
+import { writeFileSync, mkdirSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { verifyMeshData } from "../src/verify.js";
 import { loadDataFromFile } from "../src/core.js";
@@ -67,6 +87,39 @@ function applyOps(data: any, ops: Op[]): void {
     else if (op === "push") node[last].push(value);
   }
 }
+
+// Discussion family helpers — kept inline here so the canonical generator
+// stays self-contained (no dist build dependency). The harness applies the
+// same `applyOps` workflow as every other vector; the envelope payloads are
+// constructed by hand to match what a live discussion/v1 exchange would
+// produce under the same NOW anchor.
+//
+// The discussion/v1 family is emitted dynamically by `verifyMeshData` (via
+// `deriveDiscussion`) as `discussion.<code>` checks. The COVERAGE assertion
+// in `test/corpus.test.ts` separately unions those from
+// `DISCUSSION_ERROR_CODES`, so the discussion vectors do not need to be in
+// `src/verify.ts`'s hand-maintained emit list to be recognised as coverage.
+function makeEnv(overrides: Record<string, unknown> = {}): string {
+  return JSON.stringify({
+    $meshfleet: "discussion/v1",
+    discussion_id: "disc-1",
+    turn: 1,
+    attempt_id: "att-1",
+    reply_to: null,
+    kind: "question",
+    body: "hello",
+    close: false,
+    ...overrides,
+  });
+}
+
+const DISCUSSION_POLICY = {
+  participants: ["a1", "a2"],
+  max_turns: 4,
+  conversation_deadline: NOW + 50000,
+  turn_timeout_ms: 30000,
+};
+const DISCUSSION_ROOT = makeEnv({ policy: DISCUSSION_POLICY });
 
 const V: Vector[] = [
   // ===================== CAUGHT: overclaims (error, ok:false) =====================
@@ -346,7 +399,313 @@ const V: Vector[] = [
   { id: "undetectable-post-mortem-participation", primary: "", classification: "undetectable",
     lie: "an agent sent a message hours after it terminated. Agent lifecycle and message authorship are not cross-checked.",
     ops: [{ op: "set", path: "messages|m4", value: { id: "m4", from_agent_id: "a2", to_agent_id: "a1", fleet_id: "f1", type: "result", payload: "late result", timestamp: T0 + 20_000, acknowledged: false } }] },
+
+  // ===================== DISCUSSION: discussion/v1 envelope integrity =====================
+  // Each of the 12 vectors that previously lived in the supplemental
+  // `scripts/generate-discussion-corpus.mjs`. They pin every check the verifier
+  // emits under the dynamic `discussion.<code>` family (see DISCUSSION_ERROR_CODES
+  // in src/verify.ts). The harness applies the same `applyOps` workflow and runs
+  // them through the same `verifyMeshData` call as the rest.
+  //
+  // Timestamps use the same `NOW` anchor and `NOW - X` offsets the prior writer
+  // used, so the fixtures the canonical generator emits are byte-identical to
+  // the committed ones under SHA-256.
+  {
+    id: "discussion-no-valid-root", primary: "discussion.no_valid_root", classification: "caught",
+    lie: "messages carrying discussion/v1 envelopes exist but none qualifies as a valid root",
+    ops: [{
+      op: "set", path: "messages|d-m1", value: {
+        id: "d-m1", from_agent_id: "a1", to_agent_id: "a2", fleet_id: "f1",
+        type: "result",
+        payload: makeEnv({ turn: 2, reply_to: "nonexistent" }),
+        correlation_id: "disc-1",
+        timestamp: NOW - 1000,
+        acknowledged: false,
+      },
+    }],
+  },
+  {
+    id: "discussion-duplicate-root", primary: "discussion.duplicate_root", classification: "caught",
+    lie: "two messages both qualify as valid discussion roots for the same correlation id",
+    ops: [
+      { op: "set", path: "messages|d-m1", value: {
+        id: "d-m1", from_agent_id: "a1", to_agent_id: "a2", fleet_id: "f1",
+        type: "question", payload: DISCUSSION_ROOT,
+        correlation_id: "disc-1", timestamp: NOW - 2000, acknowledged: false,
+      } },
+      { op: "set", path: "messages|d-m2", value: {
+        id: "d-m2", from_agent_id: "a1", to_agent_id: "a2", fleet_id: "f1",
+        type: "question", payload: DISCUSSION_ROOT,
+        correlation_id: "disc-1", timestamp: NOW - 1999, acknowledged: false,
+      } },
+    ],
+  },
+  {
+    id: "discussion-child-policy-forbidden", primary: "discussion.child_policy_forbidden", classification: "caught",
+    lie: "a non-root envelope carries a policy block — only the root may define the immutable policy",
+    ops: [
+      { op: "set", path: "messages|d-m1", value: {
+        id: "d-m1", from_agent_id: "a1", to_agent_id: "a2", fleet_id: "f1",
+        type: "question", payload: DISCUSSION_ROOT,
+        correlation_id: "disc-1", timestamp: NOW - 2000, acknowledged: false,
+      } },
+      { op: "set", path: "messages|d-m2", value: {
+        id: "d-m2", from_agent_id: "a2", to_agent_id: "a1", fleet_id: "f1",
+        type: "result",
+        payload: makeEnv({ turn: 2, attempt_id: "att-2", reply_to: "d-m1", kind: "result", policy: DISCUSSION_POLICY }),
+        correlation_id: "disc-1", timestamp: NOW - 1000, acknowledged: false,
+      } },
+    ],
+  },
+  {
+    id: "discussion-wrong-fleet", primary: "discussion.wrong_fleet", classification: "caught",
+    lie: "a discussion envelope is carried by a message in a different fleet than the root",
+    ops: [
+      { op: "set", path: "messages|d-m1", value: {
+        id: "d-m1", from_agent_id: "a1", to_agent_id: "a2", fleet_id: "f1",
+        type: "question", payload: DISCUSSION_ROOT,
+        correlation_id: "disc-1", timestamp: NOW - 2000, acknowledged: false,
+      } },
+      { op: "set", path: "messages|d-m2", value: {
+        id: "d-m2", from_agent_id: "a2", to_agent_id: "a1", fleet_id: "f-other",
+        type: "result",
+        payload: makeEnv({ turn: 2, attempt_id: "att-2", reply_to: "d-m1", kind: "result" }),
+        correlation_id: "disc-1", timestamp: NOW - 1000, acknowledged: false,
+      } },
+    ],
+  },
+  {
+    id: "discussion-participant-violation", primary: "discussion.participant_violation", classification: "caught",
+    lie: "a discussion message involves an agent not in the policy's two-participant set",
+    ops: [
+      { op: "set", path: "messages|d-m1", value: {
+        id: "d-m1", from_agent_id: "a1", to_agent_id: "a2", fleet_id: "f1",
+        type: "question", payload: DISCUSSION_ROOT,
+        correlation_id: "disc-1", timestamp: NOW - 2000, acknowledged: false,
+      } },
+      { op: "set", path: "messages|d-m2", value: {
+        id: "d-m2", from_agent_id: "a3", to_agent_id: "a1", fleet_id: "f1",
+        type: "result",
+        payload: makeEnv({ turn: 2, attempt_id: "att-2", reply_to: "d-m1", kind: "result" }),
+        correlation_id: "disc-1", timestamp: NOW - 1000, acknowledged: false,
+      } },
+    ],
+  },
+  {
+    id: "discussion-kind-type-mismatch", primary: "discussion.kind_type_mismatch", classification: "caught",
+    lie: "the envelope kind disagrees with the message type",
+    ops: [
+      { op: "set", path: "messages|d-m1", value: {
+        id: "d-m1", from_agent_id: "a1", to_agent_id: "a2", fleet_id: "f1",
+        type: "question", payload: DISCUSSION_ROOT,
+        correlation_id: "disc-1", timestamp: NOW - 2000, acknowledged: false,
+      } },
+      { op: "set", path: "messages|d-m2", value: {
+        id: "d-m2", from_agent_id: "a2", to_agent_id: "a1", fleet_id: "f1",
+        type: "result",
+        payload: makeEnv({ turn: 2, attempt_id: "att-2", reply_to: "d-m1", kind: "question" }),
+        correlation_id: "disc-1", timestamp: NOW - 1000, acknowledged: false,
+      } },
+    ],
+  },
+  {
+    id: "discussion-broadcast-forbidden", primary: "discussion.broadcast_forbidden", classification: "caught",
+    lie: "a discussion/v1 envelope is smuggled via a broadcast message",
+    ops: [{
+      op: "set", path: "messages|d-m1", value: {
+        id: "d-m1", from_agent_id: "a1", to_agent_id: "*", fleet_id: "f1",
+        type: "question", payload: DISCUSSION_ROOT,
+        correlation_id: "disc-1", timestamp: NOW - 1000, acknowledged: false,
+      },
+    }],
+  },
+  {
+    id: "discussion-invalid-sender", primary: "discussion.invalid_sender", classification: "caught",
+    lie: "a reply does not alternate sender and recipient",
+    ops: [
+      { op: "set", path: "messages|d-m1", value: {
+        id: "d-m1", from_agent_id: "a1", to_agent_id: "a2", fleet_id: "f1",
+        type: "question", payload: DISCUSSION_ROOT,
+        correlation_id: "disc-1", timestamp: NOW - 2000, acknowledged: false,
+      } },
+      { op: "set", path: "messages|d-m2", value: {
+        id: "d-m2", from_agent_id: "a1", to_agent_id: "a2", fleet_id: "f1",
+        type: "result",
+        payload: makeEnv({ turn: 2, attempt_id: "att-2", reply_to: "d-m1", kind: "result" }),
+        correlation_id: "disc-1", timestamp: NOW - 800, acknowledged: false,
+      } },
+      { op: "set", path: "receipts|d-m1:a2:discussion.wake.reserved.v1:2:att-2", value: {
+        id: "d-m1:a2:discussion.wake.reserved.v1:2:att-2",
+        agent_id: "a2", message_id: "d-m1",
+        action: "discussion.wake.reserved.v1:2:att-2",
+        note: JSON.stringify({ discussion_id: "disc-1", head_message_id: "d-m1", deadline: NOW + 30000 }),
+        timestamp: NOW - 1000,
+      } },
+      { op: "set", path: "receipts|d-m1:a2:discussion.wake.completed.v1:2:att-2", value: {
+        id: "d-m1:a2:discussion.wake.completed.v1:2:att-2",
+        agent_id: "a2", message_id: "d-m1",
+        action: "discussion.wake.completed.v1:2:att-2",
+        note: JSON.stringify({ discussion_id: "disc-1", head_message_id: "d-m1", deadline: NOW + 30000, reply_message_id: "d-m2" }),
+        timestamp: NOW - 800,
+      } },
+    ],
+  },
+  {
+    id: "discussion-attempt-identity-conflict", primary: "discussion.attempt_identity_conflict", classification: "caught",
+    lie: "receipts within a single attempt lifecycle disagree on an immutable field",
+    ops: [
+      { op: "set", path: "messages|d-m1", value: {
+        id: "d-m1", from_agent_id: "a1", to_agent_id: "a2", fleet_id: "f1",
+        type: "question", payload: DISCUSSION_ROOT,
+        correlation_id: "disc-1", timestamp: NOW - 2000, acknowledged: false,
+      } },
+      { op: "set", path: "receipts|d-m1:a2:discussion.wake.reserved.v1:2:att-2", value: {
+        id: "d-m1:a2:discussion.wake.reserved.v1:2:att-2",
+        agent_id: "a2", message_id: "d-m1",
+        action: "discussion.wake.reserved.v1:2:att-2",
+        note: JSON.stringify({ discussion_id: "disc-1", head_message_id: "d-m1", deadline: NOW + 30000 }),
+        timestamp: NOW - 1000,
+      } },
+      { op: "set", path: "receipts|d-m1:a2:discussion.wake.started.v1:2:att-2", value: {
+        id: "d-m1:a2:discussion.wake.started.v1:2:att-2",
+        agent_id: "a2", message_id: "d-m1",
+        action: "discussion.wake.started.v1:2:att-2",
+        note: JSON.stringify({ discussion_id: "disc-1", head_message_id: "d-m1", deadline: NOW + 25000 }),
+        timestamp: NOW - 900,
+      } },
+    ],
+  },
+  {
+    id: "discussion-duplicate-turn", primary: "discussion.duplicate_turn", classification: "caught",
+    lie: "two distinct attempt ids both reserve the same turn number at the same head",
+    ops: [
+      { op: "set", path: "messages|d-m1", value: {
+        id: "d-m1", from_agent_id: "a1", to_agent_id: "a2", fleet_id: "f1",
+        type: "question", payload: DISCUSSION_ROOT,
+        correlation_id: "disc-1", timestamp: NOW - 2000, acknowledged: false,
+      } },
+      { op: "set", path: "receipts|d-m1:a2:discussion.wake.reserved.v1:2:att-A", value: {
+        id: "d-m1:a2:discussion.wake.reserved.v1:2:att-A",
+        agent_id: "a2", message_id: "d-m1",
+        action: "discussion.wake.reserved.v1:2:att-A",
+        note: JSON.stringify({ discussion_id: "disc-1", head_message_id: "d-m1", deadline: NOW + 30000 }),
+        timestamp: NOW - 1000,
+      } },
+      { op: "set", path: "receipts|d-m1:a2:discussion.wake.reserved.v1:2:att-B", value: {
+        id: "d-m1:a2:discussion.wake.reserved.v1:2:att-B",
+        agent_id: "a2", message_id: "d-m1",
+        action: "discussion.wake.reserved.v1:2:att-B",
+        note: JSON.stringify({ discussion_id: "disc-1", head_message_id: "d-m1", deadline: NOW + 30000 }),
+        timestamp: NOW - 999,
+      } },
+    ],
+  },
+  {
+    id: "discussion-fork", primary: "discussion.fork", classification: "caught",
+    lie: "two authorized replies target the same head — the discussion chain forks",
+    ops: [
+      { op: "set", path: "messages|d-m1", value: {
+        id: "d-m1", from_agent_id: "a1", to_agent_id: "a2", fleet_id: "f1",
+        type: "question", payload: DISCUSSION_ROOT,
+        correlation_id: "disc-1", timestamp: NOW - 2000, acknowledged: false,
+      } },
+      { op: "set", path: "messages|d-m2a", value: {
+        id: "d-m2a", from_agent_id: "a2", to_agent_id: "a1", fleet_id: "f1",
+        type: "result",
+        payload: makeEnv({ turn: 2, attempt_id: "att-2a", reply_to: "d-m1", kind: "result" }),
+        correlation_id: "disc-1", timestamp: NOW - 800, acknowledged: false,
+      } },
+      { op: "set", path: "messages|d-m2b", value: {
+        id: "d-m2b", from_agent_id: "a2", to_agent_id: "a1", fleet_id: "f1",
+        type: "result",
+        payload: makeEnv({ turn: 2, attempt_id: "att-2b", reply_to: "d-m1", kind: "result" }),
+        correlation_id: "disc-1", timestamp: NOW - 799, acknowledged: false,
+      } },
+      { op: "set", path: "receipts|d-m1:a2:discussion.wake.reserved.v1:2:att-2a", value: {
+        id: "d-m1:a2:discussion.wake.reserved.v1:2:att-2a",
+        agent_id: "a2", message_id: "d-m1",
+        action: "discussion.wake.reserved.v1:2:att-2a",
+        note: JSON.stringify({ discussion_id: "disc-1", head_message_id: "d-m1", deadline: NOW + 30000 }),
+        timestamp: NOW - 1000,
+      } },
+      { op: "set", path: "receipts|d-m1:a2:discussion.wake.completed.v1:2:att-2a", value: {
+        id: "d-m1:a2:discussion.wake.completed.v1:2:att-2a",
+        agent_id: "a2", message_id: "d-m1",
+        action: "discussion.wake.completed.v1:2:att-2a",
+        note: JSON.stringify({ discussion_id: "disc-1", head_message_id: "d-m1", deadline: NOW + 30000, reply_message_id: "d-m2a" }),
+        timestamp: NOW - 800,
+      } },
+      { op: "set", path: "receipts|d-m1:a2:discussion.wake.reserved.v1:2:att-2b", value: {
+        id: "d-m1:a2:discussion.wake.reserved.v1:2:att-2b",
+        agent_id: "a2", message_id: "d-m1",
+        action: "discussion.wake.reserved.v1:2:att-2b",
+        note: JSON.stringify({ discussion_id: "disc-1", head_message_id: "d-m1", deadline: NOW + 30000 }),
+        timestamp: NOW - 999,
+      } },
+      { op: "set", path: "receipts|d-m1:a2:discussion.wake.completed.v1:2:att-2b", value: {
+        id: "d-m1:a2:discussion.wake.completed.v1:2:att-2b",
+        agent_id: "a2", message_id: "d-m1",
+        action: "discussion.wake.completed.v1:2:att-2b",
+        note: JSON.stringify({ discussion_id: "disc-1", head_message_id: "d-m1", deadline: NOW + 30000, reply_message_id: "d-m2b" }),
+        timestamp: NOW - 799,
+      } },
+    ],
+  },
+  {
+    id: "discussion-ordinal-discontinuity", primary: "discussion.ordinal_discontinuity", classification: "caught",
+    lie: "a reply claims a turn that skips over unreserved turns",
+    ops: [
+      { op: "set", path: "messages|d-m1", value: {
+        id: "d-m1", from_agent_id: "a1", to_agent_id: "a2", fleet_id: "f1",
+        type: "question", payload: DISCUSSION_ROOT,
+        correlation_id: "disc-1", timestamp: NOW - 2000, acknowledged: false,
+      } },
+      { op: "set", path: "messages|d-m3", value: {
+        id: "d-m3", from_agent_id: "a2", to_agent_id: "a1", fleet_id: "f1",
+        type: "result",
+        payload: makeEnv({ turn: 3, attempt_id: "att-3", reply_to: "d-m1", kind: "result" }),
+        correlation_id: "disc-1", timestamp: NOW - 800, acknowledged: false,
+      } },
+      { op: "set", path: "receipts|d-m1:a2:discussion.wake.reserved.v1:3:att-3", value: {
+        id: "d-m1:a2:discussion.wake.reserved.v1:3:att-3",
+        agent_id: "a2", message_id: "d-m1",
+        action: "discussion.wake.reserved.v1:3:att-3",
+        note: JSON.stringify({ discussion_id: "disc-1", head_message_id: "d-m1", deadline: NOW + 30000 }),
+        timestamp: NOW - 1000,
+      } },
+      { op: "set", path: "receipts|d-m1:a2:discussion.wake.completed.v1:3:att-3", value: {
+        id: "d-m1:a2:discussion.wake.completed.v1:3:att-3",
+        agent_id: "a2", message_id: "d-m1",
+        action: "discussion.wake.completed.v1:3:att-3",
+        note: JSON.stringify({ discussion_id: "disc-1", head_message_id: "d-m1", deadline: NOW + 30000, reply_message_id: "d-m3" }),
+        timestamp: NOW - 800,
+      } },
+    ],
+  },
 ];
+
+// ----------------------------------------------------------------------
+// Inventory gate. Before any write, compare the committed manifest's
+// vector ids against V[].id. If a committed id has no generator entry,
+// fail closed with INCOMPLETE CORPUS INVENTORY. Without this gate, a
+// future edit that narrows V[] would silently delete every fixture for
+// a pinned check on the next regeneration.
+// ----------------------------------------------------------------------
+const COMMITTED_MANIFEST = join(OUT, "manifest.json");
+if (existsSync(COMMITTED_MANIFEST)) {
+  const committed = JSON.parse(readFileSync(COMMITTED_MANIFEST, "utf-8")) as { vectors: { id: string }[] };
+  const generatedIds = new Set(V.map((v) => v.id));
+  const missing = committed.vectors.map((v) => v.id).filter((id) => !generatedIds.has(id));
+  if (missing.length > 0) {
+    console.error(
+      `INCOMPLETE CORPUS INVENTORY: canonical generator is missing ${missing.length} committed manifest ${missing.length === 1 ? "entry" : "entries"}:\n` +
+        missing.map((id) => `  - ${id}`).join("\n") +
+        `\nAdd an entry to V[] in scripts/generate-corpus.ts before regenerating. ` +
+        `This gate fires before any write so a regression cannot silently delete a pinned check.`,
+    );
+    process.exit(1);
+  }
+}
 
 mkdirSync(OUT, { recursive: true });
 writeFileSync(join(OUT, "baseline.json"), JSON.stringify(BASELINE, null, 2) + "\n");
