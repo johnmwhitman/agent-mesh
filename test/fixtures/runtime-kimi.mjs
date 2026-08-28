@@ -1,5 +1,7 @@
 import { spawn } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:net";
+import { dirname, join } from "node:path";
 
 const mode = process.env.MESH_KIMI_FAKE_MODE ?? "success";
 
@@ -18,11 +20,82 @@ function readStdin() {
   });
 }
 
+async function armFixtureReaper() {
+  const journalPath = process.env.MESH_KIMI_REAP_JOURNAL;
+  const owner = process.env.MESH_KIMI_REAP_OWNER;
+  const token = process.env.MESH_KIMI_REAP_TOKEN;
+  const runnerSocketPath = process.env.MESH_KIMI_REAP_RUNNER_SOCKET;
+  const runnerToken = process.env.MESH_KIMI_REAP_RUNNER_TOKEN;
+  if (
+    journalPath === undefined && owner === undefined && token === undefined &&
+    runnerSocketPath === undefined && runnerToken === undefined
+  ) return;
+  if (
+    journalPath === undefined || owner === undefined || token === undefined ||
+    runnerSocketPath === undefined || runnerToken === undefined ||
+    !/^[a-f0-9]{16}$/.test(owner) || !/^[a-f0-9]{32}$/.test(token) ||
+    !/^[a-f0-9]{32}$/.test(runnerToken) ||
+    runnerSocketPath !== join(dirname(journalPath), "runner.sock")
+  ) {
+    throw new Error("invalid fixture reap configuration");
+  }
+  const socketPath = join(dirname(journalPath), "reap.sock");
+  let reaping = false;
+  const server = createServer((socket) => {
+    let request = "";
+    socket.setEncoding("utf8");
+    socket.on("error", () => {});
+    socket.on("data", (chunk) => {
+      request += chunk;
+      if (request.length > 33 || (request.length === 33 && request !== `${token}\n`)) {
+        socket.destroy();
+        return;
+      }
+      if (!reaping && request === `${token}\n`) {
+        reaping = true;
+        let killScheduled = false;
+        const reap = () => {
+          if (killScheduled) return;
+          killScheduled = true;
+          server.close();
+          setImmediate(() => process.kill(-process.pid, "SIGKILL"));
+        };
+        socket.once("error", reap);
+        socket.end("reaping\n", reap);
+        setTimeout(reap, 100).unref();
+      }
+    });
+  });
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(socketPath, () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+  try {
+    writeFileSync(journalPath, JSON.stringify({
+      version: 1,
+      owner,
+      pid: process.pid,
+      runnerSocketPath,
+      runnerToken,
+      socketPath,
+      token,
+    }), { encoding: "utf8", flag: "wx", mode: 0o600 });
+  } catch (error) {
+    server.close();
+    rmSync(socketPath, { force: true });
+    throw error;
+  }
+}
+
 if (mode === "tree-child") {
   process.on("SIGTERM", () => {});
   if (process.send) process.send({ state: "signal-handler-armed" });
   setInterval(() => {}, 1_000);
 } else if (mode === "tree-ignore") {
+  await armFixtureReaper();
   const child = spawn(process.execPath, [process.argv[1]], {
     env: { ...process.env, MESH_KIMI_FAKE_MODE: "tree-child" },
     // Do not let inherited output pipes keep the group leader's close event
