@@ -37,9 +37,10 @@
  *      must produce zero findings. Failing any of these exits 1 before
  *      the staging directory is renamed into place.
  */
-import { writeFileSync, mkdirSync, existsSync, readFileSync, rmSync, renameSync, readdirSync, copyFileSync, statSync } from "node:fs";
+import { writeFileSync, mkdirSync, existsSync, readFileSync, rmSync, readdirSync, copyFileSync, lstatSync, openSync, closeSync, unlinkSync, renameSync } from "node:fs";
 import { basename, join } from "node:path";
 import { execFileSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { verifyMeshData } from "../src/verify.js";
 import { loadDataFromFile } from "../src/core.js";
 
@@ -716,48 +717,69 @@ const V: Vector[] = [
 const COMMITTED_MANIFEST_PATH = "test/fixtures/corpus/manifest.json";
 type MinimalManifest = { vectors: { id: string }[] };
 const LOCK = `${OUT}.lock`;
+const INTENT = `${OUT}.publish-intent.json`;
+const LOCK_WAIT_MS = Number(process.env.MESH_FLEET_CORPUS_LOCK_WAIT_MS ?? "30000");
+const configuredLeaseMs = Number(process.env.MESH_FLEET_CORPUS_LOCK_LEASE_MS ?? "120000");
+const LOCK_LEASE_MS = Number.isFinite(configuredLeaseMs) && configuredLeaseMs >= 10_000 ? configuredLeaseMs : 120_000;
+const configuredPublishMarginMs = Number(process.env.MESH_FLEET_CORPUS_PUBLISH_MARGIN_MS ?? "5000");
+const LOCK_PUBLISH_MARGIN_MS = Number.isFinite(configuredPublishMarginMs) && configuredPublishMarginMs >= 5_000 ? configuredPublishMarginMs : 5_000;
+type LockOwner = { token: string; expires_at: number };
+type PublishIntent = { token: string; backup: string; staging: string };
 
 function sleep(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
-function processIsAlive(pid: number): boolean {
+function readLockOwner(): LockOwner | null {
   try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err: any) {
-    return err?.code !== "ESRCH";
+    const owner = JSON.parse(readFileSync(LOCK, "utf-8"));
+    return typeof owner?.token === "string" && Number.isFinite(owner?.expires_at) ? owner as LockOwner : null;
+  } catch {
+    return null;
   }
 }
 
-function releaseWriterLock(): void {
-  try { rmSync(LOCK, { recursive: true, force: true, maxRetries: 5 }); } catch { /* no-op */ }
+function releaseWriterLock(owner: LockOwner): void {
+  try {
+    if (readLockOwner()?.token === owner.token) unlinkSync(LOCK);
+  } catch { /* another owner or cleanup already won */ }
 }
 
-function acquireWriterLock(): void {
-  const deadline = Date.now() + 30_000;
+function assertPublishLease(owner: LockOwner): void {
+  const current = readLockOwner();
+  if (!current || current.token !== owner.token) {
+    throw new Error("CORPUS WRITER LOCK LOST: refusing to publish without the owning token");
+  }
+  const remaining = current.expires_at - Date.now();
+  if (remaining < LOCK_PUBLISH_MARGIN_MS) {
+    throw new Error(`CORPUS WRITER LEASE MARGIN EXHAUSTED: ${remaining}ms remains, need ${LOCK_PUBLISH_MARGIN_MS}ms before publication`);
+  }
+}
+
+function acquireWriterLock(): LockOwner {
+  const deadline = Date.now() + (Number.isFinite(LOCK_WAIT_MS) && LOCK_WAIT_MS >= 0 ? LOCK_WAIT_MS : 30_000);
   while (true) {
+    const owner: LockOwner = { token: randomUUID(), expires_at: Date.now() + LOCK_LEASE_MS };
     try {
-      mkdirSync(LOCK);
-      writeFileSync(join(LOCK, "owner.json"), JSON.stringify({ pid: process.pid, started_at: Date.now() }) + "\n");
-      return;
+      // O_EXCL (`wx`) creates the complete ownership record as one file. There
+      // is no ownerless mkdir->owner.json interval for another writer to reap.
+      const fd = openSync(LOCK, "wx");
+      try { writeFileSync(fd, JSON.stringify(owner) + "\n"); } finally { closeSync(fd); }
+      return owner;
     } catch (err: any) {
       if (err?.code !== "EEXIST") throw err;
-      try {
-        const owner = JSON.parse(readFileSync(join(LOCK, "owner.json"), "utf-8"));
-        if (Number.isInteger(owner.pid) && !processIsAlive(owner.pid)) {
-          releaseWriterLock();
-          continue;
-        }
-      } catch {
-        // A live writer may have created the lock just before writing owner.json.
-        // Only reap an ownerless lock after that short creation window has elapsed.
+      const existing = readLockOwner();
+      // A lease is a bounded execution contract, not a PID liveness guess.
+      // A writer exceeding it must fail closed; a new writer atomically retires
+      // only the expired, token-bearing record before attempting ownership.
+      if (existing && existing.expires_at <= Date.now()) {
+        const retired = `${LOCK}.expired-${randomUUID()}`;
         try {
-          if (Date.now() - statSync(LOCK).mtimeMs > 1_000) {
-            releaseWriterLock();
-            continue;
-          }
-        } catch { /* another writer released it; retry below */ }
+          renameSync(LOCK, retired);
+          const retiredOwner = JSON.parse(readFileSync(retired, "utf-8"));
+          if (retiredOwner?.token === existing.token) unlinkSync(retired);
+        } catch { /* another contender changed the lock; retry */ }
+        continue;
       }
       if (Date.now() >= deadline) {
         throw new Error(`timed out waiting for corpus writer lock ${LOCK}`);
@@ -776,17 +798,46 @@ function publishPaths(kind: "staging" | "backup"): string[] {
   }
 }
 
+function assertPublishTreeIsRegularFiles(): void {
+  if (!existsSync(OUT)) throw new Error(`UNVERIFIED CORPUS SCAFFOLD: ${OUT} is absent; normal regeneration never bootstraps or replaces a corpus`);
+  for (const entry of readdirSync(OUT)) {
+    const stat = lstatSync(join(OUT, entry));
+    if (stat.isSymbolicLink()) throw new Error(`UNSUPPORTED CORPUS SYMLINK: ${entry}; refusing to dereference or publish a changed shape`);
+    if (stat.isDirectory()) throw new Error(`UNSUPPORTED CORPUS DIRECTORY: ${entry}; refusing to partially publish an unknown subtree`);
+    if (!stat.isFile()) throw new Error(`UNSUPPORTED CORPUS ENTRY: ${entry}; only regular files are safe to carry forward`);
+  }
+}
+
+function readIntentOrThrow(): PublishIntent | null {
+  if (!existsSync(INTENT)) return null;
+  let intent: unknown;
+  try { intent = JSON.parse(readFileSync(INTENT, "utf-8")); } catch (err) {
+    throw new Error(`UNVERIFIED CORPUS SCAFFOLD: cannot read publication intent: ${(err as Error).message}`);
+  }
+  const candidate = intent as PublishIntent;
+  if (typeof candidate?.token !== "string" || !candidate.backup.startsWith(`${OUT}.backup-`) || !candidate.staging.startsWith(`${OUT}.staging-`)) {
+    throw new Error("UNVERIFIED CORPUS SCAFFOLD: publication intent is malformed or escapes the corpus directory");
+  }
+  return candidate;
+}
+
+function cleanupPath(path: string): void {
+  try { rmSync(path, { recursive: true, force: true, maxRetries: 5 }); } catch { /* no-op */ }
+}
+
 function recoverInterruptedPublish(): void {
-  const backups = publishPaths("backup").sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs);
-  if (!existsSync(OUT) && backups.length > 0) {
-    renameSync(backups.shift()!, OUT);
+  const intent = readIntentOrThrow();
+  if (!intent) {
+    if (publishPaths("backup").length > 0) throw new Error("UNVERIFIED CORPUS SCAFFOLD: a legacy backup is present without publication intent");
+    return;
   }
   if (!existsSync(OUT)) {
-    throw new Error(`UNVERIFIED CORPUS SCAFFOLD: ${OUT} is absent after interrupted-publish recovery`);
+    if (!existsSync(intent.backup)) throw new Error("UNVERIFIED CORPUS SCAFFOLD: publication intent has no published corpus or recoverable backup");
+    renameSync(intent.backup, OUT);
   }
-  for (const path of [...backups, ...publishPaths("staging")]) {
-    rmSync(path, { recursive: true, force: true, maxRetries: 5 });
-  }
+  cleanupPath(intent.backup);
+  cleanupPath(intent.staging);
+  cleanupPath(INTENT);
 }
 
 function readManifestOrThrow(label: string, read: () => string): MinimalManifest {
@@ -803,9 +854,11 @@ function readManifestOrThrow(label: string, read: () => string): MinimalManifest
   return parsed as MinimalManifest;
 }
 
-acquireWriterLock();
+const lockOwner = acquireWriterLock();
 try {
   recoverInterruptedPublish();
+  assertPublishTreeIsRegularFiles();
+  for (const staleStaging of publishPaths("staging")) rmSync(staleStaging, { recursive: true, force: true, maxRetries: 5 });
   const committedManifest = readManifestOrThrow("git HEAD", () =>
     execFileSync("git", ["show", `HEAD:${COMMITTED_MANIFEST_PATH}`], { encoding: "utf-8" }),
   );
@@ -822,18 +875,17 @@ try {
     );
   }
 } catch (err) {
-  releaseWriterLock();
+  releaseWriterLock(lockOwner);
   console.error((err as Error).message);
   process.exit(1);
 }
 
 // --------------------------------------------------------------------------
-// Atomic write. Start by copying everything currently under `OUT` (which the
-// fixture writer does not produce — README.md and any future companion files)
-// into the staging dir, then materialise every fixture and the manifest on
-// top. The staging dir is the candidate for the atomic swap; only on full
-// success is it renamed onto `OUT`. A failure mid-run, an OS-level interrupt,
-// or an invariant mismatch leaves `OUT` byte-identical to its pre-run state.
+// Recoverable publication. The candidate is fully staged and verified before
+// an intent names its private backup. A catchable failure restores OUT before
+// exit. SIGKILL between the two directory renames can leave OUT absent; that is
+// the portable filesystem limit, recorded by intent and repaired before the
+// next regeneration proceeds. We never call that window atomic.
 // --------------------------------------------------------------------------
 const STAGING = `${OUT}.staging-${process.pid}-${Date.now()}`;
 const BACKUP = `${OUT}.backup-${process.pid}-${Date.now()}`;
@@ -841,13 +893,8 @@ const BACKUP = `${OUT}.backup-${process.pid}-${Date.now()}`;
 function cleanupStaging() {
   try { rmSync(STAGING, { recursive: true, force: true, maxRetries: 5 }); } catch { /* no-op */ }
 }
-function cleanupBackup() {
-  try { rmSync(BACKUP, { recursive: true, force: true, maxRetries: 5 }); } catch { /* no-op */ }
-}
 
 process.on("exit", cleanupStaging);
-process.on("SIGINT", () => { cleanupStaging(); releaseWriterLock(); process.exit(130); });
-process.on("SIGTERM", () => { cleanupStaging(); releaseWriterLock(); process.exit(143); });
 
 const pauseAfterLock = Number(process.env.MESH_FLEET_CORPUS_PAUSE_AFTER_LOCK_MS ?? "0");
 if (Number.isFinite(pauseAfterLock) && pauseAfterLock > 0) sleep(pauseAfterLock);
@@ -869,6 +916,7 @@ const baseReport: any = verifyMeshData(loadDataFromFile(join(STAGING, "baseline.
 if (baseReport.findings.length !== 0) {
   console.error("FATAL: baseline is not clean", baseReport.findings);
   cleanupStaging();
+  releaseWriterLock(lockOwner);
   process.exit(1);
 }
 
@@ -908,6 +956,7 @@ if (problems.length) {
   console.error(`\n${problems.length} PROBLEM(S):`);
   for (const p of problems) console.error("  " + p);
   cleanupStaging();
+  releaseWriterLock(lockOwner);
   process.exit(1);
 }
 
@@ -916,7 +965,7 @@ if (problems.length) {
 // corpus before the publication boundary.
 if (process.env.MESH_FLEET_CORPUS_FAILPOINT === "before-publish") {
   cleanupStaging();
-  releaseWriterLock();
+  releaseWriterLock(lockOwner);
   console.error("FATAL: requested pre-publish failure");
   process.exit(91);
 }
@@ -925,36 +974,41 @@ const stagedManifest = readManifestOrThrow("staged", () => readFileSync(join(STA
 if (stagedManifest.vectors.length !== V.length || !existsSync(join(STAGING, "baseline.json")) ||
     stagedManifest.vectors.some((vector) => !existsSync(join(STAGING, `${vector.id}.json`)))) {
   cleanupStaging();
-  releaseWriterLock();
+  releaseWriterLock(lockOwner);
   console.error("FATAL: staged corpus is incomplete");
   process.exit(1);
 }
 
-// All fixtures + manifest staged and verified. Now atomic swap:
-// 1. Move existing OUT to BACKUP (no-op if OUT doesn't exist).
-// 2. Rename STAGING to OUT.
-// 3. Remove BACKUP.
-// If anything throws between 1 and 2, restore OUT from BACKUP. Once STAGING
-// is renamed to OUT, the corpus is the new state.
 try {
-  if (existsSync(OUT)) renameSync(OUT, BACKUP);
+  assertPublishLease(lockOwner);
+  const intent: PublishIntent = { token: lockOwner.token, backup: BACKUP, staging: STAGING };
+  writeFileSync(INTENT, JSON.stringify(intent) + "\n");
+  renameSync(OUT, BACKUP);
   if (process.env.MESH_FLEET_CORPUS_FAILPOINT === "after-backup") {
-    console.error("FATAL: requested after-backup interruption");
-    process.exit(92);
+    const fault: Error & { exit_code?: number } = new Error("requested after-backup interruption");
+    fault.exit_code = 92;
+    throw fault;
+  }
+  if (process.env.MESH_FLEET_CORPUS_FAILPOINT === "after-backup-sigkill") {
+    process.kill(process.pid, "SIGKILL");
   }
   renameSync(STAGING, OUT);
+  cleanupPath(BACKUP);
+  cleanupPath(INTENT);
 } catch (err) {
-  // Restore whatever we can.
-  if (existsSync(BACKUP) && !existsSync(OUT)) {
-    try { renameSync(BACKUP, OUT); } catch { /* leave the staged set untouched */ }
-  }
+  // Catchable faults restore reader availability before this process exits.
+  // An uncatchable SIGKILL is repaired on the next invocation from INTENT.
+  try {
+    if (!existsSync(OUT) && existsSync(BACKUP)) renameSync(BACKUP, OUT);
+    cleanupPath(BACKUP);
+    cleanupPath(INTENT);
+  } catch { /* preserve intent/backup for next-run recovery if rollback itself failed */ }
   cleanupStaging();
-  releaseWriterLock();
-  console.error(`FATAL: atomic swap failed: ${(err as Error).message}`);
-  process.exit(1);
+  releaseWriterLock(lockOwner);
+  console.error(`FATAL: corpus publication rolled back: ${(err as Error).message}`);
+  process.exit((err as Error & { exit_code?: number }).exit_code ?? 1);
 }
-cleanupBackup();
-releaseWriterLock();
+releaseWriterLock(lockOwner);
 
 console.log(`wrote ${V.length} vectors + baseline + manifest to test/fixtures/corpus/`);
 const byClass = (c: string) => V.filter((v) => v.classification === c).length;

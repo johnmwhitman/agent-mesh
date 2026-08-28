@@ -18,6 +18,8 @@ const REPO = join(__dirname, "..");
 const SCRIPT = join("scripts", "generate-corpus.ts");
 const MANIFEST = join("test", "fixtures", "corpus", "manifest.json");
 const CORPUS = join("test", "fixtures", "corpus");
+const LOCK = join("test", "fixtures", "corpus.lock");
+const INTENT = join("test", "fixtures", "corpus.publish-intent.json");
 
 type Run = { exit: number; stdout: string; stderr: string };
 
@@ -52,6 +54,13 @@ function snapshotTree(root: string, relative = ""): Record<string, string> {
   return snapshot;
 }
 
+function linkDirectory(target: string, path: string): void {
+  // Windows directory symlinks require elevated developer permissions in many
+  // CI configurations. Junctions are the portable Windows directory-link
+  // equivalent; POSIX retains an ordinary directory symlink.
+  symlinkSync(target, path, process.platform === "win32" ? "junction" : "dir");
+}
+
 function fixture(): string {
   const root = mkdtempSync(join(tmpdir(), "meshfleet-corpus-generator-"));
   mkdirSync(join(root, "scripts"), { recursive: true });
@@ -60,8 +69,8 @@ function fixture(): string {
   cpSync(join(REPO, "test", "fixtures", "corpus"), join(root, CORPUS), { recursive: true });
   // The generator and its dependencies execute from the disposable repository,
   // while read-only source/dependencies are shared to keep the fixture small.
-  symlinkSync(join(REPO, "src"), join(root, "src"));
-  symlinkSync(join(REPO, "node_modules"), join(root, "node_modules"));
+  linkDirectory(join(REPO, "src"), join(root, "src"));
+  linkDirectory(join(REPO, "node_modules"), join(root, "node_modules"));
   assert.equal(git(root, ["init", "--quiet"]).exit, 0);
   assert.equal(git(root, ["add", MANIFEST]).exit, 0);
   assert.equal(git(root, ["-c", "user.name=Corpus Test", "-c", "user.email=corpus@example.test", "commit", "--quiet", "-m", "fixture manifest"]).exit, 0);
@@ -186,16 +195,103 @@ test("a pre-publish failure leaves the previous corpus byte-identical", () => {
   }
 });
 
-test("an interrupted publish restores the previous valid corpus on the next run", () => {
+test("a catchable mid-publish interruption restores the published corpus immediately", () => {
   const root = fixture();
   try {
     const before = digestTree(join(root, CORPUS));
     const interrupted = run(root, { MESH_FLEET_CORPUS_FAILPOINT: "after-backup" });
     assert.equal(interrupted.exit, 92, `after-backup failpoint must interrupt.\n${interrupted.stderr}`);
-    const recovered = run(root);
-    assert.equal(recovered.exit, 0, `recovery run failed.\n${recovered.stderr}`);
-    assert.equal(digestTree(join(root, CORPUS)), before, "recovery did not restore the byte-identical corpus");
+    assert.ok(existsSync(join(root, CORPUS)), "interruption left readers with no corpus directory");
+    assert.equal(digestTree(join(root, CORPUS)), before, "interruption changed published corpus bytes");
     assertNoPublishResidue(root);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a stale intent and backup recover the previous corpus after an uncatchable stop", () => {
+  const root = fixture();
+  try {
+    const before = digestTree(join(root, CORPUS));
+    const interrupted = run(root, {
+      MESH_FLEET_CORPUS_FAILPOINT: "after-backup-sigkill",
+    });
+    assert.equal(interrupted.exit, 1, "SIGKILL must stop the writer without a catchable rollback");
+    assert.ok(!existsSync(join(root, CORPUS)), "uncatchable stop did not exercise the post-backup recovery state");
+    assert.ok(existsSync(join(root, INTENT)), "uncatchable stop did not leave publication intent for recovery");
+    const abandonedLock = JSON.parse(readFileSync(join(root, LOCK), "utf-8"));
+    writeFileSync(join(root, LOCK), JSON.stringify({ ...abandonedLock, expires_at: Date.now() - 1 }) + "\n");
+    const recovered = run(root);
+    assert.equal(recovered.exit, 0, `stale-intent recovery failed.\n${recovered.stderr}`);
+    assert.ok(existsSync(join(root, CORPUS)), "recovery did not restore reader-visible corpus directory");
+    assert.equal(digestTree(join(root, CORPUS)), before, "recovery did not restore previous corpus bytes");
+    assertNoPublishResidue(root);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a writer without the publish lease margin aborts before moving the published corpus", () => {
+  const root = fixture();
+  try {
+    const before = digestTree(join(root, CORPUS));
+    const result = run(root, { MESH_FLEET_CORPUS_PUBLISH_MARGIN_MS: "120001" });
+    assert.equal(result.exit, 1, `writer without publish lease margin must fail closed.\n${result.stderr}`);
+    assert.match(result.stderr + result.stdout, /lease.*margin|margin.*lease/i);
+    assert.ok(existsSync(join(root, CORPUS)), "lease refusal removed reader-visible corpus");
+    assert.equal(digestTree(join(root, CORPUS)), before, "lease refusal changed published corpus bytes");
+    assertNoPublishResidue(root);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("an unknown top-level corpus directory fails closed before publication", () => {
+  const root = fixture();
+  try {
+    mkdirSync(join(root, CORPUS, "unknown-directory"));
+    writeFileSync(join(root, CORPUS, "unknown-directory", "keep.txt"), "keep\n");
+    const before = digestTree(join(root, CORPUS));
+    const result = run(root);
+    assert.equal(result.exit, 1, `unknown directory must fail closed.\n${result.stderr}`);
+    assert.match(result.stderr + result.stdout, /unsupported.*directory|directory.*unsupported/i);
+    assert.equal(digestTree(join(root, CORPUS)), before, "failed run changed the corpus");
+    assertNoPublishResidue(root);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("an unknown top-level corpus symlink fails closed without dereferencing it", { skip: process.platform === "win32" }, () => {
+  const root = fixture();
+  try {
+    const target = join(root, "outside.txt");
+    writeFileSync(target, "outside\n");
+    symlinkSync(target, join(root, CORPUS, "unknown-link"));
+    const before = digestTree(join(root, CORPUS));
+    const result = run(root);
+    assert.equal(result.exit, 1, `unknown symlink must fail closed.\n${result.stderr}`);
+    assert.match(result.stderr + result.stdout, /unsupported.*symlink|symlink.*unsupported/i);
+    assert.ok(lstatSync(join(root, CORPUS, "unknown-link")).isSymbolicLink(), "generator dereferenced the symlink");
+    assert.equal(digestTree(join(root, CORPUS)), before, "failed run changed the corpus");
+    assertNoPublishResidue(root);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a foreign lock record is never reaped by a competing writer", () => {
+  const root = fixture();
+  try {
+    const lock = join(root, LOCK);
+    const foreign = JSON.stringify({ token: "foreign-owner", expires_at: Date.now() + 60_000 }) + "\n";
+    writeFileSync(lock, foreign);
+    const before = digestTree(join(root, CORPUS));
+    const result = run(root, { MESH_FLEET_CORPUS_LOCK_WAIT_MS: "25" });
+    assert.equal(result.exit, 1, `foreign lock must refuse competing writer.\n${result.stderr}`);
+    assert.match(result.stderr + result.stdout, /writer lock|lock/i);
+    assert.equal(readFileSync(lock, "utf-8"), foreign, "competing writer replaced the foreign lock record");
+    assert.equal(digestTree(join(root, CORPUS)), before, "foreign-lock refusal changed published corpus");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
