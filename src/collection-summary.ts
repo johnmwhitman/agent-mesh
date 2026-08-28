@@ -18,6 +18,7 @@
  * the record asserting more certainty than it has — approached from opposite
  * ends. Both fixes are the same move: report what is actually known.
  */
+import { isValidResultArtifacts } from './result-contract.js'
 
 /** The agent shape this module needs. Kept structural so tests need no ledger. */
 export interface CollectableAgent {
@@ -104,8 +105,7 @@ export function summarizeCollection(agents: readonly CollectableAgent[]): Collec
     const status = agent.status ?? 'unknown'
     const result_contract = agent.result_contract
     const hasOutput = typeof agent.output === 'string' && agent.output.trim() !== ''
-    const hasArtifacts = Array.isArray(agent.result_artifacts) && agent.result_artifacts.length > 0 &&
-      agent.result_artifacts.every((artifact) => typeof artifact === 'string' && artifact.trim() !== '')
+    const hasArtifacts = isValidResultArtifacts(agent.result_artifacts)
     const hasReportedResult = hasOutput || hasArtifacts
     if (NON_TERMINAL.has(status)) {
       still_running++

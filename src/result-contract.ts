@@ -45,6 +45,20 @@ export const MAX_RESULT_ARTIFACTS = 32;
 export const MAX_RESULT_ARTIFACT_PATH_BYTES = 1_024;
 export const MAX_RESULT_ARTIFACT_TOTAL_BYTES = 8_192;
 
+/** Fail-closed validator for persisted or envelope-declared artifact paths. */
+export function isValidResultArtifacts(value: unknown): value is string[] {
+  if (!Array.isArray(value) || value.length === 0 || value.length > MAX_RESULT_ARTIFACTS) return false;
+  let total = 0;
+  for (const artifact of value) {
+    if (typeof artifact !== "string" || artifact.trim() === "") return false;
+    const bytes = Buffer.byteLength(artifact, "utf8");
+    if (bytes > MAX_RESULT_ARTIFACT_PATH_BYTES) return false;
+    total += bytes;
+    if (total > MAX_RESULT_ARTIFACT_TOTAL_BYTES) return false;
+  }
+  return true;
+}
+
 /** What the agent declares. `refused` = cannot/will not; `blocked` = missing input. Both honest. */
 export type ResultContractOutcome = "done" | "refused" | "blocked";
 
@@ -163,13 +177,7 @@ export function parseAgentResultEnvelope(raw: string): ParseResult {
   }
   let artifacts: string[] | undefined;
   if (obj.artifacts !== undefined) {
-    if (!Array.isArray(obj.artifacts) || obj.artifacts.some((a) => typeof a !== "string" || a.trim() === "")) {
-      return { ok: false, reason: "artifacts must be an array of non-empty strings" };
-    }
-    if (obj.artifacts.length > MAX_RESULT_ARTIFACTS) return { ok: false, reason: "too many artifacts" };
-    const bytes = obj.artifacts.map((artifact) => Buffer.byteLength(artifact, "utf8"));
-    if (bytes.some((count) => count > MAX_RESULT_ARTIFACT_PATH_BYTES)) return { ok: false, reason: "artifact path exceeds byte limit" };
-    if (bytes.reduce((total, count) => total + count, 0) > MAX_RESULT_ARTIFACT_TOTAL_BYTES) return { ok: false, reason: "artifact paths exceed total byte limit" };
+    if (!isValidResultArtifacts(obj.artifacts)) return { ok: false, reason: "artifacts must be a bounded non-empty array of non-empty strings" };
     artifacts = obj.artifacts as string[];
   }
   return {

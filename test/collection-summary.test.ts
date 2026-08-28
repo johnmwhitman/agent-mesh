@@ -202,3 +202,12 @@ test("malformed persisted artifact evidence never manufactures conformance", () 
     assert.equal(s.contract_nonconforming, 1);
   }
 });
+
+test("oversized persisted artifact evidence, including Unicode bytes, never conforms", () => {
+  const overPath = "🙂".repeat(257);
+  const overCount = Array(33).fill("report.md");
+  const overTotal = Array(9).fill("a".repeat(1024));
+  for (const result_artifacts of [[overPath], overCount, overTotal]) {
+    assert.equal(summarizeCollection([{ id: "hostile", role: "hostile", status: "complete", result_contract: "ok", result_artifacts }]).contract_conforming, 0);
+  }
+});

@@ -77,7 +77,7 @@ test("summary must be present and non-blank, and outcome must be one of the thre
 test("artifacts must be an array of non-empty strings", () => {
   assert.equal(parseAgentResultEnvelope(done({ artifacts: "docs/audit.md" })).ok, false);
   assert.equal(parseAgentResultEnvelope(done({ artifacts: ["docs/audit.md", ""] })).ok, false);
-  assert.equal(parseAgentResultEnvelope(done({ artifacts: [] })).ok, true);
+  assert.equal(parseAgentResultEnvelope(done({ artifacts: [] })).ok, false);
 });
 
 test("artifact declarations have exact count, path-byte, and aggregate-byte bounds", () => {
@@ -120,7 +120,7 @@ test("a done envelope naming a file that does not exist is artifact_missing", ()
 
 test("expects_artifact with no artifacts listed is artifact_missing, not ok", () => {
   assert.equal(evaluateResultContract({ raw: done(), expectsArtifact: true, exists: always }), "artifact_missing");
-  assert.equal(evaluateResultContract({ raw: done({ artifacts: [] }), expectsArtifact: true, exists: always }), "artifact_missing");
+  assert.equal(evaluateResultContract({ raw: done(), expectsArtifact: true, exists: always }), "artifact_missing");
 });
 
 test("🔴 output length is not part of the predicate, in either direction", () => {

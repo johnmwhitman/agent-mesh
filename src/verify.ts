@@ -28,6 +28,7 @@ import { deriveDiscussion, parseEnvelope, parseReceiptAction } from "./discussio
 import { readLedger } from "./db.js";
 import { readLifecycleSnapshot, readLifecycleSnapshotFile, verifyLifecycleSnapshot } from "./lifecycle-visibility.js";
 import { runtimeModelsMatch } from "./spawn-result.js";
+import { isValidResultArtifacts } from "./result-contract.js";
 
 /**
  * Discussion integrity-finding codes (src/discussion.ts) that get ERROR
@@ -406,10 +407,7 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
     }
 
     if (a.result_artifacts !== undefined) {
-      const validArtifacts = Array.isArray(a.result_artifacts) && a.result_artifacts.length <= 32 &&
-        a.result_artifacts.every((artifact) => typeof artifact === "string" && artifact.trim() !== "" && Buffer.byteLength(artifact, "utf8") <= 1024) &&
-        a.result_artifacts.reduce((total, artifact) => total + Buffer.byteLength(String(artifact), "utf8"), 0) <= 8192;
-      if (!validArtifacts) error("agent.result_artifacts_invalid", a.id, `agent ${a.id} has malformed or oversized result_artifacts`);
+      if (!isValidResultArtifacts(a.result_artifacts)) error("agent.result_artifacts_invalid", a.id, `agent ${a.id} has malformed or oversized result_artifacts`);
       if (a.result_contract !== "ok") error("agent.result_artifacts_without_ok", a.id, `agent ${a.id} carries result_artifacts without result_contract=ok`);
     }
 
