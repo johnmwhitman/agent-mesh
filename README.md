@@ -428,13 +428,13 @@ not structurally interchangeable with route-candidate observations.
 ## What the verifier catches — and what it can't
 
 "Prove it" is a claim about detection, so it ships with the evidence:
-[`test/fixtures/corpus/`](test/fixtures/corpus/README.md) is a corpus of 72 deliberately
+[`test/fixtures/corpus/`](test/fixtures/corpus/README.md) is a corpus of 84 deliberately
 falsified ledgers, each one a clean baseline plus **one declared change**. Results are
 reported in three separate buckets, never blended into a single coverage number:
 
 | Bucket | N | What it means |
 |---|---|---|
-| `caught` | 48 | An overclaim — the ledger asserts something its own records don't support. Raises an error and fails the ledger. |
+| `caught` | 60 | An overclaim — the ledger asserts something its own records don't support. Raises an error and fails the ledger. |
 | `anomaly` | 14 | Surprising, but claims no more than the records support. Warning only, and deliberately *not* counted as caught. |
 | `undetectable` | 10 | The unsigned local core structurally cannot see it. Produces zero findings. |
 
@@ -579,10 +579,9 @@ artifacts; verifying the work stays with your tooling and your review.
 - **Completion status is declared, not proven.** Agents have been observed banking
   `complete` on an explanation of failure. The result contract (shipped) has every
   spawn declare `done` / `refused` / `blocked` in a result envelope, recorded as
-  `result_contract` on the agent row and returned by `collect_results`. This release
-  records it without acting on it, so read `status === "complete" &&
-  result_contract === "ok"` for the stronger guarantee; a following release makes
-  `ok` the only value that banks `complete`. A valid envelope is still a
+  `result_contract` on the agent row and returned by `collect_results`. `ok` is the
+  only value that may bank `complete`; refused, blocked, artifact_missing, invalid,
+  or absent banks `failed`. A valid envelope is still a
   *declaration* — it is not a fabrication, effort, or quality check.
 - **Fabricated agent metrics.** An agent can report synthetic test counts or invented
   "VERIFIED" claims, and the ledger records that it *said* so. Open, and only
