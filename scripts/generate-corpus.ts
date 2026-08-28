@@ -37,8 +37,8 @@
  *      must produce zero findings. Failing any of these exits 1 before
  *      the staging directory is renamed into place.
  */
-import { writeFileSync, mkdirSync, existsSync, readFileSync, rmSync, renameSync, readdirSync, copyFileSync } from "node:fs";
-import { join } from "node:path";
+import { writeFileSync, mkdirSync, existsSync, readFileSync, rmSync, renameSync, readdirSync, copyFileSync, statSync } from "node:fs";
+import { basename, join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { verifyMeshData } from "../src/verify.js";
 import { loadDataFromFile } from "../src/core.js";
@@ -715,48 +715,116 @@ const V: Vector[] = [
 // --------------------------------------------------------------------------
 const COMMITTED_MANIFEST_PATH = "test/fixtures/corpus/manifest.json";
 type MinimalManifest = { vectors: { id: string }[] };
+const LOCK = `${OUT}.lock`;
 
-let committedManifest: MinimalManifest | null = null;
+function sleep(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function processIsAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err: any) {
+    return err?.code !== "ESRCH";
+  }
+}
+
+function releaseWriterLock(): void {
+  try { rmSync(LOCK, { recursive: true, force: true, maxRetries: 5 }); } catch { /* no-op */ }
+}
+
+function acquireWriterLock(): void {
+  const deadline = Date.now() + 30_000;
+  while (true) {
+    try {
+      mkdirSync(LOCK);
+      writeFileSync(join(LOCK, "owner.json"), JSON.stringify({ pid: process.pid, started_at: Date.now() }) + "\n");
+      return;
+    } catch (err: any) {
+      if (err?.code !== "EEXIST") throw err;
+      try {
+        const owner = JSON.parse(readFileSync(join(LOCK, "owner.json"), "utf-8"));
+        if (Number.isInteger(owner.pid) && !processIsAlive(owner.pid)) {
+          releaseWriterLock();
+          continue;
+        }
+      } catch {
+        // A live writer may have created the lock just before writing owner.json.
+        // Only reap an ownerless lock after that short creation window has elapsed.
+        try {
+          if (Date.now() - statSync(LOCK).mtimeMs > 1_000) {
+            releaseWriterLock();
+            continue;
+          }
+        } catch { /* another writer released it; retry below */ }
+      }
+      if (Date.now() >= deadline) {
+        throw new Error(`timed out waiting for corpus writer lock ${LOCK}`);
+      }
+      sleep(25);
+    }
+  }
+}
+
+function publishPaths(kind: "staging" | "backup"): string[] {
+  const prefix = `${basename(OUT)}.${kind}-`;
+  try {
+    return readdirSync(join(OUT, "..")).filter((entry) => entry.startsWith(prefix)).map((entry) => join(OUT, "..", entry));
+  } catch {
+    return [];
+  }
+}
+
+function recoverInterruptedPublish(): void {
+  const backups = publishPaths("backup").sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs);
+  if (!existsSync(OUT) && backups.length > 0) {
+    renameSync(backups.shift()!, OUT);
+  }
+  if (!existsSync(OUT)) {
+    throw new Error(`UNVERIFIED CORPUS SCAFFOLD: ${OUT} is absent after interrupted-publish recovery`);
+  }
+  for (const path of [...backups, ...publishPaths("staging")]) {
+    rmSync(path, { recursive: true, force: true, maxRetries: 5 });
+  }
+}
+
+function readManifestOrThrow(label: string, read: () => string): MinimalManifest {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(read());
+  } catch (err) {
+    throw new Error(`UNVERIFIED CORPUS SCAFFOLD: cannot read ${label} manifest: ${(err as Error).message}`);
+  }
+  if (!parsed || typeof parsed !== "object" || !Array.isArray((parsed as MinimalManifest).vectors) ||
+      !(parsed as MinimalManifest).vectors.every((vector) => typeof vector?.id === "string" && vector.id.length > 0)) {
+    throw new Error(`UNVERIFIED CORPUS SCAFFOLD: ${label} manifest has no valid vector inventory`);
+  }
+  return parsed as MinimalManifest;
+}
+
+acquireWriterLock();
 try {
-  const raw = execFileSync("git", ["show", `HEAD:${COMMITTED_MANIFEST_PATH}`], { encoding: "utf-8" });
-  committedManifest = JSON.parse(raw) as MinimalManifest;
-} catch (err) {
-  console.error(
-    `UNVERIFIED CORPUS SCAFFOLD: cannot read committed ${COMMITTED_MANIFEST_PATH} ` +
-      `from git HEAD — refusing to silently scaffold a smaller corpus. ` +
-      `Either commit the canonical manifest, or seed test/fixtures/corpus/ via the documented migration path. ` +
-      `Underlying error: ${(err as Error).message}`,
+  recoverInterruptedPublish();
+  const committedManifest = readManifestOrThrow("git HEAD", () =>
+    execFileSync("git", ["show", `HEAD:${COMMITTED_MANIFEST_PATH}`], { encoding: "utf-8" }),
   );
-  process.exit(1);
-}
-
-let workingTreeManifest: MinimalManifest | null = null;
-try {
-  const wtText = readFileSync(join(OUT, "manifest.json"), "utf-8");
-  const headText = JSON.stringify(committedManifest);
-  if (wtText.trim() !== headText.trim()) {
-    workingTreeManifest = JSON.parse(wtText) as MinimalManifest;
-  }
-} catch {
-  // Working-tree file missing or unreadable. The gate falls back to the
-  // committed state, which is the safer default — a WT deletion that leaves
-  // the file unreadable still leaves the committed manifest authoritative.
-}
-
-const effectiveCommit: MinimalManifest = workingTreeManifest ?? (committedManifest as MinimalManifest);
-{
+  const workingTreeManifest = readManifestOrThrow("git working-tree", () => readFileSync(join(OUT, "manifest.json"), "utf-8"));
   const generatedIds = new Set(V.map((v) => v.id));
-  const missing = effectiveCommit.vectors.map((v) => v.id).filter((id) => !generatedIds.has(id));
+  const missing = [...new Set([...committedManifest.vectors, ...workingTreeManifest.vectors].map((v) => v.id))]
+    .filter((id) => !generatedIds.has(id));
   if (missing.length > 0) {
-    const where = workingTreeManifest ? "git working-tree manifest" : "git HEAD manifest";
-    console.error(
-      `INCOMPLETE CORPUS INVENTORY: canonical generator is missing ${missing.length} committed manifest ${missing.length === 1 ? "entry" : "entries"} (sourced from ${where}):\n` +
+    throw new Error(
+      `INCOMPLETE CORPUS INVENTORY: canonical generator is missing ${missing.length} manifest ${missing.length === 1 ? "entry" : "entries"} ` +
+        `(sourced from the union of git HEAD and git working-tree manifests):\n` +
         missing.map((id) => `  - ${id}`).join("\n") +
-        `\nAdd an entry to V[] in scripts/generate-corpus.ts before regenerating. ` +
-        `This gate reads the union of HEAD and the working tree so a regression cannot silently delete a pinned check.`,
+        `\nAdd an entry to V[] in scripts/generate-corpus.ts before regenerating.`,
     );
-    process.exit(1);
   }
+} catch (err) {
+  releaseWriterLock();
+  console.error((err as Error).message);
+  process.exit(1);
 }
 
 // --------------------------------------------------------------------------
@@ -778,8 +846,11 @@ function cleanupBackup() {
 }
 
 process.on("exit", cleanupStaging);
-process.on("SIGINT", () => { cleanupStaging(); process.exit(130); });
-process.on("SIGTERM", () => { cleanupStaging(); process.exit(143); });
+process.on("SIGINT", () => { cleanupStaging(); releaseWriterLock(); process.exit(130); });
+process.on("SIGTERM", () => { cleanupStaging(); releaseWriterLock(); process.exit(143); });
+
+const pauseAfterLock = Number(process.env.MESH_FLEET_CORPUS_PAUSE_AFTER_LOCK_MS ?? "0");
+if (Number.isFinite(pauseAfterLock) && pauseAfterLock > 0) sleep(pauseAfterLock);
 
 mkdirSync(STAGING, { recursive: true });
 // Carry across every existing file in OUT that the writer doesn't produce.
@@ -840,6 +911,25 @@ if (problems.length) {
   process.exit(1);
 }
 
+// This narrow failpoint is intentionally inert unless a test explicitly opts
+// in. It proves that a completely staged candidate cannot alter the published
+// corpus before the publication boundary.
+if (process.env.MESH_FLEET_CORPUS_FAILPOINT === "before-publish") {
+  cleanupStaging();
+  releaseWriterLock();
+  console.error("FATAL: requested pre-publish failure");
+  process.exit(91);
+}
+
+const stagedManifest = readManifestOrThrow("staged", () => readFileSync(join(STAGING, "manifest.json"), "utf-8"));
+if (stagedManifest.vectors.length !== V.length || !existsSync(join(STAGING, "baseline.json")) ||
+    stagedManifest.vectors.some((vector) => !existsSync(join(STAGING, `${vector.id}.json`)))) {
+  cleanupStaging();
+  releaseWriterLock();
+  console.error("FATAL: staged corpus is incomplete");
+  process.exit(1);
+}
+
 // All fixtures + manifest staged and verified. Now atomic swap:
 // 1. Move existing OUT to BACKUP (no-op if OUT doesn't exist).
 // 2. Rename STAGING to OUT.
@@ -848,6 +938,10 @@ if (problems.length) {
 // is renamed to OUT, the corpus is the new state.
 try {
   if (existsSync(OUT)) renameSync(OUT, BACKUP);
+  if (process.env.MESH_FLEET_CORPUS_FAILPOINT === "after-backup") {
+    console.error("FATAL: requested after-backup interruption");
+    process.exit(92);
+  }
   renameSync(STAGING, OUT);
 } catch (err) {
   // Restore whatever we can.
@@ -855,10 +949,12 @@ try {
     try { renameSync(BACKUP, OUT); } catch { /* leave the staged set untouched */ }
   }
   cleanupStaging();
+  releaseWriterLock();
   console.error(`FATAL: atomic swap failed: ${(err as Error).message}`);
   process.exit(1);
 }
 cleanupBackup();
+releaseWriterLock();
 
 console.log(`wrote ${V.length} vectors + baseline + manifest to test/fixtures/corpus/`);
 const byClass = (c: string) => V.filter((v) => v.classification === c).length;
