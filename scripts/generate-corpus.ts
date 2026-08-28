@@ -13,23 +13,20 @@
  *
  * Three safety gates sit in front of the writes:
  *
- *   1. Inventory gate (fail-closed, GIT-INDEX BACKED). The committed
+ *   1. Inventory gate (fail-closed, HEAD plus working-tree backed). The committed
  *      `test/fixtures/corpus/manifest.json` is read straight from
- *      `git show HEAD:test/fixtures/corpus/manifest.json`, never from the
- *      working tree. A subsequent edit that narrows V[] (or a partial run that
- *      deletes the on-disk manifest) cannot disable this gate, because the
- *      gate targets the committed state, not what's on disk. When the
- *      manifest is tracked, every committed vector id must appear in V[].
- *      When it isn't tracked (a fresh tree), the generator refuses rather
- *      than silently scaffolding a smaller corpus.
+ *      `git show HEAD:test/fixtures/corpus/manifest.json` and the on-disk
+ *      manifest. Their id union must be generated. Missing or unreadable
+ *      manifests refuse regeneration rather than silently scaffolding a
+ *      smaller corpus.
  *
- *   2. Authored-invariant gate (fail-closed, ATOMIC). Every fixture and the
+ *   2. Authored-invariant gate (fail-closed, recoverable). Every fixture and the
  *      manifest are first materialised under a sibling `corpus.staging-<pid>`
- *      directory and verified in isolation. Only on full success are they
- *      renamed into place. A failure mid-run, an OS-level interrupt, or an
- *      invariant mismatch leaves the corpus directory byte-identical to its
- *      pre-run state — there is no window where partial or invalid output
- *      is observable from the corpus directory.
+ *      directory and verified in isolation. Catchable publication failures
+ *      restore the previous corpus immediately. SIGKILL between directory
+ *      renames is a portable filesystem limit: it leaves exact-token recovery
+ *      evidence and requires an explicit recovery invocation after the caller
+ *      has confirmed the writer is terminal.
  *
  *   3. Authored-finding gate (per-vector). `caught` vectors must produce
  *      their check at `error` severity with `ok: false`; `anomaly` vectors
@@ -37,10 +34,10 @@
  *      must produce zero findings. Failing any of these exits 1 before
  *      the staging directory is renamed into place.
  */
-import { writeFileSync, mkdirSync, existsSync, readFileSync, rmSync, readdirSync, copyFileSync, lstatSync, openSync, closeSync, unlinkSync, renameSync } from "node:fs";
-import { basename, join } from "node:path";
+import { writeFileSync, mkdirSync, existsSync, readFileSync, rmSync, readdirSync, copyFileSync, lstatSync, openSync, closeSync, unlinkSync, renameSync, linkSync, fsyncSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { verifyMeshData } from "../src/verify.js";
 import { loadDataFromFile } from "../src/core.js";
 
@@ -716,24 +713,46 @@ const V: Vector[] = [
 // --------------------------------------------------------------------------
 const COMMITTED_MANIFEST_PATH = "test/fixtures/corpus/manifest.json";
 type MinimalManifest = { vectors: { id: string }[] };
-const LOCK = `${OUT}.lock`;
-const INTENT = `${OUT}.publish-intent.json`;
-const LOCK_WAIT_MS = Number(process.env.MESH_FLEET_CORPUS_LOCK_WAIT_MS ?? "30000");
-const configuredLeaseMs = Number(process.env.MESH_FLEET_CORPUS_LOCK_LEASE_MS ?? "120000");
-const LOCK_LEASE_MS = Number.isFinite(configuredLeaseMs) && configuredLeaseMs >= 10_000 ? configuredLeaseMs : 120_000;
-const configuredPublishMarginMs = Number(process.env.MESH_FLEET_CORPUS_PUBLISH_MARGIN_MS ?? "5000");
-const LOCK_PUBLISH_MARGIN_MS = Number.isFinite(configuredPublishMarginMs) && configuredPublishMarginMs >= 5_000 ? configuredPublishMarginMs : 5_000;
-type LockOwner = { token: string; expires_at: number };
-type PublishIntent = { token: string; backup: string; staging: string };
+const OUT_PATH = resolve(OUT);
+const OUT_PARENT = dirname(OUT_PATH);
+const OUT_NAME = basename(OUT_PATH);
+const LOCK = join(OUT_PARENT, `${OUT_NAME}.lock`);
+const INTENT = join(OUT_PARENT, `${OUT_NAME}.publish-intent.json`);
+const MAX_TEST_PAUSE_MS = 1_000;
+type LockOwner = { version: 1; token: string };
+type PublishIntent = {
+  version: 1;
+  token: string;
+  backup: string;
+  staging: string;
+  phase: "backup-prepared";
+  tree_digest: string;
+};
 
 function sleep(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
+function boundedEnvInteger(name: string, fallback: number, maximum: number): number {
+  const raw = process.env[name];
+  if (raw === undefined) return fallback;
+  if (!/^(?:0|[1-9]\d*)$/.test(raw)) throw new Error(`UNSAFE CORPUS CONFIGURATION: ${name} must be a non-negative decimal integer`);
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value > maximum) {
+    throw new Error(`UNSAFE CORPUS CONFIGURATION: ${name} must be no greater than ${maximum}`);
+  }
+  return value;
+}
+
+function isLockOwner(value: unknown): value is LockOwner {
+  const owner = value as LockOwner;
+  return owner?.version === 1 && typeof owner.token === "string" && /^[0-9a-f-]{36}$/i.test(owner.token);
+}
+
 function readLockOwner(): LockOwner | null {
   try {
     const owner = JSON.parse(readFileSync(LOCK, "utf-8"));
-    return typeof owner?.token === "string" && Number.isFinite(owner?.expires_at) ? owner as LockOwner : null;
+    return isLockOwner(owner) ? owner : null;
   } catch {
     return null;
   }
@@ -745,99 +764,165 @@ function releaseWriterLock(owner: LockOwner): void {
   } catch { /* another owner or cleanup already won */ }
 }
 
-function assertPublishLease(owner: LockOwner): void {
-  const current = readLockOwner();
-  if (!current || current.token !== owner.token) {
-    throw new Error("CORPUS WRITER LOCK LOST: refusing to publish without the owning token");
+function ownArtifact(kind: "staging" | "backup", token: string): string {
+  return join(OUT_PARENT, `${OUT_NAME}.${kind}-${token}`);
+}
+
+function siblingResidues(): string[] {
+  const prefixes = [`${OUT_NAME}.staging-`, `${OUT_NAME}.backup-`, `${OUT_NAME}.lock.claim-`, `${OUT_NAME}.lock.expired-`];
+  try {
+    return readdirSync(OUT_PARENT).filter((entry) => entry === basename(INTENT) || prefixes.some((prefix) => entry.startsWith(prefix)));
+  } catch (err) {
+    throw new Error(`UNVERIFIED CORPUS SCAFFOLD: cannot inspect corpus siblings: ${(err as Error).message}`);
   }
-  const remaining = current.expires_at - Date.now();
-  if (remaining < LOCK_PUBLISH_MARGIN_MS) {
-    throw new Error(`CORPUS WRITER LEASE MARGIN EXHAUSTED: ${remaining}ms remains, need ${LOCK_PUBLISH_MARGIN_MS}ms before publication`);
+}
+
+function assertNoNormalPublicationResidue(): void {
+  if (existsSync(LOCK)) throw new Error(`CORPUS WRITER LOCK EXISTS: ${LOCK}; normal regeneration never reaps or waits on another writer`);
+  const residues = siblingResidues();
+  if (residues.length > 0) {
+    throw new Error(`UNVERIFIED CORPUS SCAFFOLD: publication residue requires explicit inspection: ${residues.join(", ")}`);
   }
 }
 
 function acquireWriterLock(): LockOwner {
-  const deadline = Date.now() + (Number.isFinite(LOCK_WAIT_MS) && LOCK_WAIT_MS >= 0 ? LOCK_WAIT_MS : 30_000);
-  while (true) {
-    const owner: LockOwner = { token: randomUUID(), expires_at: Date.now() + LOCK_LEASE_MS };
+  const owner: LockOwner = { version: 1, token: randomUUID() };
+  const privateRecord = `${LOCK}.claim-${owner.token}`;
+  let linked = false;
+  try {
+    const fd = openSync(privateRecord, "wx");
     try {
-      // O_EXCL (`wx`) creates the complete ownership record as one file. There
-      // is no ownerless mkdir->owner.json interval for another writer to reap.
-      const fd = openSync(LOCK, "wx");
-      try { writeFileSync(fd, JSON.stringify(owner) + "\n"); } finally { closeSync(fd); }
-      return owner;
-    } catch (err: any) {
-      if (err?.code !== "EEXIST") throw err;
-      const existing = readLockOwner();
-      // A lease is a bounded execution contract, not a PID liveness guess.
-      // A writer exceeding it must fail closed; a new writer atomically retires
-      // only the expired, token-bearing record before attempting ownership.
-      if (existing && existing.expires_at <= Date.now()) {
-        const retired = `${LOCK}.expired-${randomUUID()}`;
-        try {
-          renameSync(LOCK, retired);
-          const retiredOwner = JSON.parse(readFileSync(retired, "utf-8"));
-          if (retiredOwner?.token === existing.token) unlinkSync(retired);
-        } catch { /* another contender changed the lock; retry */ }
-        continue;
-      }
-      if (Date.now() >= deadline) {
-        throw new Error(`timed out waiting for corpus writer lock ${LOCK}`);
-      }
-      sleep(25);
+      writeFileSync(fd, JSON.stringify(owner) + "\n");
+      fsyncSync(fd);
+    } finally {
+      closeSync(fd);
     }
+    // Same-directory hard-link creation is the no-clobber ownership claim.
+    // The public lock is never observed as an empty record.
+    linkSync(privateRecord, LOCK);
+    linked = true;
+    unlinkSync(privateRecord);
+    return owner;
+  } catch (err) {
+    if (!linked) {
+      try { unlinkSync(privateRecord); } catch { /* an interrupted private record is fail-closed residue */ }
+    }
+    if ((err as NodeJS.ErrnoException).code === "EEXIST") {
+      throw new Error(`CORPUS WRITER LOCK EXISTS: ${LOCK}; normal regeneration never reaps or waits on another writer`);
+    }
+    throw err;
   }
 }
 
-function publishPaths(kind: "staging" | "backup"): string[] {
-  const prefix = `${basename(OUT)}.${kind}-`;
+function lstatIfPresent(path: string) {
   try {
-    return readdirSync(join(OUT, "..")).filter((entry) => entry.startsWith(prefix)).map((entry) => join(OUT, "..", entry));
-  } catch {
-    return [];
+    return lstatSync(path);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw err;
   }
 }
 
 function assertPublishTreeIsRegularFiles(): void {
-  if (!existsSync(OUT)) throw new Error(`UNVERIFIED CORPUS SCAFFOLD: ${OUT} is absent; normal regeneration never bootstraps or replaces a corpus`);
-  for (const entry of readdirSync(OUT)) {
-    const stat = lstatSync(join(OUT, entry));
+  const root = lstatIfPresent(OUT_PATH);
+  if (!root) {
+    throw new Error(`UNVERIFIED CORPUS SCAFFOLD: ${OUT} is absent; normal regeneration never bootstraps or replaces a corpus`);
+  }
+  if (!root.isDirectory() || root.isSymbolicLink()) {
+    throw new Error(`UNSUPPORTED CORPUS ROOT: ${OUT} must be a real directory, not a symlink or Windows junction`);
+  }
+  for (const entry of readdirSync(OUT_PATH)) {
+    const stat = lstatSync(join(OUT_PATH, entry));
     if (stat.isSymbolicLink()) throw new Error(`UNSUPPORTED CORPUS SYMLINK: ${entry}; refusing to dereference or publish a changed shape`);
     if (stat.isDirectory()) throw new Error(`UNSUPPORTED CORPUS DIRECTORY: ${entry}; refusing to partially publish an unknown subtree`);
     if (!stat.isFile()) throw new Error(`UNSUPPORTED CORPUS ENTRY: ${entry}; only regular files are safe to carry forward`);
   }
 }
 
-function readIntentOrThrow(): PublishIntent | null {
-  if (!existsSync(INTENT)) return null;
+function treeDigest(path: string): string {
+  const hash = createHash("sha256");
+  for (const entry of readdirSync(path).sort()) {
+    const entryPath = join(path, entry);
+    const stat = lstatSync(entryPath);
+    if (!stat.isFile() || stat.isSymbolicLink()) throw new Error(`UNVERIFIED CORPUS SCAFFOLD: digest requires regular files only (${entry})`);
+    hash.update(`${entry}\0`);
+    hash.update(readFileSync(entryPath));
+  }
+  return hash.digest("hex");
+}
+
+function readIntentOrThrow(token: string): PublishIntent {
   let intent: unknown;
   try { intent = JSON.parse(readFileSync(INTENT, "utf-8")); } catch (err) {
-    throw new Error(`UNVERIFIED CORPUS SCAFFOLD: cannot read publication intent: ${(err as Error).message}`);
+    throw new Error(`UNVERIFIED CORPUS RECOVERY: cannot read publication intent: ${(err as Error).message}`);
   }
   const candidate = intent as PublishIntent;
-  if (typeof candidate?.token !== "string" || !candidate.backup.startsWith(`${OUT}.backup-`) || !candidate.staging.startsWith(`${OUT}.staging-`)) {
-    throw new Error("UNVERIFIED CORPUS SCAFFOLD: publication intent is malformed or escapes the corpus directory");
+  if (candidate?.version !== 1 || candidate.token !== token || candidate.phase !== "backup-prepared" ||
+      candidate.backup !== ownArtifact("backup", token) || candidate.staging !== ownArtifact("staging", token) ||
+      typeof candidate.tree_digest !== "string" || !/^[0-9a-f]{64}$/i.test(candidate.tree_digest)) {
+    throw new Error("UNVERIFIED CORPUS RECOVERY: intent token, phase, digest, or sibling paths do not bind this recovery");
   }
   return candidate;
 }
 
-function cleanupPath(path: string): void {
-  try { rmSync(path, { recursive: true, force: true, maxRetries: 5 }); } catch { /* no-op */ }
+function writeExclusiveIntent(intent: PublishIntent): void {
+  const fd = openSync(INTENT, "wx");
+  try {
+    writeFileSync(fd, JSON.stringify(intent) + "\n");
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+  }
 }
 
-function recoverInterruptedPublish(): void {
-  const intent = readIntentOrThrow();
-  if (!intent) {
-    if (publishPaths("backup").length > 0) throw new Error("UNVERIFIED CORPUS SCAFFOLD: a legacy backup is present without publication intent");
-    return;
+function removeExactDirectory(path: string): void {
+  const stat = lstatSync(path);
+  if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error(`UNVERIFIED CORPUS RECOVERY: expected private real directory ${path}`);
+  rmSync(path, { recursive: true, force: false, maxRetries: 5 });
+}
+
+function recoverExplicitly(token: string): void {
+  const owner = readLockOwner();
+  if (!owner || owner.token !== token) throw new Error("UNVERIFIED CORPUS RECOVERY: exact recovery token does not own the writer lock");
+  const intent = readIntentOrThrow(token);
+  const allowed = new Set([basename(LOCK), basename(INTENT), basename(intent.backup), basename(intent.staging)]);
+  const residues = siblingResidues().filter((entry) => !allowed.has(entry));
+  if (residues.length > 0) throw new Error(`UNVERIFIED CORPUS RECOVERY: unknown sibling residue prevents recovery: ${residues.join(", ")}`);
+  const publishedRoot = lstatIfPresent(OUT_PATH);
+  if (publishedRoot) {
+    if (!publishedRoot.isDirectory() || publishedRoot.isSymbolicLink()) {
+      throw new Error("UNSUPPORTED CORPUS ROOT: explicit recovery refuses a symlink or Windows junction");
+    }
+    throw new Error("UNVERIFIED CORPUS RECOVERY: OUT plus backup is ambiguous; preserving both without deletion");
   }
-  if (!existsSync(OUT)) {
-    if (!existsSync(intent.backup)) throw new Error("UNVERIFIED CORPUS SCAFFOLD: publication intent has no published corpus or recoverable backup");
-    renameSync(intent.backup, OUT);
+  const backup = lstatSync(intent.backup);
+  if (!backup.isDirectory() || backup.isSymbolicLink()) throw new Error("UNVERIFIED CORPUS RECOVERY: backup is not a real directory");
+  if (treeDigest(intent.backup) !== intent.tree_digest) throw new Error("UNVERIFIED CORPUS RECOVERY: backup digest does not match the pre-publication corpus");
+  removeExactDirectory(intent.staging);
+  renameSync(intent.backup, OUT_PATH);
+  unlinkSync(INTENT);
+  releaseWriterLock(owner);
+}
+
+let pauseAfterLock: number;
+try {
+  pauseAfterLock = boundedEnvInteger("MESH_FLEET_CORPUS_PAUSE_AFTER_LOCK_MS", 0, MAX_TEST_PAUSE_MS);
+} catch (err) {
+  console.error((err as Error).message);
+  process.exit(1);
+}
+
+const recoveryToken = process.env.MESH_FLEET_CORPUS_RECOVER_TOKEN;
+if (recoveryToken !== undefined) {
+  try {
+    if (!/^[0-9a-f-]{36}$/i.test(recoveryToken)) throw new Error("UNSAFE CORPUS CONFIGURATION: MESH_FLEET_CORPUS_RECOVER_TOKEN must be an exact UUID token");
+    recoverExplicitly(recoveryToken);
+    console.log("restored the prior corpus from explicit exact-token recovery; run normal regeneration separately");
+    process.exit(0);
+  } catch (err) {
+    console.error((err as Error).message);
+    process.exit(1);
   }
-  cleanupPath(intent.backup);
-  cleanupPath(intent.staging);
-  cleanupPath(INTENT);
 }
 
 function readManifestOrThrow(label: string, read: () => string): MinimalManifest {
@@ -854,11 +939,11 @@ function readManifestOrThrow(label: string, read: () => string): MinimalManifest
   return parsed as MinimalManifest;
 }
 
-const lockOwner = acquireWriterLock();
+let lockOwner: LockOwner | undefined;
 try {
-  recoverInterruptedPublish();
+  assertNoNormalPublicationResidue();
   assertPublishTreeIsRegularFiles();
-  for (const staleStaging of publishPaths("staging")) rmSync(staleStaging, { recursive: true, force: true, maxRetries: 5 });
+  lockOwner = acquireWriterLock();
   const committedManifest = readManifestOrThrow("git HEAD", () =>
     execFileSync("git", ["show", `HEAD:${COMMITTED_MANIFEST_PATH}`], { encoding: "utf-8" }),
   );
@@ -875,20 +960,21 @@ try {
     );
   }
 } catch (err) {
-  releaseWriterLock(lockOwner);
+  if (lockOwner) releaseWriterLock(lockOwner);
   console.error((err as Error).message);
   process.exit(1);
 }
+if (!lockOwner) throw new Error("CORPUS WRITER LOCK was not acquired");
 
 // --------------------------------------------------------------------------
 // Recoverable publication. The candidate is fully staged and verified before
-// an intent names its private backup. A catchable failure restores OUT before
-// exit. SIGKILL between the two directory renames can leave OUT absent; that is
-// the portable filesystem limit, recorded by intent and repaired before the
-// next regeneration proceeds. We never call that window atomic.
+// an intent binds the writer token, exact sibling paths, and the old corpus
+// digest. A catchable failure restores OUT before exit. SIGKILL between the two
+// directory renames leaves explicit-recovery evidence; normal runs never clear
+// or reinterpret that evidence.
 // --------------------------------------------------------------------------
-const STAGING = `${OUT}.staging-${process.pid}-${Date.now()}`;
-const BACKUP = `${OUT}.backup-${process.pid}-${Date.now()}`;
+const STAGING = ownArtifact("staging", lockOwner.token);
+const BACKUP = ownArtifact("backup", lockOwner.token);
 
 function cleanupStaging() {
   try { rmSync(STAGING, { recursive: true, force: true, maxRetries: 5 }); } catch { /* no-op */ }
@@ -896,7 +982,6 @@ function cleanupStaging() {
 
 process.on("exit", cleanupStaging);
 
-const pauseAfterLock = Number(process.env.MESH_FLEET_CORPUS_PAUSE_AFTER_LOCK_MS ?? "0");
 if (Number.isFinite(pauseAfterLock) && pauseAfterLock > 0) sleep(pauseAfterLock);
 
 mkdirSync(STAGING, { recursive: true });
@@ -927,7 +1012,7 @@ for (const v of V) {
   const d: any = structuredClone(BASELINE);
   applyOps(d, v.ops);
   // Write into the staging dir only — the corpus directory is untouched
-  // until the staging dir passes verification AND is atomically renamed.
+  // until the staging dir passes verification and enters the publish boundary.
   writeFileSync(join(STAGING, `${v.id}.json`), JSON.stringify(d, null, 2) + "\n");
   const report: any = verifyMeshData(loadDataFromFile(join(STAGING, `${v.id}.json`)) as any, NOW);
   const findings = report.findings
@@ -980,10 +1065,16 @@ if (stagedManifest.vectors.length !== V.length || !existsSync(join(STAGING, "bas
 }
 
 try {
-  assertPublishLease(lockOwner);
-  const intent: PublishIntent = { token: lockOwner.token, backup: BACKUP, staging: STAGING };
-  writeFileSync(INTENT, JSON.stringify(intent) + "\n");
-  renameSync(OUT, BACKUP);
+  const intent: PublishIntent = {
+    version: 1,
+    token: lockOwner.token,
+    backup: BACKUP,
+    staging: STAGING,
+    phase: "backup-prepared",
+    tree_digest: treeDigest(OUT_PATH),
+  };
+  writeExclusiveIntent(intent);
+  renameSync(OUT_PATH, BACKUP);
   if (process.env.MESH_FLEET_CORPUS_FAILPOINT === "after-backup") {
     const fault: Error & { exit_code?: number } = new Error("requested after-backup interruption");
     fault.exit_code = 92;
@@ -992,17 +1083,16 @@ try {
   if (process.env.MESH_FLEET_CORPUS_FAILPOINT === "after-backup-sigkill") {
     process.kill(process.pid, "SIGKILL");
   }
-  renameSync(STAGING, OUT);
-  cleanupPath(BACKUP);
-  cleanupPath(INTENT);
+  renameSync(STAGING, OUT_PATH);
+  removeExactDirectory(BACKUP);
+  unlinkSync(INTENT);
 } catch (err) {
   // Catchable faults restore reader availability before this process exits.
-  // An uncatchable SIGKILL is repaired on the next invocation from INTENT.
+  // SIGKILL cannot be caught and leaves the bound intent for explicit recovery.
   try {
-    if (!existsSync(OUT) && existsSync(BACKUP)) renameSync(BACKUP, OUT);
-    cleanupPath(BACKUP);
-    cleanupPath(INTENT);
-  } catch { /* preserve intent/backup for next-run recovery if rollback itself failed */ }
+    if (!lstatIfPresent(OUT_PATH) && existsSync(BACKUP)) renameSync(BACKUP, OUT_PATH);
+    if (existsSync(INTENT)) unlinkSync(INTENT);
+  } catch { /* preserve bound evidence if rollback itself failed */ }
   cleanupStaging();
   releaseWriterLock(lockOwner);
   console.error(`FATAL: corpus publication rolled back: ${(err as Error).message}`);

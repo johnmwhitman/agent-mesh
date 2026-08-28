@@ -92,12 +92,12 @@ function addPhantom(root: string): void {
   writeFileSync(path, JSON.stringify(manifest, null, 2) + "\n");
 }
 
-function run(root: string, env: Record<string, string> = {}): Run {
+function run(root: string, env: Record<string, string> = {}, timeout = 120_000): Run {
   const result = spawnSync(process.execPath, ["--import", "tsx", SCRIPT], {
     cwd: root,
     encoding: "utf-8",
     env: { ...process.env, ...env },
-    timeout: 120_000,
+    timeout,
   });
   return { exit: result.status ?? 1, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
 }
@@ -121,8 +121,18 @@ function runAsync(root: string, env: Record<string, string> = {}): Promise<Run> 
 function assertNoPublishResidue(root: string): void {
   const fixtures = join(root, "test", "fixtures");
   for (const entry of readdirSync(fixtures)) {
-    assert.ok(!/^corpus\.(?:staging|backup|lock)-?/.test(entry), `publish residue leaked: ${entry}`);
+    assert.ok(!/^corpus\.(?:staging|backup|lock)(?:-|\.|$)|^corpus\.publish-intent\.json$/.test(entry), `publish residue leaked: ${entry}`);
   }
+}
+
+function interruptedPublish(root: string): { before: string; token: string } {
+  const before = digestTree(join(root, CORPUS));
+  const interrupted = run(root, { MESH_FLEET_CORPUS_FAILPOINT: "after-backup-sigkill" });
+  assert.equal(interrupted.exit, 1, "SIGKILL must stop the writer without a catchable rollback");
+  assert.ok(!existsSync(join(root, CORPUS)), "uncatchable stop did not exercise the post-backup state");
+  const intent = JSON.parse(readFileSync(join(root, INTENT), "utf-8"));
+  assert.equal(typeof intent.token, "string", "interruption must leave the writer token in its intent");
+  return { before, token: intent.token };
 }
 
 test("HEAD-only manifest ids are preserved even when the working tree has no matching id", () => {
@@ -209,41 +219,166 @@ test("a catchable mid-publish interruption restores the published corpus immedia
   }
 });
 
-test("a stale intent and backup recover the previous corpus after an uncatchable stop", () => {
+test("normal regeneration refuses an interrupted publish until exact-token recovery is explicitly requested", () => {
   const root = fixture();
   try {
-    const before = digestTree(join(root, CORPUS));
-    const interrupted = run(root, {
-      MESH_FLEET_CORPUS_FAILPOINT: "after-backup-sigkill",
-    });
-    assert.equal(interrupted.exit, 1, "SIGKILL must stop the writer without a catchable rollback");
-    assert.ok(!existsSync(join(root, CORPUS)), "uncatchable stop did not exercise the post-backup recovery state");
-    assert.ok(existsSync(join(root, INTENT)), "uncatchable stop did not leave publication intent for recovery");
-    const abandonedLock = JSON.parse(readFileSync(join(root, LOCK), "utf-8"));
-    writeFileSync(join(root, LOCK), JSON.stringify({ ...abandonedLock, expires_at: Date.now() - 1 }) + "\n");
-    const recovered = run(root);
-    assert.equal(recovered.exit, 0, `stale-intent recovery failed.\n${recovered.stderr}`);
+    const { before, token } = interruptedPublish(root);
+    const normal = run(root, {}, 2_000);
+    assert.equal(normal.exit, 1, `normal regeneration must not clear interrupted state.\n${normal.stderr}`);
+    assert.ok(!existsSync(join(root, CORPUS)), "normal regeneration restored a corpus without explicit recovery authority");
+    assert.ok(existsSync(join(root, LOCK)), "normal regeneration cleared the interrupted writer lock");
+    assert.ok(existsSync(join(root, INTENT)), "normal regeneration cleared the interrupted intent");
+
+    const recovered = run(root, { MESH_FLEET_CORPUS_RECOVER_TOKEN: token }, 2_000);
+    assert.equal(recovered.exit, 0, `exact-token recovery failed.\n${recovered.stderr}`);
     assert.ok(existsSync(join(root, CORPUS)), "recovery did not restore reader-visible corpus directory");
     assert.equal(digestTree(join(root, CORPUS)), before, "recovery did not restore previous corpus bytes");
     assertNoPublishResidue(root);
+
+    const normalAfterRecovery = run(root);
+    assert.equal(normalAfterRecovery.exit, 0, `normal regeneration after recovery failed.\n${normalAfterRecovery.stderr}`);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
 
-test("a writer without the publish lease margin aborts before moving the published corpus", () => {
+test("wrong explicit recovery token preserves interrupted state", () => {
   const root = fixture();
   try {
-    const before = digestTree(join(root, CORPUS));
-    const result = run(root, { MESH_FLEET_CORPUS_PUBLISH_MARGIN_MS: "120001" });
-    assert.equal(result.exit, 1, `writer without publish lease margin must fail closed.\n${result.stderr}`);
-    assert.match(result.stderr + result.stdout, /lease.*margin|margin.*lease/i);
-    assert.ok(existsSync(join(root, CORPUS)), "lease refusal removed reader-visible corpus");
-    assert.equal(digestTree(join(root, CORPUS)), before, "lease refusal changed published corpus bytes");
-    assertNoPublishResidue(root);
+    const { token } = interruptedPublish(root);
+    const result = run(root, { MESH_FLEET_CORPUS_RECOVER_TOKEN: `${token}-wrong` }, 2_000);
+    assert.equal(result.exit, 1, `wrong recovery token must fail closed.\n${result.stderr}`);
+    assert.ok(!existsSync(join(root, CORPUS)), "wrong token restored a corpus");
+    assert.ok(existsSync(join(root, LOCK)), "wrong token cleared the writer lock");
+    assert.ok(existsSync(join(root, INTENT)), "wrong token cleared the intent");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("malformed and expired lock records are never reaped by normal regeneration", () => {
+  for (const foreign of ["not-json\n", JSON.stringify({ token: "old-owner", expires_at: 0 }) + "\n"]) {
+    const root = fixture();
+    try {
+      writeFileSync(join(root, LOCK), foreign);
+      const before = digestTree(join(root, CORPUS));
+      const result = run(root);
+      assert.equal(result.exit, 1, `foreign lock must fail closed.\n${result.stderr}`);
+      assert.equal(readFileSync(join(root, LOCK), "utf-8"), foreign, "normal regeneration changed a foreign lock record");
+      assert.equal(digestTree(join(root, CORPUS)), before, "foreign-lock refusal changed published corpus");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
+test("unauthenticated publication residues fail closed without deletion", () => {
+  for (const residue of ["corpus.staging-orphan", "corpus.backup-orphan", "corpus.lock.expired-orphan"]) {
+    const root = fixture();
+    try {
+      const path = join(root, "test", "fixtures", residue);
+      mkdirSync(path);
+      writeFileSync(join(path, "marker"), "do not delete\n");
+      const result = run(root);
+      assert.equal(result.exit, 1, `orphan ${residue} must fail closed.\n${result.stderr}`);
+      assert.equal(readFileSync(join(path, "marker"), "utf-8"), "do not delete\n", "normal regeneration deleted an unauthenticated residue");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
+test("intent paths must be exact corpus siblings and cannot escape through a prefix", () => {
+  const root = fixture();
+  try {
+    const corpus = join(root, CORPUS);
+    const escaped = join(root, "test", "fixtures", "escaped-by-intent");
+    mkdirSync(escaped);
+    writeFileSync(join(escaped, "marker"), "outside\n");
+    writeFileSync(join(root, INTENT), JSON.stringify({
+      token: "attacker",
+      backup: `${corpus}.backup-/../escaped-by-intent`,
+      staging: `${corpus}.staging-/../escaped-by-intent`,
+    }) + "\n");
+    const result = run(root);
+    assert.equal(result.exit, 1, `escaped intent must fail closed.\n${result.stderr}`);
+    assert.equal(readFileSync(join(escaped, "marker"), "utf-8"), "outside\n", "intent path escaped into an unrelated directory");
+    assert.ok(existsSync(join(root, INTENT)), "normal regeneration deleted malformed intent evidence");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("explicit recovery refuses OUT plus backup ambiguity without deleting either corpus", () => {
+  const root = fixture();
+  try {
+    const { before, token } = interruptedPublish(root);
+    const intent = JSON.parse(readFileSync(join(root, INTENT), "utf-8"));
+    cpSync(intent.backup, join(root, CORPUS), { recursive: true });
+    const result = run(root, { MESH_FLEET_CORPUS_RECOVER_TOKEN: token });
+    assert.equal(result.exit, 1, `ambiguous recovery must fail closed.\n${result.stderr}`);
+    assert.equal(digestTree(join(root, CORPUS)), before, "ambiguous recovery changed the published corpus");
+    assert.ok(existsSync(intent.backup), "ambiguous recovery deleted the last backup");
+    assert.ok(existsSync(join(root, INTENT)), "ambiguous recovery cleared the intent");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a corpus root link or Windows junction is rejected without publishing through it", () => {
+  const root = fixture();
+  try {
+    const corpus = join(root, CORPUS);
+    const target = `${corpus}-target`;
+    cpSync(corpus, target, { recursive: true });
+    rmSync(corpus, { recursive: true, force: true });
+    linkDirectory(target, corpus);
+    const before = digestTree(target);
+    const result = run(root);
+    assert.equal(result.exit, 1, `corpus root link must fail closed.\n${result.stderr}`);
+    assert.ok(lstatSync(corpus).isSymbolicLink(), "generator replaced the root link/junction");
+    assert.equal(digestTree(target), before, "generator published through the root link/junction");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("explicit recovery refuses a dangling corpus-root link without replacing it", { skip: process.platform === "win32" }, () => {
+  const root = fixture();
+  try {
+    const { token } = interruptedPublish(root);
+    const corpus = join(root, CORPUS);
+    symlinkSync(join(root, "missing-corpus-target"), corpus);
+    const intent = JSON.parse(readFileSync(join(root, INTENT), "utf-8"));
+    const result = run(root, { MESH_FLEET_CORPUS_RECOVER_TOKEN: token });
+    assert.equal(result.exit, 1, `recovery must refuse a dangling root link.\n${result.stderr}`);
+    assert.match(result.stderr + result.stdout, /corpus root|root.*link|root.*junction/i, "recovery must fail at the root-shape gate, not a later rename error");
+    assert.ok(lstatSync(corpus).isSymbolicLink(), "recovery replaced the dangling root link");
+    assert.ok(existsSync(intent.backup), "recovery deleted the backup while root shape was unsafe");
+    assert.ok(existsSync(join(root, INTENT)), "recovery cleared intent while root shape was unsafe");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("hostile finite pause configuration is rejected before a writer lock is acquired", () => {
+  const root = fixture();
+  try {
+    const result = run(root, { MESH_FLEET_CORPUS_PAUSE_AFTER_LOCK_MS: "1001" }, 2_000);
+    assert.equal(result.exit, 1, `out-of-range pause must fail closed.\n${result.stderr}`);
+    assert.match(result.stderr + result.stdout, /configuration|pause|environment/i);
+    assert.ok(!existsSync(join(root, LOCK)), "invalid pause configuration acquired a writer lock");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("generator documentation names the HEAD plus working-tree union and not a false atomic swap", () => {
+  const source = readFileSync(join(REPO, SCRIPT), "utf-8");
+  const handoff = readFileSync(join(REPO, "HANDOFF.md"), "utf-8");
+  assert.match(source, /HEAD.*working tree|working tree.*HEAD/i);
+  assert.doesNotMatch(source, /GIT-INDEX BACKED|fail-closed, ATOMIC|atomic swap/i);
+  assert.doesNotMatch(handoff, /1789-test contract/i);
 });
 
 test("an unknown top-level corpus directory fails closed before publication", () => {
@@ -284,10 +419,10 @@ test("a foreign lock record is never reaped by a competing writer", () => {
   const root = fixture();
   try {
     const lock = join(root, LOCK);
-    const foreign = JSON.stringify({ token: "foreign-owner", expires_at: Date.now() + 60_000 }) + "\n";
+    const foreign = JSON.stringify({ token: "foreign-owner" }) + "\n";
     writeFileSync(lock, foreign);
     const before = digestTree(join(root, CORPUS));
-    const result = run(root, { MESH_FLEET_CORPUS_LOCK_WAIT_MS: "25" });
+    const result = run(root);
     assert.equal(result.exit, 1, `foreign lock must refuse competing writer.\n${result.stderr}`);
     assert.match(result.stderr + result.stdout, /writer lock|lock/i);
     assert.equal(readFileSync(lock, "utf-8"), foreign, "competing writer replaced the foreign lock record");
@@ -322,7 +457,7 @@ test("a normal regeneration is byte-identical", () => {
   }
 });
 
-test("parallel regenerations serialize one writer and leave one complete corpus", async () => {
+test("parallel regenerations admit one writer and fail the competing writer closed", async () => {
   const root = fixture();
   try {
     const before = digestTree(join(root, CORPUS));
@@ -330,10 +465,12 @@ test("parallel regenerations serialize one writer and leave one complete corpus"
       runAsync(root, { MESH_FLEET_CORPUS_PAUSE_AFTER_LOCK_MS: "150" }),
       runAsync(root),
     ]);
-    assert.equal(first.exit, 0, first.stderr);
-    assert.equal(second.exit, 0, second.stderr);
+    assert.equal([first.exit, second.exit].filter((exit) => exit === 0).length, 1, `exactly one writer must hold the lock.\n${first.stderr}\n${second.stderr}`);
+    assert.equal([first.exit, second.exit].filter((exit) => exit === 1).length, 1, `competing writer must fail closed.\n${first.stderr}\n${second.stderr}`);
     assert.equal(digestTree(join(root, CORPUS)), before, "parallel runs left non-canonical bytes");
     assertNoPublishResidue(root);
+    const retry = run(root);
+    assert.equal(retry.exit, 0, `writer must run normally after the prior writer released its lock.\n${retry.stderr}`);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
