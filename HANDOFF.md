@@ -1,12 +1,12 @@
 # MeshFleet public handoff
 
 **Source version:** `0.21.1` · **MCP surface:** **37 MCP tools** ·
-**current suite contract:** **1789/1789** tests collected, plus typecheck and build
+**current suite contract:** **1807/1807** tests collected, plus typecheck and build
 
 The latest completed cross-platform proof is GitHub Actions run `31315444631`
 at `e14bd8f` (9/9 jobs across Node 20/22/24 on Ubuntu, macOS, and Windows). It
 prove that prior revision, not the newer source and test bytes that establish
-the current 1789-test contract above; those require their own fresh 9/9 run
+the current 1807-test contract above; those require their own fresh 9/9 run
 before merge.
 
 Base `01f0fa0` passed 1416/1416; the parity snapshot that introduced this document
@@ -143,6 +143,47 @@ authorize spend. Runtime execution and advisory ranking remain separate contract
 - RoutePlane and caller-supplied budget snapshots can inform advisory candidates.
   MeshFleet does not own provider catalogs, credentials, balances, or execution
   through those projections.
+
+## Ledger identity surface
+
+`get_health` reports four new fields that together answer "did this server open
+the ledger I meant?":
+
+- **`ledger_path`** — the absolute SQLite file the server is reading.
+- **`ledger_instance_id`** — a non-secret 16-hex-char (64-bit) id persisted to
+  the ledger's `meta` table at first-open. Two readers of the SAME file
+  receive the same id across processes and restarts; two readers of DIFFERENT
+  files (even on the same path after a move-aside + recreate) receive different
+  ids. The id does not encode the path — `ledger_path` does — so it is safe to
+  paste into a chat thread.
+- **`ledger_scope`** — `user` (canonical `~/.config/opencode/agent-mesh.db`),
+  `project` (any other filesystem path), `test` (under `os.tmpdir()`), or
+  `memory` (the in-memory handle).
+- **`ledger_identity_mismatch`** — true iff a `MESHFLEET_EXPECTED_LEDGER_ID`
+  env var is set on the server and disagrees with `ledger_instance_id`.
+  Mismatch sets `status='degraded'` (NOT `error` — the data is fine, the
+  operator's expectation is wrong, and an error here would block tool
+  dispatch over a configuration mistake). The expected id is echoed back in
+  `expected_ledger_id`.
+
+### Intentional multi-ledger topology
+
+The same meshfleet binary is deliberately instantiated against more than one
+ledger at the same time. They are NOT a bug — each is owned by a separate
+consumer and the identity surface is what keeps them straight.
+
+| Consumer | Ledger path | `ledger_scope` |
+|---|---|---|
+| MeshFleet Core (this lane) | `~/.config/opencode/agent-mesh.db` | `user` |
+| Hermes production evidence store | `~/.hermes/meshfleet/hermes.db` | `project` |
+| Per-project ad-hoc overrides | `MESHFLEET_DB_FILE=<anywhere>` | `project` |
+| Test fixtures | `os.tmpdir()/agent-mesh-test-*` | `test` |
+
+A consumer that expects identity `X` and reads `Y` sees
+`ledger_identity_mismatch=true` and `status='degraded'`. The fix is to set
+`MESHFLEET_EXPECTED_LEDGER_ID` correctly OR remove the override and let the
+default `user` ledger answer. NEVER silently coalesce two ledgers into one:
+the identity surface exists precisely so this collapse is loud.
 
 ## Next public work
 

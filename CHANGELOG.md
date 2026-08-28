@@ -6,6 +6,34 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 
 ### Added
 
+- **Ledger instance identity surface (`get_health`).** `get_health` now reports
+  four new fields that together let a consumer answer "did this server open
+  the ledger I meant?": `ledger_path` (absolute SQLite file the server is
+  reading), `ledger_instance_id` (a non-secret 16-hex-char / 64-bit id
+  persisted to the ledger's `meta` table at first-open via
+  `ensureLedgerInstanceId()` in `src/db.ts`), `ledger_scope` (path
+  classification: `user` / `project` / `test` / `memory`, exported from
+  `src/health.ts` as `classifyLedgerScope`), and `ledger_identity_mismatch`
+  (true iff `MESHFLEET_EXPECTED_LEDGER_ID` is set on the server and disagrees
+  with `ledger_instance_id`, in which case `status` becomes `degraded` — NOT
+  `error`, because the data is fine and the operator's expectation is wrong).
+  The id is minted at first-open and persists across processes and restarts;
+  two readers of the SAME file receive the same id, two readers of DIFFERENT
+  files receive different ids. The fix for the dogfood finding where Codex
+  was reading a 4096-byte user ledger at `~/.config/opencode/agent-mesh.db`
+  while the Hermes production evidence store at `~/.hermes/meshfleet/hermes.db`
+  carried the real fleets and agents: that scenario is now distinguishable
+  by `ledger_path` and `ledger_scope` alone, and binding-detectable by
+  `ledger_instance_id` via `MESHFLEET_EXPECTED_LEDGER_ID`. The intentional
+  multi-ledger topology (Core, Hermes evidence store, per-project overrides,
+  test fixtures) is documented in `HANDOFF.md` §"Ledger identity surface"
+  with a per-consumer table. Eighteen new tests in
+  `test/health-ledger-identity.test.ts` pin: identity minted on first open,
+  stable across reopens of the same file, distinct across two different
+  files, scope classification for each of the four kinds, mismatch
+  detection (matching/mismatched/whitespace-only/trimmed), no path
+  fragments leak into the id, and that existing fields remain populated.
+  Suite 1789 → 1807.
 - **Section 9 authorization context-mismatch bounded subfamily.** Five new
   mandatory corpus cases (`authorization.context.{adapter,principal,audience,
   session_ref,sender}-mismatch`) prove that an authorization rule whose context

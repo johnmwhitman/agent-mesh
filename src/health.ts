@@ -24,9 +24,10 @@ import {
   readFileSync,
   statSync,
 } from 'node:fs'
-import { join, dirname } from 'node:path'
+import { join, dirname, resolve } from 'node:path'
+import { tmpdir, homedir } from 'node:os'
 import { loadData, resolveEventLogFile } from './core.js'
-import { resolveDbFile } from './db.js'
+import { ensureLedgerInstanceId, resolveDbFile } from './db.js'
 
 // ---------------------------------------------------------------------------
 // Process startup time (for uptime)
@@ -54,6 +55,51 @@ export function ping(): PingResult {
 // getHealth
 // ---------------------------------------------------------------------------
 
+/**
+ * Where this ledger file lives in the consumer's mental model.
+ *
+ *  - `user`    — the canonical default `~/.config/opencode/agent-mesh.db`
+ *    (the consumer's main evidence store).
+ *  - `project` — anywhere else on the filesystem that is NOT a tempdir,
+ *    typically a `MESHFLEET_DB_FILE` override pointed at a per-project
+ *    file. Expected to carry different identity from `user`.
+ *  - `test`    — any path under `os.tmpdir()`. Multiple invocations create
+ *    multiple distinct ledgers; identity is expected to vary per run.
+ *  - `memory`  — the `:memory:` SQLite handle. No persisted identity
+ *    possible (no meta table survives process exit), so callers must
+ *    know they are looking at a transient.
+ *
+ * Two consumers that disagree on scope SHOULD disagree on identity. The
+ * scope field is the cheap pre-check; the id is the binding check.
+ */
+export type LedgerScope = 'user' | 'project' | 'test' | 'memory'
+
+/**
+ * Classify a resolved ledger path into a scope. Pure: takes the path string,
+ * returns the scope. `memory` is the literal `':memory:'` handle; everything
+ * else is path-based.
+ */
+export function classifyLedgerScope(ledgerPath: string): LedgerScope {
+  if (ledgerPath === ':memory:') return 'memory'
+  const abs = resolve(ledgerPath)
+  const tmp = resolve(tmpdir())
+  // Path-segment test: `/tmp` contains `/tmp-thing` falsely; walk segments.
+  // Normalized leading separators make a startsWith safe on POSIX, and the
+  // Windows tmp is also `os.tmpdir()` so the same predicate handles both.
+  if (abs === tmp || abs.startsWith(tmp + '/') || abs.startsWith(tmp + '\\')) return 'test'
+  // The canonical user ledger lives at `<homedir>/.config/opencode/agent-mesh.db`.
+  // A MESHFLEET_DB_FILE override pointed at the same path is still `user` —
+  // only the resolver decides. HOME is read first so test fixtures that
+  // override HOME (the supported isolation pattern) classify consistently;
+  // `homedir()` is the fallback for environments where HOME is unset.
+  const home = process.env['HOME'] && process.env['HOME']!.length > 0
+    ? process.env['HOME']!
+    : homedir()
+  const userDefault = resolve(join(home, '.config', 'opencode', 'agent-mesh.db'))
+  if (abs === userDefault) return 'user'
+  return 'project'
+}
+
 export interface HealthReport {
   status: 'ok' | 'degraded' | 'error'
   uptime_ms: number
@@ -76,6 +122,47 @@ export interface HealthReport {
    * 24h in a ledger that has not been reconciled.
    */
   abandoned_fleets: number
+  /**
+   * Absolute path of the SQLite ledger file backing this server. Resolved via
+   * `MESHFLEET_DB_FILE` → `setLedgerPath` → compiled-in default. Included so a
+   * consumer that receives an unexpected `ledger_instance_id` can tell at a
+   * glance whether the server is reading the file it assumed.
+   *
+   * String `':memory:'` for the in-memory handle (test fixtures).
+   */
+  ledger_path: string
+  /**
+   * Non-secret stable identity of the ledger file (16 hex chars, 64 bits of
+   * randomness minted at first-open). Two readers of the SAME file receive
+   * the same id across processes and restarts; two readers of DIFFERENT
+   * files (even on the same path, after a move-aside + recreate) receive
+   * different ids. The id is published in health exactly so consumers can
+   * detect wrong-store paths that would otherwise look like an empty
+   * ledger.
+   */
+  ledger_instance_id: string
+  /**
+   * Where this ledger is expected to live (see {@link LedgerScope}). Together
+   * with `ledger_instance_id` this lets a consumer answer "did I open the
+   * ledger I meant?" without comparing absolute paths in a Slack thread.
+   */
+  ledger_scope: LedgerScope
+  /**
+   * True iff a `MESHFLEET_EXPECTED_LEDGER_ID` env var is set on this server
+   * AND its value does not equal this ledger's `ledger_instance_id`. A
+   * mismatch sets `status` to `degraded` (NOT `error` — the data is fine,
+   * the operator's expectation is wrong, and an error here would mask the
+   * real shape of the problem) and is the loud signal the dogfood run
+   * needed to distinguish "empty intended ledger" from "wrong store".
+   */
+  ledger_identity_mismatch: boolean
+  /**
+   * The expected id from `MESHFLEET_EXPECTED_LEDGER_ID`, when set. Echoed
+   * back so the operator can see what the server was comparing against
+   * without needing access to the server's environment. `undefined` when
+   * the env var is unset.
+   */
+  expected_ledger_id?: string
 }
 
 export function getHealth(): HealthReport {
@@ -89,6 +176,24 @@ export function getHealth(): HealthReport {
 
   const now = Date.now()
   const ONE_DAY = 24 * 60 * 60 * 1000
+
+  // Resolve the ledger identity surface. resolveDbFile may return a temp
+  // path under MESHFLEET_DB_FILE; resolve() so the path is absolute and
+  // the scope classifier doesn't have to know about `..` segments.
+  const ledgerPath = resolveDbFile()
+  const ledgerScope = classifyLedgerScope(ledgerPath)
+  // ensureLedgerInstanceId both READS the persisted id and mints one if
+  // absent. Mint-on-read (not just mint-on-first-open) means an older ledger
+  // gets backfilled on its next health probe, with no schema bump required.
+  const ledgerInstanceId = ensureLedgerInstanceId()
+  // Operator-set expectation. Trimmed to defend against a stray whitespace in
+  // a shell command. An unset var compares unequal to any string, so the
+  // mismatch flag stays false in the common case (no env var).
+  const expectedRaw = process.env['MESHFLEET_EXPECTED_LEDGER_ID']
+  const expectedLedgerId = typeof expectedRaw === 'string' ? expectedRaw.trim() : ''
+  const hasExpectation = expectedLedgerId.length > 0
+  const ledgerIdentityMismatch =
+    hasExpectation && expectedLedgerId !== ledgerInstanceId
 
   // A fleet left `running` past 24h is one of two very different things, and reporting them
   // as the same thing made this signal useless.
@@ -138,10 +243,15 @@ export function getHealth(): HealthReport {
   // surface exists to say so. Recording the sentinel without letting it decide
   // anything would leave `status: 'ok'` over a log nobody can read.
   const hasUnreadableEventLog = eventsBytes < 0
+  // An identity mismatch is DEGRADED, not ERROR. The ledger is fine, the operator
+  // is wrong, and an error here would block tool dispatch over a configuration
+  // mistake that is repairable by clearing the env var. The whole point of the
+  // identity surface is to be loud WITHOUT being fatal — the data is still good.
+  const hasIdentityMismatch = ledgerIdentityMismatch
 
   let status: 'ok' | 'degraded' | 'error' = 'ok'
   if (hasCorruptLedger) status = 'error'
-  else if (hasStuckFleet || hasUnreadableEventLog) status = 'degraded'
+  else if (hasStuckFleet || hasUnreadableEventLog || hasIdentityMismatch) status = 'degraded'
 
   return {
     status,
@@ -155,6 +265,11 @@ export function getHealth(): HealthReport {
     ledger_bytes: ledgerBytes,
     events_log_bytes: eventsBytes,
     last_event_timestamp: lastTimestamp,
+    ledger_path: ledgerPath,
+    ledger_instance_id: ledgerInstanceId,
+    ledger_scope: ledgerScope,
+    ledger_identity_mismatch: ledgerIdentityMismatch,
+    expected_ledger_id: hasExpectation ? expectedLedgerId : undefined,
   }
 }
 

@@ -24,6 +24,7 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync } from "fs";
 import { dirname, join } from "path";
 import { tmpdir } from "os";
 import { homedir } from "os";
+import { randomBytes } from "crypto";
 import {
   CURRENT_SCHEMA_VERSION,
   type MeshData,
@@ -90,6 +91,28 @@ export function getMetaValue(key: string): string | undefined {
 }
 
 /**
+ * The non-secret stable identity of one ledger file. Generated at first-open
+ * (8 random bytes, 16 hex chars) and persisted to `meta.ledger_instance_id`,
+ * so every subsequent reader of the SAME file reads the same ID and a reader
+ * of a DIFFERENT file reads a different one. The id is intentionally NOT a
+ * secret — it is the answer to "is this the same ledger I meant?" — and uses
+ * crypto-grade randomness to make accidental collisions across a fleet of
+ * ledgers vanishingly unlikely (~2^-64 per pair).
+ *
+ * The id is NOT exposed through this helper by name: getHealth() reads it
+ * directly off the meta row at read time so a handle that was opened against
+ * a different file cannot accidentally report the previously cached value
+ * (setLedgerPath / closeDb / closeFollowDb already drop stale handles, but
+ * the read-time pattern removes the entire class).
+ */
+function generateLedgerInstanceId(): string {
+  // 8 random bytes → 16 hex chars. Enough for the identity purpose (collision
+  // probability across a fleet of ledgers is ~2^-64 per pair) and short
+  // enough that operators can paste it into a Slack thread.
+  return randomBytes(8).toString("hex");
+}
+
+/**
  * Read the `schema_version` marker from a ledger FILE on a private read-only
  * connection — `undefined` when the file, table, or row is absent or
  * unreadable. Advisory: the migrator uses it to refuse a wrong-version
@@ -114,6 +137,42 @@ export function readLedgerFileMarker(file: string): string | undefined {
 export function setMetaValue(key: string, value: string): void {
   const db = getDb();
   db.prepare("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(key, value);
+}
+
+/**
+ * Read the persisted ledger instance id, minting one on first read if absent.
+ *
+ * Two reasons it lives here (not just at first-open stamping):
+ *  1. A pre-existing ledger (built before this id existed) has no row, and
+ *     the migrator's `setMetaValue('schema_version', …)` is the only writer
+ *     that touches `meta`. Backfilling here means an upgrade DOES NOT
+ *     require a schema bump for the id to appear in health.
+ *  2. Tests open transient ledgers that never see a `getDb()` cold init
+ *     (the test helpers bind a temp path directly), so the stamp-on-first-open
+ *     path doesn't run. `ensureLedgerInstanceId` runs on the read path that
+ *     `getHealth()` actually takes, which every consumer hits.
+ *
+ * On a freshly minted id, the row is committed IMMEDIATELY in its own
+ * transaction so a subsequent `getHealth()` (or any other reader) sees the
+ * same value. Idempotent under contention: the second writer's `INSERT ON
+ * CONFLICT DO NOTHING` is a no-op, and the first writer's value is what
+ * every reader after the first sees.
+ */
+export function ensureLedgerInstanceId(): string {
+  const db = getDb();
+  const existing = getMetaValue("ledger_instance_id");
+  if (existing) return existing;
+  const id = generateLedgerInstanceId();
+  db.transaction(() => {
+    // Insert-if-absent: race a peer minting the same key (vanishingly unlikely
+    // with 64 bits of randomness, but a no-op merge keeps the invariant clean).
+    db.prepare(
+      "INSERT INTO meta (key, value) VALUES ('ledger_instance_id', ?) ON CONFLICT(key) DO NOTHING"
+    ).run(id);
+  }).immediate();
+  // Re-read so a racing peer that won the conflict is the value we report.
+  const after = getMetaValue("ledger_instance_id");
+  return after ?? id;
 }
 
 /** Persist the taskId -> (fleetId, agentId) mapping for the local A2A adapter. */

@@ -1529,7 +1529,9 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "get_health",
       description:
-        "Health report: ledger size, fleet/agent/message counts, uptime, last event. Use for monitoring and alerting.",
+        "Health report + ledger identity surface (ledger_path, ledger_instance_id, " +
+        "ledger_scope, ledger_identity_mismatch). Compare ledger_instance_id across " +
+        "consumers to detect wrong-store paths.",
       inputSchema: { type: "object", properties: {} },
       annotations: { readOnlyHint: true, idempotentHint: true, destructiveHint: false, openWorldHint: false },
     },
