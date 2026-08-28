@@ -144,6 +144,21 @@ test("tools/list payload size is measured, tool count = 37, under 60 KiB", async
       "tally_ratification calls resolveRatification and persists terminal status — readOnlyHint must be false",
     );
 
+    for (const name of ["spawn_fleet", "attach_agent", "collect_results"] as const) {
+      const tool = response.tools.find((candidate) => candidate.name === name);
+      assert.ok(tool, `${name} missing from tools/list`);
+      assert.match(
+        tool.description ?? "",
+        /only when result_contract is ok|Only result_contract ok can bank complete/,
+        `${name} description must publish the enforced completion contract`,
+      );
+      assert.doesNotMatch(
+        tool.description ?? "",
+        /next release|following release|without acting/,
+        `${name} description must not promise enforcement in a future release`,
+      );
+    }
+
     const readOnlyTools = response.tools
       .filter((t) => t.annotations?.readOnlyHint === true)
       .map((t) => t.name)

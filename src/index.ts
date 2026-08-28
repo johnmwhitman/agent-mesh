@@ -659,7 +659,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "spawn_fleet",
       description:
-        "Spawn parallel agents. Returns fleet_id. Each agent can optionally specify an 'agent' field to use a premade agent definition from .opencode/agents/.",
+        "Spawn parallel agents. Returns fleet_id. An agent banks complete only when result_contract is ok; refused, blocked, artifact_missing, invalid, or absent banks failed.",
       inputSchema: {
         type: "object",
         properties: {
@@ -702,7 +702,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
                   description:
                     "Declare that this agent's result envelope must name at least one produced " +
                     "file: a 'done' declaration with no artifacts is recorded as " +
-                    "result_contract 'artifact_missing' instead of 'ok', and the agent is told " +
+                    "result_contract 'artifact_missing' instead of 'ok' and banks failed; the agent is told " +
                     "so in its prompt. Restricted text runtimes refuse this request. Named " +
                     "paths are existence-checked only — this is a " +
                     "declared-output check, never a content or quality guarantee.",
@@ -752,7 +752,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "collect_results",
       description:
-        "Get all agent outputs from a fleet with loss tally. Each result carries `result_contract` (ok|refused|blocked|artifact_missing|invalid|absent) — a declared outcome, not quality. Check `lost` first.",
+        "Get fleet outputs and loss tally. Only result_contract ok can bank complete; refused, blocked, artifact_missing, invalid, or absent banks failed. Declared outcome, not quality. Check lost first.",
       inputSchema: {
         type: "object",
         properties: { fleet_id: { type: "string" } },
@@ -1492,7 +1492,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "attach_agent",
       description:
-        "Dynamically attach a premade agent to an existing running fleet.",
+        "Attach an agent to a running fleet. It banks complete only when result_contract is ok; refused, blocked, artifact_missing, invalid, or absent banks failed.",
       inputSchema: {
         type: "object",
         properties: {
@@ -1513,7 +1513,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
             description:
               "Declare that this agent's result envelope must name at least one produced file: " +
               "a 'done' declaration with no artifacts is recorded as result_contract " +
-              "'artifact_missing' instead of 'ok', and the agent is told so in its prompt. " +
+              "'artifact_missing' instead of 'ok' and banks failed; the agent is told so in its prompt. " +
               "Named paths are existence-checked only — a declared-output check, never a " +
               "content or quality guarantee.",
           },
@@ -2002,8 +2002,8 @@ toolHandlers["collect_results"] = async (args) => {
         error: a.error,
         diagnostics: a.diagnostics,
         // What the agent DECLARED about its own outcome. Absent on rows written before the
-        // contract existed, and never backfilled. This release records it without acting on it,
-        // so a caller wanting the stronger guarantee today asks for BOTH facts.
+        // contract existed, and never backfilled. `ok` is the only value that may accompany
+        // `complete`; every non-`ok` value banks `failed` at settlement.
         result_contract: a.result_contract,
         // Why an interrupted row stopped, when boot reconciliation could attribute it
         // ('server_crash' | 'process_lost'). Absent when nothing could honestly say.
