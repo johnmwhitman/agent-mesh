@@ -1514,6 +1514,107 @@
       ]
     },
     {
+      "id": "agent-result-artifacts-while-live",
+      "primary": "agent.result_artifacts_while_live",
+      "classification": "caught",
+      "lie": "an agent row carries terminal artifact-path declarations while its own status says it has not settled — a result presented as available on a run that is still live",
+      "ops": [
+        {
+          "op": "set",
+          "path": "agents|a3|status",
+          "value": "running"
+        },
+        {
+          "op": "delete",
+          "path": "agents|a3|completed_at"
+        },
+        {
+          "op": "set",
+          "path": "agents|a3|result_contract",
+          "value": "ok"
+        },
+        {
+          "op": "set",
+          "path": "agents|a3|result_artifacts",
+          "value": [
+            "report.md"
+          ]
+        }
+      ],
+      "expected_ok": false,
+      "expected_findings": [
+        {
+          "severity": "error",
+          "check": "agent.result_artifacts_while_live",
+          "subject": "a3"
+        },
+        {
+          "severity": "error",
+          "check": "agent.result_contract_while_live",
+          "subject": "a3"
+        },
+        {
+          "severity": "error",
+          "check": "fleet.sealed_with_live_agents",
+          "subject": "f1"
+        }
+      ]
+    },
+    {
+      "id": "agent-result-artifacts-invalid",
+      "primary": "agent.result_artifacts_invalid",
+      "classification": "caught",
+      "lie": "an agent row carries an empty artifact-path declaration that the settle writer rejects instead of persisting",
+      "ops": [
+        {
+          "op": "set",
+          "path": "agents|a3|result_contract",
+          "value": "ok"
+        },
+        {
+          "op": "set",
+          "path": "agents|a3|result_artifacts",
+          "value": []
+        }
+      ],
+      "expected_ok": false,
+      "expected_findings": [
+        {
+          "severity": "error",
+          "check": "agent.result_artifacts_invalid",
+          "subject": "a3"
+        }
+      ]
+    },
+    {
+      "id": "agent-result-artifacts-without-ok",
+      "primary": "agent.result_artifacts_without_ok",
+      "classification": "caught",
+      "lie": "an agent row presents artifact paths as accepted result evidence while its own result contract says the run refused",
+      "ops": [
+        {
+          "op": "set",
+          "path": "agents|a3|result_contract",
+          "value": "refused"
+        },
+        {
+          "op": "set",
+          "path": "agents|a3|result_artifacts",
+          "value": [
+            "report.md"
+          ]
+        }
+      ],
+      "expected_ok": false,
+      "expected_findings": [
+        {
+          "severity": "error",
+          "check": "agent.result_artifacts_without_ok",
+          "subject": "a3"
+        }
+      ]
+    },
+    {
       "id": "agent-runtime-attempt-duplicated",
       "primary": "agent.runtime_attempt_duplicated",
       "classification": "caught",

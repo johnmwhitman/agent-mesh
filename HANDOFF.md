@@ -117,7 +117,7 @@ authorize spend. Runtime execution and advisory ranking remain separate contract
 
 ## Current audit evidence
 
-- The ledger fixture corpus contains **83 total** cases: **59 caught**, **14
+- The ledger fixture corpus contains **86 total** cases: **62 caught**, **14
   anomalies**, and 10 deliberately undetectable. `test/fixtures/corpus/README.md`
   and its generated manifest are the count authorities.
 - `test/blackbox-corpus-transcript-integrity.test.ts` independently discovers the
