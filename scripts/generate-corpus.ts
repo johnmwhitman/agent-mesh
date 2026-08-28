@@ -1,16 +1,17 @@
 /**
  * Generates the tampered-ledger corpus: a clean baseline plus one declarative
- * delta per vector. Run: npx tsx scratch/corpus/generate.ts
+ * delta per vector. Canonical command: npx tsx scripts/generate-corpus.ts
  *
  * Deltas are DECLARATIVE (op/path/value) so the harness can prove each tampered
  * ledger differs from the baseline in exactly the declared paths — minimality is
  * machine-checked, not author-asserted. That is what makes the baseline a valid
  * near-neighbour control for every vector.
  */
-import { writeFileSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { verifyMeshData } from "../src/verify.js";
 import { loadDataFromFile } from "../src/core.js";
+import { assertCompleteCorpusInventory } from "./corpus-inventory.js";
 
 const NOW = 1_800_000_000_000;
 const T0 = 1_700_000_000_000;
@@ -347,6 +348,16 @@ const V: Vector[] = [
     lie: "an agent sent a message hours after it terminated. Agent lifecycle and message authorship are not cross-checked.",
     ops: [{ op: "set", path: "messages|m4", value: { id: "m4", from_agent_id: "a2", to_agent_id: "a1", fleet_id: "f1", type: "result", payload: "late result", timestamp: T0 + 20_000, acknowledged: false } }] },
 ];
+
+const committedManifest: { vectors: Array<{ id: string }> } = JSON.parse(
+  readFileSync(join(OUT, "manifest.json"), "utf-8"),
+);
+try {
+  assertCompleteCorpusInventory(V.map((v) => v.id), committedManifest.vectors.map((v) => v.id));
+} catch (error) {
+  console.error(`FATAL: ${error instanceof Error ? error.message : String(error)}`);
+  process.exit(1);
+}
 
 mkdirSync(OUT, { recursive: true });
 writeFileSync(join(OUT, "baseline.json"), JSON.stringify(BASELINE, null, 2) + "\n");
