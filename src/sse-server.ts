@@ -38,6 +38,7 @@ import {
 } from "./event-stream.js";
 import { resolveEnv } from "./env.js";
 import { createA2AHttpHandler, type A2ATaskStatus } from "./a2a/http.js";
+import { createBudgetEnforcementHttpHandler } from "./budget-enforcement-http.js";
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -65,6 +66,14 @@ export interface SseServerOptions {
     readonly submitTask: (input: { readonly text: string; readonly metadata?: Record<string, unknown> }) => Promise<{ readonly fleetId: string; readonly agentId: string }>;
     readonly getTaskStatus: (fleetId: string, agentId: string) => A2ATaskStatus | undefined;
   };
+  /**
+   * Mount the budget-enforcement HTTP wrapper at POST /v1/budget/enforce.
+   * Off by default so existing deployments do not gain a new endpoint
+   * unawares; the lane law is "add surfaces, never expose them silently".
+   * Set to `true` to mount. The wrapper itself is read-only w.r.t. the
+   * provider budget ledger — it only emits receipts.
+   */
+  readonly budgetEnforcement?: boolean;
 }
 
 export function ssePort(): number {
@@ -268,6 +277,7 @@ export function startSseServer(options: SseServerOptions = {}): Promise<{ host: 
         getTaskStatus: options.a2a.getTaskStatus,
       })
       : undefined;
+    const budgetHandler = options.budgetEnforcement ? createBudgetEnforcementHttpHandler() : undefined;
     const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       // CORS preflight — permissive for local dev
       if (req.method === "OPTIONS") {
@@ -291,6 +301,11 @@ export function startSseServer(options: SseServerOptions = {}): Promise<{ host: 
       const credential = providedToken(req, url);
       if (!credentialAuthorized(credential)) {
         handle401(res);
+        return;
+      }
+
+      if (budgetHandler && url.pathname.startsWith("/v1/budget/")) {
+        budgetHandler(req, res);
         return;
       }
 

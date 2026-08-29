@@ -72,6 +72,18 @@ export function setAgentProvider(agentId: string, provider: string): void {
   agentProvider.set(agentId, provider);
 }
 
+/**
+ * Read the provider bound to an agent, or `null` if no binding exists.
+ *
+ * Exists for budget-enforcement.ts which needs to distinguish "no
+ * provider binding" (deny, fail-closed) from "provider bound but
+ * unmeasured" (allow, NEUTRAL) — a distinction `getBudgetAdjustment`
+ * cannot make because both return the same numeric output (1.0).
+ */
+export function getAgentProvider(agentId: string): string | null {
+  return agentProvider.get(agentId) ?? null;
+}
+
 export function getProviderBudget(provider: string): ProviderBudget | undefined {
   const b = budgets.get(provider);
   return b ? { ...b } : undefined;

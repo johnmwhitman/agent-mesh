@@ -629,6 +629,9 @@ src/
 ├── ratify.ts            # Councils: quorum ratification over the receipts substrate
 ├── templates.ts         # Versioned fleet templates
 ├── routing-feedback.ts  # Outcome-informed work routing
+├── budget-awareness.ts  # Per-provider utilization multiplier for route_work
+├── budget-enforcement.ts # Callable allow/deny/downgrade hook for the smart-router
+├── budget-enforcement-http.ts # Thin POST /v1/budget/enforce wrapper for out-of-process callers
 ├── health.ts            # Fleet health scoring
 ├── realtime.ts          # SSE push delivery (subscribe_inbox)
 ├── inspector.ts         # Pure formatters for CLI output
@@ -643,6 +646,112 @@ Every write goes through **one** function — `withLedger(mutator)` in `db.ts` �
 The ledger lives at `~/.config/opencode/agent-mesh.db` (SQLite); the event log at `~/.config/opencode/agent-mesh.events.log` (NDJSON). Dump the ledger as human-readable JSON any time with `npx agent-mesh inspect --export`. On first run after upgrading from a JSON ledger, the server migrates it once (validated, with a `.migrated.<ts>` backup kept).
 
 [Architecture orientation →](AGENT-MESH-SPEC.md) · [P2P messaging spec →](SPEC-P2P.md)
+
+---
+
+## Budget enforcement — callable hook
+
+`getBudgetEnforcement(input)` is the stable interface RoutePlane's
+smart-router (and any hermes-cli consumer) calls before committing to a
+model selection. It is the **gating** counterpart to `budget-awareness.ts`'s
+**multiplicative** scorer: where `getBudgetAdjustment(agentId)` returns a
+float in `[0, 1.0]` that route_work folds into a match weight, this
+function returns a verdict `{ allowed, downgradedModel?, reason,
+receiptEnvelope }` that says "proceed, switch to this cheaper model, or
+deny outright."
+
+### Interface (in-process)
+
+```ts
+import { getBudgetEnforcement } from "meshfleet/budget-enforcement";
+
+const verdict = getBudgetEnforcement({
+  profileId: "architect",
+  requestedModel: "grok-4-fast",
+  estimatedCost: 250, // optional; micro-USD; overrides the static catalog
+});
+
+if (!verdict.allowed) {
+  // reason ∈ "over_budget" | "unknown_profile"
+  // — fail-closed, surface the receiptEnvelope.decision_id to the audit trail
+} else if (verdict.downgradedModel) {
+  // reason = "downgraded" — use verdict.downgradedModel instead of the requested one
+} else {
+  // reason ∈ "under_budget" | "at_budget" | "unknown_model" | "no_budget_data"
+  // — proceed with the originally requested model
+}
+```
+
+The four canonical cases the lane owner signs off on:
+
+| Condition                          | Verdict                                              |
+| ---------------------------------- | ---------------------------------------------------- |
+| Provider has plenty of headroom    | `allowed: true`, `reason: "under_budget"`            |
+| Provider at / over DEMOTE threshold | `allowed: true`, `reason: "downgraded"`, `downgradedModel: <cheaper same-family alternative>` |
+| Request would overshoot AND no cheaper alternative fits | `allowed: false`, `reason: "over_budget"` |
+| `profileId` has no provider binding | `allowed: false`, `reason: "unknown_profile"` (fail-closed) |
+
+The function is **read-only** w.r.t. the provider budget ledger. It emits
+exactly one `budget_enforcement_decided` row to the MeshFleet event log per
+call (visible to `npx agent-mesh inspect --export` and any external audit)
+so every decision is on the receipts stream.
+
+### Wire surface (out-of-process)
+
+Mount the HTTP wrapper alongside the existing SSE server:
+
+```ts
+import { startSseServer } from "meshfleet/sse-server";
+await startSseServer({ budgetEnforcement: true });
+//   POST /v1/budget/enforce   → enforcement decision
+//   GET  /v1/budget/enforce   → liveness + catalog_version
+```
+
+Wire request and response (both JSON):
+
+```jsonc
+// POST /v1/budget/enforce
+// request
+{ "profileId": "architect", "requestedModel": "grok-4-fast", "estimatedCost": 250 }
+// response (HTTP 200 — denial is in the body, not the status)
+{
+  "allowed": true,
+  "downgradedModel": "grok-4-mini",
+  "reason": "downgraded",
+  "receiptEnvelope": {
+    "decision_id": "0b6f...",
+    "profile_id": "architect",
+    "provider_id": "grok-build",
+    "requested_model": "grok-4-fast",
+    "allowed": true,
+    "downgraded_model": "grok-4-mini",
+    "reason": "downgraded",
+    "pre_call_utilization": 0.6,
+    "post_call_utilization": 0.9,
+    "cost_micro_usd": 250,
+    "budget_adjustment": 0.5,
+    "catalog_version": "meshfleet.budget-enforcement.cost-catalog.v1",
+    "event_id": "budget_enforcement_0b6f...",
+    "timestamp_ms": 1700000000000
+  }
+}
+```
+
+The wrapper is **off by default** — existing deployments do not gain a new
+endpoint unawares. Mount it only when an out-of-process caller (RoutePlane
+daemon, hermes-cli remote dispatch) needs to enforce. In-process callers
+should import `getBudgetEnforcement` directly and skip the HTTP hop.
+
+### Catalog and downgrade policy
+
+The static `MODEL_COST_CATALOG` in `src/budget-enforcement.ts` lists every
+model the smart-router may select, the cost per call in micro-USD, and the
+`cheaper_alternatives` chain used for downgrade. Downgrade is constrained
+to **same-vendor** (a `grok-*` request can only downgrade to another
+`xai` model) so a lane never silently swaps to a competitor when the
+budget pinches. Operators who need more models add entries to the catalog;
+the catalog is `Object.freeze`d at module load to make the contract
+load-bearing.
 
 ---
 
