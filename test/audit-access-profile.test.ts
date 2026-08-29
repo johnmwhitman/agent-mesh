@@ -21,6 +21,7 @@ import { requireAuditIsolationEnvironment } from "../src/audit-access-profile.js
 const repoRoot = join(fileURLToPath(new URL(".", import.meta.url)), "..");
 const AUDIT_TOOLS = [
   "compile_route_candidates",
+  "insight_caller_breakdown",
   "ping",
   "plan_speculative_backlog",
   "recommend_route",

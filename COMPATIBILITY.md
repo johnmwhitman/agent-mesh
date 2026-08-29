@@ -91,6 +91,7 @@ Future versions will increment `CURRENT_SCHEMA_VERSION` and add a migration step
 | 0.14.0 – 0.15.x | (no new tools; stdio handshake and host-neutral launch configuration are covered by integration tests) | — |
 | 0.16.0 | + ask_peer, wake_agent, reply_discussion, get_discussion (Discussions) | see the input-validation note below |
 | 0.20.0 | + compile_route_candidates, recommend_route, verify_ledger_v2, verify_ledger_v3, plan_speculative_backlog (all advisory, projection, or read-only; no write authority) | ⚠️ `send_message` and `send_messages` schemas tightened and `verify_ledger` findings strengthened — see the narrowing note below |
+| 0.21.x | + subscribe_events (unified event stream), insight_caller_breakdown (per-caller RoutePlane-insight consumer; read-only, idempotent, never persists/executes/authorizes/wakes/contacts/spends) | — |
 
 The additive `meshfleet/recommend-route` library subpath exposes only the pure
 advisory evaluator and validators over caller-supplied sanitized evidence. It is
@@ -205,6 +206,9 @@ does not change v1 or v2 output, `VerifyReport`/`VerifyFinding`, legacy CLI
 output, or their exits. v3 MCP is opt-in and, together with
 `plan_speculative_backlog`, raises the implemented MCP tool count to 36. The
 `subscribe_events` unified event stream tool raises the count to 37.
+`insight_caller_breakdown` raises the count to 38; it is read-only,
+idempotent, and never persists, executes, authorizes, wakes agents, contacts
+providers, refreshes budgets, reserves capacity, or spends.
 
 ### Implemented speculative backlog projection MCP contract
 

@@ -106,7 +106,7 @@ test("packaged meshfleet executable supports standard and audit MCP stdio contra
       const { tools } = await auditClient.listTools();
       assert.deepEqual(
         tools.map((tool) => tool.name).sort(),
-        ["compile_route_candidates", "ping", "plan_speculative_backlog", "recommend_route"],
+        ["compile_route_candidates", "insight_caller_breakdown", "ping", "plan_speculative_backlog", "recommend_route"],
       );
       const denied = await auditClient.callTool({
         name: "register_capability",

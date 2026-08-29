@@ -268,7 +268,7 @@ evidence, authenticated provenance, or external time.
 
 ---
 
-## 37 MCP tools
+## 38 MCP tools
 
 **Fleets**
 
@@ -313,6 +313,7 @@ evidence, authenticated provenance, or external time.
 | `recommend_route` | Advisory ranking for caller-supplied agent/runtime/model candidates, with hard privacy/capability filters and an opt-in near-reset tie-break |
 | `plan_speculative_backlog` | Pure projection of caller-approved speculative work, preserving route gates and explicitly leaving capacity unmodeled |
 | `compile_route_candidates` | Pure offline projection of sanitized manifest/observation snapshots; does not rank, persist, execute, authorize, wake, or contact providers |
+| `insight_caller_breakdown` | Read-only per-caller breakdown of the local RoutePlane `insight.jsonl` log; the producer-side `caller` field is staged on `wt/t_d94eb6f9`, so today every record lands in the `<untracked>` bucket — but the consumer is forward-compatible with the staged schema and surfaces `<untracked>` vs `<untracked_empty_field>` distinctly. Does not persist, execute, authorize, wake agents, contact providers, refresh budgets, reserve capacity, or spend. |
 | `record_routing_outcome` | Feed results back to improve routing |
 | `list_agents` | Discover 100+ premade agent personalities |
 | `get_health` / `ping` | Fleet health and liveness |
@@ -328,7 +329,7 @@ evidence, authenticated provenance, or external time.
 
 See [docs/discussions.md](docs/discussions.md) for the full quickstart, tool reference, and terminal-state precedence.
 
-That's 37. We counted twice this time.
+That's 38. We counted twice this time.
 
 RoutePlane catalog discovery is a separate package library and CLI, not an MCP
 tool: it fetches RoutePlane's fixed loopback model catalog and projects

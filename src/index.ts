@@ -100,6 +100,10 @@ import {
   type CompileRouteCandidatesInput,
 } from "./compile-route-candidates.js";
 import {
+  runInsightCallerBreakdown,
+  type InsightCallerBreakdownInput,
+} from "./insight-caller-breakdown.js";
+import {
   firstError,
   requireString,
   requirePresentString,
@@ -151,6 +155,7 @@ if (accessProfile.profile === "audit") {
 }
 const AUDIT_TOOL_NAMES: ReadonlySet<string> = new Set([
   "compile_route_candidates",
+  "insight_caller_breakdown",
   "ping",
   "plan_speculative_backlog",
   "recommend_route",
@@ -1359,6 +1364,39 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       annotations: { readOnlyHint: true, idempotentHint: true, destructiveHint: false, openWorldHint: false },
     },
     {
+      name: "insight_caller_breakdown",
+      description:
+        "Read-only per-caller breakdown of the local RoutePlane insight.jsonl. MeshFleet owns the consumer side of the routeplane insight schema (the producer-side `caller` field is staged on wt/t_d94eb6f9). Records with absent caller field are bucketed as <untracked>; records with caller=\"\" are bucketed as <untracked_empty_field> (a producer defect, since parse_caller_label rejects empty values). Use --caller to filter to one profile (e.g. \"solreign\"); the result always surfaces the full bucket list so an A2A peer can verify zero-records separately. Does not persist, execute, authorize, wake agents, contact providers, refresh budgets, reserve capacity, or spend.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          caller: {
+            type: "string",
+            minLength: 1,
+            maxLength: 64,
+            description:
+              "Optional exact-match caller filter. When set, the response populates `filtered` with the matching bucket.",
+          },
+          hours: {
+            type: "integer",
+            minimum: 0,
+            maximum: 8760,
+            default: 168,
+            description:
+              "Time window in hours back from `now_ms` (or wall-clock now). 0 disables the window — all retained records are considered.",
+          },
+          now_ms: {
+            type: "integer",
+            minimum: 0,
+            description:
+              "Override \"now\" for deterministic replays (the Solreign 7-day reproduction uses now_ms anchored to a fixed instant).",
+          },
+        },
+      },
+      annotations: { readOnlyHint: true, idempotentHint: true, destructiveHint: false, openWorldHint: false },
+    },
+    {
       name: "plan_speculative_backlog",
       description:
         "Pure, caller-approved speculative backlog projection. Does not persist, execute, authorize, wake agents, contact providers, poll, allocate capacity, schedule, spend, send, or publish.",
@@ -2143,6 +2181,70 @@ toolHandlers["compile_route_candidates"] = async (args) => {
 toolHandlers["plan_speculative_backlog"] = async (args) => {
   try {
     return jsonResult(planSpeculativeBacklog(args as PlanSpeculativeBacklogInput));
+  } catch (error) {
+    return jsonError(error instanceof Error ? error.message : String(error));
+  }
+};
+
+toolHandlers["insight_caller_breakdown"] = async (args) => {
+  const input = args as Record<string, unknown>;
+  const callerRaw = input.caller;
+  const hoursRaw = input.hours;
+  const nowMsRaw = input.now_ms;
+  const errors: string[] = [];
+  if (
+    callerRaw !== undefined &&
+    (typeof callerRaw !== "string" || callerRaw.length === 0)
+  ) {
+    errors.push(
+      "insight_caller_breakdown: 'caller' must be a non-empty string when supplied",
+    );
+  }
+  if (callerRaw !== undefined && typeof callerRaw === "string" && callerRaw.length > 64) {
+    errors.push(
+      "insight_caller_breakdown: 'caller' exceeds the 64-char parser ceiling (parse_caller_label rejects oversize)",
+    );
+  }
+  if (
+    hoursRaw !== undefined &&
+    (typeof hoursRaw !== "number" || !Number.isFinite(hoursRaw))
+  ) {
+    errors.push(
+      "insight_caller_breakdown: 'hours' must be a finite number when supplied",
+    );
+  }
+  if (
+    hoursRaw !== undefined &&
+    typeof hoursRaw === "number" &&
+    (hoursRaw < 0 || hoursRaw > 8760)
+  ) {
+    errors.push(
+      "insight_caller_breakdown: 'hours' must be in [0, 8760]",
+    );
+  }
+  if (
+    nowMsRaw !== undefined &&
+    (typeof nowMsRaw !== "number" || !Number.isFinite(nowMsRaw) || nowMsRaw < 0)
+  ) {
+    errors.push(
+      "insight_caller_breakdown: 'now_ms' must be a non-negative finite number when supplied",
+    );
+  }
+  if (errors.length > 0) {
+    return jsonError(errors.join("; "));
+  }
+  const payload: {
+    caller?: string;
+    hours?: number;
+    now_ms?: number;
+  } = {};
+  if (typeof callerRaw === "string") payload.caller = callerRaw;
+  if (typeof hoursRaw === "number") payload.hours = hoursRaw;
+  if (typeof nowMsRaw === "number") payload.now_ms = nowMsRaw;
+  try {
+    return jsonResult(
+      runInsightCallerBreakdown(payload as InsightCallerBreakdownInput),
+    );
   } catch (error) {
     return jsonError(error instanceof Error ? error.message : String(error));
   }
