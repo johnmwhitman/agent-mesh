@@ -38,6 +38,11 @@ import {
 } from "./event-stream.js";
 import { resolveEnv } from "./env.js";
 import { createA2AHttpHandler, type A2ATaskStatus } from "./a2a/http.js";
+import {
+  createRoutePlaneProviderHandler,
+  createRoutePlaneProviderHealthHandler,
+  type RoutePlaneProviderEndpointMountOptions,
+} from "./routeplane-provider-endpoint.js";
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -65,6 +70,14 @@ export interface SseServerOptions {
     readonly submitTask: (input: { readonly text: string; readonly metadata?: Record<string, unknown> }) => Promise<{ readonly fleetId: string; readonly agentId: string }>;
     readonly getTaskStatus: (fleetId: string, agentId: string) => A2ATaskStatus | undefined;
   };
+  /**
+   * Optional RoutePlane provider endpoint (the `routeplane/intelligent-router`
+   * profile entry point). When provided, the SSE server mounts
+   * `POST /v1/chat/completions` and `GET /v1/router/health` on the same
+   * loopback listener. Disabled (not mounted) by default — operators must
+   * opt in to expose the seam.
+   */
+  readonly routeplaneProvider?: RoutePlaneProviderEndpointMountOptions;
 }
 
 export function ssePort(): number {
@@ -268,6 +281,16 @@ export function startSseServer(options: SseServerOptions = {}): Promise<{ host: 
         getTaskStatus: options.a2a.getTaskStatus,
       })
       : undefined;
+    // MeshFleet provider endpoint — opt-in. Profiles that set
+    // `model: routeplane/intelligent-router` connect to this URL. Auth
+    // is gated by the same MESHFLEET_SSE_TOKEN the rest of the SSE
+    // server uses, so the boundary stays aligned.
+    const providerHandler = options.routeplaneProvider
+      ? createRoutePlaneProviderHandler(options.routeplaneProvider)
+      : undefined;
+    const providerHealthHandler = options.routeplaneProvider
+      ? createRoutePlaneProviderHealthHandler(options.routeplaneProvider)
+      : undefined;
     const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       // CORS preflight — permissive for local dev
       if (req.method === "OPTIONS") {
@@ -296,6 +319,16 @@ export function startSseServer(options: SseServerOptions = {}): Promise<{ host: 
 
       if (a2aHandler && (url.pathname.startsWith("/a2a/") || url.pathname.startsWith("/.well-known/agent-card.json"))) {
         a2aHandler(req, res);
+        return;
+      }
+
+      if (providerHealthHandler && url.pathname === "/v1/router/health") {
+        void providerHealthHandler(req, res);
+        return;
+      }
+
+      if (providerHandler && url.pathname === "/v1/chat/completions") {
+        void providerHandler(req, res);
         return;
       }
 
