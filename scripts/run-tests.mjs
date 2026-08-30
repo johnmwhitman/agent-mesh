@@ -7,8 +7,25 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
 import { spawnSync } from "node:child_process";
+import { findAbiMismatch, abiRefusal } from "./lib/abi-preflight.mjs";
 import { findLedgerEnvOverrides, ledgerEnvRefusal } from "./lib/ledger-env-preflight.mjs";
 import { classifyTestRun, focusedNodeArgs } from "./lib/focused-test-class.mjs";
+
+// Native-addon ABI preflight. FIRST, before ledger-env or any scan — the addon is loaded
+// by tests that touch the SQLite ledger, and a NODE_MODULE_VERSION mismatch (running under
+// Node 26 against the ABI-137 addon, or vice versa) explodes partway through the suite with
+// an opaque error naming an innocent test file. The probe here catches the drift on the
+// first executable line of the runner and exits with a refusal that names the current vs
+// expected Node/ABI values and points at the repo-pinned Node 24 runner — NOT at rebuilding
+// the addon under the current runtime, which would mask the drift. Mirrors the runtime
+// guard in profiles/meshfleet/scripts/fleet_gate.sh (cron-layer preflight), but at the
+// canonical verification path used by both `npm test` and `npm run typecheck`/`npm run
+// build` via the `pre*` lifecycle hooks in package.json.
+const abiFailure = findAbiMismatch();
+if (abiFailure !== null) {
+  console.error(abiRefusal(abiFailure));
+  process.exit(1);
+}
 
 // Ledger-env preflight. FIRST, before any scan — a ledger path in the environment outranks
 // the isolation the tests install for themselves, and the suite then fails in files the
