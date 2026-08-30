@@ -723,7 +723,10 @@ const V: Vector[] = [
 //                                    distinct from HEAD when something
 //                                    is staged or simply edited)
 //
-// Either side naming a vector the generator lacks fails closed.
+// Either side naming a vector the generator lacks fails closed. A missing
+// on-disk manifest fails closed too — there is no implicit bootstrap; the
+// only sanctioned path to seed the corpus is the documented migration
+// path, not normal regeneration.
 // --------------------------------------------------------------------------
 const COMMITTED_MANIFEST_PATH = "test/fixtures/corpus/manifest.json";
 type MinimalManifest = { vectors: { id: string }[] };
@@ -744,25 +747,37 @@ try {
 
 let workingTreeManifest: MinimalManifest | null = null;
 try {
-  const wtText = readFileSync(join(OUT, "manifest.json"), "utf-8");
-  const headText = JSON.stringify(committedManifest);
-  if (wtText.trim() !== headText.trim()) {
-    workingTreeManifest = JSON.parse(wtText) as MinimalManifest;
-  }
-} catch {
-  // Working-tree file missing or unreadable. The gate falls back to the
-  // committed state, which is the safer default — a WT deletion that leaves
-  // the file unreadable still leaves the committed manifest authoritative.
+  workingTreeManifest = JSON.parse(readFileSync(join(OUT, "manifest.json"), "utf-8")) as MinimalManifest;
+} catch (err) {
+  // FAIL CLOSED: a missing or unreadable on-disk manifest is not a signal
+  // to fall back to HEAD — it is exactly the regression this gate exists
+  // to catch (a `git rm manifest.json` + regenerate must not silently
+  // produce a smaller corpus). Refuse before any write.
+  console.error(
+    `MISSING CORPUS MANIFEST: cannot read working-tree manifest at ${join(OUT, "manifest.json")} — ` +
+      `refusing to regenerate without the on-disk manifest. ` +
+      `Restore the tracked file (e.g. git checkout -- ${COMMITTED_MANIFEST_PATH}) or seed the corpus ` +
+      `via the documented migration path; normal regeneration never bootstraps a manifest. ` +
+      `Underlying error: ${(err as Error).message}`,
+  );
+  process.exit(1);
 }
 
-const effectiveCommit: MinimalManifest = workingTreeManifest ?? (committedManifest as MinimalManifest);
+// True ID union: a regression can live on either side. A narrowed WT
+// manifest must not hide ids preserved only by HEAD, and a WT phantom
+// (in-flight commit) must not escape because HEAD is narrower.
 {
   const generatedIds = new Set(V.map((v) => v.id));
-  const missing = effectiveCommit.vectors.map((v) => v.id).filter((id) => !generatedIds.has(id));
+  const fromHead = committedManifest.vectors.map((v) => v.id).filter((id) => !generatedIds.has(id));
+  const fromWT = workingTreeManifest.vectors.map((v) => v.id).filter((id) => !generatedIds.has(id));
+  const missing = [...new Set([...fromHead, ...fromWT])];
   if (missing.length > 0) {
-    const where = workingTreeManifest ? "git working-tree manifest" : "git HEAD manifest";
+    const sources = [
+      fromHead.length > 0 ? "git HEAD manifest" : null,
+      fromWT.length > 0 ? "git working-tree manifest" : null,
+    ].filter(Boolean).join(" and ");
     console.error(
-      `INCOMPLETE CORPUS INVENTORY: canonical generator is missing ${missing.length} committed manifest ${missing.length === 1 ? "entry" : "entries"} (sourced from ${where}):\n` +
+      `INCOMPLETE CORPUS INVENTORY: canonical generator is missing ${missing.length} committed manifest ${missing.length === 1 ? "entry" : "entries"} (sourced from ${sources}):\n` +
         missing.map((id) => `  - ${id}`).join("\n") +
         `\nAdd an entry to V[] in scripts/generate-corpus.ts before regenerating. ` +
         `This gate reads the union of HEAD and the working tree so a regression cannot silently delete a pinned check.`,

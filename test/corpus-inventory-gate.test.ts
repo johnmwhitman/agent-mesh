@@ -27,7 +27,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawnSync, execFileSync } from "node:child_process";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { existsSync, readFileSync, writeFileSync, renameSync, mkdtempSync, rmSync, mkdirSync, copyFileSync, readdirSync } from "node:fs";
@@ -128,6 +128,154 @@ test("inventory gate: a phantom id in the committed manifest fails closed before
     // The real corpus is untouched (the only state this test is on the
     // hook for).
     assert.ok(existsSync(join(repoRoot, "test/fixtures/corpus/manifest.json")), "real corpus manifest is missing");
+  } finally {
+    rmSync(scratchDir, { recursive: true, force: true, maxRetries: 5 });
+  }
+});
+
+test("inventory gate: a missing working-tree manifest fails closed before any write (no silent bootstrap)", () => {
+  // Regression pin for Sol P2 follow-up, 2026-08-28: the previous gate
+  // caught the readFileSync error and fell back to the HEAD manifest,
+  // meaning a `git rm test/fixtures/corpus/manifest.json` + regenerate
+  // silently produced a new (potentially narrowed) corpus instead of
+  // failing. The gate must refuse with exit 1 and leave the scratch
+  // untouched. Normal regeneration never bootstraps a manifest.
+  const scratchDir = mkdtempSync(join(tmpdir(), "corpus-missing-manifest-"));
+  try {
+    for (const entry of readdirSync(join(repoRoot, "test/fixtures/corpus"))) {
+      copyFileSync(join(repoRoot, "test/fixtures/corpus", entry), join(scratchDir, entry));
+    }
+    const manifestPath = join(scratchDir, "manifest.json");
+    const preManifest = readFileSync(manifestPath, "utf-8");
+    assert.ok(preManifest.length > 0, "seeded manifest should be non-empty");
+    renameSync(manifestPath, join(scratchDir, "manifest.json.sidelined"));
+
+    const result = runGeneratorInScratchDir(scratchDir);
+    assert.equal(result.exit, 1, `expected WT-missing gate refusal, got exit=${result.exit}.\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
+    assert.match(
+      result.stderr + result.stdout,
+      /MISSING CORPUS MANIFEST/,
+      "expected MISSING CORPUS MANIFEST message",
+    );
+    assert.match(
+      result.stderr + result.stdout,
+      /never bootstraps a manifest/,
+      "expected the no-bootstrap rule to be stated",
+    );
+
+    // The sidelined manifest is the only difference; the generator wrote nothing.
+    const names = readdirSync(scratchDir).sort();
+    assert.ok(names.includes("manifest.json.sidelined"), "sidelined manifest vanished");
+    assert.ok(!names.includes("manifest.json"), "generator bootstrapped a manifest it should have refused to write");
+    assert.ok(!existsSync(join(repoRoot, "test/fixtures/corpus", "manifest.json.sidelined")), "leak into real corpus");
+  } finally {
+    rmSync(scratchDir, { recursive: true, force: true, maxRetries: 5 });
+  }
+});
+
+test("inventory gate: a HEAD-only phantom id fails closed even when the working-tree manifest is narrower", () => {
+  // True-union regression pin, 2026-08-28: the previous gate coalesced —
+  // if the WT manifest text equalled HEAD's it read only HEAD, meaning a
+  // WT-side narrowing was invisible; conversely the preservation target
+  // must be the ID UNION of both sides. A phantom living ONLY in HEAD
+  // (committed history) while the WT manifest is narrower must still
+  // fail closed, and a WT-only phantom must fail closed — the WT side is
+  // pinned by the phantom-in-scratch test above. This test pins the HEAD
+  // side without ever mutating the real repo: build a SELF-CONTAINED git
+  // scratch repo (fresh `git init` + one baseline commit whose tree
+  // carries the real corpus manifest, + git's own object store — NOT a
+  // copy of the real `.git`, because this worktree's `.git` is a pointer
+  // file into the real object store and committing through it mutates
+  // the real branch, which is exactly what this gate exists to forbid).
+  // The scratch repo gets a HEAD-only phantom commit; the generator runs
+  // with cwd=scratch against a narrower WT manifest. The gate's HEAD
+  // read + union must refuse. Control: strip the phantom from HEAD
+  // (scratch-side `reset --hard HEAD~1`) and the same run exits 0,
+  // proving the refusal came from the gate, not the scaffolding.
+  //
+  // A real project checkout must be available in the scratch so
+  // `node --import tsx` can resolve; we symlink the real node_modules
+  // (read-only usage) into the scratch.
+  const scratchDir = mkdtempSync(join(tmpdir(), "corpus-head-only-scratch-"));
+  try {
+    const realCorpus = join(repoRoot, "test/fixtures/corpus");
+    const corpusRel = "test/fixtures/corpus";
+    mkdirSync(join(scratchDir, corpusRel), { recursive: true });
+    for (const entry of readdirSync(realCorpus)) {
+      copyFileSync(join(realCorpus, entry), join(scratchDir, corpusRel, entry));
+    }
+    // tsx + project deps resolvable from the scratch cwd.
+    execFileSync("ln", ["-s", join(repoRoot, "node_modules"), join(scratchDir, "node_modules")]);
+
+    const gitInScratch = (args: string[]) =>
+      execFileSync("git", args, { cwd: scratchDir, encoding: "utf-8", env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", HOME: scratchDir } });
+    gitInScratch(["init", "-q"]);
+    gitInScratch(["config", "user.email", "corpus-gate-test@scratch.invalid"]);
+    gitInScratch(["config", "user.name", "corpus-gate-test"]);
+
+    // Baseline commit: clean manifest (matches the real corpus).
+    const manifestPath = join(scratchDir, corpusRel, "manifest.json");
+    gitInScratch(["add", corpusRel]);
+    gitInScratch(["commit", "-q", "-m", "baseline: clean corpus manifest", "--no-verify"]);
+
+    // HEAD-only phantom commit.
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
+    manifest.vectors.push({
+      id: "phantom-head-only-by-gate",
+      primary: "phantom.never_emitted",
+      classification: "caught",
+      lie: "phantom",
+      ops: [],
+      expected_ok: false,
+      expected_findings: [],
+    });
+    writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
+    gitInScratch(["add", `${corpusRel}/manifest.json`]);
+    gitInScratch(["commit", "-q", "-m", "scratch: inject HEAD-only phantom", "--no-verify"]);
+
+    // Narrow the WT manifest (strip the phantom) — phantom lives ONLY in
+    // the scratch repo's HEAD now.
+    const narrowed = JSON.parse(readFileSync(manifestPath, "utf-8"));
+    narrowed.vectors = narrowed.vectors.filter((v: any) => v.id !== "phantom-head-only-by-gate");
+    writeFileSync(manifestPath, JSON.stringify(narrowed, null, 2) + "\n");
+
+    // OUT dir mirrors the narrowed WT manifest + the real fixture files.
+    const outDir = join(scratchDir, "corpus-out");
+    mkdirSync(outDir, { recursive: true });
+    for (const entry of readdirSync(realCorpus)) {
+      if (entry === "manifest.json") continue;
+      copyFileSync(join(realCorpus, entry), join(outDir, entry));
+    }
+    writeFileSync(join(outDir, "manifest.json"), readFileSync(manifestPath, "utf-8"));
+
+    const runFromScratch = () =>
+      spawnSync(process.execPath, ["--import", "tsx", SCRIPT], {
+        cwd: scratchDir,
+        encoding: "utf-8",
+        timeout: 120_000,
+        env: { ...process.env, MESHFLEET_CORPUS_OUT: outDir },
+      });
+
+    const negative = runFromScratch();
+    assert.equal(negative.status ?? 1, 1, `expected HEAD-only-phantom refusal, got exit=${negative.status}.\nstdout:\n${negative.stdout}\nstderr:\n${negative.stderr}`);
+    assert.match(
+      (negative.stderr ?? "") + (negative.stdout ?? ""),
+      /INCOMPLETE CORPUS INVENTORY: canonical generator is missing 1 committed manifest entry \(sourced from git HEAD manifest\)/,
+      "expected INCOMPLETE CORPUS INVENTORY sourced from HEAD",
+    );
+    assert.match((negative.stderr ?? "") + (negative.stdout ?? ""), /phantom-head-only-by-gate/, "expected the HEAD-only id named");
+
+    // Control: strip the phantom from HEAD too (scratch-side only), keep
+    // the same narrowed WT, and the run must exit 0 — proving the refusal
+    // above was the gate, not the scaffold.
+    gitInScratch(["reset", "--hard", "-q", "HEAD~1"]);
+    // reset restored the committed (clean) manifest over the narrowed WT;
+    // re-apply the narrowing so WT matches outDir.
+    const cleanManifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
+    writeFileSync(manifestPath, JSON.stringify(cleanManifest, null, 2) + "\n");
+    writeFileSync(join(outDir, "manifest.json"), readFileSync(manifestPath, "utf-8"));
+    const control = runFromScratch();
+    assert.equal(control.status ?? 1, 0, `control run (no phantom anywhere) should pass; got exit=${control.status}.\nstdout:\n${control.stdout}\nstderr:\n${control.stderr}`);
   } finally {
     rmSync(scratchDir, { recursive: true, force: true, maxRetries: 5 });
   }
