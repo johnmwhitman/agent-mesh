@@ -106,7 +106,7 @@ Expected: all 12 agents complete within 5 minutes (no 30-minute hangs).
 - Investigation note: `docs/ops/T-E9207937-BURST-SPAWN-INVESTIGATION-2026-08-29.md`
 - Root cause location: `src/lifecycle-execution.ts:314` (synchronous launch loop), `src/lifecycle-execution.ts:468` (fire-and-forget runtime.start)
 - Timeout config: `src/spawn-config.ts:22` (DEFAULT_AGENT_TIMEOUT_MS = 30 * 60 * 1000)
-- Incident evidence: `/Users/johnwhitman/AI/agents/.hermes/kanban/workspaces/t_15b01212/R2-EVIDENCE.md`
+- Incident evidence: kanban workspace `t_15b01212/R2-EVIDENCE.md` (session-local; not published)
 
 ## Lane ownership
 

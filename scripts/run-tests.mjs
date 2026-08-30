@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
 import { spawnSync } from "node:child_process";
 import { findLedgerEnvOverrides, ledgerEnvRefusal } from "./lib/ledger-env-preflight.mjs";
+import { classifyTestRun, focusedNodeArgs } from "./lib/focused-test-class.mjs";
 
 // Ledger-env preflight. FIRST, before any scan — a ledger path in the environment outranks
 // the isolation the tests install for themselves, and the suite then fails in files the
@@ -21,6 +22,24 @@ const ledgerEnvOverrides = findLedgerEnvOverrides(process.env);
 if (ledgerEnvOverrides.length > 0) {
   console.error(ledgerEnvRefusal(ledgerEnvOverrides));
   process.exit(1);
+}
+
+// Test class selection must remain before the full-suite lease and before test discovery.
+// The focused class is a closed allowlist of read-only tests: it has no shared lock, no
+// meshfleet-suite-summary temp dir, and no full-suite HANDOFF baseline measurement.
+let requestedRun;
+try {
+  requestedRun = classifyTestRun(process.argv.slice(2));
+} catch (err) {
+  console.error(err.message);
+  process.exit(1);
+}
+
+if (requestedRun.testClass === "focused") {
+  const focusedResult = spawnSync(process.execPath, focusedNodeArgs(requestedRun.files), {
+    stdio: "inherit",
+  });
+  process.exit(focusedResult.status ?? 1);
 }
 
 // Every directory whose `*.test.ts` files this runner executes. `npm test` is the
