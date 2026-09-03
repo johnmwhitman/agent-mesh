@@ -501,6 +501,50 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
     if (!capAgent) {
       warning("capability.unknown_agent", effectiveId, `capability registered for ${effectiveId}, which this ledger has not registered as an agent`);
     } else if (
+      // Tampered-ledger shape: a capability with a fleet_id that is not a
+      // non-empty string. `_registerCapability` (src/core.ts) refuses a blank
+      // fleetId at the write — `typeof input.fleetId !== "string" ||
+      // input.fleetId.trim().length === 0` throws — so this row could not
+      // have been produced by the published tool. Only a tampered ledger
+      // (hand-edit, partial import, older build) holds one.
+      //
+      // Severity is `error`, parallel to the other `caught` siblings
+      // (`capability.missing_agent_id`, `capability.unroutable`):
+      //   - the write path rejects it (contract violation by the writer);
+      //   - `isRoutableCapability` does NOT check `fleet_id` (only
+      //     `agent_id`/`role`/`skills`), so `routeWork` will happily offer
+      //     this row as a dispatch target even though the row names no
+      //     fleet for the work to happen in. That is an overclaim: the
+      //     ledger asserts "this agent can do work" while the row it
+      //     attaches the claim to has no fleet to point at.
+      //   - and it is `audit-blindspot-lens-tick02`'s complement to
+      //     `capability.orphan_fleet` (tick 01): tick 01 deliberately
+      //     gated on `c.fleet_id.length > 0` so the empty case stayed in
+      //     scope for this tick, and the code comment above explicitly
+      //     named tick 02 as the destination.
+      //
+      // Both empty string AND non-string are caught here (unified: anything
+      // not a non-empty string is a malformed fleet_id). The write path's
+      // guard is `trim().length === 0`, which is slightly stricter; we use
+      // `typeof === "string" && length > 0` so the verifier's own gate
+      // stays character-identical to the readers above (which dereference
+      // `data.fleets[c.fleet_id]`, and a non-string key would coerce
+      // silently to "null"/"undefined" and miss this row entirely).
+      //
+      // `continue` rather than `else if` so the orphan-fleet and
+      // fleet-mismatch arms below stay silent for a row that has already
+      // been declared malformed — a tampered row should not also be
+      // expected to fail a SECOND check on the same field, the second
+      // finding is the same lie and would only dilute the first.
+      typeof c.fleet_id !== "string" || c.fleet_id.length === 0
+    ) {
+      error(
+        "capability.empty_fleet_id",
+        key,
+        `capability row "${key}" has a fleet_id of ${JSON.stringify(c.fleet_id)} — a non-empty string is required (the write path's register_capability tool rejects a blank fleetId; this row could only have arrived through a tampered ledger, and routeWork's isRoutableCapability predicate does not look at fleet_id, so the row will be offered as a dispatch target while naming no fleet for the work to happen in)`
+      );
+      continue;
+    } else if (
       // Symmetric to `agent.orphan_fleet` and `message.orphan_fleet`: the
       // capability carries a fleet_id that nothing in this ledger vouches for.
       // The write path takes the fleet id from the CALLER, not from the agent
@@ -512,16 +556,14 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
       // cross-attachment legitimately places a capability row in a fleet this
       // ledger does not hold, and an auditor's eye is the right discriminator.
       //
-      // Scope of THIS tick: non-held but syntactically valid fleet_id. The
-      // `capability.fleet_mismatch` branch below intentionally gates on a
-      // non-empty fleet id, and the write path throws on an empty one — so
-      // there is no live shape where an empty fleet_id coexists with a held
-      // agent and a held fleet for it to "mismatch" against, only tampered
-      // ledgers. Tampered-ledger handling for empty fleet_id is a separate
-      // lens pass (audit-blindspot-lens-tick02), not folded in here, so the
-      // scope of this tick stays bounded to one vector class.
-      typeof c.fleet_id === "string" &&
-      c.fleet_id.length > 0 &&
+      // Scope of THIS tick: non-held but syntactically valid fleet_id (a
+      // non-empty string). The empty/non-string case is handled by the
+      // `capability.empty_fleet_id` arm above (audit-blindspot-lens-tick02),
+      // and the `capability.fleet_mismatch` arm below intentionally gates
+      // on a non-empty fleet id for the same reason — there is no live
+      // shape where an empty fleet_id coexists with a held agent and a
+      // held fleet for it to "mismatch" against, only tampered ledgers,
+      // and those are already declared malformed by the prior arm.
       data.fleets[c.fleet_id] === undefined
     ) {
       warning(
@@ -560,6 +602,15 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
       // check was: 0 of the operator's 443 live capability rows and 0 of the 78
       // corpus fixtures. 442 of those 443 name a fleet this ledger holds, so the
       // gate costs essentially no coverage on real data.
+      //
+      // Note: the empty/non-string `fleet_id` case is already declared
+      // malformed by the `capability.empty_fleet_id` arm above and short-
+      // circuited with `continue`, so by the time we reach this branch the
+      // `fleet_id` is GUARANTEED to be a non-empty string. The explicit
+      // `typeof === "string" && length > 0` guard kept below mirrors the
+      // siblings so this arm stays robust to future refactors that remove
+      // the prior `continue` (an overclaim either way is one finding, not
+      // two on the same row).
       typeof c.fleet_id === "string" &&
       c.fleet_id.length > 0 &&
       data.fleets[c.fleet_id] !== undefined &&

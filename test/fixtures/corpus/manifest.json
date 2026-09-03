@@ -69,7 +69,7 @@
       "id": "agent-completed-before-started",
       "primary": "agent.tampered_timestamp",
       "classification": "caught",
-      "lie": "an agent finished before it started — a duration fabricated from an impossible interval",
+      "lie": "an agent finished before it started \u2014 a duration fabricated from an impossible interval",
       "ops": [
         {
           "op": "set",
@@ -136,7 +136,7 @@
       "id": "inbox-acked-still-queued",
       "primary": "inbox.acked_still_queued",
       "classification": "caught",
-      "lie": "a message is simultaneously acknowledged and still pending — two contradictory states of the same delivery",
+      "lie": "a message is simultaneously acknowledged and still pending \u2014 two contradictory states of the same delivery",
       "ops": [
         {
           "op": "push",
@@ -157,7 +157,7 @@
       "id": "message-ack-overclaim",
       "primary": "message.ack_flag_mismatch",
       "classification": "caught",
-      "lie": "the message claims it was acknowledged while no recipient receipt supports it — the headline overclaim",
+      "lie": "the message claims it was acknowledged while no recipient receipt supports it \u2014 the headline overclaim",
       "ops": [
         {
           "op": "delete",
@@ -307,7 +307,7 @@
       "id": "receipt-key-mismatch",
       "primary": "receipt.key_mismatch",
       "classification": "caught",
-      "lie": "the receipt's key attributes the ack to a3 while its body attributes it to a2 — attribution smuggling past the idempotency guarantee",
+      "lie": "the receipt's key attributes the ack to a3 while its body attributes it to a2 \u2014 attribution smuggling past the idempotency guarantee",
       "ops": [
         {
           "op": "set",
@@ -383,7 +383,7 @@
       "id": "receipt-non-recipient-ack",
       "primary": "receipt.non_recipient_ack",
       "classification": "caught",
-      "lie": "a3 is on record as having acknowledged a message addressed only to a2 — an ack asserting a delivery that never happened",
+      "lie": "a3 is on record as having acknowledged a message addressed only to a2 \u2014 an ack asserting a delivery that never happened",
       "ops": [
         {
           "op": "set",
@@ -436,7 +436,7 @@
       "id": "capability-unroutable",
       "primary": "capability.unroutable",
       "classification": "caught",
-      "lie": "a capability row is stored and reported healthy while routing silently drops it — write, route and verify disagreeing",
+      "lie": "a capability row is stored and reported healthy while routing silently drops it \u2014 write, route and verify disagreeing",
       "ops": [
         {
           "op": "set",
@@ -462,7 +462,7 @@
       "id": "ratification-orphan-proposal",
       "primary": "ratification.orphan_proposal",
       "classification": "caught",
-      "lie": "a council ratified a proposal whose text is not in the ledger — a decision with no motion",
+      "lie": "a council ratified a proposal whose text is not in the ledger \u2014 a decision with no motion",
       "ops": [
         {
           "op": "set",
@@ -657,7 +657,7 @@
       "id": "ratification-vote-seq-gap",
       "primary": "ratification.vote_seq_gap",
       "classification": "caught",
-      "lie": "a ballot in the recast chain is missing — a vote was cast and then removed from history",
+      "lie": "a ballot in the recast chain is missing \u2014 a vote was cast and then removed from history",
       "ops": [
         {
           "op": "set",
@@ -804,7 +804,7 @@
       "id": "capability-orphan-fleet",
       "primary": "capability.orphan_fleet",
       "classification": "anomaly",
-      "lie": "a capability row names a fleet the agent is held in but the ledger does not hold at all — symmetric to agent.orphan_fleet / message.orphan_fleet, and named by audit-blindspot-lens-tick01 (2026-09-03); warning rather than error because cross-attached fleets legitimately advertise capabilities this ledger cannot resolve",
+      "lie": "a capability row names a fleet the agent is held in but the ledger does not hold at all \u2014 symmetric to agent.orphan_fleet / message.orphan_fleet, and named by audit-blindspot-lens-tick01 (2026-09-03); warning rather than error because cross-attached fleets legitimately advertise capabilities this ledger cannot resolve",
       "ops": [
         {
           "op": "set",
@@ -829,10 +829,38 @@
       ]
     },
     {
+      "id": "capability-empty-fleet-id",
+      "primary": "capability.empty_fleet_id",
+      "classification": "caught",
+      "lie": "a capability row has an empty fleet_id \u2014 the published register_capability tool throws on a blank fleetId, so this row could only have arrived through a tampered ledger, and routeWork's isRoutableCapability predicate does not look at fleet_id, so the row will be offered as a dispatch target while naming no fleet for the work to happen in; complement to capability.orphan_fleet, named by audit-blindspot-lens-tick02 (2026-09-03)",
+      "ops": [
+        {
+          "op": "set",
+          "path": "capabilities|a2",
+          "value": {
+            "agent_id": "a2",
+            "fleet_id": "",
+            "role": "Reviewer",
+            "skills": [
+              "x"
+            ]
+          }
+        }
+      ],
+      "expected_ok": false,
+      "expected_findings": [
+        {
+          "severity": "error",
+          "check": "capability.empty_fleet_id",
+          "subject": "a2"
+        }
+      ]
+    },
+    {
       "id": "capability-fleet-mismatch",
       "primary": "capability.fleet_mismatch",
       "classification": "anomaly",
-      "lie": "a capability places its agent in a fleet this ledger holds, while that agent's own row names a different held fleet — nothing is absent, the two records simply disagree",
+      "lie": "a capability places its agent in a fleet this ledger holds, while that agent's own row names a different held fleet \u2014 nothing is absent, the two records simply disagree",
       "ops": [
         {
           "op": "set",
@@ -898,7 +926,7 @@
       "id": "inbox-unknown-agent",
       "primary": "inbox.unknown_agent",
       "classification": "anomaly",
-      "lie": "work is queued for an agent that does not exist — an undeliverable item nothing would ever surface",
+      "lie": "work is queued for an agent that does not exist \u2014 an undeliverable item nothing would ever surface",
       "ops": [
         {
           "op": "set",
@@ -926,7 +954,7 @@
       "id": "message-ack-underclaim",
       "primary": "message.ack_flag_mismatch",
       "classification": "anomaly",
-      "lie": "the flag says unacknowledged while every recipient receipt says otherwise — surprising, but it claims LESS than the records support",
+      "lie": "the flag says unacknowledged while every recipient receipt says otherwise \u2014 surprising, but it claims LESS than the records support",
       "ops": [
         {
           "op": "set",
@@ -1054,7 +1082,7 @@
       "id": "fleet-unreconciled-status",
       "primary": "fleet.unreconciled_status",
       "classification": "anomaly",
-      "lie": "the fleet still projects RUNNING though every one of its agents has terminated — a stale projection, not a forged one",
+      "lie": "the fleet still projects RUNNING though every one of its agents has terminated \u2014 a stale projection, not a forged one",
       "ops": [
         {
           "op": "set",
@@ -1079,7 +1107,7 @@
       "id": "fleet-sealed-with-live-agents",
       "primary": "fleet.sealed_with_live_agents",
       "classification": "caught",
-      "lie": "the fleet is sealed COMPLETE while one of its own agents is still running — it claims work that its own rows say never finished",
+      "lie": "the fleet is sealed COMPLETE while one of its own agents is still running \u2014 it claims work that its own rows say never finished",
       "ops": [
         {
           "op": "set",
@@ -1125,7 +1153,7 @@
       "id": "fleet-invalid-created-at",
       "primary": "fleet.invalid_timestamp",
       "classification": "caught",
-      "lie": "the fleet's own created_at is not a finite number — and it is the anchor its agents' and messages' lifecycle comparisons are made against, so while it is unreadable those comparisons silently pass",
+      "lie": "the fleet's own created_at is not a finite number \u2014 and it is the anchor its agents' and messages' lifecycle comparisons are made against, so while it is unreadable those comparisons silently pass",
       "ops": [
         {
           "op": "set",
@@ -1167,7 +1195,7 @@
       "id": "message-key-mismatch",
       "primary": "message.key_mismatch",
       "classification": "caught",
-      "lie": "the message's map key and the id in its own body disagree — receipts join on one, inboxes on the other, so one message reads as two different rows",
+      "lie": "the message's map key and the id in its own body disagree \u2014 receipts join on one, inboxes on the other, so one message reads as two different rows",
       "ops": [
         {
           "op": "set",
@@ -1214,7 +1242,7 @@
       "id": "message-vacuous-ack",
       "primary": "message.vacuous_ack",
       "classification": "caught",
-      "lie": "the message claims ACKNOWLEDGED while addressing nobody — `every` over an empty recipient set is vacuously true, so the claim rests on no delivery evidence at all",
+      "lie": "the message claims ACKNOWLEDGED while addressing nobody \u2014 `every` over an empty recipient set is vacuously true, so the claim rests on no delivery evidence at all",
       "ops": [
         {
           "op": "set",
@@ -1239,7 +1267,7 @@
       "id": "inbox-non-recipient",
       "primary": "inbox.non_recipient",
       "classification": "caught",
-      "lie": "a message is queued for an agent it was never addressed to — the dual of a non-recipient ack, made through the queue instead of a receipt",
+      "lie": "a message is queued for an agent it was never addressed to \u2014 the dual of a non-recipient ack, made through the queue instead of a receipt",
       "ops": [
         {
           "op": "set",
@@ -1262,7 +1290,7 @@
       "id": "fleet-sealed-lattice-mismatch",
       "primary": "fleet.sealed_lattice_mismatch",
       "classification": "caught",
-      "lie": "the fleet is sealed COMPLETE while one of its agents FAILED — it claims a success its own rows deny",
+      "lie": "the fleet is sealed COMPLETE while one of its agents FAILED \u2014 it claims a success its own rows deny",
       "ops": [
         {
           "op": "set",
@@ -1283,7 +1311,7 @@
       "id": "fleet-sealed-over-interrupted",
       "primary": "fleet.sealed_lattice_mismatch",
       "classification": "caught",
-      "lie": "the fleet is sealed COMPLETE over an interrupted agent — the lattice says abandoned, which is the status that exists precisely so this is not recorded as success",
+      "lie": "the fleet is sealed COMPLETE over an interrupted agent \u2014 the lattice says abandoned, which is the status that exists precisely so this is not recorded as success",
       "ops": [
         {
           "op": "set",
@@ -1304,7 +1332,7 @@
       "id": "fleet-sealed-failed-over-complete",
       "primary": "fleet.sealed_lattice_mismatch",
       "classification": "anomaly",
-      "lie": "the fleet is sealed FAILED though every agent completed — it asserts an error that never occurred, but claims LESS than its records support, so it warns rather than errors",
+      "lie": "the fleet is sealed FAILED though every agent completed \u2014 it asserts an error that never occurred, but claims LESS than its records support, so it warns rather than errors",
       "ops": [
         {
           "op": "set",
@@ -1377,7 +1405,7 @@
       "id": "ratification-invalid-quorum",
       "primary": "ratification.invalid_quorum",
       "classification": "caught",
-      "lie": "quorum is 0, so RATIFIED recomputes as fully supported over zero ballots — the status mismatch that would otherwise warn becomes completely silent",
+      "lie": "quorum is 0, so RATIFIED recomputes as fully supported over zero ballots \u2014 the status mismatch that would otherwise warn becomes completely silent",
       "ops": [
         {
           "op": "set",
@@ -1398,7 +1426,7 @@
       "id": "agent-requested-model-unobserved",
       "primary": "agent.requested_model_unobserved",
       "classification": "caught",
-      "lie": "a complete agent row carries a persisted `requested_model` selection but its observed `runtime_model` banner is absent — the selection's claim that this agent ran under the requested model rests on no banner capture",
+      "lie": "a complete agent row carries a persisted `requested_model` selection but its observed `runtime_model` banner is absent \u2014 the selection's claim that this agent ran under the requested model rests on no banner capture",
       "ops": [
         {
           "op": "set",
@@ -1419,7 +1447,7 @@
       "id": "agent-requested-model-mismatch",
       "primary": "agent.requested_model_mismatch",
       "classification": "caught",
-      "lie": "a complete agent row records a `requested_model` whose observed `runtime_model` is a different model — the selection and the captured banner contradict each other under the same runtimeModelsMatch() rule the spawn classifier uses",
+      "lie": "a complete agent row records a `requested_model` whose observed `runtime_model` is a different model \u2014 the selection and the captured banner contradict each other under the same runtimeModelsMatch() rule the spawn classifier uses",
       "ops": [
         {
           "op": "set",
@@ -1475,7 +1503,7 @@
       "id": "agent-stopped-reason-while-live",
       "primary": "agent.stopped_reason_while_live",
       "classification": "caught",
-      "lie": "an agent row claims it has not finished and, in the same breath, that it is known why it stopped — a settle-only attribution on a live row",
+      "lie": "an agent row claims it has not finished and, in the same breath, that it is known why it stopped \u2014 a settle-only attribution on a live row",
       "ops": [
         {
           "op": "set",
@@ -1510,7 +1538,7 @@
       "id": "agent-result-contract-while-live",
       "primary": "agent.result_contract_while_live",
       "classification": "caught",
-      "lie": "an agent row carries a declared settle outcome while its own status says it has not settled — the value callers are told to trust as the stronger signal, on a run that has not produced one",
+      "lie": "an agent row carries a declared settle outcome while its own status says it has not settled \u2014 the value callers are told to trust as the stronger signal, on a run that has not produced one",
       "ops": [
         {
           "op": "set",
@@ -1545,7 +1573,7 @@
       "id": "agent-runtime-attempt-duplicated",
       "primary": "agent.runtime_attempt_duplicated",
       "classification": "caught",
-      "lie": "an agent's runtime history repeats the same runtime in adjacent positions, asserting a failover hop to the runtime it was already using — evidence the writer's own idempotence collapses, so no spawn path could have produced it",
+      "lie": "an agent's runtime history repeats the same runtime in adjacent positions, asserting a failover hop to the runtime it was already using \u2014 evidence the writer's own idempotence collapses, so no spawn path could have produced it",
       "ops": [
         {
           "op": "set",
@@ -1569,7 +1597,7 @@
       "id": "fleet-crash-provenance-unsupported",
       "primary": "fleet.crash_provenance_unsupported",
       "classification": "caught",
-      "lie": "a fleet blames a server crash for its abandonment while not one of its own agents holds an interrupted row attributing that crash — a shared external cause asserted over records that do not support it",
+      "lie": "a fleet blames a server crash for its abandonment while not one of its own agents holds an interrupted row attributing that crash \u2014 a shared external cause asserted over records that do not support it",
       "ops": [
         {
           "op": "set",
@@ -1645,7 +1673,7 @@
       "id": "undetectable-universal-clock-shift",
       "primary": "",
       "classification": "undetectable",
-      "lie": "the entire incident happened a day earlier — moved wholesale into or out of an audit window. Only RELATIVE order is checked; no external time anchor exists.",
+      "lie": "the entire incident happened a day earlier \u2014 moved wholesale into or out of an audit window. Only RELATIVE order is checked; no external time anchor exists.",
       "ops": [
         {
           "op": "set",
@@ -1811,7 +1839,7 @@
       "id": "undetectable-suppressed-delivery",
       "primary": "",
       "classification": "undetectable",
-      "lie": "a3 never received the broadcast — its receipt was deleted and the audience list trimmed to match. Absence of a receipt is not an overclaim, and no delivery oracle exists to demand one.",
+      "lie": "a3 never received the broadcast \u2014 its receipt was deleted and the audience list trimmed to match. Absence of a receipt is not an overclaim, and no delivery oracle exists to demand one.",
       "ops": [
         {
           "op": "delete",
@@ -1992,7 +2020,7 @@
       "id": "discussion-child-policy-forbidden",
       "primary": "discussion.child_policy_forbidden",
       "classification": "caught",
-      "lie": "a non-root envelope carries a policy block — only the root may define the immutable policy",
+      "lie": "a non-root envelope carries a policy block \u2014 only the root may define the immutable policy",
       "ops": [
         {
           "op": "set",
@@ -2457,7 +2485,7 @@
       "id": "discussion-fork",
       "primary": "discussion.fork",
       "classification": "caught",
-      "lie": "two authorized replies target the same head — the discussion chain forks",
+      "lie": "two authorized replies target the same head \u2014 the discussion chain forks",
       "ops": [
         {
           "op": "set",

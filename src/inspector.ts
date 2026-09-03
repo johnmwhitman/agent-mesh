@@ -982,6 +982,11 @@ const CHECK_EXPLANATIONS: Record<string, CheckExplanation> = {
     benign: "a cross-attached fleet advertising capabilities before its fleet row synced — the same shape agent.orphan_fleet / message.orphan_fleet tolerate, and warning rather than error for the same reason",
     investigate: "agent-mesh inspect --export | jq '.capabilities | to_entries | map(select(.value.fleet_id != null)) | map(.value.fleet_id) | unique | map(select(. as $f | ($f | in(.fleets) | not)))'",
   },
+  "capability.empty_fleet_id": {
+    what: "a capability row has a fleet_id that is not a non-empty string — either the empty string or a non-string type. The published register_capability tool throws on this input (src/core.ts), so a row of this shape could only have arrived through a tampered ledger (hand-edit, partial import, older build). Symmetric to capability.missing_agent_id and capability.unroutable, which the write path also rejects but the verifier also errors on; the fleet_id half was the one record with a required field the verifier had never read, named by audit-blindspot-lens-tick02 (2026-09-03) as the complement to capability.orphan_fleet, which tick 01 deliberately gated on a non-empty string to keep the empty case in scope for this tick",
+    benign: "almost none — the row is malformed by construction, and routeWork's isRoutableCapability predicate does not look at fleet_id, so the row will be offered as a dispatch target while naming no fleet for the work to happen in. Tampered-ledger investigation is the only sensible path",
+    investigate: "agent-mesh inspect --export | jq '.capabilities | to_entries | map(select((.value.fleet_id | type) != \"string\" or (.value.fleet_id | length) == 0))'",
+  },
   "inbox.unknown_agent": {
     what: "messages are queued for an agent this ledger never registered — nothing will ever collect them",
     benign: "a cross-attached fleet whose agent rows have not synced yet; otherwise it is a mistyped recipient in a send_message call",
