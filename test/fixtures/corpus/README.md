@@ -22,7 +22,7 @@ into one "N/N covered" number** — that number would be marketing.
 
 | Bucket | Count | Contract |
 |---|---|---|
-| `caught` | 60 | An overclaim: the ledger asserts something its own records do not support. Must raise its named check at **error** severity and drive `ok: false`. |
+| `caught` | 61 | An overclaim: the ledger asserts something its own records do not support. Must raise its named check at **error** severity and drive `ok: false`. |
 | `anomaly` | 15 | Genuinely surprising, but claims no more than the records support (an orphaned reference, a stale projection). Raises a **warning**; `ok` stays true. A warning-only detection is deliberately *not* counted as "caught". |
 | `undetectable` | 10 | The free core structurally cannot see it. Must produce **zero** findings. |
 

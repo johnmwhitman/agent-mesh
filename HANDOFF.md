@@ -1,12 +1,12 @@
 # MeshFleet public handoff
 
 **Source version:** `0.21.1` · **MCP surface:** **37 MCP tools** ·
-**current suite contract:** **1780/1780** tests collected, plus typecheck and build
+**current suite contract:** **1781/1781** tests collected, plus typecheck and build
 
 The latest completed cross-platform proof is GitHub Actions run `31315444631`
 at `e14bd8f` (9/9 jobs across Node 20/22/24 on Ubuntu, macOS, and Windows). It
 prove that prior revision, not the newer source and test bytes that establish
-the current 1780-test contract above; those require their own fresh 9/9 run
+the current 1781-test contract above; those require their own fresh 9/9 run
 before merge.
 
 Base `01f0fa0` passed 1416/1416; the parity snapshot that introduced this document
@@ -115,8 +115,8 @@ authorize spend. Runtime execution and advisory ranking remain separate contract
 
 ## Current audit evidence
 
-- The ledger fixture corpus contains **85 total** cases: **60 caught**, **15
-  anomalies**, and 10 deliberately undetectable. `test/fixtures/corpus/README.md`
+- The ledger fixture corpus contains **86 total** cases: **61 caught**, **15 anomalies**,
+  and 10 deliberately undetectable. `test/fixtures/corpus/README.md`
   and its generated manifest are the count authorities.
 - `test/blackbox-corpus-transcript-integrity.test.ts` independently discovers the
   handoff-quorum and policy-replay witnesses, runs their complete JSON transcripts,

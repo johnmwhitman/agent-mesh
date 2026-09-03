@@ -857,6 +857,34 @@
       ]
     },
     {
+      "id": "capability-whitespace-fleet-id",
+      "primary": "capability.empty_fleet_id",
+      "classification": "caught",
+      "lie": "a capability row has a whitespace-only fleet_id (e.g. three spaces) \u2014 the published register_capability tool throws on this input via trim().length === 0, but tick 02's verifier predicate used length > 0 which let whitespace-only slip through as ok:true / findings:[]; tick 03 widens the predicate to .trim().length === 0 so the verifier and the writer can never disagree on what counts as a blank fleetId (audited 2026-09-03)",
+      "ops": [
+        {
+          "op": "set",
+          "path": "capabilities|a2",
+          "value": {
+            "agent_id": "a2",
+            "fleet_id": "   ",
+            "role": "Reviewer",
+            "skills": [
+              "x"
+            ]
+          }
+        }
+      ],
+      "expected_ok": false,
+      "expected_findings": [
+        {
+          "severity": "error",
+          "check": "capability.empty_fleet_id",
+          "subject": "a2"
+        }
+      ]
+    },
+    {
       "id": "capability-fleet-mismatch",
       "primary": "capability.fleet_mismatch",
       "classification": "anomaly",

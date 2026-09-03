@@ -523,25 +523,47 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
       //     scope for this tick, and the code comment above explicitly
       //     named tick 02 as the destination.
       //
-      // Both empty string AND non-string are caught here (unified: anything
-      // not a non-empty string is a malformed fleet_id). The write path's
-      // guard is `trim().length === 0`, which is slightly stricter; we use
-      // `typeof === "string" && length > 0` so the verifier's own gate
-      // stays character-identical to the readers above (which dereference
-      // `data.fleets[c.fleet_id]`, and a non-string key would coerce
-      // silently to "null"/"undefined" and miss this row entirely).
+      // Three shapes are caught here, unified because the write path
+      // treats them as one defect ("a blank fleetId"):
+      //   1. non-string types (undefined/null/number/object/array) —
+      //      `typeof c.fleet_id !== "string"`;
+      //   2. the empty string `""` — `c.fleet_id.length === 0`;
+      //   3. WHITESPACE-ONLY strings (`"   "`, `"\t"`, `" \n "`) —
+      //      `c.fleet_id.trim().length === 0`. THIS IS THE TICK 03
+      //      ADDITION: audit-blindspot-lens-tick02 deliberately left
+      //      whitespace-only for this tick because its own predicate
+      //      (`length > 0`) was one character less strict than the
+      //      write path's (`trim().length === 0`). The probe against
+      //      tick 02's build returned ok:true / findings:[] for a
+      //      tampered row with `fleet_id: "   "` — confirming the gap.
+      //      Aligning the verifier with the writer by `.trim()` is the
+      //      only honest answer: anything the writer would refuse
+      //      belongs in the same finding as anything the writer
+      //      refused, and a SECOND check id for the same blank-field
+      //      defect would be severity drift (the same lie reported
+      //      twice). The check id stays `capability.empty_fleet_id`
+      //      for the same reason — renaming would break operator
+      //      dashboards, and the message below already names all
+      //      three shapes.
+      //
+      // Tick 02's note about the readers above still holds: a non-
+      // string key would coerce silently to "null"/"undefined" when
+      // passed into `data.fleets[c.fleet_id]`, missing this row
+      // entirely, so the gate stays character-identical to those
+      // dereferences.
       //
       // `continue` rather than `else if` so the orphan-fleet and
-      // fleet-mismatch arms below stay silent for a row that has already
-      // been declared malformed — a tampered row should not also be
-      // expected to fail a SECOND check on the same field, the second
-      // finding is the same lie and would only dilute the first.
-      typeof c.fleet_id !== "string" || c.fleet_id.length === 0
+      // fleet-mismatch arms below stay silent for a row that has
+      // already been declared malformed — a tampered row should not
+      // also be expected to fail a SECOND check on the same field,
+      // the second finding is the same lie and would only dilute the
+      // first.
+      typeof c.fleet_id !== "string" || c.fleet_id.trim().length === 0
     ) {
       error(
         "capability.empty_fleet_id",
         key,
-        `capability row "${key}" has a fleet_id of ${JSON.stringify(c.fleet_id)} — a non-empty string is required (the write path's register_capability tool rejects a blank fleetId; this row could only have arrived through a tampered ledger, and routeWork's isRoutableCapability predicate does not look at fleet_id, so the row will be offered as a dispatch target while naming no fleet for the work to happen in)`
+        `capability row "${key}" has a fleet_id of ${JSON.stringify(c.fleet_id)} — a non-empty, non-whitespace string is required (the write path's register_capability tool rejects a blank fleetId with trim().length === 0, so this row could only have arrived through a tampered ledger, and routeWork's isRoutableCapability predicate does not look at fleet_id, so the row will be offered as a dispatch target while naming no fleet for the work to happen in)`
       );
       continue;
     } else if (
@@ -603,16 +625,21 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
       // corpus fixtures. 442 of those 443 name a fleet this ledger holds, so the
       // gate costs essentially no coverage on real data.
       //
-      // Note: the empty/non-string `fleet_id` case is already declared
-      // malformed by the `capability.empty_fleet_id` arm above and short-
-      // circuited with `continue`, so by the time we reach this branch the
-      // `fleet_id` is GUARANTEED to be a non-empty string. The explicit
-      // `typeof === "string" && length > 0` guard kept below mirrors the
-      // siblings so this arm stays robust to future refactors that remove
-      // the prior `continue` (an overclaim either way is one finding, not
-      // two on the same row).
+      // Note: the blank-fleetId case (empty string, whitespace-only,
+      // non-string types) is now declared malformed by the
+      // `capability.empty_fleet_id` arm above and short-circuited with
+      // `continue`, so by the time we reach this branch the `fleet_id`
+      // is GUARANTEED to be a non-blank string. The explicit
+      // `trim().length > 0` guard kept below mirrors the writers and
+      // the arm above, so this arm stays robust to future refactors
+      // that remove the prior `continue` (an overclaim either way is
+      // one finding, not two on the same row). Tick 03 deliberately
+      // aligned the predicate here to the writer's `trim().length ===
+      // 0` rather than the looser `length > 0` tick 02 used, so the
+      // verifier and the writer cannot drift apart on what counts as
+      // a blank fleetId.
       typeof c.fleet_id === "string" &&
-      c.fleet_id.length > 0 &&
+      c.fleet_id.trim().length > 0 &&
       data.fleets[c.fleet_id] !== undefined &&
       capAgent.fleet_id !== c.fleet_id
     ) {
