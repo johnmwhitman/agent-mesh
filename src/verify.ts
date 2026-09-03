@@ -501,6 +501,35 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
     if (!capAgent) {
       warning("capability.unknown_agent", effectiveId, `capability registered for ${effectiveId}, which this ledger has not registered as an agent`);
     } else if (
+      // Symmetric to `agent.orphan_fleet` and `message.orphan_fleet`: the
+      // capability carries a fleet_id that nothing in this ledger vouches for.
+      // The write path takes the fleet id from the CALLER, not from the agent
+      // row it names, so the two are free to disagree at write time and the
+      // verifier was the only reader that could ever notice — until this lens
+      // pass, it didn't. The capAgent != null branch above already proves the
+      // AGENT is held; what we add here is the symmetric gate for the FLEET.
+      // Warning, not error, and for the same reason as the other two:
+      // cross-attachment legitimately places a capability row in a fleet this
+      // ledger does not hold, and an auditor's eye is the right discriminator.
+      //
+      // Scope of THIS tick: non-held but syntactically valid fleet_id. The
+      // `capability.fleet_mismatch` branch below intentionally gates on a
+      // non-empty fleet id, and the write path throws on an empty one — so
+      // there is no live shape where an empty fleet_id coexists with a held
+      // agent and a held fleet for it to "mismatch" against, only tampered
+      // ledgers. Tampered-ledger handling for empty fleet_id is a separate
+      // lens pass (audit-blindspot-lens-tick02), not folded in here, so the
+      // scope of this tick stays bounded to one vector class.
+      typeof c.fleet_id === "string" &&
+      c.fleet_id.length > 0 &&
+      data.fleets[c.fleet_id] === undefined
+    ) {
+      warning(
+        "capability.orphan_fleet",
+        key,
+        `capability row "${key}" references fleet ${JSON.stringify(c.fleet_id)}, which this ledger does not hold — the agent is held, the fleet is not, and the write path took the fleet id from the caller rather than the agent row it names`
+      );
+    } else if (
       // `fleet_id` is REQUIRED on a Capability and `_registerCapability` refuses a
       // blank one — but nothing ever compared it to anything. The dereference is
       // made for agents (`agent.orphan_fleet`), for messages

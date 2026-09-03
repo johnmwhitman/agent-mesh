@@ -977,6 +977,11 @@ const CHECK_EXPLANATIONS: Record<string, CheckExplanation> = {
     investigate:
       "agent-mesh inspect --export | jq '.capabilities | to_entries | map(select(.value.fleet_id != null)) | map({cap: .key, cap_fleet: .value.fleet_id})' and compare each against .agents[<agent_id>].fleet_id",
   },
+  "capability.orphan_fleet": {
+    what: "a capability row names a fleet_id this ledger does not hold — the agent is held, the fleet is not. Symmetric to agent.orphan_fleet and message.orphan_fleet; the third place the orphan-fleet gate was applied, named by audit-blindspot-lens-tick01 (2026-09-03) because the write path took the fleet id from the caller rather than the agent row it names, so the two were free to disagree with no reader objecting until this check was added",
+    benign: "a cross-attached fleet advertising capabilities before its fleet row synced — the same shape agent.orphan_fleet / message.orphan_fleet tolerate, and warning rather than error for the same reason",
+    investigate: "agent-mesh inspect --export | jq '.capabilities | to_entries | map(select(.value.fleet_id != null)) | map(.value.fleet_id) | unique | map(select(. as $f | ($f | in(.fleets) | not)))'",
+  },
   "inbox.unknown_agent": {
     what: "messages are queued for an agent this ledger never registered — nothing will ever collect them",
     benign: "a cross-attached fleet whose agent rows have not synced yet; otherwise it is a mistyped recipient in a send_message call",

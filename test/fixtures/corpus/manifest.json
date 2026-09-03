@@ -801,6 +801,34 @@
       ]
     },
     {
+      "id": "capability-orphan-fleet",
+      "primary": "capability.orphan_fleet",
+      "classification": "anomaly",
+      "lie": "a capability row names a fleet the agent is held in but the ledger does not hold at all — symmetric to agent.orphan_fleet / message.orphan_fleet, and named by audit-blindspot-lens-tick01 (2026-09-03); warning rather than error because cross-attached fleets legitimately advertise capabilities this ledger cannot resolve",
+      "ops": [
+        {
+          "op": "set",
+          "path": "capabilities|a2",
+          "value": {
+            "agent_id": "a2",
+            "fleet_id": "f-orphan",
+            "role": "Reviewer",
+            "skills": [
+              "x"
+            ]
+          }
+        }
+      ],
+      "expected_ok": true,
+      "expected_findings": [
+        {
+          "severity": "warning",
+          "check": "capability.orphan_fleet",
+          "subject": "a2"
+        }
+      ]
+    },
+    {
       "id": "capability-fleet-mismatch",
       "primary": "capability.fleet_mismatch",
       "classification": "anomaly",

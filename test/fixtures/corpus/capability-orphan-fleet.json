@@ -1,0 +1,132 @@
+{
+  "schema_version": 2,
+  "fleets": {
+    "f1": {
+      "id": "f1",
+      "status": "complete",
+      "created_at": 1700000000000,
+      "completed_at": 1700000009000
+    }
+  },
+  "agents": {
+    "a1": {
+      "id": "a1",
+      "fleet_id": "f1",
+      "role": "Proposer",
+      "prompt": "p",
+      "status": "complete",
+      "started_at": 1700000000010,
+      "completed_at": 1700000008000
+    },
+    "a2": {
+      "id": "a2",
+      "fleet_id": "f1",
+      "role": "Reviewer",
+      "prompt": "p",
+      "status": "complete",
+      "started_at": 1700000000010,
+      "completed_at": 1700000008000
+    },
+    "a3": {
+      "id": "a3",
+      "fleet_id": "f1",
+      "role": "Engineer",
+      "prompt": "p",
+      "status": "complete",
+      "started_at": 1700000000010,
+      "completed_at": 1700000008000
+    }
+  },
+  "messages": {
+    "m1": {
+      "id": "m1",
+      "from_agent_id": "a1",
+      "to_agent_id": "a2",
+      "fleet_id": "f1",
+      "type": "handoff",
+      "payload": "review the migration",
+      "timestamp": 1700000000100,
+      "acknowledged": true
+    },
+    "m2": {
+      "id": "m2",
+      "from_agent_id": "a1",
+      "to_agent_id": "*",
+      "fleet_id": "f1",
+      "type": "alert",
+      "payload": "PROPOSAL: ship the migration",
+      "timestamp": 1700000000200,
+      "acknowledged": true,
+      "recipients": [
+        "a2",
+        "a3"
+      ]
+    }
+  },
+  "inboxes": {
+    "a1": [],
+    "a2": [],
+    "a3": []
+  },
+  "capabilities": {
+    "a2": {
+      "agent_id": "a2",
+      "fleet_id": "f-orphan",
+      "role": "Reviewer",
+      "skills": [
+        "x"
+      ]
+    }
+  },
+  "receipts": {
+    "m1:a2:ack": {
+      "message_id": "m1",
+      "agent_id": "a2",
+      "action": "ack",
+      "timestamp": 1700000000150
+    },
+    "m2:a2:ack": {
+      "message_id": "m2",
+      "agent_id": "a2",
+      "action": "ack",
+      "timestamp": 1700000000250
+    },
+    "m2:a3:ack": {
+      "message_id": "m2",
+      "agent_id": "a3",
+      "action": "ack",
+      "timestamp": 1700000000260
+    },
+    "m2:a2:r-ack": {
+      "message_id": "m2",
+      "agent_id": "a2",
+      "action": "r-ack",
+      "timestamp": 1700000000300
+    },
+    "m2:a3:r-ack": {
+      "message_id": "m2",
+      "agent_id": "a3",
+      "action": "r-ack",
+      "timestamp": 1700000000310
+    }
+  },
+  "ratifications": {
+    "m2": {
+      "message_id": "m2",
+      "proposer": "a1",
+      "fleet_id": "f1",
+      "subject": "ship the migration",
+      "quorum": 2,
+      "voters": [
+        "a2",
+        "a3"
+      ],
+      "required_signoffs": [],
+      "opened_at": 1700000000200,
+      "silence_policy": "abstain",
+      "status": "ratified",
+      "resolved_at": 1700000000320
+    }
+  },
+  "templates": {}
+}
