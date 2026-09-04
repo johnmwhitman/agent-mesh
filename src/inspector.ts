@@ -720,6 +720,11 @@ const CHECK_EXPLANATIONS: Record<string, CheckExplanation> = {
     benign: "a council re-opened in a successor fleet while the proposal message stayed in the original, or a hand-edited export. Warning rather than error because the records are internally consistent about their own rows and only disagree with each other — the auditor's eye is the right discriminator",
     investigate: "agent-mesh inspect --export | jq '.ratifications[] | select(.fleet_id as $f | .messages[.message_id].fleet_id != $f)'",
   },
+  "ratification.invalid_voters": {
+    what: "a ratification has a `voters` field that is not an array of non-empty, non-whitespace strings — null, a number, a bare string, an object, a missing key, or an array containing null / non-string / empty-string / whitespace-only entries",
+    benign: "nothing benign produces this. The write path's open_ratification tool rejects every malformed voter via requireStringArray's Array.isArray(v) && v.every((s) => typeof s === \"string\" && s.trim().length > 0) check (tool-args.ts), so this row could only have arrived through a tampered ledger (hand-edit, partial import, older build). The ratification names no eligible voter set for the council to happen with — every shape this catches is the same defect, the blank-or-non-string voter entry",
+    investigate: "agent-mesh inspect --export | jq '.ratifications[] | select((.voters | type) != \"array\" or any((.voters | type) != \"string\" or (.voters | trim | length) == 0; .))'",
+  },
   "fleet.invalid_timestamp": {
     what: "a fleet's required created_at is missing or is not a finite number — and this is the timestamp that fleet's OWN agent and message lifecycle checks are compared against, so while it is unreadable those comparisons silently pass instead of failing",
     benign: "a hand-edited or partially-corrupted export, or a ledger written by a build that predates the field",

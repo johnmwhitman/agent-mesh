@@ -1093,6 +1093,110 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
         `ratification ${r.message_id} is in fleet ${JSON.stringify(r.fleet_id)} but its proposal message ${r.message_id} names fleet ${JSON.stringify(data.messages[r.message_id]!.fleet_id)} — the two records disagree about which fleet the council happened in`
       );
     }
+    // Tampered-ledger shape: a ratification with a `voters` field that is not
+    // an array of non-blank, non-whitespace strings. Same blind-spot family
+    // as `capability.empty_fleet_id` (tick 02/03), `ratification.empty_fleet_id`
+    // (tick 04), `message.empty_fleet_id` (tick 06), and `agent.empty_fleet_id`
+    // (tick 07), but on a different field: the write path's
+    // `requireStringArray("open_ratification", "voters", a.voters, { optional:
+    // true })` (tool-args.ts, `Array.isArray(v) && v.every((s) => typeof s
+    // === "string" && s.trim().length > 0)`, with null/undefined accepted
+    // because the field is optional) rejects bare strings, numbers, objects,
+    // arrays of non-strings, and arrays containing empty/whitespace entries,
+    // so this row could only have arrived through a tampered ledger (hand-
+    // edit, partial import, older build).
+    //
+    // The verifier's ratification block never read `r.voters` for shape at
+    // all — not for type, not for content — so every malformed shape passed
+    // through to whatever downstream arm iterated the array. Pre-fix probe
+    // against tick 07 build returned exactly that:
+    //   - silent green (5/5 array-with-bad-element shapes): `[null, 'a2',
+    //     'a3']`, `[42, 'a2', 'a3']`, `[{}, 'a2', 'a3']`, `['a2', 'a3', '']`,
+    //     `['   ', 'a2', 'a3']`. The downstream `[...new Set(r.voters)]`
+    //     silently coerced non-string entries, and `uniqueVoters.length !==
+    //     r.voters.length` only fires for actual duplicates, so a tampered
+    //     ledger with a single empty-string voter returned `ok: true` with
+    //     zero findings — the same coincidental-coverage failure mode the
+    //     fleet_id lens pass closed across capability / ratification /
+    //     message / agent. The empty entry counted in `totalWeight` but its
+    //     vote was always missing so it landed in `pending`, and the
+    //     recomputed status was a function of which real voters cast ballots
+    //     — no flag ever fired.
+    //   - crash (5/5 non-array shapes): `voters = "a2a3"`, `null`, `42`,
+    //     `{}`, missing-key. `[...new Set(r.voters)]` and `r.voters.includes`
+    //     and `r.voters.filter` all assume `Array.isArray`, and any other
+    //     value throws `TypeError` deep in the loop body. A verifier that
+    //     throws on tampered input is strictly louder than silent green but
+    //     strictly worse than the auditor's-eye design this file implements
+    //     — the auditor never gets to see what the ledger claimed, only a
+    //     stack trace. Same crash family as the discussion envelope pass:
+    //     an unvalidated foreign-shape input reaches a downstream iteration
+    //     that assumes a specific type.
+    //
+    // Scope of THIS tick: every non-array shape AND every array shape whose
+    // elements are not all non-blank, non-whitespace strings. The four
+    // families of defect are unified because the writer's predicate treats
+    // them as one defect ("a blank or non-string voter entry") and because
+    // the verifier's downstream iteration treats them all as one failure
+    // mode ("can't iterate / can't match"). Splitting into one check id per
+    // shape would be severity drift — the same blank-voter defect reported
+    // four times, none of them catching the next shape. The check id stays
+    // singular for the same reason `capability.empty_fleet_id` stayed
+    // singular across the tick 02 / tick 03 trim() alignment: renaming
+    // would break operator dashboards, and the message below names every
+    // shape it covers.
+    //
+    // Predicate mirrors the writer's `requireStringArray` exactly:
+    // `!Array.isArray(v) || !v.every((s) => typeof s === "string" &&
+    // s.trim().length > 0)`. The trim() match matters for the same reason
+    // tick 03 aligned the capability shape arm to the writer: a whitespace-
+    // only voter entry passes `s.length > 0` but the writer rejects it on
+    // `s.trim().length === 0`, and a verifier predicate looser than the
+    // writer's is a quiet gap waiting to be exploited. The optional flag
+    // in the writer means null/undefined are accepted at write time and
+    // produce a real array (`input.voters ?? messageRecipients(msg)`), so
+    // an honest ledger never has a missing-key or null `voters` — those
+    // are tampered-ledger shapes, and this arm catches them.
+    //
+    // `continue` rather than `else if` so the downstream arms stay silent
+    // for a row already declared malformed — a tampered row should not
+    // also be expected to fail a SECOND check on the same field, the
+    // second finding is the same lie and would only dilute the first.
+    // The crash arms downstream (lines that iterate `r.voters` for the
+    // unique-set, the weights lookup, the orphan_proposal signoff check,
+    // the vote-receipt structure pass, and the status recompute via
+    // `computeTally`) all stay silent when this arm fires, so a malformed
+    // row gets exactly one finding instead of one finding + five
+    // TypeErrors.
+    //
+    // Severity: error, parallel to `capability.empty_fleet_id`,
+    // `ratification.empty_fleet_id`, `message.empty_fleet_id`, and
+    // `agent.empty_fleet_id` — the same severity every "writer rejects,
+    // tampered ledger could only have produced" check has, because the
+    // ratification names no eligible voter set for the council to happen
+    // with, and an empty / non-array voters field is malformed BY
+    // CONSTRUCTION.
+    //
+    // Deliberately BEFORE the quorum check. The quorum predicate
+    // (`Number.isInteger(r.quorum) && r.quorum >= 1`) is independent of
+    // `r.voters` — quorum is set on the same row but a separate field —
+    // so a tampered row with BOTH an empty quorum AND a malformed voters
+    // would otherwise get two error findings on the same row. The
+    // single-finding discipline says: one defect per row, the shape
+    // defect wins, the quorum defect stays silent. (Symmetric to how
+    // `capability.empty_fleet_id` short-circuits the orphan-fleet and
+    // fleet-mismatch arms with `continue` rather than `else if`.)
+    if (
+      !Array.isArray(r.voters) ||
+      !r.voters.every((s) => typeof s === "string" && s.trim().length > 0)
+    ) {
+      error(
+        "ratification.invalid_voters",
+        r.message_id,
+        `ratification ${r.message_id} has voters=${JSON.stringify(r.voters)} — the open path requires an array of non-empty, non-whitespace strings (requireStringArray rejects bare strings, non-strings, empty/whitespace entries, and null/undefined, so this row could only have arrived through a tampered ledger; the verifier's voter iteration either silently iterated the malformed entries (returning ok:true with zero findings) or crashed with TypeError on a non-array, masking the shape defect entirely)`
+      );
+      continue;
+    }
     // The open path refuses a quorum that is not a positive integer. Verify
     // checked only the upper bound, and the lower bound is the dangerous one:
     // with `quorum: 0` the tally's `approvalWeight >= quorum` is satisfied by

@@ -251,10 +251,10 @@ public roadmap.
   retains the same advisory, all-false-effects boundary.
 - P1 spawn receipts and bounded public model selection: `spawn_fleet` / `attach_agent` accept an optional `model`, the request is persisted separately from the observed banner, legacy and durable retries plus Discussion wakeups preserve it, and missing or contradictory observation fails closed. Banner agreement remains observed evidence only. Capability `model` remains routing self-description.
 - A published corpus of tampered-ledger fixtures the verifier must catch —
-  [`test/fixtures/corpus/`](test/fixtures/corpus/README.md). **91 total** vectors
-  over a shared clean baseline: **64 caught**, **17 anomaly** cases, and 10
+  [`test/fixtures/corpus/`](test/fixtures/corpus/README.md). **92 total** vectors
+  over a shared clean baseline: **65 caught**, **17 anomaly** cases, and 10
   deliberately undetectable cases. The buckets remain separate; coverage over
-  all 52 non-`discussion` checks is re-derived from source each run.
+  all non-`discussion` checks is re-derived from source each run.
 - `verify --explain` — failure triage for the ledger auditor
 - Zero-install ledger verification (`npx agent-mesh inspect --verify <file>` against any ledger someone sends you; the audited file is copied read-only and never mutated)
 - A quickstart demo that ends with a verification, not a wall of text (`npx agent-mesh demo`)
