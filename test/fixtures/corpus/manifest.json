@@ -2737,6 +2737,27 @@
           "subject": "disc-1"
         }
       ]
+    },
+    {
+      "id": "ratification-whitespace-fleet-id",
+      "primary": "ratification.empty_fleet_id",
+      "classification": "caught",
+      "lie": "a ratification row has a whitespace-only fleet_id (e.g. three spaces) — the published open_ratification tool rejects a blank fleetId via requireString's trim().length === 0, so this row could only have arrived through a tampered ledger, and the ratification names no fleet for the council to happen in; the verifier's ratification block never read r.fleet_id at all before this check — not for shape, not for orphan fleet, not for mismatch with the proposal message's fleet_id; named by audit-blindspot-lens-tick04 (2026-09-04), parallel to capability.empty_fleet_id (tick 02/03)",
+      "ops": [
+        {
+          "op": "set",
+          "path": "ratifications|m2|fleet_id",
+          "value": "   "
+        }
+      ],
+      "expected_ok": false,
+      "expected_findings": [
+        {
+          "severity": "error",
+          "check": "ratification.empty_fleet_id",
+          "subject": "m2"
+        }
+      ]
     }
   ]
 }

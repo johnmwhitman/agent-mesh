@@ -705,6 +705,11 @@ const CHECK_EXPLANATIONS: Record<string, CheckExplanation> = {
     benign: "nothing benign produces this. It matters more than a bounds check looks: at quorum 0 the tally is satisfied by ZERO ballots, so a terminal status recomputes as fully supported and ratification.status_mismatch stays silent — the lie stops being a warning and becomes invisible",
     investigate: "agent-mesh inspect --export | jq '.ratifications[] | select((.quorum | type) != \"number\" or .quorum < 1)'",
   },
+  "ratification.empty_fleet_id": {
+    what: "a ratification has a fleet_id that is not a non-blank string — null, a number, an empty string, or whitespace-only",
+    benign: "nothing benign produces this. The write path's open_ratification tool rejects a blank fleet_id via requireString's trim().length === 0, so this row could only have arrived through a tampered ledger (hand-edit, partial import, older build). The ratification names no fleet for the council to happen in, and the verifier's ratification block never read r.fleet_id at all before this check — not for shape, not for orphan fleet, not for mismatch with the proposal message's fleet_id",
+    investigate: "agent-mesh inspect --export | jq '.ratifications[] | select((.fleet_id | type) != \"string\" or (.fleet_id | trim | length) == 0)'",
+  },
   "fleet.invalid_timestamp": {
     what: "a fleet's required created_at is missing or is not a finite number — and this is the timestamp that fleet's OWN agent and message lifecycle checks are compared against, so while it is unreadable those comparisons silently pass instead of failing",
     benign: "a hand-edited or partially-corrupted export, or a ledger written by a build that predates the field",

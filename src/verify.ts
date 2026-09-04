@@ -890,6 +890,42 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
         `ratification stored under key "${ratKey}" but its body names proposal "${r.message_id}" — the council outcome and the proposal it belongs to are joined by whichever of the two a reader happens to use`
       );
     }
+    // Tampered-ledger shape: a ratification with a fleet_id that is not a
+    // non-blank string. Same blind-spot family as `capability.empty_fleet_id`
+    // (tick 02/03): the write path's `requireString("open_ratification",
+    // "fleet_id", a.fleet_id)` (tool-args.ts, `typeof v !== "string" ||
+    // v.trim().length === 0`) rejects blank, whitespace-only, and non-string
+    // fleet ids, so this row could only have arrived through a tampered ledger
+    // (hand-edit, partial import, older build). The verifier's ratification
+    // block never read `r.fleet_id` at all — not for shape, not for orphan
+    // fleet, not for mismatch with the proposal message's fleet_id — so every
+    // malformed shape passed clean (ok:true / findings:[]). The proposal
+    // message carries its own `fleet_id` (the broadcast that opened the
+    // council), and `openRatification` takes the fleet id from the caller and
+    // writes it directly as `fleet_id: input.fleetId` (ratify.ts), so an
+    // honest ratification's fleet_id always matches its proposal message's
+    // fleet_id. A blank/malformed fleet_id is the shape this check catches;
+    // the orphan-fleet and proposal-mismatch checks are separate sibling
+    // arms (not yet implemented — this tick closes the shape gap, which is
+    // the gate for the others, same as the capability family).
+    //
+    // Scope of THIS tick: non-string / empty / whitespace-only fleet_id on
+    // a ratification row. The three sibling shapes all hit this one arm:
+    //   1. `typeof r.fleet_id !== "string"` — catches null, number, boolean,
+    //      undefined, and missing-key (undefined is not a string);
+    //   2. `r.fleet_id.trim().length === 0` — catches the empty string `""`,
+    //      whitespace-only `"   "`, tab `"\t"`, newline `"\n"`, etc.
+    // Severity: error, not warning — the same severity as
+    // `capability.empty_fleet_id`, for the same reason: a blank fleet id is
+    // malformed BY CONSTRUCTION (the write path forbids it), and the
+    // ratification names no fleet for the council to happen in.
+    if (typeof r.fleet_id !== "string" || r.fleet_id.trim().length === 0) {
+      error(
+        "ratification.empty_fleet_id",
+        r.message_id,
+        `ratification ${r.message_id} has a fleet_id of ${JSON.stringify(r.fleet_id)} — a non-empty, non-whitespace string is required (the write path's open_ratification tool rejects a blank fleet_id with requireString's trim().length === 0, so this row could only have arrived through a tampered ledger, and the ratification names no fleet for the council to happen in)`
+      );
+    }
     // The open path refuses a quorum that is not a positive integer. Verify
     // checked only the upper bound, and the lower bound is the dangerous one:
     // with `quorum: 0` the tally's `approvalWeight >= quorum` is satisfied by
