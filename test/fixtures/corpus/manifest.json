@@ -2742,7 +2742,7 @@
       "id": "ratification-whitespace-fleet-id",
       "primary": "ratification.empty_fleet_id",
       "classification": "caught",
-      "lie": "a ratification row has a whitespace-only fleet_id (e.g. three spaces) — the published open_ratification tool rejects a blank fleetId via requireString's trim().length === 0, so this row could only have arrived through a tampered ledger, and the ratification names no fleet for the council to happen in; the verifier's ratification block never read r.fleet_id at all before this check — not for shape, not for orphan fleet, not for mismatch with the proposal message's fleet_id; named by audit-blindspot-lens-tick04 (2026-09-04), parallel to capability.empty_fleet_id (tick 02/03)",
+      "lie": "a ratification row has a whitespace-only fleet_id (e.g. three spaces) \u2014 the published open_ratification tool rejects a blank fleetId via requireString's trim().length === 0, so this row could only have arrived through a tampered ledger, and the ratification names no fleet for the council to happen in; the verifier's ratification block never read r.fleet_id at all before this check \u2014 not for shape, not for orphan fleet, not for mismatch with the proposal message's fleet_id; named by audit-blindspot-lens-tick04 (2026-09-04), parallel to capability.empty_fleet_id (tick 02/03)",
       "ops": [
         {
           "op": "set",
@@ -2763,7 +2763,7 @@
       "id": "ratification-orphan-fleet",
       "primary": "ratification.orphan_fleet",
       "classification": "anomaly",
-      "lie": "a ratification row names a fleet the ledger does not hold — symmetric to agent.orphan_fleet / message.orphan_fleet / capability.orphan_fleet, the fourth place the orphan-fleet gate was applied, named by audit-blindspot-lens-tick05 (2026-09-04) because the write path took the fleet id from the caller rather than the proposal message it names, so the two were free to disagree with no reader objecting; warning rather than error because cross-attached fleets legitimately place a council outcome in a fleet this ledger does not hold",
+      "lie": "a ratification row names a fleet the ledger does not hold \u2014 symmetric to agent.orphan_fleet / message.orphan_fleet / capability.orphan_fleet, the fourth place the orphan-fleet gate was applied, named by audit-blindspot-lens-tick05 (2026-09-04) because the write path took the fleet id from the caller rather than the proposal message it names, so the two were free to disagree with no reader objecting; warning rather than error because cross-attached fleets legitimately place a council outcome in a fleet this ledger does not hold",
       "ops": [
         {
           "op": "set",
@@ -2784,7 +2784,7 @@
       "id": "ratification-fleet-mismatch",
       "primary": "ratification.fleet_mismatch",
       "classification": "anomaly",
-      "lie": "a ratification places its council in a held fleet, while its proposal message names a different held fleet — nothing is absent, the two records simply disagree; symmetric to capability.fleet_mismatch, the ratification half of the family, named by audit-blindspot-lens-tick05 (2026-09-04) because the verifier's ratification block never compared r.fleet_id to the proposal message's own fleet_id",
+      "lie": "a ratification places its council in a held fleet, while its proposal message names a different held fleet \u2014 nothing is absent, the two records simply disagree; symmetric to capability.fleet_mismatch, the ratification half of the family, named by audit-blindspot-lens-tick05 (2026-09-04) because the verifier's ratification block never compared r.fleet_id to the proposal message's own fleet_id",
       "ops": [
         {
           "op": "set",
@@ -2815,7 +2815,7 @@
       "id": "message-empty-fleet-id",
       "primary": "message.empty_fleet_id",
       "classification": "caught",
-      "lie": "a message row has a whitespace-only fleet_id (three spaces) — the published send_message / send_messages tools reject a blank fleetId via requireString's trim().length === 0, so this row could only have arrived through a tampered ledger, and the message names no fleet for the work to happen in; the verifier's message block never read msg.fleet_id at all before this check — only the data.fleets[msg.fleet_id] lookup that fed the orphan-fleet warning — so every blank shape passed as `message.orphan_fleet` (warning) instead, which is exactly the coincidental coverage this check replaces; named by audit-blindspot-lens-tick06 (2026-09-04), symmetric to capability.empty_fleet_id (tick 02/03) and ratification.empty_fleet_id (tick 04); the message half of the family",
+      "lie": "a message row has a whitespace-only fleet_id (three spaces) \u2014 the published send_message / send_messages tools reject a blank fleetId via requireString's trim().length === 0, so this row could only have arrived through a tampered ledger, and the message names no fleet for the work to happen in; the verifier's message block never read msg.fleet_id at all before this check \u2014 only the data.fleets[msg.fleet_id] lookup that fed the orphan-fleet warning \u2014 so every blank shape passed as `message.orphan_fleet` (warning) instead, which is exactly the coincidental coverage this check replaces; named by audit-blindspot-lens-tick06 (2026-09-04), symmetric to capability.empty_fleet_id (tick 02/03) and ratification.empty_fleet_id (tick 04); the message half of the family",
       "ops": [
         {
           "op": "set",
@@ -2829,6 +2829,27 @@
           "severity": "error",
           "check": "message.empty_fleet_id",
           "subject": "m1"
+        }
+      ]
+    },
+    {
+      "id": "agent-empty-fleet-id",
+      "primary": "agent.empty_fleet_id",
+      "classification": "caught",
+      "lie": "an agent row has a whitespace-only fleet_id (three spaces) \u2014 the published spawn_fleet / attach_agent tools reject a blank fleetId via requireString's trim().length === 0, so this row could only have arrived through a tampered ledger, and the agent names no fleet for the work to happen in; the verifier's agent block never read a.fleet_id at all before this check \u2014 only the data.fleets[a.fleet_id] lookup that fed the orphan-fleet warning \u2014 so every blank shape passed as `agent.orphan_fleet` (warning) instead, which is exactly the coincidental coverage this check replaces; named by audit-blindspot-lens-tick07 (2026-09-04), symmetric to capability.empty_fleet_id (tick 02/03), ratification.empty_fleet_id (tick 04), and message.empty_fleet_id (tick 06); the agent half of the family",
+      "ops": [
+        {
+          "op": "set",
+          "path": "agents|a1|fleet_id",
+          "value": "   "
+        }
+      ],
+      "expected_ok": false,
+      "expected_findings": [
+        {
+          "severity": "error",
+          "check": "agent.empty_fleet_id",
+          "subject": "a1"
         }
       ]
     }

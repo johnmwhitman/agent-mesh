@@ -951,6 +951,11 @@ const CHECK_EXPLANATIONS: Record<string, CheckExplanation> = {
     benign: "agents copied in from another mesh, or old fleet rows pruned without their agents",
     investigate: "agent-mesh inspect --export | jq '.agents'",
   },
+  "agent.empty_fleet_id": {
+    what: "an agent has a fleet_id that is not a non-blank string — null, a number, an empty string, or whitespace-only. This is a SHAPE defect, not an orphan-fleet: the writer's spawn_fleet / attach_agent tools reject a blank fleet_id via requireString's trim().length === 0, so this row could only have arrived through a tampered ledger. Pre-fix the verifier never read a.fleet_id at all — only the data.fleets[a.fleet_id] lookup that fed the orphan-fleet warning — so every blank shape was reported as `agent.orphan_fleet` (warning) instead. Symmetric to capability.empty_fleet_id, ratification.empty_fleet_id, and message.empty_fleet_id; the agent half of the family, named by audit-blindspot-lens-tick07 (2026-09-04)",
+    benign: "nothing benign produces this. The agent names no fleet for the work to happen in, and the verifier's agent block used to ignore the shape of fleet_id entirely",
+    investigate: "agent-mesh inspect --export | jq '.agents[] | select((.fleet_id | type) != \"string\" or (.fleet_id | trim | length) == 0)'",
+  },
   "agent.invalid_timestamp": {
     what: "an agent's optional started_at or completed_at timestamp is present but is not a finite number, so lifecycle ordering cannot be trusted",
     benign: "a hand-edited or partially-corrupted export",

@@ -338,6 +338,53 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
     if (!completedAtValid) {
       error("agent.invalid_timestamp", a.id, `agent ${a.id} has a present but non-finite completed_at timestamp`);
     }
+    // Tampered-ledger shape: an agent with a fleet_id that is not a non-blank
+    // string. Same blind-spot family as `capability.empty_fleet_id` (tick 02/03),
+    // `ratification.empty_fleet_id` (tick 04), and `message.empty_fleet_id`
+    // (tick 06): the write path's `requireString("spawn_fleet", ...)` and
+    // `requireString("attach_agent", "fleet_id", ...)` (tool-args.ts, `typeof v
+    // !== "string" || v.trim().length === 0`) reject blank, whitespace-only,
+    // and non-string fleet ids, so this row could only have arrived through a
+    // tampered ledger (hand-edit, partial import, older build). The verifier's
+    // agent block never read `a.fleet_id` at all — not for shape, only for the
+    // lookup `data.fleets[a.fleet_id]` that fed the orphan-fleet warning — so
+    // every blank shape passed with exactly one finding: `agent.orphan_fleet`
+    // (WARNING), which is the coincidental coverage this tick replaces. Pre-fix
+    // probe against tick 06 build returned 7/7 of {empty, whitespace, tab,
+    // newline, null, number, missing-key} shapes as `agent.orphan_fleet`
+    // (warning) — the same severity drift the capability/ratification/message
+    // families already audited for.
+    //
+    // Scope of THIS tick: non-string / empty / whitespace-only fleet_id on an
+    // agent row. The three sibling shapes all hit this one arm:
+    //   1. `typeof a.fleet_id !== "string"` — catches null, number, boolean,
+    //      undefined, and missing-key (undefined is not a string);
+    //   2. `a.fleet_id.trim().length === 0` — catches the empty string `""`,
+    //      whitespace-only `"   "`, tab `"\t"`, newline `"\n"`, etc.
+    // Severity: error, not warning — the same severity as
+    // `capability.empty_fleet_id`, `ratification.empty_fleet_id`, and
+    // `message.empty_fleet_id`, for the same reason: a blank fleet id is
+    // malformed BY CONSTRUCTION (the write path forbids it), and the agent
+    // names no fleet for the work to happen in.
+    //
+    // `continue` rather than `else if` so the orphan-fleet and
+    // tampered-timestamp arms below stay silent for a row that has already
+    // been declared malformed — a tampered row should not also be expected to
+    // fail a SECOND check on the same field, the second finding is the same
+    // lie and would only dilute the first. The completed-before-started arm
+    // below stays AFTER this `continue` because it inspects started_at /
+    // completed_at, neither of which depends on `fleet_id`: a tampered agent
+    // with a blank fleet_id can STILL have completed before it started, and
+    // suppressing that finding on a malformed row would be overreach — the
+    // shape defect is its own finding, the timestamp defect is its own.
+    if (typeof a.fleet_id !== "string" || a.fleet_id.trim().length === 0) {
+      error(
+        "agent.empty_fleet_id",
+        a.id,
+        `agent ${a.id} has a fleet_id of ${JSON.stringify(a.fleet_id)} — a non-empty, non-whitespace string is required (the write path's spawn_fleet / attach_agent tools reject a blank fleet_id with requireString's trim().length === 0, so this row could only have arrived through a tampered ledger, and the agent names no fleet for the work to happen in)`
+      );
+      continue;
+    }
     if (!data.fleets[a.fleet_id]) {
       warning("agent.orphan_fleet", a.id, `agent ${a.id} references fleet ${a.fleet_id}, which this ledger does not hold`);
     } else {
