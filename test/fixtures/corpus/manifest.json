@@ -2810,6 +2810,27 @@
           "subject": "m2"
         }
       ]
+    },
+    {
+      "id": "message-empty-fleet-id",
+      "primary": "message.empty_fleet_id",
+      "classification": "caught",
+      "lie": "a message row has a whitespace-only fleet_id (three spaces) — the published send_message / send_messages tools reject a blank fleetId via requireString's trim().length === 0, so this row could only have arrived through a tampered ledger, and the message names no fleet for the work to happen in; the verifier's message block never read msg.fleet_id at all before this check — only the data.fleets[msg.fleet_id] lookup that fed the orphan-fleet warning — so every blank shape passed as `message.orphan_fleet` (warning) instead, which is exactly the coincidental coverage this check replaces; named by audit-blindspot-lens-tick06 (2026-09-04), symmetric to capability.empty_fleet_id (tick 02/03) and ratification.empty_fleet_id (tick 04); the message half of the family",
+      "ops": [
+        {
+          "op": "set",
+          "path": "messages|m1|fleet_id",
+          "value": "   "
+        }
+      ],
+      "expected_ok": false,
+      "expected_findings": [
+        {
+          "severity": "error",
+          "check": "message.empty_fleet_id",
+          "subject": "m1"
+        }
+      ]
     }
   ]
 }

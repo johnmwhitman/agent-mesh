@@ -745,6 +745,11 @@ const CHECK_EXPLANATIONS: Record<string, CheckExplanation> = {
     benign: "a cross-attached fleet, or a partial copy between ledgers that brought the messages without their fleet — the same shape agent.orphan_fleet tolerates, and warning for the same reason",
     investigate: "agent-mesh inspect --export | jq '.messages[] | select(.fleet_id as $f | (.. | objects | select(has(\"objective\"))) | not)'",
   },
+  "message.empty_fleet_id": {
+    what: "a message has a fleet_id that is not a non-blank string — null, a number, an empty string, or whitespace-only. This is a SHAPE defect, not an orphan-fleet: the writer's send_message / send_messages tools reject a blank fleet_id via requireString's trim().length === 0, so this row could only have arrived through a tampered ledger. Pre-fix the verifier never read msg.fleet_id at all — only the data.fleets[msg.fleet_id] lookup that fed the orphan-fleet warning — so every blank shape was reported as `message.orphan_fleet` (warning) instead. Symmetric to capability.empty_fleet_id and ratification.empty_fleet_id; the message half of the family, named by audit-blindspot-lens-tick06 (2026-09-04)",
+    benign: "nothing benign produces this. The message names no fleet for the work to happen in, and the verifier's message block used to ignore the shape of fleet_id entirely",
+    investigate: "agent-mesh inspect --export | jq '.messages[] | select((.fleet_id | type) != \"string\" or (.fleet_id | trim | length) == 0)'",
+  },
   "message.unknown_recipient": {
     what: "a message is addressed to an agent this ledger has not registered, inside a fleet this ledger does hold — the recipient cannot take delivery, so no ack for it can ever exist and the message's acknowledged flag can never derive true",
     benign: "an agent row deleted or trimmed out of an export while its messages were kept, or a hand-edited ledger. Note the check deliberately ignores the SENDER: external and human senders (root, orchestrator) write into held fleets routinely and are ordinary traffic, and it skips messages whose fleet is absent, since message.orphan_fleet already reports that cross-attached case",

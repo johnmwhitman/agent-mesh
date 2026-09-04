@@ -761,6 +761,54 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
 
   // --- messages: the derived acknowledged flag -------------------------------
   for (const msg of Object.values(data.messages)) {
+    // Tampered-ledger shape: a message with a fleet_id that is not a non-blank
+    // string. Same blind-spot family as `capability.empty_fleet_id` (tick 02/03)
+    // and `ratification.empty_fleet_id` (tick 04): the write path's
+    // `requireString("send_message", "fleet_id", ...)` and `requireString(
+    // "send_messages", "<prefix>.fleet_id", ...)` (tool-args.ts, `typeof v !==
+    // "string" || v.trim().length === 0`) reject blank, whitespace-only, and
+    // non-string fleet ids, so this row could only have arrived through a
+    // tampered ledger (hand-edit, partial import, older build). The verifier's
+    // message block never read `msg.fleet_id` at all — not for shape, only for
+    // the lookup that fed the orphan-fleet warning — so every blank shape
+    // passed with exactly one finding: `message.orphan_fleet` (WARNING), which
+    // is the coincidental coverage this tick replaces. Pre-fix probe against
+    // tick 05 build returned 8/8 of {empty, whitespace, tab, newline, null,
+    // number, undefined, missing-key} shapes as `message.orphan_fleet`
+    // (warning) — the same severity drift the capability/ratification families
+    // already audited for.
+    //
+    // Scope of THIS tick: non-string / empty / whitespace-only fleet_id on a
+    // message row. The three sibling shapes all hit this one arm:
+    //   1. `typeof msg.fleet_id !== "string"` — catches null, number, boolean,
+    //      undefined, and missing-key (undefined is not a string);
+    //   2. `msg.fleet_id.trim().length === 0` — catches the empty string `""`,
+    //      whitespace-only `"   "`, tab `"\t"`, newline `"\n"`, etc.
+    // Severity: error, not warning — the same severity as
+    // `capability.empty_fleet_id` and `ratification.empty_fleet_id`, for the
+    // same reason: a blank fleet id is malformed BY CONSTRUCTION (the write
+    // path forbids it), and the message names no fleet for the work to happen
+    // in.
+    //
+    // `continue` rather than `else if` so the orphan-fleet, tampered-timestamp,
+    // and unknown-recipient arms below stay silent for a row that has already
+    // been declared malformed — a tampered row should not also be expected to
+    // fail a SECOND check on the same field, the second finding is the same
+    // lie and would only dilute the first. The vacuous-ack and
+    // ack-flag-mismatch arms stay AFTER this `continue` because they inspect
+    // the recipient set and the derived `acknowledged` flag, neither of which
+    // depends on `fleet_id`: a tampered message with a blank fleet_id can
+    // STILL have a vacuous ack or a derived-vs-claimed mismatch, and
+    // suppressing those findings on a malformed row would be overreach — the
+    // shape defect is its own finding, the recipient defect is its own.
+    if (typeof msg.fleet_id !== "string" || msg.fleet_id.trim().length === 0) {
+      error(
+        "message.empty_fleet_id",
+        msg.id,
+        `message ${msg.id} has a fleet_id of ${JSON.stringify(msg.fleet_id)} — a non-empty, non-whitespace string is required (the write path's send_message / send_messages tools reject a blank fleet_id with requireString's trim().length === 0, so this row could only have arrived through a tampered ledger, and the message names no fleet for the work to happen in)`
+      );
+      continue;
+    }
     const f = data.fleets[msg.fleet_id];
     if (f && msg.timestamp < f.created_at) {
       error("message.tampered_timestamp", msg.id, `message timestamp is before fleet creation`);
