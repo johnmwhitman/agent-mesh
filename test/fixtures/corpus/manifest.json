@@ -2857,7 +2857,7 @@
       "id": "ratification-invalid-voters",
       "primary": "ratification.invalid_voters",
       "classification": "caught",
-      "lie": "a ratification row carries an empty-string voter entry \u2014 the published open_ratification tool rejects blank / non-string / non-array voter entries via requireStringArray's Array.isArray(v) && v.every((s) => typeof s === \"string\" && s.trim().length > 0 check (tool-args.ts), so this row could only have arrived through a tampered ledger, and the ratification names no eligible voter set for the council to happen with; the verifier's ratification block never read r.voters for shape at all before this check \u2014 only the downstream [...new Set(r.voters)] / r.voters.includes / r.voters.filter calls that assumed an array \u2014 so array-with-bad-element shapes (null / number / object / empty-string / whitespace-only entries) passed with zero findings (silent green) AND non-array shapes (string / null / number / object / missing-key) crashed with TypeError before any finding could be reported; named by audit-blindspot-lens-tick08 (2026-09-04), the ratification-voters-field half of the same blind-spot family the fleet_id lens pass closed across capability / ratification / message / agent",
+      "lie": "a ratification row carries an empty-string voter entry — the published open_ratification tool rejects blank / non-string / non-array voter entries via requireStringArray's Array.isArray(v) && v.every((s) => typeof s === \"string\" && s.trim().length > 0 check (tool-args.ts), so this row could only have arrived through a tampered ledger, and the ratification names no eligible voter set for the council to happen with; the verifier's ratification block never read r.voters for shape at all before this check \u2014 only the downstream [...new Set(r.voters)] / r.voters.includes / r.voters.filter calls that assumed an array \u2014 so array-with-bad-element shapes (null / number / object / empty-string / whitespace-only entries) passed with zero findings (silent green) AND non-array shapes (string / null / number / object / missing-key) crashed with TypeError before any finding could be reported; named by audit-blindspot-lens-tick08 (2026-09-04), the ratification-voters-field half of the same blind-spot family the fleet_id lens pass closed across capability / ratification / message / agent",
       "ops": [
         {
           "op": "set",
@@ -2870,6 +2870,27 @@
         {
           "severity": "error",
           "check": "ratification.invalid_voters",
+          "subject": "m2"
+        }
+      ]
+    },
+    {
+      "id": "ratification-invalid-weights",
+      "primary": "ratification.invalid_weights",
+      "classification": "caught",
+      "lie": "a ratification row carries weights=null — the published open_ratification tool's ratify.ts:135-136 normalises a missing field or an empty map to undefined, so a null weights field could only have arrived through a tampered ledger; the verifier's weightOf helper at src/verify.ts:1230 (line 1231 pre-fix) checked `r.weights !== undefined && Object.hasOwn(r.weights, v)` — the !== undefined guard let null through, and Object.hasOwn(null, v) threw TypeError before any finding could be reported, masking the shape defect entirely; named by audit-blindspot-lens-tick09 (2026-09-04) as the ratification-weights-field half of the same shape-coincidence family the voters-field lens pass closed in tick 08 (null / non-object weights shape — silent crash on tampered input)",
+      "ops": [
+        {
+          "op": "set",
+          "path": "ratifications|m2|weights",
+          "value": null
+        }
+      ],
+      "expected_ok": false,
+      "expected_findings": [
+        {
+          "severity": "error",
+          "check": "ratification.invalid_weights",
           "subject": "m2"
         }
       ]

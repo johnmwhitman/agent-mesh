@@ -1216,6 +1216,47 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
     // ratification still gets its weight/quorum findings reported.
     // Tiered councils: quorum reachability is a WEIGHT question when a weights
     // map exists (unlisted voters weigh 1), a head-count question otherwise.
+    //
+    // Shape check on `r.weights` BEFORE the iteration arms below, parallel to
+    // `ratification.invalid_voters` (audit-blindspot-lens-tick08). The open
+    // path's `ratify.ts:135-136` normalises a missing field or an empty
+    // object to `undefined`, so anything else — `null`, a string, a number,
+    // an array, a non-empty object — could only have arrived through a
+    // tampered ledger. The downstream arms (`Object.entries(r.weights ?? {})`
+    // at 1219 catches `null` but not a non-object; `Object.hasOwn(r.weights,
+    // v)` inside `weightOf` does NOT — `!== undefined` lets `null` through,
+    // and `Object.hasOwn(null, v)` throws TypeError; a string weights field
+    // would iterate its character codes as if they were keys; an empty-object
+    // `{}` returns zero enumerable entries so every voter weighs 1 — silent
+    // green for a tampered ledger). `continue` rather than `else if` so the
+    // downstream arms stay silent for a row already declared malformed — a
+    // tampered row should not also be expected to fail a SECOND check on the
+    // same field. Same single-finding discipline as `ratification.invalid_voters`:
+    // one defect per row, the shape defect wins, the weight-content defects
+    // stay silent.
+    //
+    // Severity: error, parallel to `ratification.invalid_voters`,
+    // `capability.empty_fleet_id`, `ratification.empty_fleet_id`,
+    // `message.empty_fleet_id`, and `agent.empty_fleet_id` — the same
+    // severity every "writer rejects, tampered ledger could only have
+    // produced" check has, because the ratification names no eligible
+    // weight distribution for the council to tally with, and a
+    // non-object or empty-object weights field is malformed BY
+    // CONSTRUCTION.
+    if (
+      r.weights !== undefined &&
+      (r.weights === null ||
+        typeof r.weights !== "object" ||
+        Array.isArray(r.weights) ||
+        Object.keys(r.weights as Record<string, unknown>).length === 0)
+    ) {
+      error(
+        "ratification.invalid_weights",
+        r.message_id,
+        `ratification ${r.message_id} has weights=${JSON.stringify(r.weights)} — the open path requires either an absent field (no tiered council) or a non-empty object map from voter id to positive integer weight, normalised by ratify.ts:135-136 (empty maps and missing keys become undefined; null, strings, numbers, arrays, and empty objects could only have arrived through a tampered ledger); the verifier's weight iteration either crashed with TypeError (null) or iterated a foreign shape's enumerable keys as if they were voter ids (a non-object) or returned zero entries so every voter weighed 1 (an empty object), masking the shape defect entirely`
+      );
+      continue;
+    }
     for (const [agentId, w] of Object.entries(r.weights ?? {})) {
       if (!r.voters.includes(agentId)) {
         error("ratification.weight_for_non_voter", `${r.message_id}:${agentId}`, `ratification ${r.message_id} assigns weight ${w} to ${agentId}, who is not among the eligible voters`);

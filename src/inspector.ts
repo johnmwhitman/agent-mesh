@@ -1087,6 +1087,11 @@ const CHECK_EXPLANATIONS: Record<string, CheckExplanation> = {
     benign: "a hand-edited export with a mistyped weight",
     investigate: "agent-mesh inspect --councils",
   },
+  "ratification.invalid_weights": {
+    what: "a council's weights field is not a non-empty object map (or is absent/null/array/string/number/empty-object) — the open path normalises a missing field or empty map to undefined, so any other shape could only have arrived through a tampered ledger and the verifier's weight iteration either crashed with TypeError (null) or iterated a foreign shape's enumerable keys as if they were voter ids (a non-object) or returned zero entries so every voter weighed 1 (an empty object)",
+    benign: "never — the writer rejects every non-object shape and every empty map outright, and the absence of a weights field is the open path's own signal for an un-tiered council",
+    investigate: "agent-mesh inspect --councils",
+  },
   "ratification.total_weight_exceeded": {
     what: "a council's total voting weight exceeds the ceiling the open path enforces",
     benign: "merged ledgers doubling up a voter roster",
