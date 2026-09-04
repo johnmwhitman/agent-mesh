@@ -145,6 +145,7 @@ test("an inbox holding a message its owner was never addressed is an error", () 
     messages: {
       M: {
         id: "M",
+        to_agent_id: "A",
         fleet_id: "F",
         timestamp: 2000,
         from: "A",
@@ -194,6 +195,7 @@ test("a message whose fleet_id names no fleet is a warning, matching agent.orpha
     messages: {
       M: {
         id: "M",
+        to_agent_id: "B",
         fleet_id: "ghost",
         timestamp: 5000,
         from: "A",
@@ -207,47 +209,39 @@ test("a message whose fleet_id names no fleet is a warning, matching agent.orpha
 });
 
 // --- 5. acknowledged as a vacuous truth ------------------------------------
+//
+// Removed at audit-blindspot-lens-tick10: `message.vacuous_ack` is now
+// structurally unreachable, because every shape that produced an empty
+// `messageRecipients(msg)` (recipients=[], recipients=null with blank
+// to_agent_id, etc.) is caught by `message.invalid_to_agent_id` /
+// `message.invalid_recipients` first and `continue`s past this block. The
+// check stays in `src/verify.ts` as defense-in-depth — see that file's
+// vacuous-ack comment — but no honest tampering can reach it anymore, so
+// both the inline test above (which used a `recipients: []` row to coerce
+// the empty-set condition) and the corpus fixture `message-vacuous-ack.json`
+// have been retired.
 
-test("acknowledged:true over an empty recipient set is an error, not a vacuous pass", () => {
-  // `every` over [] is true, so the derived-acknowledged check could never fire.
-  // The write path refuses a broadcast with no recipients outright, so this row
-  // cannot be produced honestly.
+test("CONTROL: a benign acknowledged:false direct send is not flagged", () => {
+  // After tick 10, vacuous_ack is unreachable; this CONTROL only proves the
+  // direct-send path stays clean when every addressing field is honest.
   const data = mesh({
     fleets: { F: fleet("F", "complete") },
+    agents: { A: agent("A", "F", "complete") },
     messages: {
       M: {
         id: "M",
+        to_agent_id: "A",
         fleet_id: "F",
         timestamp: 2000,
         from: "A",
-        recipients: [],
-        acknowledged: true,
-        payload: "p",
-      } as unknown as MeshData["messages"][string],
-    },
-  });
-  assert.ok(
-    checks(data, "error").includes("message.vacuous_ack"),
-    "the empty-fleet precedent: a vacuous 'all done' is not a finished claim"
-  );
-});
-
-test("CONTROL: acknowledged:false over an empty recipient set is not flagged", () => {
-  const data = mesh({
-    fleets: { F: fleet("F", "complete") },
-    messages: {
-      M: {
-        id: "M",
-        fleet_id: "F",
-        timestamp: 2000,
-        from: "A",
-        recipients: [],
         acknowledged: false,
         payload: "p",
       } as unknown as MeshData["messages"][string],
     },
   });
   assert.ok(!checks(data, "error").includes("message.vacuous_ack"));
+  assert.ok(!checks(data, "error").includes("message.invalid_to_agent_id"));
+  assert.ok(!checks(data, "error").includes("message.invalid_recipients"));
 });
 
 // --- 6. a sealed fleet whose outcome is not the one its agents support ------

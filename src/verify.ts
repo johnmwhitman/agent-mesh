@@ -167,6 +167,67 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
   const receipts = data.receipts ?? {};
   const ratifications = data.ratifications ?? {};
 
+  // Single source of truth for the message-shape predicate. Returns true when
+  // the message has an honest addressing shape, false when a shape defect has
+  // already been emitted. Every consumer block in this function (messages
+  // loop, receipts loop, inboxes loop) calls this once before touching
+  // `messageRecipients`, so a tampered row gets exactly one shape finding
+  // regardless of which block notices first — and the verifier never crashes
+  // on `.filter` / `.includes` against a non-array.
+  //
+  // Parallel to `ratification.invalid_voters` (tick 08) / `ratification.invalid_weights`
+  // (tick 09): the writer normalises `to_agent_id` to a non-blank string and
+  // `recipients` to either undefined or a non-empty array of non-blank
+  // strings, so any other shape could only have arrived through a tampered
+  // ledger. The `to_agent_id` check fires first (it's the upstream predicate
+  // every consumer reads, either directly or via `??` fallback); the
+  // `recipients` check fires second. Single finding per row, the shape defect
+  // wins — `messageShapeDefect` (the silent predicate) is used by the receipts
+  // and inboxes loops so they only guard against crashes, while
+  // `emitMessageShapeFindings` (the loud predicate) is used by the messages
+  // loop where the finding is first authored.
+  const messageShapeDefect = (msg: { to_agent_id: unknown; recipients?: unknown }): boolean => {
+    if (
+      typeof msg.to_agent_id !== "string" ||
+      msg.to_agent_id.length === 0 ||
+      msg.to_agent_id.trim().length === 0
+    ) {
+      return true;
+    }
+    if (msg.recipients !== undefined) {
+      const recipientsRaw = msg.recipients;
+      if (!Array.isArray(recipientsRaw)) return true;
+      if (recipientsRaw.length === 0) return true;
+      for (const r of recipientsRaw) {
+        if (typeof r !== "string" || r.length === 0 || r.trim().length === 0) return true;
+      }
+    }
+    return false;
+  };
+  const emitMessageShapeFindings = (msg: { id: string; to_agent_id: unknown; recipients?: unknown }): boolean => {
+    if (messageShapeDefect(msg)) {
+      if (
+        typeof msg.to_agent_id !== "string" ||
+        msg.to_agent_id.length === 0 ||
+        msg.to_agent_id.trim().length === 0
+      ) {
+        error(
+          "message.invalid_to_agent_id",
+          msg.id,
+          `message ${msg.id} has a non-string, empty, or whitespace-only to_agent_id (${JSON.stringify(msg.to_agent_id)}) — a tampered addressing field could only have arrived through a tampered ledger; the writer always normalises this to a non-blank string`
+        );
+      } else {
+        error(
+          "message.invalid_recipients",
+          msg.id,
+          `message ${msg.id} has a malformed recipients field (${JSON.stringify(msg.recipients)}) — must be a non-empty array of non-blank strings when present; the writer rejects every other shape by construction`
+        );
+      }
+      return false;
+    }
+    return true;
+  };
+
   // --- fleets ---------------------------------------------------------------
   // Fixing the writer does nothing for a ledger that already holds the bad row,
   // which is exactly what this audit is for. Before the completion lattice, a
@@ -612,6 +673,16 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
       error("receipt.orphan_message", key, `receipt ${key} points at message ${r.message_id}, which this ledger does not hold`);
       continue;
     }
+    // The shape finding is emitted by `emitMessageShapeFindings` (called in
+    // the messages loop) the first time this message is visited. Here we use
+    // the silent predicate so the receipt does not re-emit the finding: a
+    // receipt whose message has a shape the writer never produces has no
+    // honest address to derive membership against, so neither
+    // `receipt.non_recipient_ack` nor the ack-key validation can say
+    // anything defensible. Move on — the shape finding has already fired.
+    if (messageShapeDefect(msg)) {
+      continue;
+    }
     if (invalidMessageTimestamps.has(msg.id)) {
       continue;
     }
@@ -654,6 +725,7 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
 
   // --- messages: the derived acknowledged flag -------------------------------
   for (const msg of Object.values(data.messages)) {
+    if (!emitMessageShapeFindings(msg)) continue;
     const f = data.fleets[msg.fleet_id];
     if (f && msg.timestamp < f.created_at) {
       error("message.tampered_timestamp", msg.id, `message timestamp is before fleet creation`);
@@ -711,21 +783,21 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
       }
     }
 
-    // `acknowledged` derives as "every addressed recipient holds an ack". Over
-    // an empty address set `every` is vacuously true, so the flag could claim
-    // acknowledgement backed by zero delivery evidence and the mismatch check
-    // below could never fire. The write path refuses a broadcast with no
-    // recipients outright, so this row cannot be produced honestly. Same
-    // precedent as the empty fleet above: a vacuous "all done" is not a
-    // finished claim.
-    if (msg.acknowledged && messageRecipients(msg).length === 0) {
-      error(
-        "message.vacuous_ack",
-        msg.id,
-        `message ${msg.id} claims acknowledged with an empty recipient set — nobody was addressed, so the claim rests on no delivery evidence at all`
-      );
-      continue;
-    }
+    // Vacuous-ack check removed at audit-blindspot-lens-tick10: every shape
+    // that produced an empty `messageRecipients(msg)` (recipients=[],
+    // recipients=null with blank to_agent_id, etc.) is now caught by
+    // `message.invalid_to_agent_id` / `message.invalid_recipients` first
+    // and `continue`s past where this block used to run. No honest
+    // tampering can reach an empty recipient set anymore: the writer at
+    // src/a2a/legacy-map.ts:31-34 throws on an empty resolved set, and
+    // src/core.ts:1146-1156 throws on a broadcast with zero resolved
+    // recipients. Keeping the check as defense-in-depth code created
+    // confusing parity failures with the corpus (the vector pinning it
+    // produced 0 findings against any current build, so removing the
+    // vector was the only honest move; keeping the check without a vector
+    // failed the "every emitted check is named by a corpus vector" guard).
+    // The check's intent — "a vacuous all-done is not a finished claim" —
+    // is now structurally enforced by the shape arm.
 
     const derived = derivedAcknowledged(msg, validatedAckReceipts);
     if (msg.acknowledged && !derived) {
@@ -744,6 +816,12 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
         error("inbox.dangling_message", `${agentId}:${id}`, `inbox of ${agentId} holds message ${id}, which this ledger does not hold`);
         continue;
       }
+      // Same rationale as the receipts loop: `messageRecipients(msg)` is read
+      // below to decide whether `agentId` is a recipient, and a tampered
+      // non-array `recipients` would TypeError. The shape finding has already
+      // fired in the messages loop — guard here so the inbox arm never crashes
+      // and does not re-emit the finding.
+      if (messageShapeDefect(msg)) continue;
       if (validatedAckReceipts.has(`${id}:${agentId}:ack`)) {
         error("inbox.acked_still_queued", `${agentId}:${id}`, `message ${id} is still in the inbox of ${agentId}, but ${agentId} holds an 'ack' receipt on it — ack consumes`);
       }

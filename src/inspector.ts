@@ -735,10 +735,15 @@ const CHECK_EXPLANATIONS: Record<string, CheckExplanation> = {
     benign: "an agent row deleted or trimmed out of an export while its messages were kept, or a hand-edited ledger. Note the check deliberately ignores the SENDER: external and human senders (root, orchestrator) write into held fleets routinely and are ordinary traffic, and it skips messages whose fleet is absent, since message.orphan_fleet already reports that cross-attached case",
     investigate: "agent-mesh inspect --export | jq '.messages[] | select((.recipients // [.to_agent_id])[] as $r | $r != \"*\" and ($r | in(.agents) | not))'",
   },
-  "message.vacuous_ack": {
-    what: "a message claims acknowledged while addressing nobody — the acknowledgement rests on an empty recipient set, so it is vacuously true and backed by no delivery evidence",
-    benign: "nothing benign produces this: the write path refuses a broadcast with no recipients outright, so an honest send cannot leave this row",
-    investigate: "agent-mesh inspect --export | jq '.messages[] | select(.acknowledged and ((.recipients // []) | length) == 0)'",
+  "message.invalid_to_agent_id": {
+    what: "a message has a non-string, empty, or whitespace-only to_agent_id — the writer always normalises this field to a non-blank string (either \"*\" or a real agent id), so any other shape could only have arrived through a tampered ledger",
+    benign: "never — the writer rejects every other shape by construction; a tampered ledger is the only honest source for this finding",
+    investigate: "agent-mesh inspect --export | jq '.messages[] | select((.to_agent_id | type) != \"string\" or .to_agent_id == \"\" or (.to_agent_id | test(\"^\\\\s*$\")))'",
+  },
+  "message.invalid_recipients": {
+    what: "a message has a recipients field that is not a non-empty array of non-blank strings — the writer either omits the field entirely (direct send) or sets it to a non-empty array of non-blank strings (broadcast path), so any other shape could only have arrived through a tampered ledger",
+    benign: "never — the writer rejects every other shape by construction (legacy-map.ts throws on an empty resolved recipient set, _sendMessage throws on a broadcast with zero resolved recipients); a tampered ledger is the only honest source for this finding",
+    investigate: "agent-mesh inspect --export | jq '.messages[] | select(.recipients != null and ((.recipients | type) != \"array\" or (.recipients | length) == 0 or any(.recipients[]; type != \"string\" or . == \"\" or test(\"^\\\\s*$\"))))'",
   },
   "inbox.non_recipient": {
     what: "a message sits in an agent's inbox although that agent is not in the message's recipient set — a delivery claim made through the queue that the addressing contradicts",

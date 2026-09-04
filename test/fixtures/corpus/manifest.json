@@ -1183,31 +1183,6 @@
       ]
     },
     {
-      "id": "message-vacuous-ack",
-      "primary": "message.vacuous_ack",
-      "classification": "caught",
-      "lie": "the message claims ACKNOWLEDGED while addressing nobody — `every` over an empty recipient set is vacuously true, so the claim rests on no delivery evidence at all",
-      "ops": [
-        {
-          "op": "set",
-          "path": "messages|m1|recipients",
-          "value": []
-        },
-        {
-          "op": "delete",
-          "path": "receipts|m1:a2:ack"
-        }
-      ],
-      "expected_ok": false,
-      "expected_findings": [
-        {
-          "severity": "error",
-          "check": "message.vacuous_ack",
-          "subject": "m1"
-        }
-      ]
-    },
-    {
       "id": "inbox-non-recipient",
       "primary": "inbox.non_recipient",
       "classification": "caught",
@@ -2651,6 +2626,48 @@
           "severity": "error",
           "check": "discussion.ordinal_discontinuity",
           "subject": "disc-1"
+        }
+      ]
+    },
+    {
+      "id": "message-invalid-to-agent-id",
+      "primary": "message.invalid_to_agent_id",
+      "classification": "caught",
+      "lie": "a message row carries to_agent_id=null — the published send_message / send_messages tools always normalise this field to a non-blank string (either \"*\" or a real agent id) via projectLegacyMessage at src/a2a/legacy-map.ts:60, so a non-string / empty / whitespace-only value could only have arrived through a tampered ledger; the verifier's messages block read msg.to_agent_id only inside template-string concatenation (e.g. `${msg.id}:${msg.to_agent_id}:ack` produces the literal string \"m1:null:ack\" for null, \"m1:42:ack\" for the number 42), and every downstream consumer (`message.unknown_recipient` filtering, `message.vacuous_ack` length check, `message.ack_flag_mismatch` ack-key template, `inbox.non_recipient` membership check, `receipt.non_recipient_ack` membership check, plus `derivedAcknowledged`'s `.every` / `.includes` calls) called `messageRecipients(msg) = msg.recipients ?? [msg.to_agent_id]` — a non-string `to_agent_id` therefore produced either a coincidental ack-mismatch / non-recipient-ack pair that masked the shape defect (silent green) or, for whitespace-only \"   \", a coincidental `message.unknown_recipient` WARNING at the wrong severity (the writer would have produced a real addressable recipient), named by audit-blindspot-lens-tick10 (2026-09-04) as the message-side addressing field half of the same shape-coincidence family the ratification-voters/weights lens pass closed in ticks 08/09",
+      "ops": [
+        {
+          "op": "set",
+          "path": "messages|m1|to_agent_id",
+          "value": null
+        }
+      ],
+      "expected_ok": false,
+      "expected_findings": [
+        {
+          "severity": "error",
+          "check": "message.invalid_to_agent_id",
+          "subject": "m1"
+        }
+      ]
+    },
+    {
+      "id": "message-invalid-recipients",
+      "primary": "message.invalid_recipients",
+      "classification": "caught",
+      "lie": "a broadcast message row carries recipients=null — the writer at src/a2a/legacy-map.ts:31-34 throws on an empty resolved recipient set and src/core.ts:1146-1156 throws on a broadcast with zero resolved recipients, so recipients=null / undefined / [] / [\"\"] / [null] / [\"  \"] / non-array (string / number / boolean / object) could only have arrived through a tampered ledger; the verifier's messages block read msg.recipients only inside messageRecipients() (line 1246 of core.ts) which does `msg.recipients ?? [msg.to_agent_id]`, so recipients=null silently fell back to the legitimate to_agent_id path (silent green), recipients=[] silently produced a vacuous-ack trap (the writer never produces it but the verifier's coincidental content check fired), and recipients=[a2,null] / [a2,\"\"] / [a2,\"  \"] silently filtered the bogus entries through `typeof r === \"string\" && r.length > 0` in the unknown_recipient arm — every bogus entry passed with zero findings (silent green); non-array shapes (`recipients = \"not-array\"` / 42 / true / {}) crashed with TypeError before any finding could be reported (silent crash, masking every other finding the verifier would have raised for this row); named by audit-blindspot-lens-tick10 (2026-09-04) as the message-side recipients-field half of the same shape-coincidence family the ratification-voters/weights lens pass closed in ticks 08/09",
+      "ops": [
+        {
+          "op": "set",
+          "path": "messages|m2|recipients",
+          "value": null
+        }
+      ],
+      "expected_ok": false,
+      "expected_findings": [
+        {
+          "severity": "error",
+          "check": "message.invalid_recipients",
+          "subject": "m2"
         }
       ]
     }

@@ -46,8 +46,7 @@
       "type": "handoff",
       "payload": "review the migration",
       "timestamp": 1700000000100,
-      "acknowledged": true,
-      "recipients": []
+      "acknowledged": true
     },
     "m2": {
       "id": "m2",
@@ -58,10 +57,7 @@
       "payload": "PROPOSAL: ship the migration",
       "timestamp": 1700000000200,
       "acknowledged": true,
-      "recipients": [
-        "a2",
-        "a3"
-      ]
+      "recipients": null
     }
   },
   "inboxes": {
@@ -71,6 +67,12 @@
   },
   "capabilities": {},
   "receipts": {
+    "m1:a2:ack": {
+      "message_id": "m1",
+      "agent_id": "a2",
+      "action": "ack",
+      "timestamp": 1700000000150
+    },
     "m2:a2:ack": {
       "message_id": "m2",
       "agent_id": "a2",
