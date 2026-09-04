@@ -710,6 +710,16 @@ const CHECK_EXPLANATIONS: Record<string, CheckExplanation> = {
     benign: "nothing benign produces this. The write path's open_ratification tool rejects a blank fleet_id via requireString's trim().length === 0, so this row could only have arrived through a tampered ledger (hand-edit, partial import, older build). The ratification names no fleet for the council to happen in, and the verifier's ratification block never read r.fleet_id at all before this check — not for shape, not for orphan fleet, not for mismatch with the proposal message's fleet_id",
     investigate: "agent-mesh inspect --export | jq '.ratifications[] | select((.fleet_id | type) != \"string\" or (.fleet_id | trim | length) == 0)'",
   },
+  "ratification.orphan_fleet": {
+    what: "a ratification names a fleet_id this ledger does not hold. Symmetric to agent.orphan_fleet, message.orphan_fleet, and capability.orphan_fleet; the fourth place the orphan-fleet gate was applied. The open_ratification tool takes the fleet id from the CALLER rather than from the proposal message it names, so the two were free to disagree at write time and no reader objected until this check was added by audit-blindspot-lens-tick05 (2026-09-04)",
+    benign: "a cross-attached fleet whose ratification outcome arrived ahead of its fleet row, or a partial copy between ledgers that brought the council outcome without the fleet it belongs to — the same shape the other three *.orphan_fleet arms tolerate, and warning rather than error for the same reason",
+    investigate: "agent-mesh inspect --export | jq '.ratifications[] | select((.fleet_id | type) == \"string\" and (.fleet_id | trim | length) > 0) | select(.fleet_id as $f | (.fleets[$f] // null) == null)'",
+  },
+  "ratification.fleet_mismatch": {
+    what: "a ratification is in a fleet this ledger holds, while its proposal message's own row names a different held fleet — nothing is absent, the two records simply disagree. Symmetric to capability.fleet_mismatch; the ratification half of the family. An honest ratification's fleet_id always matches its proposal message's fleet_id because open_ratification takes the fleet id from the caller and writes it directly, so a mismatch is a real defect rather than a benign divergence",
+    benign: "a council re-opened in a successor fleet while the proposal message stayed in the original, or a hand-edited export. Warning rather than error because the records are internally consistent about their own rows and only disagree with each other — the auditor's eye is the right discriminator",
+    investigate: "agent-mesh inspect --export | jq '.ratifications[] | select(.fleet_id as $f | .messages[.message_id].fleet_id != $f)'",
+  },
   "fleet.invalid_timestamp": {
     what: "a fleet's required created_at is missing or is not a finite number — and this is the timestamp that fleet's OWN agent and message lifecycle checks are compared against, so while it is unreadable those comparisons silently pass instead of failing",
     benign: "a hand-edited or partially-corrupted export, or a ledger written by a build that predates the field",

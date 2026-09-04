@@ -925,6 +925,78 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
         r.message_id,
         `ratification ${r.message_id} has a fleet_id of ${JSON.stringify(r.fleet_id)} — a non-empty, non-whitespace string is required (the write path's open_ratification tool rejects a blank fleet_id with requireString's trim().length === 0, so this row could only have arrived through a tampered ledger, and the ratification names no fleet for the council to happen in)`
       );
+    } else if (
+      // Symmetric to `agent.orphan_fleet`, `message.orphan_fleet`, and
+      // `capability.orphan_fleet`: the ratification carries a fleet_id that
+      // nothing in this ledger vouches for. The write path's open_ratification
+      // tool takes the fleet id from the CALLER, not from the proposal
+      // message it names, so the two are free to disagree at write time
+      // and the verifier was the only reader that could ever notice — until
+      // this lens pass, it didn't. The `else if` (rather than `continue`)
+      // matches the capability family: the empty/malformed case stays
+      // declared by the prior arm, and only a non-blank string reaches
+      // here to be compared against the held fleets.
+      //
+      // Warning, not error, and for the same reason as the other three
+      // `*.orphan_fleet` arms: cross-attached fleets legitimately place a
+      // ratification in a fleet this ledger does not hold (a partial copy
+      // between ledgers, a fleet row pruned while the council outcome
+      // survived), and an auditor's eye is the right discriminator.
+      //
+      // Scope of THIS tick: non-held but syntactically valid fleet_id (a
+      // non-blank string). The empty/non-string case is handled by the
+      // `ratification.empty_fleet_id` arm above (audit-blindspot-lens-tick04),
+      // and the `ratification.fleet_mismatch` arm below intentionally gates
+      // on a non-empty fleet id for the same reason — there is no live
+      // shape where an empty fleet_id coexists with a held proposal message
+      // and a held fleet for it to "mismatch" against, only tampered
+      // ledgers, and those are already declared malformed by the prior
+      // arm. This arm and the next one are the ratification-family
+      // siblings of the capability.orphan_fleet / capability.fleet_mismatch
+      // pair that tick 01 (capability.orphan_fleet) named but did not
+      // implement on the ratification side.
+      data.fleets[r.fleet_id] === undefined
+    ) {
+      warning(
+        "ratification.orphan_fleet",
+        r.message_id,
+        `ratification ${r.message_id} references fleet ${JSON.stringify(r.fleet_id)}, which this ledger does not hold — the open path took the fleet id from the caller rather than the proposal message it names, so the two were free to disagree with no reader objecting until this check was added`
+      );
+    } else if (
+      // Symmetric to `capability.fleet_mismatch`: the ratification places
+      // its council in a fleet this ledger holds, while the proposal
+      // message's own row names a different held fleet — nothing is
+      // absent, the two records simply disagree. The proposal message
+      // carries its own `fleet_id` (the broadcast that opened the
+      // council), and `openRatification` takes the fleet id from the
+      // caller and writes it directly as `fleet_id: input.fleetId`
+      // (ratify.ts), so an honest ratification's fleet_id always matches
+      // its proposal message's fleet_id. The dereference
+      // (`data.messages[r.message_id].fleet_id`) is gated on the prior
+      // `ratification.orphan_proposal` arm — an orphan proposal is
+      // `continue`d out of this block before we reach here, so the
+      // dereference is safe; this tick closes the family the empty-fleet_id
+      // gate was opened for, and the orphan-proposal guard means a
+      // proposal we never held cannot mismatch a fleet we never held
+      // either.
+      //
+      // Gated on BOTH sides being HELD — the proposal message, and the
+      // fleet the ratification claims — so cross-attachment is removed
+      // BY CONSTRUCTION rather than by judgement. When this ledger holds
+      // fleet A, holds fleet B, holds the proposal message whose own row
+      // says A, and a ratification says B, no external explanation
+      // remains: the contradiction is entirely between records this
+      // ledger holds, and an auditor's eye is the right discriminator.
+      // Warning, not error, parallel to `capability.fleet_mismatch`.
+      data.messages[r.message_id] !== undefined &&
+      data.fleets[data.messages[r.message_id]!.fleet_id!] !== undefined &&
+      data.messages[r.message_id]!.fleet_id !== r.fleet_id
+    ) {
+      warning(
+        "ratification.fleet_mismatch",
+        r.message_id,
+        `ratification ${r.message_id} is in fleet ${JSON.stringify(r.fleet_id)} but its proposal message ${r.message_id} names fleet ${JSON.stringify(data.messages[r.message_id]!.fleet_id)} — the two records disagree about which fleet the council happened in`
+      );
     }
     // The open path refuses a quorum that is not a positive integer. Verify
     // checked only the upper bound, and the lower bound is the dangerous one:

@@ -2758,6 +2758,58 @@
           "subject": "m2"
         }
       ]
+    },
+    {
+      "id": "ratification-orphan-fleet",
+      "primary": "ratification.orphan_fleet",
+      "classification": "anomaly",
+      "lie": "a ratification row names a fleet the ledger does not hold — symmetric to agent.orphan_fleet / message.orphan_fleet / capability.orphan_fleet, the fourth place the orphan-fleet gate was applied, named by audit-blindspot-lens-tick05 (2026-09-04) because the write path took the fleet id from the caller rather than the proposal message it names, so the two were free to disagree with no reader objecting; warning rather than error because cross-attached fleets legitimately place a council outcome in a fleet this ledger does not hold",
+      "ops": [
+        {
+          "op": "set",
+          "path": "ratifications|m2|fleet_id",
+          "value": "f-orphan"
+        }
+      ],
+      "expected_ok": true,
+      "expected_findings": [
+        {
+          "severity": "warning",
+          "check": "ratification.orphan_fleet",
+          "subject": "m2"
+        }
+      ]
+    },
+    {
+      "id": "ratification-fleet-mismatch",
+      "primary": "ratification.fleet_mismatch",
+      "classification": "anomaly",
+      "lie": "a ratification places its council in a held fleet, while its proposal message names a different held fleet — nothing is absent, the two records simply disagree; symmetric to capability.fleet_mismatch, the ratification half of the family, named by audit-blindspot-lens-tick05 (2026-09-04) because the verifier's ratification block never compared r.fleet_id to the proposal message's own fleet_id",
+      "ops": [
+        {
+          "op": "set",
+          "path": "fleets|f2",
+          "value": {
+            "id": "f2",
+            "status": "complete",
+            "created_at": 1700000010000,
+            "completed_at": 1700000019000
+          }
+        },
+        {
+          "op": "set",
+          "path": "ratifications|m2|fleet_id",
+          "value": "f2"
+        }
+      ],
+      "expected_ok": true,
+      "expected_findings": [
+        {
+          "severity": "warning",
+          "check": "ratification.fleet_mismatch",
+          "subject": "m2"
+        }
+      ]
     }
   ]
 }
