@@ -14,6 +14,7 @@ import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import * as publicRouteApi from "../src/recommend-route.js";
 import {
+  assertRecommendRoutePreference,
   assertRecommendRouteTask,
   assertRouteCandidates,
   recommendRoute,
@@ -54,13 +55,14 @@ test("recommend-route package exposes only the pure evaluator, validators, and p
   };
   assert.equal(pkg.exports["./recommend-route"], "./dist/recommend-route.js");
   assert.deepEqual(Object.keys(publicRouteApi).sort(), [
+    "assertRecommendRoutePreference",
     "assertRecommendRouteTask",
     "assertRouteCandidates",
     "recommendRoute",
   ]);
   assert.doesNotMatch(
     readFileSync(join(ROOT, "src", "index.ts"), "utf8"),
-    /export\s*\{[^}]*\b(?:recommendRoute|assertRecommendRouteTask|assertRouteCandidates)\b/,
+    /export\s*\{[^}]*\b(?:recommendRoute|assertRecommendRoutePreference|assertRecommendRouteTask|assertRouteCandidates)\b/,
     "the MCP root entrypoint must not become a package-library re-export",
   );
 
@@ -68,6 +70,8 @@ test("recommend-route package exposes only the pure evaluator, validators, and p
     errorPrefix: "public_route",
     path: "candidates",
   };
+  assert.doesNotThrow(() => assertRecommendRoutePreference({ objective: "prefer_near_reset", now_ms: 0 }));
+  assert.throws(() => assertRecommendRoutePreference({ objective: "unknown", now_ms: 0 }));
   assert.doesNotThrow(() => assertRecommendRouteTask(task));
   assert.doesNotThrow(() => assertRouteCandidates([candidate], options));
 
@@ -172,7 +176,7 @@ test("packed recommend-route consumer imports, evaluates, and rejects without MC
           };
           const before = JSON.stringify(input);
           const result = api.recommendRoute(input);
-          if (JSON.stringify(input) !== before || result.advisory !== true || Object.values(result.effects).some(Boolean) || result.ranked[0]?.candidate_id !== "local-code" || JSON.stringify(Object.keys(api).sort()) !== JSON.stringify(["assertRecommendRouteTask", "assertRouteCandidates", "recommendRoute"])) process.exit(1);
+          if (JSON.stringify(input) !== before || result.advisory !== true || Object.values(result.effects).some(Boolean) || result.ranked[0]?.candidate_id !== "local-code" || JSON.stringify(Object.keys(api).sort()) !== JSON.stringify(["assertRecommendRoutePreference", "assertRecommendRouteTask", "assertRouteCandidates", "recommendRoute"])) process.exit(1);
           try { api.assertRouteCandidates([{ ...input.candidates[0], provider: "forbidden" }], { errorPrefix: "consumer", path: "candidates" }); process.exit(1); }
           catch (error) { if (!(error instanceof Error) || error.message !== "consumer: 'candidates[0].provider' is not allowed") process.exit(1); }
         })`,
