@@ -45,3 +45,21 @@ cannot be done by an agent. Registry mechanics move fast: re-check the current d
 Uncertainty note: everything above about *mechanics* (CLI name, `mcpName`, challenge types) was
 accurate as of writing but is the least stable part of this doc. The identity facts (GitHub org,
 npm package name, one-liner) are the stable part. When in doubt, the registry repo's docs win.
+
+## Alternate-namespace and name-squat audit (checked 2026-09-05)
+
+Before submitting under the canonical `io.github.johnmwhitman/meshfleet` namespace, the
+operator should verify that no name conflict has appeared on the npm side or under a
+near-miss registry handle. The following was observed today; re-run before each publish:
+
+| npm name | status | note |
+|---|---|---|
+| `meshfleet` | live, `meshfleet@0.20.0` published 2026-07-31 | this is the package the registry cross-references via `mcpName` |
+| `agent-mesh` | squatted placeholder, `agent-mesh@0.0.1` description `Agent Mesh - Reserved` (maintainer `andriitsok <andrii@tryon.technology>`) | not the MeshFleet distribution; do NOT bind the registry to this name |
+| `mesh-fleet`, `meshfleet-mcp`, `meshfleet-core`, `meshfleet-server`, `@meshfleet/server`, `agent-mesh-core` | unclaimed (404 from `npm view`) | free for an emergency fallback; not selected for the canonical binding |
+
+Official MCP Registry search for `meshfleet` (2026-09-05): zero entries.
+Namespacing remains under operator control; no auth/identity step performed by this audit.
+Submitting the canonical `io.github.johnmwhitman/meshfleet` listing is a separate
+**HUMAN** step — see checklist above. The current packet does NOT register or authenticate;
+it documents the binding decision so the operator can publish without re-deriving it.

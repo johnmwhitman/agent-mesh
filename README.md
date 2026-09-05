@@ -218,17 +218,17 @@ The Agent Card advertises only local task submission and status. Task IDs are st
 
 ## The CLI
 
-Once Meshfleet is installed, the `agent-mesh` CLI gives you terminal visibility into your running fleets, and `agent-mesh-dashboard` gives you a live TUI.
+Once Meshfleet is installed, the `agent-mesh` CLI (from the `meshfleet` npm package — bare `agent-mesh` on npm resolves a different reserved placeholder) gives you terminal visibility into your running fleets, and `agent-mesh-dashboard` gives you a live TUI. Every command below selects the `meshfleet` package explicitly via `--package=meshfleet` to avoid the squatted name.
 
 ```bash
-$ npx agent-mesh inspect
+$ npx -y --package=meshfleet -- agent-mesh inspect
 3 fleets:
 
 bc34d339-935c-4…  complete  3 agents, 3 done (34.8m)
 37ae1cf2-5ce8-4…  complete  1 agents, 1 done (28.2m)
 d648beb0-cfb2-4…  failed    2 agents, 2 done (27.3s)
 
-$ npx agent-mesh inspect --metrics
+$ npx -y --package=meshfleet -- agent-mesh inspect --metrics
 Total fleets:       7
   completed:        3
   failed:           4
@@ -236,21 +236,21 @@ Total agents:       16
 Success rate:       42.9%
 Avg duration:       1.34s
 
-$ npx agent-mesh inspect --events 5
+$ npx -y --package=meshfleet -- agent-mesh inspect --events 5
 TIMESTAMP            EVENT              DETAIL
 ──────────────────────────────────────────────────────────────────────
 2026-07-02 12:40:12  agent_spawned       fleet=f-1 agent=a-1
 2026-07-02 12:40:12  agent_spawned       fleet=f-1 agent=a-2
 2026-07-02 12:40:12  fleet_created       fleet=f-1
 
-$ npx agent-mesh inspect timeline f-1 --from 2026-07-02T12:40:00Z --to 2026-07-02T12:45:00Z
+$ npx -y --package=meshfleet -- agent-mesh inspect timeline f-1 --from 2026-07-02T12:40:00Z --to 2026-07-02T12:45:00Z
 Local ledger timestamps in [1782996000000,1782996300000) · not authenticity, completeness, tamper evidence, authenticated provenance, or external time
 TIMESTAMP            KIND                SUMMARY
 ──────────────────────────────────────────────────────────────────────
 2026-07-02 12:40:13  message             handoff agent-a→agent-b
 2026-07-02 12:40:18  receipt             ack by agent-b on 3f9c1a2b
 
-$ npx agent-mesh inspect --follow            # or -f; add --fleet <id> to scope to one fleet
+$ npx -y --package=meshfleet -- agent-mesh inspect --follow            # or -f; add --fleet <id> to scope to one fleet
 ledger: ~/.config/opencode/agent-mesh.db  · poll 400ms  · ctrl-c to stop
 watching… no messages yet  (spawn a fleet or send_message from MCP)
 2026-07-22 09:14:03  handoff  agent-a → agent-b  msg=3f9c1a2b  {"task":"review PR #42"}
@@ -634,13 +634,13 @@ src/
 ├── inspector.ts         # Pure formatters for CLI output
 ├── index.ts             # MCP server: transport + tool handlers
 └── bin/
-    ├── inspect.ts       # CLI: npx agent-mesh inspect
-    └── dashboard.ts     # Live TUI: npx agent-mesh-dashboard
+    ├── inspect.ts       # CLI: npx -y --package=meshfleet -- agent-mesh inspect
+    └── dashboard.ts     # Live TUI: npx -y --package=meshfleet -- agent-mesh-dashboard
 ```
 
 Every write goes through **one** function — `withLedger(mutator)` in `db.ts` — which runs the mutation inside a single SQLite `BEGIN IMMEDIATE` transaction. Agents are real OS processes that each boot their own agent-mesh instance on the same ledger, so writes are genuinely concurrent; SQLite (WAL + `busy_timeout`) provides cross-process write exclusion, so this codebase owns no locking protocol and lost-update is impossible by construction. (An earlier JSON read-modify-write store silently lost 57 of 120 receipts under a two-process test; the SQLite seam passes the same test 200/200.) Readers use a lock-free `readLedger()`. Pure formatters live in `inspector.ts` — easy to test, no I/O.
 
-The ledger lives at `~/.config/opencode/agent-mesh.db` (SQLite); the event log at `~/.config/opencode/agent-mesh.events.log` (NDJSON). Dump the ledger as human-readable JSON any time with `npx agent-mesh inspect --export`. On first run after upgrading from a JSON ledger, the server migrates it once (validated, with a `.migrated.<ts>` backup kept).
+The ledger lives at `~/.config/opencode/agent-mesh.db` (SQLite); the event log at `~/.config/opencode/agent-mesh.events.log` (NDJSON). Dump the ledger as human-readable JSON any time with `npx -y --package=meshfleet -- agent-mesh inspect --export`. On first run after upgrading from a JSON ledger, the server migrates it once (validated, with a `.migrated.<ts>` backup kept).
 
 [Architecture orientation →](AGENT-MESH-SPEC.md) · [P2P messaging spec →](SPEC-P2P.md)
 
