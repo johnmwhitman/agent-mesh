@@ -3,13 +3,18 @@ import {
   compileRouteCandidates,
   ROUTE_CANDIDATE_COMPILER_VERSION,
 } from "./compile-route-candidates.js";
-import { assertRecommendRouteTask, recommendRoute } from "./recommend-route.js";
+import {
+  assertRecommendRoutePreference,
+  assertRecommendRouteTask,
+  recommendRoute,
+} from "./recommend-route.js";
 import type {
   CompileRouteCandidateObservation,
   CompileRouteCandidatesInput,
   CompileRouteCandidatesResult,
 } from "./compile-route-candidates.js";
 import type {
+  RecommendRouteInput,
   RecommendRouteResult,
   RecommendRouteTask,
   RouteCoordination,
@@ -77,6 +82,7 @@ export interface RoutePlaneCatalogRecommendationInput {
   observations?: CompileRouteCandidateObservation[];
   now_ms?: number;
   top_n?: number;
+  preference?: RecommendRouteInput["preference"];
 }
 
 /**
@@ -100,6 +106,8 @@ export interface RoutePlaneCatalogRecommendation {
   };
   ranked: RecommendRouteResult["ranked"];
   excluded: RecommendRouteResult["excluded"];
+  /** Evaluator provenance; absent when no preference or no compiled candidates. */
+  preference?: RecommendRouteResult["preference"];
 }
 
 export type RoutePlaneCatalogErrorCode =
@@ -281,6 +289,7 @@ function validateRecommendationInput(value: unknown): RoutePlaneCatalogRecommend
     "observations",
     "now_ms",
     "top_n",
+    "preference",
   ]);
   for (const required of ["snapshot", "policies", "task"] as const) {
     if (!(required in input)) {
@@ -299,6 +308,9 @@ function validateRecommendationInput(value: unknown): RoutePlaneCatalogRecommend
       "top_n",
       `must be a finite integer between 1 and ${MAX_RECOMMENDATION_TOP_N}`,
     );
+  }
+  if (input.preference !== undefined) {
+    assertRecommendRoutePreference(input.preference);
   }
   return input as unknown as RoutePlaneCatalogRecommendationInput;
 }
@@ -409,6 +421,7 @@ export function recommendRoutePlaneCatalog(
     task: validated.task,
     candidates: compilation.candidates,
     ...(validated.top_n === undefined ? {} : { top_n: validated.top_n }),
+    ...(validated.preference === undefined ? {} : { preference: validated.preference }),
   });
   return {
     status: "evaluated",
@@ -418,6 +431,7 @@ export function recommendRoutePlaneCatalog(
     compilation: compilationResult,
     ranked: recommendation.ranked,
     excluded: recommendation.excluded,
+    ...(recommendation.preference === undefined ? {} : { preference: recommendation.preference }),
   };
 }
 

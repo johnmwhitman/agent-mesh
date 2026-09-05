@@ -87,6 +87,34 @@ wake agents, contact providers, poll budget telemetry, or infer any authority
 from catalog provider labels. Caller policy remains the source of routing traits
 and any measured budget observation.
 
+Both catalog recommendation functions accept an optional `preference` object
+with exactly `objective` and `now_ms` fields. `objective` is either
+`"prefer_near_reset"` (use reset urgency to break equal scores) or
+`"exhaust_before_reset"` (rank reset urgency before the ordinary score).
+`now_ms` is an explicit finite safe integer timestamp used to evaluate budget
+windows; the top-level `now_ms` checks catalog freshness. Callers should use the
+same observation time for both when evaluating one snapshot:
+
+```ts
+const now = Date.now();
+const recommendation = recommendRoutePlaneCatalog({
+  snapshot, policies, task, observations,
+  now_ms: now,
+  preference: { objective: "exhaust_before_reset", now_ms: now },
+});
+```
+
+Urgency uses the measured remaining fraction and proximity to reset within a
+seven-day horizon. Unmeasured budgets and non-current windows receive no reset
+bonus. Exhausted budgets and task-constraint mismatches remain excluded. With
+no preference, existing ranking is unchanged. Invalid preferences are rejected
+even when no catalog candidates compile. This option changes the advisory
+ranking only; it does not create work, consume allowance, or monitor accounts.
+Evaluated results preserve the evaluator's `preference` receipt: objective,
+`now_ms`, `horizon_ms`, and `evidence_only`. With no preference, the field is
+absent. A `no_compiled_candidates` result also omits it because no evaluator ran;
+its validated preference did not produce a ranking.
+
 ## Refresh and recommend in one explicit call
 
 `fetchAndRecommendRoutePlaneCatalog()` is the opt-in live composition for a

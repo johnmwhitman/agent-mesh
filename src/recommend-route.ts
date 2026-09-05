@@ -262,27 +262,34 @@ function validateRecommendRouteInput(value: unknown): asserts value is Recommend
     }
   }
   if (input.preference !== undefined) {
-    const preference = requireRecord(input.preference, "preference");
-    requireAllowedKeys(
-      preference,
-      "preference",
-      new Set(["objective", "now_ms"]),
-    );
-    if (
-      preference.objective !== "prefer_near_reset" &&
-      preference.objective !== "exhaust_before_reset"
-    ) {
-      invalid(
-        "preference.objective",
-        "must equal prefer_near_reset or exhaust_before_reset",
-      );
-    }
-    requireFiniteInteger(
-      preference.now_ms,
-      "preference.now_ms",
-      Number.MIN_SAFE_INTEGER,
+    assertRecommendRoutePreference(input.preference);
+  }
+}
+
+/** Validate an explicit reset preference, including callers with no route candidates. */
+export function assertRecommendRoutePreference(
+  value: unknown,
+): asserts value is NonNullable<RecommendRouteInput["preference"]> {
+  const preference = requireRecord(value, "preference");
+  requireAllowedKeys(
+    preference,
+    "preference",
+    new Set(["objective", "now_ms"]),
+  );
+  if (
+    preference.objective !== "prefer_near_reset" &&
+    preference.objective !== "exhaust_before_reset"
+  ) {
+    invalid(
+      "preference.objective",
+      "must equal prefer_near_reset or exhaust_before_reset",
     );
   }
+  requireFiniteInteger(
+    preference.now_ms,
+    "preference.now_ms",
+    Number.MIN_SAFE_INTEGER,
+  );
 }
 
 interface ScoredCandidate {
