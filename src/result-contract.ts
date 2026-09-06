@@ -21,13 +21,13 @@
  * truth of the claim needs a different oracle (a reviewer, a test, an attestation). Marketing
  * this as a truth or quality gate would be the same overclaim it exists to prevent.
  *
- * TWO RELEASES, deliberately. This release OBSERVES: every runtime is taught the contract it can
+ * ROLLOUT, deliberately staged. Release N observed: every runtime was taught the contract it can
  * actually satisfy (file-based for agentic runtimes, final-text for restricted runtimes), and the
- * observed status is recorded on the agent row, but banking is unchanged. The next release
- * ENFORCES: absent or invalid becomes `failed`. Enforcing on day one would fail every fleet
- * whose prompts predate the contract — mass false `failed`, which is the same class of untrue
- * ledger, pointing the other way. Historical rows are forward-only: nothing is backfilled,
- * because a value inferred for a run nobody observed is a fabricated measurement.
+ * observed status was recorded without changing banking. Release N+1 enforces: `ok` is the only
+ * value that may bank `complete`; every non-`ok` value banks `failed`. The observation release
+ * avoided mass false failures while prompts adopted the contract. Historical rows remain
+ * forward-only: nothing is backfilled, because a value inferred for a run nobody observed is a
+ * fabricated measurement.
  */
 
 import { existsSync, readFileSync } from "fs";
@@ -47,7 +47,7 @@ export type ResultContractOutcome = "done" | "refused" | "blocked";
 /**
  * What MeshFleet observed. Recorded on the agent row for every terminal outcome.
  *
- * `ok` is the ONLY value that may bank `complete` once the next release enforces. `absent` and
+ * `ok` is the ONLY value that may bank `complete`. `absent` and
  * `invalid` are distinct on purpose: absent says the agent never learned the contract (a caller
  * or prompt problem), invalid says it tried and produced something unreadable (an agent problem).
  * Collapsing them would hide which of the two an adoption metric is actually measuring.
@@ -59,6 +59,25 @@ export type ResultContractStatus =
   | "artifact_missing"
   | "invalid"
   | "absent";
+
+/**
+ * The prose every caller shows when a successful runtime exit is sealed `failed` because the
+ * result contract says so. Mirrors {@link HOLLOW_SUCCESS_REASON}'s shape: a single bounded
+ * sentence that names the sealed status, the recorded contract value, and the rule that decided
+ * — so the row's `error` reads as a diagnosis and not a transcript.
+ *
+ * The contract value is interpolated (not the agent's stdout) because this string is the
+ * `failureDetail` passed to `markAgentFinished(..., "failed", ..., failureDetail, ...)`, and
+ * that path's success-carries-no-error guard forbids raw runtime text in the same region
+ * (`src/index.ts` lines 393–397). The contract value is a one-token enum; the agent's prose is
+ * not, and recording it would recreate the exact indistinguishability this release is closing.
+ */
+export const RESULT_CONTRACT_FAILURE_REASON = (
+  status: ResultContractStatus,
+): string =>
+  `Runtime exited successfully but result_contract=${status}; sealed as failed because ` +
+  `ok is the only value that may bank complete. Re-run with a valid envelope ` +
+  `({"schema":"${RESULT_CONTRACT_SCHEMA}","outcome":"done","summary":"<one line>"}) to complete.`;
 
 export interface AgentResultEnvelope {
   schema: string;

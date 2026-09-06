@@ -19,6 +19,25 @@ Maintenance release branched from `v0.20.0` (commit `a361e273`) to enable MCP Re
 
 ## [Unreleased]
 
+### Changed
+
+- **The result contract now ENFORCES (release N+1).** Release N (2026-08-19) shipped
+  observe-only: every spawned agent was taught the contract, what it declared was recorded
+  on the agent row as `result_contract`, and banking was unchanged so callers could measure
+  adoption before behaviour moved. This release flips the banking decision in
+  `src/index.ts` (recordAttemptSettlement) and `src/lifecycle-execution.ts` (durable
+  settlement): **anything but `ok` banks `failed`**, with the contract value carried on the
+  row so a caller asking "why failed?" gets the answer the agent chose. The contract value
+  is the agent's final word — refused, blocked, missing artifact, invalid envelope, silent
+  — and burning the retry budget proving the same silence is exactly the overclaim release
+  N existed to surface. Rows written before this release carry no contract value and are
+  **never backfilled** — a value inferred for a run nobody observed would be a fabricated
+  measurement. Callers wanting the stronger guarantee today no longer need a
+  `status === "complete" && result_contract === "ok"` post-filter: by construction, a row
+  banked `complete` carries `result_contract === "ok"`, and the auditor adds
+  `agent.complete_with_non_ok_contract` as a regression guard for any future writer that
+  tries to bank `complete` despite a non-`ok` contract again.
+
 ### Added
 
 - **Section 9 authorization context-mismatch bounded subfamily.** Five new
@@ -39,8 +58,46 @@ Maintenance release branched from `v0.20.0` (commit `a361e273`) to enable MCP Re
   CLOSED for the bounded subfamily; the rule-count edge remains the only open
   item (262144-byte cap + 216-byte rule lower bound makes 2048 rules
   unrepresentable). Corpus 44 → 49 cases. Suite 1767 → 1768.
+- **Section 9 binding rules-count bounded subfamily.** Three new mandatory corpus
+  cases (`binding.rules-empty-0`, `binding.rules-256-admit`,
+  `binding.rules-257-reject`) pin the `binding_snapshot.rules` length boundary
+  (line 389 of `src/a2a/local-admission.ts`): 0 rules → `AUTHORIZATION_DENIED@$`
+  (no rule matches), 256 rules (max valid) → `admission_plan` with the unchanged
+  4A digest (original matching rule plus 255 unique non-matching rules), 257
+  rules → `INVALID_BINDING_SNAPSHOT@$.binding_snapshot.rules` (cap exceeded).
+  Each new case mutates only the `rules` array length of an existing valid
+  fixture and keeps every other request field byte-identical, so partial
+  matches, default-allow fallbacks, and silent fallbacks cannot exist.
+  Generator: `scripts/gen-binding-rules-count-cases.mjs` (idempotent, pristine
+  sentinel against the current 49-case corpus). Splicer:
+  `scripts/splice-binding-rules-count-cases.mjs` (refuses to run unless the
+  starting corpus has the expected 49 cases, so a future re-home can't
+  silently double-add). Family-pin test in `test/a2a-local-admission.test.ts`
+  asserts the three ids, the three exact outcomes, and the literal rule counts
+  parsed from each request_json. Coverage ledger binding row now reads CLOSED
+  for the bounded 0/256/257 subfamily. Corpus 49 → 52 cases. Suite 1778 → 1779.
 - **`scripts/merge-train.mjs` + `test/merge-train.test.mjs` (30 verified branches queued, 1 read + 1 command collapse).** The lane now collapses the 19+ verifier-verified branches pooled at MERGE-READY to one operator decision per day. `--dry-run` (default) emits `MERGE-TRAIN-YYYYMMDD.md` with per-branch one-liner + diffstat + the canonical-verifier receipt on the train tip + the ONE operator command `git merge --ff-only train/YYYYMMDD`; `--apply` actually opens `train/YYYYMMDD` off `origin/main`, sequentially rolls in each candidate via `git merge --no-ff`, runs the train-tip through the canonical Node 24.18.1 + python3 3.10+ verifier under `flock heavy-build`, and emits the same report with `Final status: GREEN — NN/NN tests`. Candidates are filtered by (a) ahead of `origin/main` strictly, (b) tip subject `VERIFIED:` claim, (c) `git merge-tree` clean merge with `origin/main`, (d) no MERGE-READY ancestor-superset on the train (skipping the smaller one keeps the train lean). Branches that fail to merge or break the verifier get bisected out and listed as leftovers with the exact reason and a suggested operator action (`rebase or drop`). Six unit tests cover the selector against a mock git interface: empty repo, branch at exactly `origin/main`, `VERIFIED:` subject, non-`VERIFIED:` leftover, strict-ancestor redundancy, and unverified-superset no-redundancy. The first train run on the lane's current backlog (2026-08-18) is at `MERGE-TRAIN-20260818.md`: 30 branches --no-ff onto `train/20260818`, 3 leftovers (two redundant ancestor-superset branches; one unverified-subject). Reads the canonical receipt via `scripts/run-tests.mjs` (the same one CI runs); no new gate is invented.
 - **`scripts/portfolio-merge-train.mjs` — multi-repo dossier wrapper.** Step-2 generalisation of the merge-train: takes a list of repo paths (`--repo`, repeatable, or `--config` JSON file) and emits `MERGE-TRAIN-PORTFOLIO-YYYYMMDD.md` with one section per repo. Per-repo sections reuse the lane's `pickCandidates` selector (so cherry-pick order, subject gate, and merge-tree cleanliness are identical to the single-repo train), plus a fresh/stale/suspect/dead population roll-up so the lane can spot which branches are candidates for prune before the next sweep. Default staleness bands: fresh ≤30d, stale 31-180d, suspect 181-360d, dead >360d — proportional to `--stale-days N` so a tighter threshold tightens all four bands. `--apply` is documented as a per-repo step (the wrapper never pushes or merges); push, deploy, and runtime promotion remain operator-gated. Three unit tests pin the staleness band math so a future refactor cannot silently flip the boundaries.
+- **`ack_message` real-MCP-stdio hardening (5 new witnesses, suite 1779 → 1784).** The basic `test/ack-message-mcp-contract.test.ts` covered advertised schema, non-recipient forgery, single-recipient consumption, and idempotent repeat; the red-team review of that minimum surfaced five gaps that basic witness could not pin. Five new tests, all real-stdio child processes, close them: **(a)** a fleet broadcast's per-recipient ack must NOT drain sibling inboxes — pinning the `messageRecipients(msg)` walk the broadcast resolution takes so a regression that filters on `to_agent_id` cannot silently collapse a broadcast ack into a global drain; **(b)** a hallucinated `message_id` must return `{ok:false}` with `isError: undefined`, not a transport-level error, so a caller typo does not get disguised as a class-of-failure it is not; **(c)** the sender of a direct message must not be able to ack their own outbound message — sibling of the existing non-recipient witness, closing the forgeable-audit-entry hole at the sender edge; **(d)** the boundary-validation table pins the wire-accepted shape for `agent_id` and `message_id` against empty string, whitespace-only, `null`, array, and object — each refusal returns `isError: true` with text naming the offending field (`ack_message: '<field>' is required and must be a non-empty string, got <value> (<type>)`), and where the attempted shape is a syntactically valid string the test also asserts no receipt was written; **(e)** the ack + inbox-drain survive a server restart — kill the child process, spin a fresh one against the same `MESHFLEET_DB_FILE` / `MESHFLEET_DATA_FILE`, and confirm the receipt is still there, the inbox is still drained, and a re-ack remains idempotent. The fixture pattern (`makeFixture` + `connectChild` + parent-side `process.env` mirror so direct-core `registerAgentInLedger` writes reach the same SQLite handle the child reads) is also reusable for future cross-process MCP contract tests.
+- **Authorization-snapshot field/grammar gates for offline local admission.** The
+  `evaluate-local-admission` corpus grows from 44 to 62 mandatory cases: exact source-path
+  rejections for every authorization-snapshot member (version/id/provenance/effective-from/
+  effective-until), snapshot unknown-member and non-array rules, every rule member
+  (adapter/principal/audience/session/sender), rule unknown-member, and missing action; raw
+  negative/fractional/unsafe `effective_from_ms` lexemes reject at the scanner
+  (`MALFORMED_JSON`) with the member path; an inverted interval denies. TypeScript and the
+  independent Python witness agree byte-for-byte on all 62 cases. The 2048/2049 rule-count
+  boundary remains provably unrepresentable below the 262144-byte request cap (216-byte rule
+  lower bound, ledger row 47).
+
+### Fixed
+
+- **`tally_ratification` advertised `readOnlyHint: true` while its handler
+  persists terminal status via `resolveRatification`.** The published
+  description already said it persists; the annotation lied. Callers routing
+  on MCP hints would treat a write as a read. Hint is now `false`;
+  `idempotentHint` stays `true`. The annotation test pins the classified
+  read-only / open-world sets, not just boolean presence.
 
 ## [0.21.1] - 2026-08-10
 

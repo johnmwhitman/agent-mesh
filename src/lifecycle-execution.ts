@@ -25,6 +25,7 @@ import { isHollowSuccess, HOLLOW_SUCCESS_REASON } from "./hollow-result.js";
 import {
   readResultContract,
   resultPathFor,
+  RESULT_CONTRACT_FAILURE_REASON,
   withResultContract,
   type ResultContractStatus,
 } from "./result-contract.js";
@@ -545,6 +546,14 @@ export class LifecycleExecutionCoordinator {
     // for as long as the disk takes, and the value decides nothing this release anyway.
     // The expectation is read from the durable row — the same source a retry's teaching used —
     // so the ladder judges the envelope against what the agent was actually told.
+    //
+    // RELEASE N+1 (2026-08-19 → enforce): the contract value now DECIDES banking. Anything but
+    // `ok` from a successful runtime seals `failed` — same rule as the legacy path's settlement
+    // (`src/index.ts` recordAttemptSettlement), in one place so the two do not drift. Read here
+    // because the durable settlement needs it before deciding between `settle` (terminal) and
+    // `settleWithRetry` (transient). A contract failure is the agent's final word, not a
+    // transient runtime fault — same reasoning as the legacy path — so it goes through
+    // `settle`, NOT `settleWithRetry`, even though both carry `outcome: "failure"`.
     const expectsArtifact = loadData().agents[agentId]?.expects_artifact === true;
     const resultContract = result.resultContract ??
       readResultContract(resultPathFor(agentId, attemptId), { cwd: process.cwd(), expectsArtifact });
@@ -558,11 +567,41 @@ export class LifecycleExecutionCoordinator {
       // this durable coordinator is what a transient runtime fault already gets —
       // so the attempt can be re-run or failed over rather than silently banked.
       const hollow = isHollowSuccess(result);
-      const success = result.status === "success" && !hollow;
+      const runtimeSuccess = result.status === "success" && !hollow;
+      // RESULT CONTRACT (2026-08-19): `ok` is the only value that may settle a
+      // success. A non-`ok` contract from a runtime exit 0 is the agent's chosen
+      // declaration — refused, blocked, missing artifact, invalid envelope, or
+      // silent — and that declaration is final. Fail it terminally so the row
+      // does not pretend the work happened and the retry budget is not burned
+      // proving the same silence.
+      const contractOk = resultContract === "ok";
+      const success = runtimeSuccess && contractOk;
       const output = redact(result.stdout);
+      const contractFailureReason = RESULT_CONTRACT_FAILURE_REASON(resultContract);
       const hollowError = HOLLOW_SUCCESS_REASON;
-      const outcome = success ? store.settle({ workId: agentId, attemptId, ownerId: this.ownerId, ownerEpoch: epoch, outcome: "success", result: output })
-        : store.settleWithRetry({ workId: agentId, attemptId, ownerId: this.ownerId, ownerEpoch: epoch, outcome: "failure", result: output, error: redact(hollow ? hollowError : (result.error ?? result.stderr)) });
+      const outcome = success
+        ? store.settle({ workId: agentId, attemptId, ownerId: this.ownerId, ownerEpoch: epoch, outcome: "success", result: output })
+        : !runtimeSuccess
+          // RUNTIME FAILURE: transient — retry the attempt via settleWithRetry. The retry budget
+          // exists for runtime faults (network blip, transient provider refusal, etc.). The
+          // original retry path.
+          ? store.settleWithRetry({
+              workId: agentId, attemptId, ownerId: this.ownerId, ownerEpoch: epoch, outcome: "failure",
+              result: output,
+              error: redact(hollow ? hollowError : (result.error ?? result.stderr)),
+            })
+          // CONTRACT FAILURE on a successful runtime: the agent's FINAL word. Sealed
+          // terminally (store.settle) so the row does not pretend the work happened and the
+          // retry budget is not burned proving the same silent outcome — exactly the overclaim
+          // release N existed to surface. The contract path's prose is bounded (single token +
+          // envelope shape); the runtime's own stderr is excluded by the same
+          // success-carries-no-error rule the legacy path follows — a transcript in `error`
+          // recreates the indistinguishability this release exists to prevent.
+          : store.settle({
+              workId: agentId, attemptId, ownerId: this.ownerId, ownerEpoch: epoch, outcome: "failure",
+              result: output,
+              error: redact(contractFailureReason),
+            });
       if (!outcome.accepted) return undefined;
       this.projectPending(data, outcome.state, result, resultContract);
       const agent = data.agents[agentId];

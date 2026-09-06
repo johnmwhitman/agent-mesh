@@ -105,6 +105,55 @@ test("authorization context mismatch on any single policy field denies the reque
   }
 });
 
+test("authorization snapshot field/grammar gates pin every exact source path", () => {
+  const snapshotIds = corpus.mandatory_case_ids.filter((id) => id.startsWith("authorization.snapshot-"));
+  const ruleIds = corpus.mandatory_case_ids.filter((id) => id.startsWith("authorization.rule-"));
+  assert.deepEqual(snapshotIds, [
+    "authorization.snapshot-version-invalid",
+    "authorization.snapshot-id-invalid",
+    "authorization.snapshot-provenance-invalid",
+    "authorization.snapshot-from-invalid",
+    "authorization.snapshot-from-fractional",
+    "authorization.snapshot-from-unsafe",
+    "authorization.snapshot-until-invalid",
+    "authorization.snapshot-until-inverted",
+    "authorization.snapshot-unknown-member",
+    "authorization.snapshot-rules-not-array",
+  ]);
+  assert.deepEqual(ruleIds, [
+    "authorization.rule-adapter-invalid",
+    "authorization.rule-principal-invalid",
+    "authorization.rule-audience-invalid",
+    "authorization.rule-session-invalid",
+    "authorization.rule-sender-invalid",
+    "authorization.rule-sender-unknown-member",
+    "authorization.rule-unknown-member",
+    "authorization.rule-missing-action",
+  ]);
+  const cases = corpus.cases.filter((item) => snapshotIds.includes(item.id) || ruleIds.includes(item.id));
+  assert.equal(cases.length, 18);
+  for (const item of cases) {
+    assert.equal(item.expected.replay_oracle_calls, 0, item.id);
+    const result = item.expected.result as { kind: string; code: string; field_path: string };
+    assert.equal(result.kind, "rejected", item.id);
+    assert.equal(item.invocation_args.request_json.includes("authorization_snapshot"), true, item.id);
+    assert.equal(item.invocation_args.request_json.includes("binding_snapshot"), true, item.id);
+    assert.equal(item.invocation_args.request_json.includes("authentication_evidence"), true, item.id);
+    if (item.id === "authorization.snapshot-until-inverted") {
+      assert.deepEqual(result, { kind: "rejected", code: "AUTHORIZATION_DENIED", field_path: "$" });
+      continue;
+    }
+    // every snapshot grammar rejection reports an exact source path inside the snapshot
+    assert.match(result.field_path, /^\$\.authorization_snapshot(?:$|\.|\.rules\[\d+\](?:\.|$))/, item.id);
+    if (["authorization.snapshot-from-invalid", "authorization.snapshot-from-fractional", "authorization.snapshot-from-unsafe"].includes(item.id)) {
+      // raw number lexemes fail at the scanner before semantic snapshot validation
+      assert.deepEqual(result, { kind: "rejected", code: "MALFORMED_JSON", field_path: "$.authorization_snapshot.effective_from_ms" });
+    } else {
+      assert.equal(result.code, "INVALID_AUTHORIZATION_SNAPSHOT", item.id);
+    }
+  }
+});
+
 test("authentication-evidence boundaries stay ordered and preserve their terminal semantics", () => {
   const evidenceCases = corpus.cases.filter((item) => item.id.startsWith("evidence."));
   assert.deepEqual(
@@ -156,6 +205,57 @@ test("the 2048-rule profile row exceeds the raw request ceiling by authorization
   });
   assert.equal(Buffer.byteLength(shortestRule, "utf8"), 216);
   assert.ok(216 * 2048 > 262144, "2048 minimum authorization rules exceed the request cap before array punctuation or request fields");
+});
+
+test("binding rules-count covers the 0/256/257 cardinality boundary for binding_snapshot.rules", () => {
+  // Filter by id prefix so the binding rules-count row stays correct after
+  // later slices (e.g. authorization snapshot/rule field/grammar) append
+  // additional cases at the end of the corpus.
+  const bindingRulesCountCases = corpus.cases.filter((item) => item.id.startsWith("binding.rules-"));
+  assert.deepEqual(
+    bindingRulesCountCases.map((item) => item.id),
+    [
+      "binding.rules-empty-0",
+      "binding.rules-256-admit",
+      "binding.rules-257-reject",
+    ],
+  );
+  // Strip any private (_-prefixed) fields before comparing expected bytes,
+  // since the corpus shape is only the documented fields.
+  const stripPrivate = (expected: Record<string, unknown>) => {
+    const out: Record<string, unknown> = {};
+    for (const k of Object.keys(expected)) {
+      if (!k.startsWith("_")) out[k] = (expected as Record<string, unknown>)[k]!;
+    }
+    return out;
+  };
+  assert.deepEqual(
+    bindingRulesCountCases.map((item) => stripPrivate(item.expected as Record<string, unknown>)),
+    [
+      // 0 rules: no rule matches -> AUTHORIZATION_DENIED at $
+      { result: { kind: "rejected", code: "AUTHORIZATION_DENIED", field_path: "$" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+      // 256 rules: max valid; original matching rule plus 255 unique non-matching rules
+      // -> admission_plan with the unchanged 4A digest (same digest as the valid base)
+      { result: corpus.cases[0]!.expected.result, replay_oracle_calls: 1, replay_oracle_arguments: [{
+        principal_ref: "principal-ref",
+        request_id: "request-ref",
+        sender: { namespace: "local", agent_id: "agent-a" },
+        message_id: "message-ref",
+        envelope_digest: (corpus.cases[0]!.expected.result as { kind: "admission_plan"; envelope_digest: string }).envelope_digest,
+      }] },
+      // 257 rules: cap exceeded -> INVALID_BINDING_SNAPSHOT at $.binding_snapshot.rules
+      { result: { kind: "rejected", code: "INVALID_BINDING_SNAPSHOT", field_path: "$.binding_snapshot.rules" }, replay_oracle_calls: 0, replay_oracle_arguments: [] },
+    ],
+  );
+  // Per-case rule-count proof: confirm the literal count of binding_snapshot.rules
+  // for each generated case matches the bounded-subfamily name.
+  for (const item of bindingRulesCountCases) {
+    const request = JSON.parse(item.invocation_args.request_json) as { binding_snapshot: { rules: unknown[] } };
+    const count = request.binding_snapshot.rules.length;
+    if (item.id === "binding.rules-empty-0") assert.equal(count, 0, `${item.id} must have 0 rules`);
+    if (item.id === "binding.rules-256-admit") assert.equal(count, 256, `${item.id} must have 256 rules`);
+    if (item.id === "binding.rules-257-reject") assert.equal(count, 257, `${item.id} must have 257 rules`);
+  }
 });
 
 test("local admission evaluates every required corpus record with exact output bytes and replay evidence", () => {

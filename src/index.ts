@@ -86,6 +86,7 @@ import { isHollowSuccess, HOLLOW_SUCCESS_REASON } from "./hollow-result.js";
 import {
   readResultContract,
   resultPathFor,
+  RESULT_CONTRACT_FAILURE_REASON,
   withResultContract,
   withTextResultContract,
   type ResultContractStatus,
@@ -397,9 +398,20 @@ function settleLegacyNonTimeout(
   const hollowFailureDetail = isHollowSuccess(result)
     ? buildFailureDetail(result.stderr, HOLLOW_SUCCESS_REASON)
     : undefined;
-  // OBSERVE-ONLY THIS RELEASE. The status is read and recorded; it decides nothing. The next
-  // release makes anything but `ok` bank `failed`. Reading it here — on the same result the
-  // banking decision uses — is what makes the adoption figure honest before it is enforced.
+  // OBSERVE-ONLY WAS RELEASED 2026-08-19. THIS RELEASE ENFORCES.
+  //
+  // The status is read on the same path the banking decision uses — that is what made
+  // release N's adoption figure honest. Enforce-mode here means: anything but `ok` banks
+  // `failed`. Reading it in one place keeps the rule auditable; reading it twice would
+  // let the two paths drift.
+  //
+  // Why not just call the existing failure branch? `handleTransientFailure` retries —
+  // a contract failure is the agent's FINAL word (it chose not to write an envelope, or
+  // wrote one that does not parse), not a transient runtime fault. Retrying would burn
+  // the budget proving the same silent outcome, exactly the overclaim release N existed
+  // to surface. So the failure is sealed in one statement, same `markAgentFinished` call
+  // shape the success branch uses, with the contract value carried so the row tells the
+  // whole story.
   const resultContract = result.resultContract ??
     readResultContract(resultPath, { cwd: spec.cwd, expectsArtifact: input.expectsArtifact === true });
   if (result.status === "success") {
@@ -420,6 +432,27 @@ function settleLegacyNonTimeout(
         "failed",
         result.stdout,
         hollowFailureDetail,
+        result.identity.agent,
+        result.identity.model,
+        undefined,
+        resultContract,
+      );
+      return;
+    }
+    // RESULT CONTRACT (2026-08-19): `ok` is the only value that may bank
+    // `complete`. A `done` envelope without produced files (when `expects_artifact`
+    // was declared) lands as `artifact_missing`; a refusal or block is its own
+    // declared outcome — both bank `failed` here, with the contract value carried
+    // on the row so a caller asking "why failed?" gets the answer the agent chose.
+    // The detail composer forbids the runtime transcript in this region (see the
+    // comment above on success-carries-no-error); `RESULT_CONTRACT_FAILURE_REASON`
+    // is bounded and names the rule.
+    if (resultContract !== "ok") {
+      markAgentFinished(
+        agentId,
+        "failed",
+        result.stdout,
+        RESULT_CONTRACT_FAILURE_REASON(resultContract),
         result.identity.agent,
         result.identity.model,
         undefined,
@@ -626,7 +659,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "spawn_fleet",
       description:
-        "Spawn parallel agents. Returns fleet_id. Each agent can optionally specify an 'agent' field to use a premade agent definition from .opencode/agents/.",
+        "Spawn parallel agents. Returns fleet_id. An agent banks complete only when result_contract is ok; refused, blocked, artifact_missing, invalid, or absent banks failed.",
       inputSchema: {
         type: "object",
         properties: {
@@ -669,7 +702,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
                   description:
                     "Declare that this agent's result envelope must name at least one produced " +
                     "file: a 'done' declaration with no artifacts is recorded as " +
-                    "result_contract 'artifact_missing' instead of 'ok', and the agent is told " +
+                    "result_contract 'artifact_missing' instead of 'ok' and banks failed; the agent is told " +
                     "so in its prompt. Restricted text runtimes refuse this request. Named " +
                     "paths are existence-checked only — this is a " +
                     "declared-output check, never a content or quality guarantee.",
@@ -681,6 +714,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         },
         required: ["agents"],
       },
+      annotations: { openWorldHint: true, readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     },
     {
       name: "fleet_status",
@@ -690,6 +724,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         properties: { fleet_id: { type: "string" } },
         required: ["fleet_id"],
       },
+      annotations: { readOnlyHint: true, idempotentHint: true, destructiveHint: false, openWorldHint: false },
     },
     {
       name: "list_fleets",
@@ -698,6 +733,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         type: "object",
         properties: {},
       },
+      annotations: { readOnlyHint: true, idempotentHint: true, destructiveHint: false, openWorldHint: false },
     },
     {
       name: "set_fleet_timeout",
@@ -711,16 +747,18 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         },
         required: ["fleet_id", "timeout_ms"],
       },
+      annotations: { idempotentHint: true, readOnlyHint: false, destructiveHint: false, openWorldHint: false },
     },
     {
       name: "collect_results",
       description:
-        "Get all agent outputs from a fleet, with an explicit loss tally. Returns total/delivered/lost/still_running, named lost_agents and degraded_agents lists, and a `warning` string present ONLY when work was actually lost. `degraded_agents` means the agent reported a valid `result_contract: 'ok'` with output or declared artifacts, but its runtime status was not clean; it is delivered, not proven successful. Check `lost` before treating the collection as finished: interrupted or failed agents without a reported result remain lost. Each result also carries `result_contract` — what the agent declared about its own outcome ('ok' | 'refused' | 'blocked' | 'artifact_missing' | 'invalid' | 'absent'), absent on runs that predate the contract. A valid envelope is a DECLARED outcome, not a truth or quality check.",
+        "Get fleet outputs and loss tally. Only result_contract ok can bank complete; refused, blocked, artifact_missing, invalid, or absent banks failed. Declared outcome, not quality. Check lost first.",
       inputSchema: {
         type: "object",
         properties: { fleet_id: { type: "string" } },
         required: ["fleet_id"],
       },
+      annotations: { readOnlyHint: true, idempotentHint: true, destructiveHint: false, openWorldHint: false },
     },
     {
       name: "send_message",
@@ -738,6 +776,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         },
         required: ["from_agent_id", "to_agent_id", "fleet_id", "type", "payload"],
       },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
     {
       name: "send_messages",
@@ -765,6 +804,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         },
         required: ["messages"],
       },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
     {
       name: "get_inbox",
@@ -778,6 +818,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         },
         required: ["agent_id"],
       },
+      annotations: { readOnlyHint: true, idempotentHint: true, destructiveHint: false, openWorldHint: false },
     },
     {
       name: "ack_message",
@@ -791,6 +832,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         },
         required: ["agent_id", "message_id"],
       },
+      annotations: { idempotentHint: true, readOnlyHint: false, destructiveHint: false, openWorldHint: false },
     },
     {
       name: "receipt",
@@ -806,6 +848,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         },
         required: ["agent_id", "message_id", "action"],
       },
+      annotations: { idempotentHint: true, readOnlyHint: false, destructiveHint: false, openWorldHint: false },
     },
     {
       name: "get_receipts",
@@ -818,24 +861,28 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         },
         required: ["message_id"],
       },
+      annotations: { readOnlyHint: true, idempotentHint: true, destructiveHint: false, openWorldHint: false },
     },
     {
       name: "verify_ledger",
       description:
         "Audit the ledger's internal consistency: every receipt points at a real message and honors the idempotency key, acknowledged flags are supported by ack receipts, inboxes hold no consumed or dangling messages, and ratification tallies (quorum, signoffs, vote polarity, terminal status) recompute from the receipts. Read-only. Returns ok, error/warning counts, per-finding detail, and a `scope` object stating the guarantee boundary — errors mean the ledger asserts something its own records do not support. SCOPE: ok=true means CONSISTENT, not AUTHENTIC. There is no hash chain or signature in this verifier, so an edit that rewrites the ledger consistently is indistinguishable from honest history. Do not report a passing verification as proof the ledger was not tampered with.",
       inputSchema: { type: "object", properties: {} },
+      annotations: { readOnlyHint: true, idempotentHint: true, destructiveHint: false, openWorldHint: false },
     },
     {
       name: "verify_ledger_v2",
       description:
         "Versioned verifier output read from a dedicated read-only file snapshot; the handler performs no ledger writes. Normal parent-server startup recovery or migration may initialize or change the configured ledger before tool dispatch. Returns the unchanged internal-consistency report inside meshfleet.verify/v2 with an unsigned-snapshot evidence scope; it does not establish authorship, snapshot integrity, content binding, completeness, external delivery or execution, or external time.",
       inputSchema: { type: "object", properties: {} },
+      annotations: { readOnlyHint: true, idempotentHint: true, destructiveHint: false, openWorldHint: false },
     },
     {
       name: "verify_ledger_v3",
       description:
         "Opt-in verifier output read from a dedicated read-only file snapshot; the handler performs no ledger writes. Returns a detached meshfleet.verify/v3 report with one local consistency band per finding, derived only from its severity. Those labels are not provenance or confidence and do not establish authenticity, completeness, tamper evidence, authorship, snapshot integrity, content binding, external delivery or execution, or external time.",
       inputSchema: { type: "object", properties: {} },
+      annotations: { readOnlyHint: true, idempotentHint: true, destructiveHint: false, openWorldHint: false },
     },
     {
       name: "open_ratification",
@@ -862,6 +909,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         },
         required: ["proposer", "fleet_id", "subject", "quorum"],
       },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
     {
       name: "cast_vote",
@@ -877,6 +925,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         },
         required: ["agent_id", "message_id", "approve"],
       },
+      annotations: { idempotentHint: true, readOnlyHint: false, destructiveHint: false, openWorldHint: false },
     },
     {
       name: "tally_ratification",
@@ -889,12 +938,15 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         },
         required: ["message_id"],
       },
+      // Handler calls resolveRatification — persists terminal status. Idempotent, not read-only.
+      annotations: { readOnlyHint: false, idempotentHint: true, destructiveHint: false, openWorldHint: false },
     },
     {
       name: "sweep_ratifications",
       description:
         "Evaluate every open ratification now and persist any that reached a terminal state (deadline expiry, silent-approval, unreachable quorum). The server also sweeps automatically every AGENT_MESH_RATIFY_SWEEP_MS (default 60s).",
       inputSchema: { type: "object", properties: {} },
+      annotations: { idempotentHint: true, readOnlyHint: false, destructiveHint: false, openWorldHint: false },
     },
     {
       name: "register_capability",
@@ -915,6 +967,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         },
         required: ["agent_id", "fleet_id", "role", "skills"],
       },
+      annotations: { idempotentHint: true, readOnlyHint: false, destructiveHint: false, openWorldHint: false },
     },
     {
       name: "route_work",
@@ -933,6 +986,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         },
         required: ["description"],
       },
+      annotations: { readOnlyHint: true, idempotentHint: true, destructiveHint: false, openWorldHint: false },
     },
     {
       name: "compile_route_candidates",
@@ -1088,6 +1142,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         },
         required: ["manifest"],
       },
+      annotations: { readOnlyHint: true, idempotentHint: true, destructiveHint: false, openWorldHint: false },
     },
     {
       name: "recommend_route",
@@ -1334,6 +1389,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         required: ["task", "candidates"],
         additionalProperties: false,
       },
+      annotations: { readOnlyHint: true, idempotentHint: true, destructiveHint: false, openWorldHint: false },
     },
     {
       name: "plan_speculative_backlog",
@@ -1409,6 +1465,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         },
         required: ["version", "candidates", "tasks"],
       },
+      annotations: { readOnlyHint: true, idempotentHint: true, destructiveHint: false, openWorldHint: false },
     },
     {
       name: "record_routing_outcome",
@@ -1423,17 +1480,19 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         },
         required: ["agent_id", "capability_key", "success"],
       },
+      annotations: { idempotentHint: true, readOnlyHint: false, destructiveHint: false, openWorldHint: false },
     },
     {
       name: "list_agents",
       description:
         "List all available premade agents from .opencode/agents/ directories.",
       inputSchema: { type: "object", properties: {} },
+      annotations: { readOnlyHint: true, idempotentHint: true, destructiveHint: false, openWorldHint: false },
     },
     {
       name: "attach_agent",
       description:
-        "Dynamically attach a premade agent to an existing running fleet.",
+        "Attach an agent to a running fleet. It banks complete only when result_contract is ok; refused, blocked, artifact_missing, invalid, or absent banks failed.",
       inputSchema: {
         type: "object",
         properties: {
@@ -1454,18 +1513,20 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
             description:
               "Declare that this agent's result envelope must name at least one produced file: " +
               "a 'done' declaration with no artifacts is recorded as result_contract " +
-              "'artifact_missing' instead of 'ok', and the agent is told so in its prompt. " +
+              "'artifact_missing' instead of 'ok' and banks failed; the agent is told so in its prompt. " +
               "Named paths are existence-checked only — a declared-output check, never a " +
               "content or quality guarantee.",
           },
         },
         required: ["fleet_id", "role", "prompt"],
       },
+      annotations: { openWorldHint: true, readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     },
     {
       name: "ping",
       description: "Minimal liveness check. Returns { status: 'ok', timestamp }.",
       inputSchema: { type: "object", properties: {} },
+      annotations: { readOnlyHint: true, idempotentHint: true, destructiveHint: false, openWorldHint: false },
     },
     {
       name: "subscribe_inbox",
@@ -1481,6 +1542,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         },
         required: ["agent_id"],
       },
+      annotations: { readOnlyHint: true, idempotentHint: true, destructiveHint: false, openWorldHint: false },
     },
     {
       name: "subscribe_events",
@@ -1495,12 +1557,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           },
         },
       },
+      annotations: { readOnlyHint: true, idempotentHint: true, destructiveHint: false, openWorldHint: false },
     },
     {
       name: "get_health",
       description:
         "Health report: ledger size, fleet/agent/message counts, uptime, last event. Use for monitoring and alerting.",
       inputSchema: { type: "object", properties: {} },
+      annotations: { readOnlyHint: true, idempotentHint: true, destructiveHint: false, openWorldHint: false },
     },
     {
       name: "save_fleet_template",
@@ -1526,11 +1590,13 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         },
         required: ["name", "agents"],
       },
+      annotations: { idempotentHint: true, readOnlyHint: false, destructiveHint: false, openWorldHint: false },
     },
     {
       name: "list_fleet_templates",
       description: "List all saved fleet templates, sorted by name.",
       inputSchema: { type: "object", properties: {} },
+      annotations: { readOnlyHint: true, idempotentHint: true, destructiveHint: false, openWorldHint: false },
     },
     {
       name: "spawn_from_template",
@@ -1541,6 +1607,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         properties: { name: { type: "string" } },
         required: ["name"],
       },
+      annotations: { readOnlyHint: true, idempotentHint: true, destructiveHint: false, openWorldHint: false },
     },
     {
       name: "ask_peer",
@@ -1585,6 +1652,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         ],
         additionalProperties: false,
       },
+      annotations: { openWorldHint: true, readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     },
     {
       name: "wake_agent",
@@ -1603,6 +1671,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         required: ["agent_id", "discussion_id", "expected_head_message_id"],
         additionalProperties: false,
       },
+      annotations: { openWorldHint: true, readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     },
     {
       name: "reply_discussion",
@@ -1625,6 +1694,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         required: ["agent_id", "discussion_id", "attempt_id", "reply_to_message_id", "type", "payload"],
         additionalProperties: false,
       },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
     {
       name: "get_discussion",
@@ -1642,6 +1712,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         required: ["discussion_id"],
         additionalProperties: false,
       },
+      annotations: { readOnlyHint: true, idempotentHint: true, destructiveHint: false, openWorldHint: false },
     },
   ].filter((tool) => toolAllowedByAccessProfile(tool.name)),
 }));
@@ -1931,8 +2002,8 @@ toolHandlers["collect_results"] = async (args) => {
         error: a.error,
         diagnostics: a.diagnostics,
         // What the agent DECLARED about its own outcome. Absent on rows written before the
-        // contract existed, and never backfilled. This release records it without acting on it,
-        // so a caller wanting the stronger guarantee today asks for BOTH facts.
+        // contract existed, and never backfilled. `ok` is the only value that may accompany
+        // `complete`; every non-`ok` value banks `failed` at settlement.
         result_contract: a.result_contract,
         // Why an interrupted row stopped, when boot reconciliation could attribute it
         // ('server_crash' | 'process_lost'). Absent when nothing could honestly say.
@@ -2433,10 +2504,11 @@ toolHandlers["attach_agent"] = async (args) => {
       model?: string;
       expects_artifact?: boolean;
     };
-    // Same unenforced-contract hole as spawn_fleet, and attach_agent also spawns.
-    // It is additionally the ONLY in-place path that reopens an `abandoned` fleet,
-    // so a corrupt row written here lands on the one remedy a truthful terminal
-    // status leaves available.
+    // `trySpawn` is shared between spawn_fleet and attach_agent, so the result-contract
+    // flip in its settlement path applies to BOTH spawn entry points. attach_agent is the
+    // ONLY in-place path that reopens an `abandoned` fleet — nothing anywhere re-runs an
+    // interrupted agent — so a corrupt row written here lands on the one remedy a truthful
+    // terminal status leaves available.
     const badAttach = firstError(
       requireString("attach_agent", "fleet_id", fleet_id),
       requireString("attach_agent", "role", role),

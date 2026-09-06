@@ -42,7 +42,17 @@ function hollowSuccess(stdout = ""): RuntimeResult {
 }
 
 function realSuccess(stdout = "the deliverable"): RuntimeResult {
-  return { status: "success", stdout, stderr: "", exitCode: 0, diagnostics: [], identity: { adapterId: "controlled", evidence: "none" } };
+  // Release N+1 (2026-08-19 → enforce): a successful runtime exit 0 must be paired with
+  // `resultContract: "ok"` to bank `complete`. The CONTROL tests prove "a real answer still
+  // completes normally" — the cleanest way to assert THAT is to bypass the filesystem read
+  // and pass the contract value in the runtime result, so the test exercises only the
+  // banking decision, not the contract ladder. The ladder's own coverage is in
+  // test/result-contract.test.ts.
+  return {
+    status: "success", stdout, stderr: "", exitCode: 0, diagnostics: [],
+    identity: { adapterId: "controlled", evidence: "none" },
+    resultContract: "ok",
+  };
 }
 
 async function settleOnce(result: RuntimeResult, until?: (runtime: ControlledRuntime) => boolean) {

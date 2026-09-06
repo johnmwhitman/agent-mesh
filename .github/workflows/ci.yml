@@ -1,10 +1,43 @@
 name: CI
 
-on:
+# COST POLICY (2026-08-19): on push/pull_request this workflow runs the
+# matrix on ubuntu-latest ONLY. The full 3-OS x 3-node matrix that
+# historically ran on every push consumed ~429 billable minutes per run
+# (linux 1x / windows 2x / macOS 10x multipliers on private repos), which
+# exhausted the 2,000-min Actions budget in under 5 pushes and starved
+# required checks (continuity PR #7, wickhand CI, etc). John decided not
+# to buy more minutes, so the cost has to come out of the matrix.
+#
+# Cross-OS coverage still happens — just where it earns its bill: every
+# tagged release (`.github/workflows/release.yml`) runs all 9 OS x node
+# legs as the provenance gate before publish, and workflow_dispatch below
+# lets a maintainer re-run the full cross-OS matrix on demand from the
+# Actions tab without touching a tag.
+#
+# If you add new jobs here, keep them on ubuntu-latest — the push/PR
+# path is a per-commit budget gate, not a portability proof.
+
+'on':  # quoted: YAML 1.1 otherwise parses bare `on` as boolean True (Norwegian on)
   push:
     branches: [main]
   pull_request:
     branches: [main]
+  # On-demand cross-OS smoke. Default is ubuntu-only (matches push/PR);
+  # pass `os: full` to reproduce the legacy 3-OS matrix without burning
+  # the per-push budget. macos-latest here is a 10x multiplier, so this
+  # is a manual lever — never wire it into a schedule.
+  workflow_dispatch:
+    inputs:
+      os:
+        description: 'Runner family (or "full" for the legacy 3-OS matrix).'
+        required: false
+        default: 'ubuntu'
+        type: choice
+        options:
+          - ubuntu
+          - macos
+          - windows
+          - full
 
 jobs:
   ci:
@@ -20,11 +53,28 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # windows-2022 (VS2022), not windows-latest: the latest image ships
-        # Visual Studio 18, which node-gyp 10 can't detect ("unknown version"),
-        # breaking the better-sqlite3 native build when no prebuilt binary is fetched.
-        os: [ubuntu-latest, macos-latest, windows-2022]
         node: [20, 22, 24]
+        # Push/PR path: matrix.os is ubuntu-latest only — see COST POLICY above.
+        # Workflow_dispatch can opt back into the full 3-OS matrix (the
+        # provenance gate runs on every release tag in release.yml regardless).
+        #
+        # Mapping table (gh.event.inputs.os is unset on push/PR, so the
+        # ternary below falls through to the single-OS ubuntu path):
+        #   "" or "ubuntu"  -> ["ubuntu-latest"]
+        #   "macos"         -> ["macos-latest"]
+        #   "windows"       -> ["windows-2022"]   (NOT windows-latest; that
+        #                        image ships VS18 which node-gyp 10 can't
+        #                        detect, breaking the better-sqlite3 build)
+        #   "full"          -> ["ubuntu-latest","macos-latest","windows-2022"]
+        os: >-
+          ${{
+            fromJSON(
+              github.event.inputs.os == 'full'    && '["ubuntu-latest","macos-latest","windows-2022"]' ||
+              github.event.inputs.os == 'macos'   && '["macos-latest"]' ||
+              github.event.inputs.os == 'windows' && '["windows-2022"]' ||
+              '["ubuntu-latest"]'
+            )
+          }}
 
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
@@ -51,6 +101,10 @@ jobs:
       - name: Test
         run: npm test
 
+      # CLI smoke only runs on POSIX runners; on windows the smoke needs a
+      # real TTY we don't have in CI. This guard keys off matrix.os, which
+      # is always ubuntu-latest on push/PR but becomes windows-2022 when
+      # workflow_dispatch picks windows or full.
       - name: CLI smoke (unix)
         if: matrix.os != 'windows-2022'
         run: node dist/bin/inspect.js --metrics

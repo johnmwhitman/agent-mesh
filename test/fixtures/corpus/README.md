@@ -4,8 +4,21 @@ A published set of deliberately falsified ledgers, and what the verifier does wi
 each one. This exists because "who saw this, who approved it, prove it" is a claim,
 and a claim about detection is only worth what its falsification tests are worth.
 
-Regenerate with `npx tsx scripts/generate-corpus.ts`. Enforced by
-[`test/corpus.test.ts`](../../corpus.test.ts).
+Regeneration is **two steps and a build**, in this order:
+
+```bash
+npm run build \
+  && npx tsx scripts/generate-corpus.ts \
+  && node scripts/generate-discussion-corpus.mjs
+```
+
+Step 1 rewrites `manifest.json` from its own vector list alone, so it drops the
+`discussion-*` family that step 2 authors; step 2 upserts them back. The build comes
+first because step 2 imports `dist/verify.js`. Running step 1 by itself leaves an
+incomplete corpus — it now names what it dropped and exits non-zero, and the repair is
+to run step 2, never to edit the counts below. Enforced by
+[`test/corpus.test.ts`](../../corpus.test.ts) and
+[`test/corpus-generator-guard.test.ts`](../../corpus-generator-guard.test.ts).
 
 ## How to read it
 
@@ -22,11 +35,11 @@ into one "N/N covered" number** — that number would be marketing.
 
 | Bucket | Count | Contract |
 |---|---|---|
-| `caught` | 59 | An overclaim: the ledger asserts something its own records do not support. Must raise its named check at **error** severity and drive `ok: false`. |
+| `caught` | 60 | An overclaim: the ledger asserts something its own records do not support. Must raise its named check at **error** severity and drive `ok: false`. |
 | `anomaly` | 14 | Genuinely surprising, but claims no more than the records support (an orphaned reference, a stale projection). Raises a **warning**; `ok` stays true. A warning-only detection is deliberately *not* counted as "caught". |
 | `undetectable` | 10 | The free core structurally cannot see it. Must produce **zero** findings. |
 
-Together the `caught` and `anomaly` vectors name **all 55** checks the verifier can
+Together the `caught` and `anomaly` vectors name **all 56** checks the verifier can
 emit outside the `discussion.*` family, which carries its own corpus
 (`tampered-discussion-*.json`). The count is re-derived from `src/verify.ts` on
 every run, so adding a check without adding a vector fails the suite.

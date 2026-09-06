@@ -1,20 +1,36 @@
 /**
  * Generates the tampered-ledger corpus: a clean baseline plus one declarative
- * delta per vector. Run: npx tsx scratch/corpus/generate.ts
+ * delta per vector.
+ *
+ * THIS SCRIPT IS STEP 1 OF TWO AND IS NEVER A COMPLETE REGENERATION. It rewrites
+ * manifest.json from its own vector list alone, so every vector authored by another
+ * script is dropped from the manifest. The `discussion-*` family is authored by
+ * scripts/generate-discussion-corpus.mjs, which upserts into the manifest this
+ * script has just overwritten. The whole sequence is:
+ *
+ *   npm run build && npx tsx scripts/generate-corpus.ts && node scripts/generate-discussion-corpus.mjs
+ *
+ * The build comes first because step 2 imports dist/verify.js. Run step 1 alone and
+ * the reconciliation at the bottom of this file names what it dropped and exits 1;
+ * before that guard existed it printed "all authored invariants hold" and exited 0
+ * on a manifest it had just cut from 76 vectors to 64.
  *
  * Deltas are DECLARATIVE (op/path/value) so the harness can prove each tampered
  * ledger differs from the baseline in exactly the declared paths — minimality is
  * machine-checked, not author-asserted. That is what makes the baseline a valid
  * near-neighbour control for every vector.
  */
-import { writeFileSync, mkdirSync } from "node:fs";
+import { writeFileSync, mkdirSync, readFileSync, readdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { verifyMeshData } from "../src/verify.js";
 import { loadDataFromFile } from "../src/core.js";
 
 const NOW = 1_800_000_000_000;
 const T0 = 1_700_000_000_000;
-const OUT = join(import.meta.dirname, "..", "test", "fixtures", "corpus");
+// Overridable so the reconciliation guard below can be exercised end to end against a
+// throwaway directory. Running the real regeneration is destructive by construction and
+// a test that did it for real would be the very accident this guard exists to report.
+const OUT = process.env.MESHFLEET_CORPUS_OUT || join(import.meta.dirname, "..", "test", "fixtures", "corpus");
 
 const BASELINE = {
   schema_version: 2,
@@ -283,6 +299,17 @@ const V: Vector[] = [
       { op: "delete", path: "agents|a3|completed_at" },
       { op: "set", path: "agents|a3|result_contract", value: "ok" },
     ] },
+  { id: "agent-complete-with-non-ok-contract", primary: "agent.complete_with_non_ok_contract", classification: "caught",
+    // Release N+1 (2026-08-19 → enforce): `complete` is only honest when paired with
+    // `result_contract === "ok"`. This is the regression-guard check for the flip — a row
+    // written under N+1's settlement cannot reach this state, so the check is a guard against
+    // a future writer that tries to bank `complete` despite a non-`ok` contract again.
+    lie: "a complete agent row carries a non-ok result_contract — release N banked these on purpose, but release N+1 seals them as failed at settlement; surviving rows are pre-N+1 history the auditor should flag",
+    ops: [
+      { op: "set", path: "agents|a3|status", value: "complete" },
+      { op: "set", path: "agents|a3|completed_at", value: T0 + 700 },
+      { op: "set", path: "agents|a3|result_contract", value: "absent" },
+    ] },
   { id: "agent-runtime-attempt-duplicated", primary: "agent.runtime_attempt_duplicated", classification: "caught",
     lie: "an agent's runtime history repeats the same runtime in adjacent positions, asserting a failover hop to the runtime it was already using — evidence the writer's own idempotence collapses, so no spawn path could have produced it",
     ops: [{ op: "set", path: "agents|a3|runtime_attempts", value: ["opencode-cli", "opencode-cli"] }] },
@@ -349,6 +376,22 @@ const V: Vector[] = [
 ];
 
 mkdirSync(OUT, { recursive: true });
+
+// Read the corpus as it stands BEFORE anything is overwritten. Two independent sources,
+// because they fail in different ways: the outgoing manifest names vectors whose fixture
+// file has since been deleted, and the fixture files on disk survive a manifest this
+// script has already truncated once — so the on-disk set is what keeps the guard from
+// going quiet on a second run. Union of the two, minus what this script authors, is
+// exactly the set that regenerating step 1 alone silently loses.
+const MANIFEST_PATH = join(OUT, "manifest.json");
+const priorManifestIds: string[] = existsSync(MANIFEST_PATH)
+  ? (JSON.parse(readFileSync(MANIFEST_PATH, "utf-8")).vectors ?? []).map((v: any) => v.id)
+  : [];
+const priorFixtureIds: string[] = existsSync(OUT)
+  ? readdirSync(OUT)
+      .filter((f) => f.endsWith(".json") && f !== "manifest.json" && f !== "baseline.json")
+      .map((f) => f.slice(0, -".json".length))
+  : [];
 writeFileSync(join(OUT, "baseline.json"), JSON.stringify(BASELINE, null, 2) + "\n");
 
 const baseReport: any = verifyMeshData(loadDataFromFile(join(OUT, "baseline.json")) as any, NOW);
@@ -388,10 +431,32 @@ for (const v of V) {
   manifest.vectors.push({ id: v.id, primary: v.primary, classification: v.classification, lie: v.lie, ops: v.ops, expected_ok: report.ok, expected_findings: findings });
 }
 
-writeFileSync(join(OUT, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
+writeFileSync(MANIFEST_PATH, JSON.stringify(manifest, null, 2) + "\n");
 
-console.log(`wrote ${V.length} vectors + baseline + manifest to test/fixtures/corpus/`);
+console.log(`wrote ${V.length} vectors + baseline + manifest to ${OUT}`);
 const byClass = (c: string) => V.filter((v) => v.classification === c).length;
 console.log(`  caught=${byClass("caught")} anomaly=${byClass("anomaly")} undetectable=${byClass("undetectable")}`);
-if (problems.length) { console.error(`\n${problems.length} PROBLEM(S):`); for (const p of problems) console.error("  " + p); process.exit(1); }
+
+// Reconciliation. Everything above concerns vectors this script authors; this concerns the
+// ones it does not. The failure being reported is not "the manifest is smaller" — it is that
+// the suite catches a truncated corpus as a README COUNT DRIFT, whose obvious repair is to
+// write the smaller number into the README and publish the wreckage. So name the dropped
+// vectors, say the README is the wrong thing to edit, and give the exact recovery.
+const authoredIds = new Set(V.map((v) => v.id));
+const dropped = [...new Set([...priorManifestIds, ...priorFixtureIds])]
+  .filter((id) => !authoredIds.has(id))
+  .sort();
+
+if (dropped.length) {
+  console.error(`\n${dropped.length} VECTOR(S) NOT AUTHORED BY THIS SCRIPT ARE MISSING FROM THE MANIFEST IT JUST WROTE:`);
+  for (const id of dropped) console.error("  " + id);
+  console.error(`\nThis script is step 1 of two and rewrites the manifest from its own list alone.`);
+  console.error(`The corpus is now INCOMPLETE. The suite will report this as a README count drift`);
+  console.error(`(test/corpus.test.ts, "published README corpus and check counts match") — do NOT`);
+  console.error(`edit the README counts to match. Restore the missing vectors instead:\n`);
+  console.error(`  npm run build && node scripts/generate-discussion-corpus.mjs\n`);
+  console.error(`(the build is required: step 2 imports dist/verify.js and dies without it.)`);
+}
+if (problems.length) { console.error(`\n${problems.length} PROBLEM(S):`); for (const p of problems) console.error("  " + p); }
+if (problems.length || dropped.length) process.exit(1);
 console.log("all authored invariants hold");

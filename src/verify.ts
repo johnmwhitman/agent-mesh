@@ -446,6 +446,26 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
         );
       }
     }
+
+    // RESULT CONTRACT (release N+1, 2026-08-19 → enforce): `complete` is only honest when
+    // paired with `result_contract === "ok"`. A `complete` row carrying anything else
+    // (refused / blocked / artifact_missing / invalid / absent) is exactly the false
+    // completion release N existed to surface — and release N+1 sealed in `src/index.ts`
+    // (recordAttemptSettlement) and `src/lifecycle-execution.ts` (durable settlement).
+    // Catching it here means a regressed writer cannot bank a `complete|absent` row
+    // without the auditor screaming — a row written under N+1's settlement would never
+    // reach this state, so the check is a regression guard, not a normal-case rule.
+    // Pre-N+1 rows carrying this shape are LEGITIMATE HISTORY and must stay unflagged:
+    // release N banked them on purpose so the adoption figure would be honest, and
+    // rewriting them now would be a fabricated measurement. The check therefore
+    // requires a `result_contract` to be PRESENT on a `complete` row, and to be `ok`.
+    if (a.status === "complete" && a.result_contract !== undefined && a.result_contract !== "ok") {
+      error(
+        "agent.complete_with_non_ok_contract",
+        a.id,
+        `agent ${a.id} is recorded complete but carries result_contract=${a.result_contract} — release N+1 forbids this pairing (only result_contract=ok may bank complete)`
+      );
+    }
   }
 
   // --- capabilities ----------------------------------------------------------
