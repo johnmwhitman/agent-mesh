@@ -54,8 +54,8 @@ near-miss registry handle. The following was observed today; re-run before each 
 
 | npm name | status | note |
 |---|---|---|
-| `meshfleet` | live, `meshfleet@0.20.0` published 2026-07-31 | this is the package the registry cross-references via `mcpName` |
-| `agent-mesh` | squatted placeholder, `agent-mesh@0.0.1` description `Agent Mesh - Reserved` (maintainer `andriitsok <andrii@tryon.technology>`) | not the MeshFleet distribution; do NOT bind the registry to this name |
+| `meshfleet` | live, `meshfleet@0.20.0` published 2026-07-31 | candidate package; 0.20.0 currently lacks `mcpName`, which must be added only in a deliberately reviewed future npm artifact |
+| `agent-mesh` | unrelated reserved placeholder, `agent-mesh@0.0.1` description `Agent Mesh - Reserved` | not the MeshFleet distribution; do NOT bind the registry to this name |
 | `mesh-fleet`, `meshfleet-mcp`, `meshfleet-core`, `meshfleet-server`, `@meshfleet/server`, `agent-mesh-core` | unclaimed (404 from `npm view`) | free for an emergency fallback; not selected for the canonical binding |
 
 Official MCP Registry search for `meshfleet` (2026-09-05): zero entries.
