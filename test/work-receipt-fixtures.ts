@@ -120,7 +120,7 @@ function rawInsert(row: {
   });
 }
 
-const BASE_TASK_ID = "t_corpus_fixture";
+const BASE_TASK_ID = "t_corpusfixture";
 const BASE_RUN_ID = 1;
 const BASE_COMPLETED_AT = 1_700_000_000;
 const BASE_RECORDED_AT = 1_700_000_001;
@@ -209,7 +209,7 @@ export const WORK_RECEIPT_FIXTURES: readonly WorkReceiptFixture[] = [
       // strict success numerator forbids; the verifier surfaces it as
       // impossible_success, error severity.
       const payload = basePayload({
-        task_id: "t_impossible_success",
+        task_id: "t_impossiblesuccess",
         terminal_outcome: "refused",
         result_contract: "ok",
       });
@@ -234,7 +234,7 @@ export const WORK_RECEIPT_FIXTURES: readonly WorkReceiptFixture[] = [
     description:
       "quality_gate=passed with zero evidence entries — the success numerator requires at least one handle",
     plant(ledgerPath) {
-      const payload = basePayload({ task_id: "t_evidence_shape", evidence: [] });
+      const payload = basePayload({ task_id: "t_evidenceshape", evidence: [] });
       rawInsert({
         key: workReceiptKey(WORK_RECEIPT_SOURCE, payload.task_id, payload.run_id),
         source: WORK_RECEIPT_SOURCE,
@@ -257,17 +257,17 @@ export const WORK_RECEIPT_FIXTURES: readonly WorkReceiptFixture[] = [
       "parsed primary key disagrees with the row's own stored (source, task_id, run_id) — the lookup-shape and the identity columns are out of sync",
     plant(ledgerPath) {
       // Plant a single row whose primary key parses to
-      // (hermes-kanban, t_identity_peer, 1) but whose stored identity
-      // columns are (hermes-kanban, t_identity_mismatch, 1). The
+      // (hermes-kanban, t_identitypeer, 1) but whose stored identity
+      // columns are (hermes-kanban, t_identitymismatch, 1). The
       // mismatch is reported on its own row; no duplicate can fire
       // because the stored identity tuple is unique on this ledger.
-      const storedTask = "t_identity_mismatch";
+      const storedTask = "t_identitymismatch";
       const payload = basePayload({ task_id: storedTask });
       rawInsert({
         // Key bytes intentionally differ from the stored task_id — a
         // hand-edit or a legacy backfill that wrote the key from a
         // different source than the row's own identity columns.
-        key: workReceiptKey(WORK_RECEIPT_SOURCE, "t_identity_peer", payload.run_id),
+        key: workReceiptKey(WORK_RECEIPT_SOURCE, "t_identitypeer", payload.run_id),
         source: WORK_RECEIPT_SOURCE,
         task_id: payload.task_id,
         run_id: payload.run_id,
@@ -298,7 +298,7 @@ export const WORK_RECEIPT_FIXTURES: readonly WorkReceiptFixture[] = [
       // severity; the co-firing identity_mismatch is the same finding
       // class as the standalone fixture above, which the runFixture
       // helper tolerates as "same-class co-fire".
-      const sharedTask = "t_duplicate_logical";
+      const sharedTask = "t_duplicatelogical";
       const sharedRun = 2;
       const payload = basePayload({ task_id: sharedTask, run_id: sharedRun });
       rawInsert({
@@ -319,7 +319,7 @@ export const WORK_RECEIPT_FIXTURES: readonly WorkReceiptFixture[] = [
         // Second row's key disagrees with its stored task_id so the
         // duplicate fixture exercises the same realistic shape the
         // supplier fixture uses — both invariants necessarily co-fire.
-        key: workReceiptKey(WORK_RECEIPT_SOURCE, "t_duplicate_peer", sharedRun),
+        key: workReceiptKey(WORK_RECEIPT_SOURCE, "t_duplicatepeer", sharedRun),
         source: WORK_RECEIPT_SOURCE,
         task_id: sharedTask,
         run_id: sharedRun,
@@ -351,7 +351,7 @@ export const WORK_RECEIPT_FIXTURES: readonly WorkReceiptFixture[] = [
       // fixture isolates invalid_persisted_schema as the unique named
       // check with no other work_receipt.* error co-firing.
       const planted: WorkReceiptInput = {
-        ...basePayload({ task_id: "t_invalid_persisted" }),
+        ...basePayload({ task_id: "t_invalidpersisted" }),
         terminal_outcome: "exited" as WorkReceiptInput["terminal_outcome"],
       };
       rawInsert({

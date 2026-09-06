@@ -1117,6 +1117,11 @@ const CHECK_EXPLANATIONS: Record<string, CheckExplanation> = {
   // NOT P2P receipts. The v3 verifier re-derives these from each row's own
   // bytes; every check is unsigned local-consistency.
   // ---------------------------------------------------------------------
+  "work_receipt.invalid_persisted_schema": {
+    what: "stored work-receipt fields violate the receipt schema, or evidence JSON cannot be decoded; a matching digest alone does not make those fields valid",
+    benign: "an older import or a manual edit may have introduced incompatible fields; the row remains invalid and must not receive delivery credit",
+    investigate: "agent-mesh inspect --verify-v3 --json",
+  },
   "work_receipt.malformed_key": {
     what: "a work_receipts row has a primary key that does not parse as source\\x00task_id\\x00run_id — the immutable idempotency key has been broken by a hand edit or a backfill from a non-conforming tool",
     benign: "no production writer ever produces this; the server composes the key from the row's own (source, task_id, run_id) fields before INSERT. A legacy row imported by a migration script without recomputing the key is the only path that produces one without external malice",
