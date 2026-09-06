@@ -39,7 +39,7 @@ into one "N/N covered" number** — that number would be marketing.
 | `anomaly` | 14 | Genuinely surprising, but claims no more than the records support (an orphaned reference, a stale projection). Raises a **warning**; `ok` stays true. A warning-only detection is deliberately *not* counted as "caught". |
 | `undetectable` | 10 | The free core structurally cannot see it. Must produce **zero** findings. |
 
-Together the `caught` and `anomaly` vectors name **all 61** checks the verifier can
+Together the `caught` and `anomaly` vectors name **all 62** checks the verifier can
 emit outside the `discussion.*` family, which carries its own corpus
 (`tampered-discussion-*.json`). The count is re-derived from `src/verify.ts` on
 every run, so adding a check without adding a vector fails the suite.
