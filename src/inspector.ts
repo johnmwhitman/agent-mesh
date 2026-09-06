@@ -1112,6 +1112,31 @@ const CHECK_EXPLANATIONS: Record<string, CheckExplanation> = {
     benign: "a post-resolution re-cast landing in the same millisecond as resolved_at",
     investigate: "agent-mesh inspect --councils",
   },
+  // ---------------------------------------------------------------------
+  // Work receipts — first-class rows in the `work_receipts` collection,
+  // NOT P2P receipts. The v3 verifier re-derives these from each row's own
+  // bytes; every check is unsigned local-consistency.
+  // ---------------------------------------------------------------------
+  "work_receipt.malformed_key": {
+    what: "a work_receipts row has a primary key that does not parse as source\\x00task_id\\x00run_id — the immutable idempotency key has been broken by a hand edit or a backfill from a non-conforming tool",
+    benign: "no production writer ever produces this; the server composes the key from the row's own (source, task_id, run_id) fields before INSERT. A legacy row imported by a migration script without recomputing the key is the only path that produces one without external malice",
+    investigate: "agent-mesh inspect --export | jq '.work_receipts // empty'",
+  },
+  "work_receipt.digest_mismatch": {
+    what: "a work_receipts row's stored payload_sha256 disagrees with the canonical SHA-256 recomputed from its own fields — the row's identity claim and its bytes do not match",
+    benign: "no benign path produces this. The writer recomputes the digest before every INSERT and refuses to write a row whose bytes do not match. A row that fails this check was either written by a non-conforming client or hand-edited after the fact",
+    investigate: "agent-mesh inspect --export | jq '.work_receipts[] | select(.payload_sha256 == null) | .key'",
+  },
+  "work_receipt.impossible_success": {
+    what: "a work_receipts row declares an outcome its result_contract contradicts — terminal_outcome=refused or =failed with result_contract=ok, or terminal_outcome=completed with result_contract outside {ok, artifact_missing}, or quality_gate=passed with result_contract != ok. The declared settle state and the recorded contract are mutually exclusive",
+    benign: "no benign path produces this. Every combination the strict success numerator requires (terminal_outcome=completed + result_contract=ok + quality_gate=passed + at least one evidence entry) is enforced at write time; a row that violates it was not produced by this build",
+    investigate: "agent-mesh inspect --export | jq '.work_receipts[] | select(.quality_gate == \"passed\") | select(.evidence | length == 0) | .key'",
+  },
+  "work_receipt.evidence_shape": {
+    what: "a work_receipts row's evidence entry or entries do not match the contract grammar — unknown kind, empty handle, malformed SHA-256 digest, or an evidence list whose JSON is itself unparseable",
+    benign: "a single evidence entry with a non-SHA-256 digest that the caller intentionally omits (kind without digest) is allowed by the schema; only the populated-with-bad-bytes case fails. Rows planted by hand before the contract shipped may also have older evidence kinds",
+    investigate: "agent-mesh inspect --export | jq '.work_receipts[] | select(.evidence | type == \"string\") | .key'",
+  },
 };
 
 /**

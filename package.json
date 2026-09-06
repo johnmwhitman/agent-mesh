@@ -34,7 +34,7 @@
   ],
   "scripts": {
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
-    "build": "npm run clean && tsc && tsc -p tsconfig.test.json",
+    "build": "npm run clean && tsc && node scripts/write-build-manifest.mjs",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
     "inspect": "node dist/bin/inspect.js",

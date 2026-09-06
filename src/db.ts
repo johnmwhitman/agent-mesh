@@ -502,7 +502,7 @@ CREATE INDEX IF NOT EXISTS idx_ratifications_fleet ON ratifications(fleet_id);
  * imported from any supported JSON version retains that logical marker; these
  * migrations only add internal relational storage.
  */
-export const CURRENT_STORAGE_SCHEMA_VERSION = 4;
+export const CURRENT_STORAGE_SCHEMA_VERSION = 5;
 const SQLITE_SAFE_INTEGER = 9_007_199_254_740_991;
 
 const LIFECYCLE_SCHEMA_V2 = `
@@ -878,6 +878,40 @@ function migrateA2aV4(db: Database.Database): void {
   maybeFailStorageMigration("v4:version-marker");
 }
 
+/**
+ * v5 — adds the `work_receipts` collection for the ratified Kanban receipt
+ * dogfood contract (§4 of the design). Work receipts are FIRST-CLASS: a
+ * dedicated SQLite table, not a synthetic P2P receipt. The canonical payload
+ * is the Hermes result-contract envelope (§2); the immutable key is
+ * `(source, task_id, run_id)` (enforced via the composite primary key);
+ * the canonical payload SHA-256 is recomputed by the server before any row is
+ * written (refused on mismatch — see `work-receipt.ts`).
+ *
+ * This migration is purely additive: no existing tables are touched, no
+ * logical ledger schema marker advances, and there is no data backfill.
+ * Pre-v5 ledgers open read-only without a work_receipts table; the
+ * `get_work_receipt` and verifier work_receipt reads treat the absent table
+ * as "no rows" rather than as corruption.
+ */
+const WORK_RECEIPT_SCHEMA_V5 = `
+CREATE TABLE IF NOT EXISTS work_receipts (
+  key TEXT PRIMARY KEY,
+  source TEXT NOT NULL,
+  task_id TEXT NOT NULL,
+  run_id INTEGER NOT NULL CHECK (run_id > 0),
+  assignee TEXT NOT NULL,
+  terminal_outcome TEXT NOT NULL,
+  result_contract TEXT NOT NULL,
+  quality_gate TEXT NOT NULL,
+  completed_at INTEGER NOT NULL,
+  evidence_json TEXT NOT NULL,
+  payload_sha256 TEXT NOT NULL,
+  recorded_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_work_receipts_task ON work_receipts(task_id, recorded_at);
+CREATE INDEX IF NOT EXISTS idx_work_receipts_source_task ON work_receipts(source, task_id);
+`;
+
 function migrateStorage(db: Database.Database): void {
   const migrate = db.transaction(() => {
     let version = physicalStorageVersion(db);
@@ -932,6 +966,14 @@ function migrateStorage(db: Database.Database): void {
       version = 4;
     }
     if (version === 4) validateA2aV4Layout(db);
+    if (version === 4) {
+      // v5: work_receipts collection. Additive; no version-marker validation
+      // beyond the row's own presence (verified on the read path by the table
+      // existence check in work-receipt.ts).
+      db.exec(WORK_RECEIPT_SCHEMA_V5);
+      db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('storage_schema_version', '5')").run();
+      version = 5;
+    }
   }).immediate;
   migrate();
 }
@@ -1345,6 +1387,59 @@ export function withStorageTransaction<T>(mutator: (db: Database.Database) => T)
     return result;
   }).immediate;
   return run(db);
+}
+
+/**
+ * Atomic insert-or-replay for a `work_receipts` row, scoped to one
+ * BEGIN IMMEDIATE transaction. The mutator receives the row and the live
+ * connection; it MUST inspect the existing key first, decide insert vs
+ * conflict vs byte-identical replay, and return the recorded outcome.
+ *
+ * Provided as a dedicated seam (rather than reusing `withStorageTransaction`)
+ * because the writer is the only consumer of this table and the contract
+ * belongs to work-receipt.ts.
+ */
+export function withWorkReceiptInsert<T>(
+  mutator: (db: Database.Database) => T,
+): T {
+  const db = getDb();
+  const run = db.transaction((database: Database.Database) => {
+    const result = mutator(database);
+    if (result != null && typeof (result as { then?: unknown }).then === "function") {
+      throw new Error("withWorkReceiptInsert: mutator must be synchronous");
+    }
+    return result;
+  }).immediate;
+  return run(db);
+}
+
+/** Read a work_receipts row by composite key on the LIVE handle (no audit copy). */
+export function readWorkReceiptLive(
+  source: string,
+  taskId: string,
+  runId: number,
+): { source: string; task_id: string; run_id: number; payload_sha256: string; evidence_json: string; recorded_at: number } | null {
+  const db = getDb();
+  const row = db
+    .prepare(
+      "SELECT source, task_id, run_id, payload_sha256, evidence_json, recorded_at FROM work_receipts " +
+        "WHERE source = ? AND task_id = ? AND run_id = ?",
+    )
+    .get(source, taskId, runId) as
+    | { source: string; task_id: string; run_id: number; payload_sha256: string; evidence_json: string; recorded_at: number }
+    | undefined;
+  return row ?? null;
+}
+
+/** Count rows in work_receipts on the LIVE handle. Returns 0 if the table is absent. */
+export function countWorkReceiptsLive(): number {
+  const db = getDb();
+  const tableRow = db
+    .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='work_receipts'")
+    .get() as { name: string } | undefined;
+  if (!tableRow) return 0;
+  const row = db.prepare("SELECT COUNT(*) AS n FROM work_receipts").get() as { n: number };
+  return row.n;
 }
 
 /**

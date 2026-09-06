@@ -310,7 +310,7 @@ evidence, authenticated provenance, or external time.
 
 ---
 
-## 37 MCP tools
+## 39 MCP tools
 
 **Fleets**
 
@@ -370,7 +370,7 @@ evidence, authenticated provenance, or external time.
 
 See [docs/discussions.md](docs/discussions.md) for the full quickstart, tool reference, and terminal-state precedence.
 
-That's 37. We counted twice this time.
+That's 39. We counted twice this time.
 
 RoutePlane catalog discovery is a separate package library and CLI, not an MCP
 tool: it fetches RoutePlane's fixed loopback model catalog and projects

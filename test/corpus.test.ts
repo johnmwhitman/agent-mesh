@@ -31,6 +31,11 @@ import { fileURLToPath } from "node:url";
 
 import { verifyMeshData } from "../src/verify.js";
 import { loadDataFromFile } from "../src/core.js";
+import {
+  WORK_RECEIPT_FIXTURES,
+  fixtureCheckIds,
+  runFixture,
+} from "./work-receipt-fixtures.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -246,6 +251,24 @@ function scanEmittedChecks(source: string): Set<string> {
   return out;
 }
 
+/**
+ * Enumerates the `discussion.<code>` checks that verify.ts emits through the
+ * dynamic `error(\`discussion.${finding.code}\`)` / `warning(...)` template
+ * pass-through. The scanner's literal-quote regex cannot see these, so this
+ * helper reads DISCUSSION_ERROR_CODES from verify.ts (same module, same
+ * source) and adds them to the universe — exactly mirroring what the runtime
+ * verifier can produce.
+ */
+function scanEmittedDiscussionChecks(): Set<string> {
+  const out = new Set<string>();
+  const verifySource = readFileSync(join(SRC, "verify.ts"), "utf-8");
+  const codeRe = /DISCUSSION_ERROR_CODES[^;]*\[([^\]]+)\]/s;
+  const codeBlock = verifySource.match(codeRe);
+  if (!codeBlock) return out;
+  for (const m of codeBlock[1].matchAll(/"([a-z_]+)"/g)) out.add(`discussion.${m[1]}`);
+  return out;
+}
+
 test("the check scanner sees multi-line emit calls (self-test of the guard)", () => {
   const sameLine = `error("alpha.one", key, "d");`;
   const multiLine = `error(\n        "beta.two",\n        key,\n        "d"\n      );`;
@@ -257,37 +280,99 @@ test("the check scanner sees multi-line emit calls (self-test of the guard)", ()
   );
 });
 
-test("every check the verifier emits is named by a corpus vector", () => {
+test("every check the verifier emits is named by a corpus vector or a work-receipt fixture", () => {
   const emitted = scanEmittedChecks(readFileSync(join(SRC, "verify.ts"), "utf-8"));
   // The discussion.* family is emitted dynamically from the discussion module's
   // own codes and carries its own tamper corpus (tampered-discussion-*.json).
-  const core = [...emitted].filter((c) => !c.startsWith("discussion."));
-  const covered = new Set(manifest.vectors.map((v) => v.primary).filter(Boolean));
+  // The work_receipt.* family is emitted by verify.ts but reads from the
+  // SQLite work_receipts collection (not MeshData), so it cannot live in the
+  // MeshData corpus manifest. It is covered by an EXECUTABLE fixture table
+  // (test/work-receipt-fixtures.ts) that plants a real SQLite row for each
+  // check, runs verifyLedgerFile, and asserts the named check fires. The
+  // fixture table is the coverage contract — a comment saying the right word
+  // cannot satisfy it, because each fixture is exercised at gate time.
+  const meshDataCovered = new Set(
+    manifest.vectors.map((v) => v.primary).filter(Boolean),
+  );
+  const sqliteCovered = fixtureCheckIds();
+  const covered = new Set([...meshDataCovered, ...sqliteCovered]);
 
-  const uncovered = core.filter((c) => !covered.has(c));
+  // Subtract discussion.* — the dynamic pass-through is enumerated by the
+  // helper below — and assert every remaining emitted check is covered.
+  const dynamic = scanEmittedDiscussionChecks();
+  const requiredUniverse = new Set<string>();
+  for (const c of emitted) requiredUniverse.add(c);
+  for (const c of dynamic) requiredUniverse.add(c);
+
+  const uncovered = [...requiredUniverse]
+    .filter((c) => !c.startsWith("discussion."))
+    .filter((c) => !covered.has(c));
   assert.deepEqual(
     uncovered,
     [],
-    `these checks can fire but no corpus vector pins them: ${uncovered.join(", ")}`
+    `these checks can fire but no corpus vector pins them: ${uncovered.join(", ")}`,
   );
-  assert.ok(core.length >= 34, `inventory shrank to ${core.length} — did a check get deleted?`);
+  assert.ok(
+    requiredUniverse.size >= 38,
+    `inventory shrank to ${requiredUniverse.size} — did a check get deleted?`,
+  );
 });
+
+/**
+ * The work_receipt.* fixtures must match the emitted work_receipt.* checks
+ * exactly. A new check added to verify.ts without a fixture entry trips the
+ * gate; a fixture entry whose check the verifier no longer emits also trips
+ * it. Comments cannot satisfy this — the table is read at gate time and
+ * cross-checked against the source-derived emitted set.
+ */
+test("work_receipt fixture table matches the verifier's emitted inventory exactly", () => {
+  const emittedWr = [...scanEmittedChecks(readFileSync(join(SRC, "verify.ts"), "utf-8"))]
+    .filter((c) => c.startsWith("work_receipt."))
+    .sort();
+  const fixtures = [...fixtureCheckIds()].sort();
+  assert.deepEqual(
+    fixtures,
+    emittedWr,
+    `fixture table drifts from emitted work_receipt.* checks: fixture=${fixtures.join(",")} emitted=${emittedWr.join(",")}`,
+  );
+});
+
+/**
+ * Each fixture must actually fire its named check at error severity against
+ * a fresh SQLite ledger. This is the executable counterpart to the inventory
+ * test above: an entry can match by name only if its plant function
+ * demonstrably produces the finding it claims to pin.
+ */
+for (const fixture of WORK_RECEIPT_FIXTURES) {
+  test(`work_receipt fixture fires: ${fixture.check} — ${fixture.description}`, () => {
+    const errors = runFixture(fixture);
+    const fired = errors.find((f) => f.check === fixture.check);
+    assert.ok(fired, `${fixture.check}: fixture did not raise its named check; produced ${errors.map((e) => e.check).join(",")}`);
+    assert.equal(fired.severity, "error");
+  });
+}
 
 test("every corpus vector targets a check the verifier can still emit", () => {
   const verifySource = readFileSync(join(SRC, "verify.ts"), "utf-8");
   const emitted = scanEmittedChecks(verifySource);
-  // Discussion checks are emitted dynamically as `discussion.${finding.code}` from
-  // DISCUSSION_ERROR_CODES — the scanner's regex can't match template literals, so
-  // add them from the constant's own entries in the source.
-  const codeRe = /DISCUSSION_ERROR_CODES[^;]*\[([^\]]+)\]/s;
-  const codeBlock = verifySource.match(codeRe);
-  if (codeBlock) {
-    for (const m of codeBlock[1].matchAll(/"([a-z_]+)"/g)) emitted.add(`discussion.${m[1]}`);
-  }
-  const stale = [...new Set(manifest.vectors.map((v) => v.primary).filter(Boolean))].filter(
-    (c) => !emitted.has(c)
-  );
+  for (const c of scanEmittedDiscussionChecks()) emitted.add(c);
+  // The fixture table cross-checks work_receipt.* keys above; here we treat
+  // the whole vector primary set uniformly. If a future change ever adds a
+  // work_receipt.* primary to the MeshData manifest (rather than relying on
+  // the SQLite fixture table), the universal stale check below will refuse
+  // to silently keep it — and if a check id was retired from verify.ts, the
+  // stale-vector gate fires for it too.
+  const stale = [...new Set(manifest.vectors.map((v) => v.primary).filter(Boolean))]
+    .filter((c) => !emitted.has(c));
   assert.deepEqual(stale, [], `corpus targets checks that no longer exist: ${stale.join(", ")}`);
+  // Sanity: every fixture key is emitted. A fixture for a check verify.ts
+  // no longer emits is itself a stale coverage claim.
+  for (const c of fixtureCheckIds()) {
+    assert.ok(
+      emitted.has(c),
+      `work_receipt fixture table pins a check the verifier no longer emits: ${c}`,
+    );
+  }
 });
 
 test("coverage is reported in separate buckets, never as one blended total", () => {
@@ -315,6 +400,14 @@ test("published README corpus and check counts match generated and source truth"
     anomaly: manifest.vectors.filter((v) => v.classification === "anomaly").length,
     undetectable: manifest.vectors.filter((v) => v.classification === "undetectable").length,
   };
+  // The corpus README names every emitted check the verifier can raise,
+  // across BOTH paths: MeshData corpus vectors AND the SQLite-backed
+  // work_receipt.* fixture table. discussion.* is excluded — the README
+  // documents it separately, and the corpus's claim is about the in-memory
+  // path plus the work-receipt gate, not the dynamic pass-through.
+  // The emitted set from scanEmittedChecks already includes work_receipt.*
+  // (they are written by error("...") calls in verify.ts), so the total here
+  // is the non-discussion emitted count WITHOUT an extra fixture addition.
   const emitted = scanEmittedChecks(readFileSync(join(SRC, "verify.ts"), "utf-8"));
   const coreChecks = [...emitted].filter((check) => !check.startsWith("discussion.")).length;
 

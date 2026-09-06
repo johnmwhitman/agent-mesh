@@ -21,13 +21,25 @@
  *
  * Read-only by design: verification never mutates the ledger it audits.
  */
-import { existsSync } from "fs";
+import { existsSync } from "node:fs";
 import { BROADCAST, SEALED_FLEET_STATUSES, TERMINAL_AGENT_STATUSES, fleetLatticeOutcome, isRoutableCapability, isUsableAgentId, messageRecipients, type MeshData, type Message, type Receipt } from "./core.js";
 import { MAX_TOTAL_WEIGHT, MAX_VOTE_WEIGHT, computeTally, parseVoteAction } from "./ratify.js";
 import { deriveDiscussion, parseEnvelope, parseReceiptAction } from "./discussion.js";
-import { readLedger } from "./db.js";
+import { readLedger, resolveDbFile } from "./db.js";
+import {
+  EVIDENCE_KINDS,
+  WORK_RECEIPT_SCHEMA,
+  WORK_RECEIPT_SOURCE,
+  computeWorkReceiptPayloadSha256,
+  parseWorkReceiptKey,
+  type WorkReceipt,
+} from "./work-receipt.js";
 import { readLifecycleSnapshot, readLifecycleSnapshotFile, verifyLifecycleSnapshot } from "./lifecycle-visibility.js";
 import { runtimeModelsMatch } from "./spawn-result.js";
+import Database from "better-sqlite3";
+import { copyFileSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 /**
  * Discussion integrity-finding codes (src/discussion.ts) that get ERROR
@@ -155,7 +167,11 @@ function derivedAcknowledged(msg: Message, validatedAckReceipts: ReadonlySet<str
 }
 
 /** Verify a MeshData snapshot. Pure and read-only; `now` only affects deadline-dependent tally recomputation. */
-export function verifyMeshData(data: MeshData, now: number = Date.now()): VerifyReport {
+export function verifyMeshData(
+  data: MeshData,
+  now: number = Date.now(),
+  workReceiptRows: ReadonlyMap<string, WorkReceipt> = new Map(),
+): VerifyReport {
   const findings: VerifyFinding[] = [];
   const error = (check: string, subject: string, detail: string): void => {
     findings.push({ severity: "error", check, subject, detail });
@@ -1160,6 +1176,127 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
     }
   }
 
+  // --- work receipts (Hermes Kanban result contract) ---------------------
+  //
+  // These are first-class rows in the `work_receipts` collection, distinct
+  // from P2P receipts. Each row carries an immutable idempotency key
+  // (source, task_id, run_id), a canonical payload, a payload_sha256 the
+  // server recomputed before INSERT, and the server's recorded_at.
+  //
+  // The verifier v3 reads rows from a private readonly audit copy and reports:
+  //   - malformed_key: a row whose key cannot be parsed (a backfilled legacy
+  //     row, or a hand-edit) — the row is still counted as data but its
+  //     lookup-shape is unprovable;
+  //   - digest_mismatch: the row's stored payload_sha256 disagrees with the
+  //     digest recomputed from its own canonicalized fields;
+  //   - duplicate_logical_key: two rows whose (source, task_id, run_id) match
+  //     despite different primary keys (should be impossible: the primary key
+  //     IS the composite);
+  //   - impossible_success: terminal_outcome=refused|failed with
+  //     result_contract=ok, or terminal_outcome=completed with
+  //     result_contract outside {ok, artifact_missing};
+  //   - evidence_shape: an evidence entry whose kind, handle, or digest does
+  //     not match the contract grammar.
+  //
+  // v3 is unsigned local-consistency: every check here is re-derivable from
+  // the row's own bytes. The verifier does not attest authorship, freshness,
+  // or external truth.
+  const EVIDENCE_KINDS_SET: ReadonlySet<string> = new Set(EVIDENCE_KINDS);
+  const isValidEvidenceKind = (kind: unknown): boolean =>
+    typeof kind === "string" && EVIDENCE_KINDS_SET.has(kind);
+
+  for (const [rowKey, wr] of workReceiptRows) {
+    const parsedKey = parseWorkReceiptKey(rowKey);
+    if (!parsedKey) {
+      error(
+        "work_receipt.malformed_key",
+        rowKey,
+        `work_receipts row has a key that does not parse as source\\x00task_id\\x00run_id`,
+      );
+      continue;
+    }
+    const recomputed = computeWorkReceiptPayloadSha256({
+      schema: WORK_RECEIPT_SCHEMA,
+      task_id: wr.task_id,
+      run_id: wr.run_id,
+      assignee: wr.assignee,
+      terminal_outcome: wr.terminal_outcome,
+      result_contract: wr.result_contract,
+      quality_gate: wr.quality_gate,
+      completed_at: wr.completed_at,
+      evidence: wr.evidence,
+      payload_sha256: wr.payload_sha256,
+    });
+    if (recomputed !== wr.payload_sha256) {
+      error(
+        "work_receipt.digest_mismatch",
+        rowKey,
+        `work_receipts row's stored payload_sha256 ${wr.payload_sha256} does not match the canonical digest ${recomputed} recomputed from its fields`,
+      );
+    }
+    if (
+      (wr.terminal_outcome === "refused" || wr.terminal_outcome === "failed") &&
+      wr.result_contract === "ok"
+    ) {
+      error(
+        "work_receipt.impossible_success",
+        rowKey,
+        `work_receipts row declares terminal_outcome=${wr.terminal_outcome} but result_contract=ok (the declared outcome contradicts the recorded contract)`,
+      );
+    }
+    if (
+      wr.terminal_outcome === "completed" &&
+      wr.result_contract !== "ok" &&
+      wr.result_contract !== "artifact_missing"
+    ) {
+      error(
+        "work_receipt.impossible_success",
+        rowKey,
+        `work_receipts row declares terminal_outcome=completed but result_contract=${wr.result_contract} (completed work with no artifact and not ok is contractually impossible)`,
+      );
+    }
+    if (wr.quality_gate === "passed" && wr.result_contract !== "ok") {
+      error(
+        "work_receipt.impossible_success",
+        rowKey,
+        `work_receipts row declares quality_gate=passed but result_contract=${wr.result_contract} (the strict numerator requires both)`,
+      );
+    }
+    if (wr.quality_gate === "passed" && wr.evidence.length === 0) {
+      error(
+        "work_receipt.evidence_shape",
+        rowKey,
+        `work_receipts row declares quality_gate=passed with zero evidence entries (the success numerator requires at least one handle)`,
+      );
+    }
+    wr.evidence.forEach((entry, idx) => {
+      if (!isValidEvidenceKind(entry.kind)) {
+        error(
+          "work_receipt.evidence_shape",
+          rowKey,
+          `work_receipts row evidence[${idx}].kind=${JSON.stringify(entry.kind)} is not one of ${EVIDENCE_KINDS.join("|")}`,
+        );
+      }
+      if (typeof entry.handle !== "string" || entry.handle.trim() === "") {
+        error(
+          "work_receipt.evidence_shape",
+          rowKey,
+          `work_receipts row evidence[${idx}].handle must be a non-empty string`,
+        );
+      }
+      if (
+        entry.digest !== undefined &&
+        (typeof entry.digest !== "string" || !/^[0-9a-f]{64}$/.test(entry.digest))
+      ) {
+        error(
+          "work_receipt.evidence_shape",
+          rowKey,
+          `work_receipts row evidence[${idx}].digest must be a 64-char hex SHA-256 when present, got ${JSON.stringify(entry.digest)}`,
+        );
+      }
+    });
+  }
+
   const errors = findings.filter((f) => f.severity === "error").length;
   return {
     ok: errors === 0,
@@ -1184,13 +1321,122 @@ export function verifyLedger(now: number = Date.now()): VerifyReport {
   catch (error) {
     // Preserve the historical fresh-install verifier behavior. The opt-in
     // lifecycle inspector remains strict and never creates an absent ledger.
-    if (error instanceof Error && error.message === "ledger file not found") return verifyMeshData(readLedger(), now);
+    if (error instanceof Error && error.message === "ledger file not found") {
+      const wr = loadWorkReceiptsFromFile(resolveDbFileSafely());
+      return verifyMeshData(readLedger(), now, wr);
+    }
     throw error;
   }
-  const core = verifyMeshData(snapshot.data, now);
+  const wr = loadWorkReceiptsFromFile(resolveDbFileSafely());
+  const core = verifyMeshData(snapshot.data, now, wr);
   const findings = [...core.findings, ...verifyLifecycleSnapshot(snapshot, now)];
   const errors = findings.filter((finding) => finding.severity === "error").length;
   return { ...core, ok: errors === 0, errors, warnings: findings.length - errors, findings };
+}
+
+/**
+ * Resolve the configured ledger file path without throwing. Returns an empty
+ * string when no ledger is configured (in-memory test, fresh install).
+ */
+function resolveDbFileSafely(): string {
+  try {
+    return resolveDbFile();
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Read the `work_receipts` rows from a ledger FILE on a private readonly
+ * connection. Mirrors `readLedgerFile`'s audit-copy pattern: zero touch on
+ * the original. Returns an empty Map only when the file or table is absent;
+ * any other read failure is thrown so the verifier cannot silently green.
+ *
+ * Invariants:
+ *   - The audit copy is closed before any open SQLite file under the live
+ *     handle is touched; the live ledger is NEVER read by this function.
+ *   - Missing work_receipts table is an explicit supported case (pre-v5
+ *     ledger) — we return `out` unchanged.
+ *   - A read, query, or permission error that is NOT a missing table MUST
+ *     propagate; an empty Map on those errors would green-light the audit
+ *     when the truth was "could not look". Callers either get rows or get
+ *     an exception.
+ */
+function loadWorkReceiptsFromFile(file: string): ReadonlyMap<string, WorkReceipt> {
+  const out = new Map<string, WorkReceipt>();
+  if (!file || file === ":memory:" || !existsSync(file)) return out;
+  let conn: Database.Database | null = null;
+  let tmp: string | null = null;
+  try {
+    tmp = mkdtempSync(join(tmpdir(), "meshfleet-verify-wr-"));
+    const copy = join(tmp, "audit.db");
+    for (const ext of ["-shm", "-wal"]) {
+      const side = file + ext;
+      if (existsSync(side)) copyFileSync(side, copy + ext);
+    }
+    copyFileSync(file, copy);
+    conn = new Database(copy, { readonly: true, fileMustExist: true });
+    const table = conn
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='work_receipts'")
+      .get() as { name: string } | undefined;
+    if (!table) return out;
+    const rows = conn
+      .prepare(
+        "SELECT key, source, task_id, run_id, assignee, terminal_outcome, result_contract, " +
+          "quality_gate, completed_at, evidence_json, payload_sha256, recorded_at FROM work_receipts",
+      )
+      .all() as Array<{
+        key: string;
+        source: string;
+        task_id: string;
+        run_id: number;
+        assignee: string;
+        terminal_outcome: string;
+        result_contract: string;
+        quality_gate: string;
+        completed_at: number;
+        evidence_json: string;
+        payload_sha256: string;
+        recorded_at: number;
+      }>;
+    for (const r of rows) {
+      // evidence_json may be corrupted (legacy hand-edit, partial write). We
+      // preserve the raw bytes as evidence on the WorkReceipt — the verifier
+      // checks each entry's shape and reports an evidence_shape finding when
+      // the JSON is malformed, rather than silently coercing to [] (which
+      // would green-light the audit).
+      let evidence: unknown;
+      try {
+        evidence = JSON.parse(r.evidence_json);
+        if (!Array.isArray(evidence)) {
+          // Surface as evidence_shape downstream; do NOT silently normalize.
+          evidence = r.evidence_json;
+        }
+      } catch {
+        evidence = r.evidence_json;
+      }
+      out.set(r.key, {
+        schema: WORK_RECEIPT_SCHEMA,
+        source: r.source as typeof WORK_RECEIPT_SOURCE,
+        task_id: r.task_id,
+        run_id: r.run_id,
+        assignee: r.assignee,
+        terminal_outcome: r.terminal_outcome as WorkReceipt["terminal_outcome"],
+        result_contract: r.result_contract as WorkReceipt["result_contract"],
+        quality_gate: r.quality_gate as WorkReceipt["quality_gate"],
+        completed_at: r.completed_at,
+        evidence: evidence as WorkReceipt["evidence"],
+        payload_sha256: r.payload_sha256,
+        recorded_at: r.recorded_at,
+      });
+    }
+    return out;
+  } finally {
+    try { conn?.close(); } catch { /* best-effort */ }
+    if (tmp) {
+      try { rmSync(tmp, { recursive: true, force: true }); } catch { /* leak beats mask */ }
+    }
+  }
 }
 
 /**
@@ -1207,7 +1453,8 @@ export function verifyLedgerFile(file: string, now: number = Date.now()): Verify
   // itself. No WAL conversion, no schema creation, no meta writes.
   try {
     const snapshot = readLifecycleSnapshotFile(file);
-    const core = verifyMeshData(snapshot.data, now);
+    const wr = loadWorkReceiptsFromFile(file);
+    const core = verifyMeshData(snapshot.data, now, wr);
     const findings = [...core.findings, ...verifyLifecycleSnapshot(snapshot, now)];
     const errors = findings.filter((finding) => finding.severity === "error").length;
     return { ...core, ok: errors === 0, errors, warnings: findings.length - errors, findings };
