@@ -310,3 +310,125 @@ test("verifier v3 ok=true on a clean row (baseline)", () => {
     assert.equal(wrFindings.length, 0, `unexpected work_receipt findings: ${JSON.stringify(wrFindings.map((f) => f.check))}`);
   });
 });
+
+// -----------------------------------------------------------------------
+// RED-ON-REVERT additions for duplicate_logical_key and identity_mismatch.
+//
+// The verifier must surface BOTH invariants as errors. The two invariants
+// necessarily co-fail on the realistic corrupted-ledger shape: a hand-edit
+// rewrote one row's primary key without updating the row's stored
+// (source, task_id, run_id) columns, leaving two rows whose stored
+// identity is identical but whose keys differ AND one of those keys no
+// longer matches its own stored identity. The supplier's t_7076ec8b
+// probe fixture is exactly this shape — it plants two rows whose
+// stored identity is (hermes-kanban, t_duplicate_probe, 1) but whose
+// keys are `hermes-kanban\0t_duplicate_probe\01` and
+// `hermes-kanban\0t_other_valid_key\01`. The second row trips
+// identity_mismatch on its own; both rows share the stored identity
+// tuple and trip duplicate_logical_key together.
+//
+// We exercise the co-fire here AND a single-invariant identity_mismatch
+// shape so each check has its own minimal failing case.
+// -----------------------------------------------------------------------
+
+function rawInsertWithKey(key: string, payload: WorkReceiptInput): void {
+  insertWorkReceiptRow({
+    key,
+    source: WORK_RECEIPT_SOURCE,
+    task_id: payload.task_id,
+    run_id: payload.run_id,
+    assignee: payload.assignee,
+    terminal_outcome: payload.terminal_outcome,
+    result_contract: payload.result_contract,
+    quality_gate: payload.quality_gate,
+    completed_at: payload.completed_at,
+    evidence_json: JSON.stringify(payload.evidence),
+    payload_sha256: computeWorkReceiptPayloadSha256(payload),
+    recorded_at: 1_700_000_001,
+  });
+}
+
+test("verifier v3 errors on identity_mismatch (parsed key disagrees with stored identity columns)", () => {
+  withTempLedger((ledgerPath) => {
+    // Plant a row whose stored (source, task_id, run_id) is the canonical
+    // (hermes-kanban, t_id_mismatch, 1) but whose primary key parses to a
+    // DIFFERENT (source, task_id, run_id) — key =
+    // `hermes-kanban\0t_peer\01`. The verifier must report identity_mismatch,
+    // NOT silently trust the parsed key.
+    const storedTask = "t_id_mismatch";
+    const storedRun = 1;
+    const payload: WorkReceiptInput = {
+      schema: WORK_RECEIPT_SCHEMA,
+      task_id: storedTask,
+      run_id: storedRun,
+      assignee: "alice",
+      terminal_outcome: "completed",
+      result_contract: "ok",
+      quality_gate: "passed",
+      completed_at: 1_700_000_000,
+      evidence: [{ kind: "git_commit", handle: "h1" }],
+      payload_sha256: "",
+    };
+    rawInsertWithKey(`${WORK_RECEIPT_SOURCE}\u0000t_peer\u0000${storedRun}`, payload);
+    const result = verifyLedgerFile(ledgerPath);
+    const mismatch = result.findings.find(
+      (f) => f.check === "work_receipt.identity_mismatch",
+    );
+    assert.ok(mismatch, `expected identity_mismatch; got ${JSON.stringify(result.findings.map((f) => f.check))}`);
+    assert.equal(mismatch.severity, "error");
+    // No duplicate fires here — the stored identity tuple is unique on this
+    // single row. The identity-mismatch invariant is independent of the
+    // duplicate invariant in this case.
+    assert.equal(
+      result.findings.find((f) => f.check === "work_receipt.duplicate_logical_key"),
+      undefined,
+      "single-row identity_mismatch must not co-fire duplicate_logical_key",
+    );
+  });
+});
+
+test("verifier v3 errors on duplicate_logical_key with identity_mismatch co-fire (two rows share stored tuple, one row's key disagrees)", () => {
+  withTempLedger((ledgerPath) => {
+    // Supplier-fixture shape: two rows whose stored (source, task_id,
+    // run_id) is identical, with one row's key agreeing with stored
+    // identity and the other row's key disagreeing. This is the realistic
+    // corrupted-ledger shape — the two invariants necessarily co-fire.
+    const sharedTask = "t_duplicate_probe";
+    const sharedRun = 1;
+    const payload: WorkReceiptInput = {
+      schema: WORK_RECEIPT_SCHEMA,
+      task_id: sharedTask,
+      run_id: sharedRun,
+      assignee: "alice",
+      terminal_outcome: "completed",
+      result_contract: "ok",
+      quality_gate: "passed",
+      completed_at: 1_700_000_000,
+      evidence: [{ kind: "git_commit", handle: "h1" }],
+      payload_sha256: "",
+    };
+    // Row A: key agrees with stored identity.
+    rawInsertWithKey(`${WORK_RECEIPT_SOURCE}\u0000${sharedTask}\u0000${sharedRun}`, payload);
+    // Row B: stored identity columns unchanged (same as row A), but key
+    // parses to a different task_id. This co-fires identity_mismatch on
+    // row B AND duplicate_logical_key on both rows (they share the stored
+    // identity tuple).
+    rawInsertWithKey(`${WORK_RECEIPT_SOURCE}\u0000t_other_valid_key\u0000${sharedRun}`, payload);
+    const result = verifyLedgerFile(ledgerPath);
+    const findings = result.findings;
+    const mismatch = findings.find((f) => f.check === "work_receipt.identity_mismatch");
+    assert.ok(mismatch, `expected identity_mismatch; got ${JSON.stringify(findings.map((f) => f.check))}`);
+    assert.equal(mismatch.severity, "error");
+    // Both rows share the stored identity tuple, so two duplicate
+    // findings fire (one per row). The peer-list inside each finding
+    // names the other row.
+    const dupes = findings.filter((f) => f.check === "work_receipt.duplicate_logical_key");
+    assert.equal(
+      dupes.length,
+      2,
+      `expected 2 duplicate_logical_key findings (one per duplicate row); got ${dupes.length}: ${JSON.stringify(dupes.map((f) => f.subject))}`,
+    );
+    for (const d of dupes) assert.equal(d.severity, "error");
+    assert.equal(result.ok, false);
+  });
+});

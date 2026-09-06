@@ -32,7 +32,8 @@
  *   fact.
  *
  * The v3 verifier extends with `work_receipt.*` findings — malformed key,
- * digest mismatch, duplicate logical key, impossible success combinations,
+ * identity mismatch (parsed key vs stored identity columns), duplicate
+ * logical key, digest mismatch, impossible success combinations,
  * evidence-shape violations — but stays inside its existing
  * unsigned-local-consistency scope. The schema doc on the result contract is
  * the same schema MeshFleet expects to read; a divergence is a verifier

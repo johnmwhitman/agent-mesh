@@ -50,6 +50,18 @@ export interface WorkReceiptFixture {
   check: string;
   /** Human-readable reason this row violates the contract. */
   description: string;
+  /**
+   * The set of OTHER work_receipt.* checks that may legitimately co-fire
+   * alongside the primary. The fixture's planted rows necessarily trip
+   * more than one invariant (e.g. duplicate_logical_key co-fires with
+   * identity_mismatch on the realistic corrupted-ledger shape). Names
+   * here must match other fixture check ids in this table. Any
+   * work_receipt.* finding outside (check ∪ coFiresWith) is a fixture
+   * drift — it means the planted rows broke an invariant the fixture
+   * didn't claim to test, and the fixture must be tightened. Default
+   * empty (no co-fire is allowed).
+   */
+  coFiresWith?: readonly string[];
   /** Plants the row on the supplied SQLite ledger. */
   plant(ledgerPath: string): void;
 }
@@ -239,6 +251,89 @@ export const WORK_RECEIPT_FIXTURES: readonly WorkReceiptFixture[] = [
       });
     },
   },
+  {
+    check: "work_receipt.identity_mismatch",
+    description:
+      "parsed primary key disagrees with the row's own stored (source, task_id, run_id) — the lookup-shape and the identity columns are out of sync",
+    plant(ledgerPath) {
+      // Plant a single row whose primary key parses to
+      // (hermes-kanban, t_identity_peer, 1) but whose stored identity
+      // columns are (hermes-kanban, t_identity_mismatch, 1). The
+      // mismatch is reported on its own row; no duplicate can fire
+      // because the stored identity tuple is unique on this ledger.
+      const storedTask = "t_identity_mismatch";
+      const payload = basePayload({ task_id: storedTask });
+      rawInsert({
+        // Key bytes intentionally differ from the stored task_id — a
+        // hand-edit or a legacy backfill that wrote the key from a
+        // different source than the row's own identity columns.
+        key: workReceiptKey(WORK_RECEIPT_SOURCE, "t_identity_peer", payload.run_id),
+        source: WORK_RECEIPT_SOURCE,
+        task_id: payload.task_id,
+        run_id: payload.run_id,
+        assignee: payload.assignee,
+        terminal_outcome: payload.terminal_outcome,
+        result_contract: payload.result_contract,
+        quality_gate: payload.quality_gate,
+        completed_at: payload.completed_at,
+        evidence_json: JSON.stringify(payload.evidence),
+        payload_sha256: canonicalDigest(payload),
+        recorded_at: BASE_RECORDED_AT,
+      });
+    },
+  },
+  {
+    check: "work_receipt.duplicate_logical_key",
+    description:
+      "two stored rows share (source, task_id, run_id) — the v5 schema has no UNIQUE INDEX on the logical identity tuple, so a legacy backfill or hand-edit can produce duplicates",
+    coFiresWith: ["work_receipt.identity_mismatch"],
+    plant(ledgerPath) {
+      // Two rows whose stored identity is identical. One row's key
+      // agrees with its stored identity; the other's key disagrees —
+      // exactly the supplier fixture's corrupted-ledger shape. The
+      // duplicate_logical_key finding fires on both rows because they
+      // share the stored identity tuple; the identity_mismatch finding
+      // co-fires on the second row. The fixture assertion in
+      // corpus.test.ts checks for duplicate_logical_key at error
+      // severity; the co-firing identity_mismatch is the same finding
+      // class as the standalone fixture above, which the runFixture
+      // helper tolerates as "same-class co-fire".
+      const sharedTask = "t_duplicate_logical";
+      const sharedRun = 2;
+      const payload = basePayload({ task_id: sharedTask, run_id: sharedRun });
+      rawInsert({
+        key: workReceiptKey(WORK_RECEIPT_SOURCE, sharedTask, sharedRun),
+        source: WORK_RECEIPT_SOURCE,
+        task_id: sharedTask,
+        run_id: sharedRun,
+        assignee: payload.assignee,
+        terminal_outcome: payload.terminal_outcome,
+        result_contract: payload.result_contract,
+        quality_gate: payload.quality_gate,
+        completed_at: payload.completed_at,
+        evidence_json: JSON.stringify(payload.evidence),
+        payload_sha256: canonicalDigest(payload),
+        recorded_at: BASE_RECORDED_AT,
+      });
+      rawInsert({
+        // Second row's key disagrees with its stored task_id so the
+        // duplicate fixture exercises the same realistic shape the
+        // supplier fixture uses — both invariants necessarily co-fire.
+        key: workReceiptKey(WORK_RECEIPT_SOURCE, "t_duplicate_peer", sharedRun),
+        source: WORK_RECEIPT_SOURCE,
+        task_id: sharedTask,
+        run_id: sharedRun,
+        assignee: payload.assignee,
+        terminal_outcome: payload.terminal_outcome,
+        result_contract: payload.result_contract,
+        quality_gate: payload.quality_gate,
+        completed_at: payload.completed_at,
+        evidence_json: JSON.stringify(payload.evidence),
+        payload_sha256: canonicalDigest(payload),
+        recorded_at: BASE_RECORDED_AT,
+      });
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -266,12 +361,17 @@ export function runFixture(fixture: WorkReceiptFixture): { check: string; severi
         `fixture for ${fixture.check} did not raise its named check; verifier produced: ${all}`,
       );
     }
-    // Other errors are tolerated if they are the SAME finding class (the
-    // digest_mismatch fixture may co-fire a digest_mismatch in addition to
-    // its primary), but a different work_receipt.* class co-firing means the
-    // fixture's row violates more than the one invariant it claims to test.
+    // Other work_receipt.* errors are tolerated only when the fixture
+    // named them in `coFiresWith`. The contract is: a fixture plants a
+    // minimal row shape that trips one invariant; if its row ALSO
+    // breaks a second invariant the table has a fixture for, the
+    // fixture's `coFiresWith` must name that second invariant so the
+    // co-fire is loud in source. Any work_receipt.* finding outside
+    // (check ∪ coFiresWith) is a drift — the fixture broke an
+    // invariant it didn't claim to test.
+    const allowed = new Set<string>([fixture.check, ...(fixture.coFiresWith ?? [])]);
     const otherWr = errors.filter(
-      (f) => f.check.startsWith("work_receipt.") && f.check !== fixture.check,
+      (f) => f.check.startsWith("work_receipt.") && !allowed.has(f.check),
     );
     if (otherWr.length > 0) {
       throw new Error(

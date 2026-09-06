@@ -1122,6 +1122,16 @@ const CHECK_EXPLANATIONS: Record<string, CheckExplanation> = {
     benign: "no production writer ever produces this; the server composes the key from the row's own (source, task_id, run_id) fields before INSERT. A legacy row imported by a migration script without recomputing the key is the only path that produces one without external malice",
     investigate: "agent-mesh inspect --export | jq '.work_receipts // empty'",
   },
+  "work_receipt.identity_mismatch": {
+    what: "a work_receipts row's parsed primary key disagrees with the row's own stored (source, task_id, run_id) columns — the lookup-shape and the identity columns are out of sync, which means a hand-edit rewrote one side without the other",
+    benign: "no production writer ever produces this; the writer composes the key from the row's own identity columns before INSERT, so the two cannot diverge under honest operation. A legacy row imported by a migration script that wrote the key from one source and the identity columns from another is the only benign path; everything else is external corruption",
+    investigate: "agent-mesh inspect --export | jq '.work_receipts[] | {key, source, task_id, run_id}'",
+  },
+  "work_receipt.duplicate_logical_key": {
+    what: "two or more work_receipts rows share the same stored (source, task_id, run_id) tuple but have different primary keys — the v5 schema has a PRIMARY KEY on `key` only and no UNIQUE INDEX on the logical tuple, so a legacy backfill or a hand-edit can produce duplicates the writer would have refused",
+    benign: "no production writer ever produces this; record_work_receipt returns conflict when the same composite key is presented with different bytes, and the writer never INSERTs two rows whose (source, task_id, run_id) collide. The only path that produces one is a tool that bypassed the writer (a backfill script, a hand-edit), and the verifier reports every duplicate row rather than silently deduplicating",
+    investigate: "agent-mesh inspect --export | jq '.work_receipts | group_by(.source + \"\\u0000\" + .task_id + \"\\u0000\" + (.run_id|tostring)) | map(select(length > 1))'",
+  },
   "work_receipt.digest_mismatch": {
     what: "a work_receipts row's stored payload_sha256 disagrees with the canonical SHA-256 recomputed from its own fields — the row's identity claim and its bytes do not match",
     benign: "no benign path produces this. The writer recomputes the digest before every INSERT and refuses to write a row whose bytes do not match. A row that fails this check was either written by a non-conforming client or hand-edited after the fact",

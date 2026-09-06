@@ -1187,11 +1187,23 @@ export function verifyMeshData(
   //   - malformed_key: a row whose key cannot be parsed (a backfilled legacy
   //     row, or a hand-edit) — the row is still counted as data but its
   //     lookup-shape is unprovable;
+  //   - identity_mismatch: a row whose PARSED primary key disagrees with the
+  //     row's OWN stored (source, task_id, run_id) columns. The composite
+  //     primary key is supposed to be a deterministic encoding of the
+  //     identity columns; a hand-edit that rewrote one but not the other
+  //     leaves a row whose lookup-shape and its stored identity disagree.
+  //     The verifier reports the disagreement; it does NOT silently
+  //     deduplicate or rewrite either side, because the ledger's own bytes
+  //     are the only audit truth available here.
   //   - digest_mismatch: the row's stored payload_sha256 disagrees with the
   //     digest recomputed from its own canonicalized fields;
-  //   - duplicate_logical_key: two rows whose (source, task_id, run_id) match
-  //     despite different primary keys (should be impossible: the primary key
-  //     IS the composite);
+  //   - duplicate_logical_key: two or more rows whose (source, task_id,
+  //     run_id) match despite different primary keys. The v5 schema has a
+  //     PRIMARY KEY on `key` only — there is no UNIQUE INDEX on the logical
+  //     tuple — so a legacy backfill, a hand-edit, or a writer bug can
+  //     legitimately produce two distinct keys with identical identity
+  //     columns. Each such row is reported as its own finding (no
+  //     deduplication; the ledger's bytes stay unaltered).
   //   - impossible_success: terminal_outcome=refused|failed with
   //     result_contract=ok, or terminal_outcome=completed with
   //     result_contract outside {ok, artifact_missing};
@@ -1204,6 +1216,60 @@ export function verifyMeshData(
   const EVIDENCE_KINDS_SET: ReadonlySet<string> = new Set(EVIDENCE_KINDS);
   const isValidEvidenceKind = (kind: unknown): boolean =>
     typeof kind === "string" && EVIDENCE_KINDS_SET.has(kind);
+
+  // Pre-pass: cross-row invariants. Each rowKey that parses gets bucketed by
+  // its STORED (source, task_id, run_id) columns — not the parsed key —
+  // because the duplicate-logical-key invariant is "two stored rows share
+  // the same identity columns", regardless of whether one of those rows
+  // ALSO fails identity_mismatch. We report identity_mismatch per offending
+  // row, then bucket the stored identity columns across ALL rows (including
+  // disputed ones) so the duplicate fire is co-reported when the same
+  // fixture trips both invariants. A single audit run must surface every
+  // corrupted-ledger shape at once.
+  const logicalTupleToKeys = new Map<string, string[]>();
+  for (const [rowKey, wr] of workReceiptRows) {
+    const parsedKey = parseWorkReceiptKey(rowKey);
+    if (!parsedKey) {
+      // malformed_key is emitted below in the per-row pass; skip the tuple
+      // bucket so a key that doesn't parse cannot collide with itself.
+      continue;
+    }
+    if (
+      parsedKey.source !== wr.source ||
+      parsedKey.task_id !== wr.task_id ||
+      parsedKey.run_id !== wr.run_id
+    ) {
+      error(
+        "work_receipt.identity_mismatch",
+        rowKey,
+        `work_receipts row's parsed primary key 'source=${JSON.stringify(parsedKey.source)} task_id=${JSON.stringify(parsedKey.task_id)} run_id=${parsedKey.run_id}' disagrees with the row's stored identity columns 'source=${JSON.stringify(wr.source)} task_id=${JSON.stringify(wr.task_id)} run_id=${wr.run_id}' — the lookup-shape and the identity columns are out of sync`,
+      );
+      // Still bucket this row by its STORED identity columns: the duplicate
+      // invariant is "two rows share the same logical tuple in storage",
+      // and that test reads from storage. Skipping the bucket would hide
+      // the duplicate in fixtures that co-fire both invariants.
+    }
+    const tupleKey = `${wr.source}\u0000${wr.task_id}\u0000${wr.run_id}`;
+    const bucket = logicalTupleToKeys.get(tupleKey);
+    if (bucket) bucket.push(rowKey);
+    else logicalTupleToKeys.set(tupleKey, [rowKey]);
+  }
+  for (const [, rowKeys] of logicalTupleToKeys) {
+    if (rowKeys.length < 2) continue;
+    // Every row in a duplicate bucket is reported — the contract says the
+    // verifier surfaces the corrupted-ledger shape, never silently drops
+    // rows or relies on writer constraints. Sort by row key so the finding
+    // text is deterministic across runs and across audits of the same file.
+    const sorted = [...rowKeys].sort();
+    for (const rowKey of sorted) {
+      const peers = sorted.filter((k) => k !== rowKey);
+      error(
+        "work_receipt.duplicate_logical_key",
+        rowKey,
+        `work_receipts row's (source, task_id, run_id) tuple is shared by ${peers.length} other stored row(s) with different primary keys: ${peers.map((k) => JSON.stringify(k)).join(", ")} — the v5 schema does not enforce a UNIQUE INDEX on the logical identity columns, so a legacy backfill or hand-edit can produce duplicates; this verifier does not deduplicate, it reports`,
+      );
+    }
+  }
 
   for (const [rowKey, wr] of workReceiptRows) {
     const parsedKey = parseWorkReceiptKey(rowKey);
