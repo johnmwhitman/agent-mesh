@@ -3,14 +3,15 @@
  * agent-mesh dashboard — live TUI of running fleets, agents, events,
  * and (D2.1) the receipt timeline.
  *
+ * IMPORTANT: `agent-mesh-dashboard` is published as the `meshfleet` npm
+ * package (the bare `agent-mesh` package on npm is a different reserved
+ * placeholder). Invoke this CLI as
+ * `npx -y --package=meshfleet -- agent-mesh-dashboard [flags]`.
+ *
  * Usage:
  *   npx -y --package=meshfleet -- agent-mesh-dashboard          # refresh every 1s (default)
- *   npx -y --package=meshfleet -- agent-mesh-dashboard --interval 500         # custom interval in ms
- *   npx -y --package=meshfleet -- agent-mesh-dashboard --once                  # one-shot, exit immediately
- *   npx -y --package=meshfleet -- agent-mesh-dashboard --receipts              # enable receipt timeline
- *                                                   # (panel always shown when on)
- *   npx -y --package=meshfleet -- agent-mesh-dashboard --receipts --receipt-limit 20   # cap rows shown
- *   npx -y --package=meshfleet -- agent-mesh-dashboard --fleet <id>            # scope to one fleet
+ *   npx -y --package=meshfleet -- agent-mesh-dashboard --interval 500   # custom interval in ms
+ *   npx -y --package=meshfleet -- agent-mesh-dashboard --once   # one-shot, exit immediately
  *
  * Reads the same JSON ledger as the MCP server. No IPC, no daemon — just
  * follows the event stream with ledger polling as a fallback. Ctrl+C to exit.

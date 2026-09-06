@@ -2,6 +2,10 @@
 /**
  * agent-mesh inspect — CLI inspector for running fleets.
  *
+ * IMPORTANT: `agent-mesh` is published as the `meshfleet` npm package (the
+ * bare `agent-mesh` package on npm is a different reserved placeholder).
+ * Invoke this CLI as `npx -y --package=meshfleet -- agent-mesh <subcommand>`.
+ *
  * Usage:
  *   npx -y --package=meshfleet -- agent-mesh inspect                    # show all fleets (default)
  *   npx -y --package=meshfleet -- agent-mesh inspect <fleet_id>         # show one fleet + its agents
@@ -53,6 +57,8 @@ import { verifyLedger, verifyLedgerFile } from '../verify.js'
 import { runDemo } from '../demo.js'
 
 const USAGE = `agent-mesh inspect — CLI inspector for running fleets
+  (published as the 'meshfleet' npm package — invoke via
+   'npx -y --package=meshfleet -- agent-mesh <subcommand>')
 
   Every command below selects the meshfleet npm package explicitly via
   --package=meshfleet, because the bare "agent-mesh" name on npm is a
