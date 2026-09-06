@@ -25,7 +25,7 @@ import { existsSync } from "node:fs";
 import { BROADCAST, SEALED_FLEET_STATUSES, TERMINAL_AGENT_STATUSES, fleetLatticeOutcome, isRoutableCapability, isUsableAgentId, messageRecipients, type MeshData, type Message, type Receipt } from "./core.js";
 import { MAX_TOTAL_WEIGHT, MAX_VOTE_WEIGHT, computeTally, parseVoteAction } from "./ratify.js";
 import { deriveDiscussion, parseEnvelope, parseReceiptAction } from "./discussion.js";
-import { readLedger, resolveDbFile } from "./db.js";
+import { readLedger, resolveDbFile, assertWorkReceiptsV5Schema } from "./db.js";
 import {
   EVIDENCE_KINDS,
   WORK_RECEIPT_SCHEMA,
@@ -1484,10 +1484,8 @@ export function verifyLedger(now: number = Date.now()): VerifyReport {
 
 /**
  * Splice the lifecycle-snapshot findings into the core verifyMeshData
- * report. Persisted-schema findings already fired inside verifyMeshData
- * at the common invariant boundary; this finalizer only adds the
- * lifecycle-snapshot family (a separate read surface the snapshot path
- * produces) and recomputes the ok/errors/warnings tallies.
+ * report, retaining raw persisted-schema findings lost by safe decoding,
+ * then recomputes the ok/errors/warnings tallies.
  */
 function finalizeVerifyReport(
   core: VerifyReport,
@@ -1495,8 +1493,19 @@ function finalizeVerifyReport(
   snapshot: ReturnType<typeof readLifecycleSnapshot> | undefined,
   now: number,
 ): VerifyReport {
-  void invalidKeys;
   const extra: VerifyFinding[] = [];
+  const existing = new Set(core.findings.map(f => JSON.stringify([f.check, f.subject, f.detail])));
+  // Raw parse failures can disappear when safe decoded values are serialized
+  // again. Retain those findings alongside the common invariant checks.
+  for (const [key, reasons] of invalidKeys) {
+    for (const reason of reasons) {
+      const finding: VerifyFinding = {
+        severity: "error", check: "work_receipt.invalid_persisted_schema", subject: key,
+        detail: `work_receipts row fails the persisted-schema contract: ${reason}`,
+      };
+      if (!existing.has(JSON.stringify([finding.check, finding.subject, finding.detail]))) extra.push(finding);
+    }
+  }
   if (snapshot) {
     extra.push(...verifyLifecycleSnapshot(snapshot, now));
   }
@@ -1576,35 +1585,7 @@ function loadWorkReceiptsFromFile(file: string): {
     // the strict check — the layout validator is for the version that
     // declared the table, not for older ledgers that gained one by other
     // means.
-    if (auditVersion >= 5) {
-      const columns = conn.prepare("PRAGMA table_info(work_receipts)").all() as Array<{ name: string }>;
-      if (columns.length !== 12) {
-        throw new Error(
-          `invalid v5 work_receipts layout in audit copy: expected 12 columns, found ${columns.length}`,
-        );
-      }
-      const expectedNames = new Set([
-        "key",
-        "source",
-        "task_id",
-        "run_id",
-        "assignee",
-        "terminal_outcome",
-        "result_contract",
-        "quality_gate",
-        "completed_at",
-        "evidence_json",
-        "payload_sha256",
-        "recorded_at",
-      ]);
-      for (const col of columns) {
-        if (!expectedNames.has(col.name)) {
-          throw new Error(
-            `invalid v5 work_receipts layout in audit copy: unexpected column ${col.name}`,
-          );
-        }
-      }
-    }
+    if (auditVersion >= 5) assertWorkReceiptsV5Schema(conn);
     const rawRows = conn
       .prepare(
         "SELECT key, source, task_id, run_id, assignee, terminal_outcome, result_contract, " +

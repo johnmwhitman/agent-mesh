@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { cpSync, copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createHash } from "node:crypto";
@@ -85,4 +85,29 @@ test("npm pack --dry-run includes dist/meshfleet-build-manifest.json in the publ
       /* leak */
     }
   }
+});
+
+test("compiled runtime reports missing or malformed build identity as unhealthy", () => {
+  const dir = mkdtempSync(join(tmpdir(), "meshfleet-identity-runtime-"));
+  try {
+    cpSync(join(repoRoot, "dist"), join(dir, "dist"), { recursive: true });
+    copyFileSync(join(repoRoot, "package.json"), join(dir, "package.json"));
+    symlinkSync(join(repoRoot, "node_modules"), join(dir, "node_modules"), "junction");
+    const health = () => JSON.parse(execFileSync(process.execPath,
+      ["--input-type=module", "-e", "import {getHealth} from './dist/health.js'; console.log(JSON.stringify(getHealth()));"], {
+        cwd: dir, encoding: "utf-8", timeout: 15000,
+        env: { ...process.env, MESHFLEET_DB_FILE: join(dir, "ledger.db"),
+          MESHFLEET_DATA_FILE: join(dir, "data.json"), MESHFLEET_EVENT_LOG_FILE: join(dir, "events.jsonl") },
+      }));
+    const baseline = health();
+    assert.equal(baseline.build_identity.status, "ok");
+    assert.equal(baseline.build_identity.entrypoints_match_runtime, true);
+    const manifest = join(dir, "dist", "meshfleet-build-manifest.json");
+    writeFileSync(manifest, "NOT JSON");
+    assert.equal(health().status, "error");
+    unlinkSync(manifest);
+    const missing = health();
+    assert.equal(missing.build_identity.status, "unreadable");
+    assert.equal(missing.status, "error");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });

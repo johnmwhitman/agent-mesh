@@ -26,7 +26,7 @@ import {
 } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { loadData, resolveEventLogFile } from './core.js'
 import { resolveDbFile } from './db.js'
 import { workReceiptCount } from './work-receipt.js'
@@ -73,8 +73,9 @@ export interface HealthReport {
    * handle so the count is consistent with `record_work_receipt` /
    * `get_work_receipt` rather than with a stale audit snapshot. 0 on
    * pre-v5 ledgers (the table is purely additive and backfill-free).
+   * Null means the count could not be read; overall health is then error.
    */
-  work_receipt_count: number
+  work_receipt_count: number | null
   /**
    * The build-identity surface for the ratified three-copy promotion
    * contract (Kanban receipt dogfood design §5). Mirrors the runtime's own
@@ -156,7 +157,7 @@ export function resolveRuntimeDistDir(): string | null {
   try {
     const here = dirname(fileURLToPath(import.meta.url))
     const candidate = join(here, BUILD_MANIFEST_FILENAME)
-    if (existsSync(candidate)) return here
+    if (basename(here) === DIST_DIR_NAME || existsSync(candidate)) return here
     // src/ fallback for `tsx`-driven development — health.ts lives next to
     // its source dist/ if invoked from there. Production builds always hit
     // the first branch.
@@ -235,10 +236,11 @@ export function getHealth(): HealthReport {
   // is now surfaced to `status: 'error'` here so a caller that only reads
   // `status` cannot mistake a broken install for a healthy one.
   const buildIdentity = readBuildIdentity()
-  const hasBuildIdentityMismatch = buildIdentity.status === 'mismatch'
+  const hasBuildIdentityMismatch = buildIdentity.status === 'mismatch' || buildIdentity.status === 'unreadable'
+  const receiptCount = readWorkReceiptCount()
 
   let status: 'ok' | 'degraded' | 'error' = 'ok'
-  if (hasCorruptLedger || hasBuildIdentityMismatch) status = 'error'
+  if (hasCorruptLedger || hasBuildIdentityMismatch || receiptCount === null) status = 'error'
   else if (hasStuckFleet || hasUnreadableEventLog) status = 'degraded'
 
   return {
@@ -253,7 +255,7 @@ export function getHealth(): HealthReport {
     ledger_bytes: ledgerBytes,
     events_log_bytes: eventsBytes,
     last_event_timestamp: lastTimestamp,
-    work_receipt_count: readWorkReceiptCount(),
+    work_receipt_count: receiptCount,
     build_identity: buildIdentity,
   }
 }
@@ -263,11 +265,11 @@ export function getHealth(): HealthReport {
  * try/catch around `getHealth`'s I/O (a corrupted ledger cannot turn a
  * health check into an exception).
  */
-function readWorkReceiptCount(): number {
+function readWorkReceiptCount(): number | null {
   try {
     return workReceiptCount()
   } catch {
-    return 0
+    return null
   }
 }
 

@@ -46,6 +46,7 @@ import { copyFileSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import {
+  assertWorkReceiptsV5Schema,
   countWorkReceiptsLive,
   readWorkReceiptLive,
   resolveDbFile,
@@ -554,8 +555,8 @@ export function getAllWorkReceipts(): WorkReceipt[] {
  * configured ledger, the same pattern as `readLedgerFile` in db.ts. The
  * copy is opened readonly, queried for work_receipts rows, and deleted; the
  * live file is touched zero times. Returns an empty array when the ledger
- * is absent, unreadable, or predates the work_receipts table — callers that
- * need a different answer can use the verifier's read path directly.
+ * is absent or predates work receipts. Read/schema/decoding failures
+ * propagate so corruption cannot be mistaken for an absent receipt.
  */
 function readAllWorkReceipts(): WorkReceipt[] {
   const dbFile = resolveDbFile();
@@ -578,6 +579,8 @@ function readAllWorkReceipts(): WorkReceipt[] {
           "SELECT name FROM sqlite_master WHERE type='table' AND name='work_receipts'",
         )
         .get() as { name: string } | undefined;
+      const version = conn.prepare("SELECT value FROM meta WHERE key = 'storage_schema_version'").get() as { value: string } | undefined;
+      if (Number(version?.value ?? 0) >= 5) assertWorkReceiptsV5Schema(conn);
       if (!tableRow) return [];
       const rows = conn
         .prepare(
@@ -606,8 +609,6 @@ function readAllWorkReceipts(): WorkReceipt[] {
         /* best-effort */
       }
     }
-  } catch {
-    return [];
   } finally {
     try {
       rmSync(tmp, { recursive: true, force: true });
@@ -630,27 +631,11 @@ function decodeRow(row: {
   payload_sha256: string;
   recorded_at: number;
 }): WorkReceipt {
-  let evidence: WorkReceiptEvidence[];
-  try {
-    const parsed: unknown = JSON.parse(row.evidence_json);
-    evidence = Array.isArray(parsed) ? (parsed as WorkReceiptEvidence[]) : [];
-  } catch {
-    evidence = [];
-  }
-  return {
-    schema: WORK_RECEIPT_SCHEMA,
-    source: row.source as typeof WORK_RECEIPT_SOURCE,
-    task_id: row.task_id,
-    run_id: row.run_id,
-    assignee: row.assignee,
-    terminal_outcome: row.terminal_outcome as TerminalOutcome,
-    result_contract: row.result_contract as ResultContractStatus,
-    quality_gate: row.quality_gate as QualityGateStatus,
-    completed_at: row.completed_at,
-    evidence,
-    payload_sha256: row.payload_sha256,
-    recorded_at: row.recorded_at,
-  };
+  const checked = validatePersistedWorkReceiptFields({
+    ...row, key: workReceiptKey(row.source, row.task_id, row.run_id),
+  });
+  if (!checked.ok) throw new Error("invalid persisted work receipt: " + checked.reasons.join("; "));
+  return checked.receipt;
 }
 
 /**

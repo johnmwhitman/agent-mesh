@@ -887,7 +887,7 @@ function validateWorkReceiptsV5Layout(db: Database.Database): void {
  */
 export function assertA2aDurableSchema(db: Database.Database): void {
   const version = physicalStorageVersion(db);
-  if (version !== 4) throw new Error("durable acceptance requires physical storage schema version 4");
+  if (version !== 4 && version !== 5) throw new Error("durable acceptance requires physical storage schema version 4 or 5");
   validateA2aV4Layout(db);
 }
 

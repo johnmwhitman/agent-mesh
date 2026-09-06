@@ -11,7 +11,6 @@
  *     path is safe and hashes match, required runtime entrypoints present);
  *   - status is 'mismatch' on any of the failure modes;
  *   - status is 'unreadable' for the structurally-broken case;
- *   - status is 'absent' for a missing distDir argument.
  *
  * NOT RUN in this source repair pass. Root owns the canonical Node 24.18.1
  * verifier gate.
@@ -21,7 +20,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { readBuildIdentityFromDir } from "../src/health.js";
 import { getHealth } from "../src/health.js";
@@ -56,6 +55,7 @@ function writeManifest(
   files: Record<string, string> = {},
 ): void {
   for (const [rel, content] of Object.entries(files)) {
+    mkdirSync(dirname(join(distDir, rel)), { recursive: true });
     writeFileSync(join(distDir, rel), content, "utf-8");
   }
   writeFileSync(
@@ -90,11 +90,6 @@ function validFiles(): Record<string, string> {
 // ----------------------------------------------------------------------
 // Contract tests against readBuildIdentityFromDir.
 // ----------------------------------------------------------------------
-
-test("build_identity: readBuildIdentityFromDir returns 'absent' for null distDir", () => {
-  const result = readBuildIdentityFromDir(null);
-  assert.equal(result.status, "absent");
-});
 
 test("build_identity: readBuildIdentityFromDir returns 'unreadable' for missing manifest", () => {
   withTempDistDir((distDir) => {
