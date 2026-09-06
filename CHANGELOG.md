@@ -64,6 +64,38 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
   on MCP hints would treat a write as a read. Hint is now `false`;
   `idempotentHint` stays `true`. The annotation test pins the classified
   read-only / open-world sets, not just boolean presence.
+- **Publish tarball no longer ships compiled tests or the duplicate `dist/src/`
+  tree.** `npm pack --dry-run` previously listed 345 entries; 259 of those
+  were either `dist/test/*.test.js` (emitted by `tsc -p tsconfig.test.json`
+  so the local `node scripts/run-tests.mjs` runner could find them) or
+  `dist/src/<module>.js` (the `rootDir: .` build's duplicate of every
+  `dist/<module>.js`). None of those bytes were runtime surface; every
+  consumer paid the install footprint and the tarball carried test-only
+  modules whose imports can break outside the suite. The test build now
+  writes to a sibling `dist-test/` (`tsconfig.test.json outDir` change,
+  `.gitignore` + `npm run clean` updated to match), so `dist/` holds only
+  the canonical `tsc` product and the tarball drops to 86 entries. New
+  `test/publish-hygiene.test.ts` pins `dist/test/`, `dist/src/`, and a
+  reserved `dist/test-runtime/` as absent in `npm pack --dry-run`, plus
+  pins the three declared bins (`dist/index.js`, `dist/bin/inspect.js`,
+  `dist/bin/dashboard.js`) as present so a future `files` refactor
+  cannot ship a broken package silently. Suite 1805 → 1809.
+- **`.githooks/post-commit` auto-pushes every cycle commit to the
+  off-machine private remote `private-offsite`.** Six commits landed
+  single-disk between 06:07Z and the seat's 2026-09-06 nothing-lost
+  finding (`audit/ledger-blindspot-lens-tick38` + `tick39`,
+  `train/t_451bbcbb`, `wt/t_7076ec8b`, `wt/t_504324f5`); the
+  `file://` private-mirror gave the `--not --remotes` receipt a
+  false-green the seat caught the same morning. Hook is fail-safe
+  (network error / missing remote / detached HEAD / file:// URL all
+  exit 0 with a warning, never fail the commit), non-force (no `-f`,
+  no `--force-with-lease` in the script body), no-deletion (no
+  `--delete`, no `--prune`, no `--mirror`), idempotent (skips when
+  remote already has the tip), and refuses to act on a `file://`
+  URL. Five fail-safe scenarios verified end-to-end against a
+  canary branch. Configure per-clone with
+  `git config core.hooksPath .githooks`; opt out per-clone with
+  `git config hooks.private-offsite false`.
 
 ## [0.21.1] - 2026-08-10
 

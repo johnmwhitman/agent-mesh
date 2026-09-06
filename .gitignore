@@ -1,5 +1,6 @@
 node_modules/
 dist/
+dist-test/
 *.js
 *.js.map
 *.d.ts
@@ -31,3 +32,6 @@ __pycache__/
 MERGE-TRAIN-*.md
 MERGE-TRAIN-PORTFOLIO-*.md
 .portfolio-merge-train.json
+
+# Local private mirror (HOOL-compliant private remote for machine-local history).
+.git-mirror.git/
