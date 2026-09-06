@@ -1,16 +1,15 @@
 /**
  * Persisted-row schema regression tests (v5 audit hardening).
  *
- * The v5-review-reproduction.json probe proved the prior verifier passed
- * every one of these fixtures with ok=true and zero findings:
+ * The verifier previously passed every one of these fixtures with
+ * ok=true and zero findings:
  *   - malformed evidence (JSON parses to non-array, then .forEach crashes)
  *   - rehashed unknown enums (terminal_outcome=completed, result_contract=bogus)
  *   - blank assignee
  *   - invalid timestamp (string, negative, NaN, Infinity)
  *
  * These tests are NOT RUN in this source repair pass. Root owns the
- * canonical Node 24.18.1 verifier gate; the lane wrote these as source so
- * the next --class=focused run picks them up after Conductor verification.
+ * canonical Node 24.18.1 verifier gate.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -95,7 +94,7 @@ function plantRawRow(row: {
   });
 }
 
-test("verifier does NOT throw on a row whose evidence_json parses to a non-array (P1.3 regression)", () => {
+test("verifier does NOT throw on a row whose evidence_json parses to a non-array", () => {
   // The v5 reproduction's crash mode: evidence_json='{"not":"an array"}'
   // parses to an object, the previous code coerced to the raw string, then
   // called .forEach on the string. The new code parses defensively, treats
@@ -118,7 +117,7 @@ test("verifier does NOT throw on a row whose evidence_json parses to a non-array
   });
 });
 
-test("verifier does NOT throw on a row whose evidence_json is malformed JSON (P1.3 regression)", () => {
+test("verifier does NOT throw on a row whose evidence_json is malformed JSON", () => {
   withTempLedger((ledgerPath) => {
     plantRawRow({
       task_id: "t_evidence_bad_json",
@@ -138,7 +137,7 @@ test("verifier does NOT throw on a row whose evidence_json is malformed JSON (P1
   });
 });
 
-test("verifier reports invalid_persisted_schema for an unknown terminal_outcome enum (P1.4 regression)", () => {
+test("verifier reports invalid_persisted_schema for an unknown terminal_outcome enum", () => {
   withTempLedger((ledgerPath) => {
     plantRawRow({
       task_id: "t_unknown_terminal",
@@ -151,7 +150,7 @@ test("verifier reports invalid_persisted_schema for an unknown terminal_outcome 
   });
 });
 
-test("verifier reports invalid_persisted_schema for a blank assignee (P1.4 regression)", () => {
+test("verifier reports invalid_persisted_schema for a blank assignee", () => {
   withTempLedger((ledgerPath) => {
     plantRawRow({
       task_id: "t_blank_assignee",
@@ -164,7 +163,7 @@ test("verifier reports invalid_persisted_schema for a blank assignee (P1.4 regre
   });
 });
 
-test("verifier reports invalid_persisted_schema for a negative completed_at (P1.4 regression)", () => {
+test("verifier reports invalid_persisted_schema for a negative completed_at", () => {
   withTempLedger((ledgerPath) => {
     plantRawRow({
       task_id: "t_neg_time",
@@ -177,7 +176,7 @@ test("verifier reports invalid_persisted_schema for a negative completed_at (P1.
   });
 });
 
-test("verifier reports invalid_persisted_schema for a recorded_at of zero (P1.4 regression)", () => {
+test("verifier reports invalid_persisted_schema for a recorded_at of zero", () => {
   withTempLedger((ledgerPath) => {
     plantRawRow({
       task_id: "t_zero_recorded",
@@ -190,7 +189,7 @@ test("verifier reports invalid_persisted_schema for a recorded_at of zero (P1.4 
   });
 });
 
-test("verifier reports invalid_persisted_schema for a non-hex payload_sha256 (P1.4 regression)", () => {
+test("verifier reports invalid_persisted_schema for a non-hex payload_sha256", () => {
   withTempLedger((ledgerPath) => {
     plantRawRow({
       task_id: "t_bad_hash",
@@ -203,7 +202,7 @@ test("verifier reports invalid_persisted_schema for a non-hex payload_sha256 (P1
   });
 });
 
-test("verifier reports invalid_persisted_schema for a malformed task_id (P1.4 regression)", () => {
+test("verifier reports invalid_persisted_schema for a malformed task_id", () => {
   withTempLedger((ledgerPath) => {
     plantRawRow({
       task_id: "not-a-kanban-id",

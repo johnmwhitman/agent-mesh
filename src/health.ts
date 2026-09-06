@@ -147,7 +147,7 @@ const DIST_DIR_NAME = 'dist'
 const SEMVER_LIKE = /^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.\-]+)*$/
 
 /** Resolve the `dist/` directory this process was loaded from. */
-function resolveRuntimeDistDir(): string | null {
+export function resolveRuntimeDistDir(): string | null {
   // import.meta.url is `file://…/dist/health.js` (after build) or
   // `file://…/src/health.ts` (tsx dev). Either way, `dist/` (or `src/`)
   // sits next to it. We resolve the directory of the running file and look
@@ -282,11 +282,23 @@ function readWorkReceiptCount(): number {
  * hash per listed entrypoint) and unguarded; a one-off mismatch is what the
  * drift probe looks for, not a once-per-day event.
  */
-function readBuildIdentity(): BuildIdentityReport {
+export function readBuildIdentity(): BuildIdentityReport {
   const distDir = resolveRuntimeDistDir()
   if (!distDir) {
     return { status: 'absent' }
   }
+  return readBuildIdentityFromDir(distDir)
+}
+
+/**
+ * Read `meshfleet-build-manifest.json` from the supplied directory and
+ * validate every field the promotion gate depends on. Extracted from
+ * readBuildIdentity so tests can plant malformed manifests in a temp
+ * directory and exercise the real promotion-gate logic without module
+ * URL redirection. Production callers go through readBuildIdentity, which
+ * resolves the directory from `import.meta.url` (no env seam).
+ */
+export function readBuildIdentityFromDir(distDir: string): BuildIdentityReport {
   const manifestPath = join(distDir, BUILD_MANIFEST_FILENAME)
   let parsed: unknown
   try {
@@ -327,23 +339,29 @@ function readBuildIdentity(): BuildIdentityReport {
   // promotion gate relies on MUST be present and well-formed. The previous
   // code returned `status: 'ok'` regardless of missing package metadata,
   // which meant a manifest with package.version=null still passed the
-  // promotion gate — the byte 0x35 (the version-byte mismatch failure mode
-  // v5-codex-source-review.txt documented) was reachable from a clean
+  // promotion gate — a version-byte mismatch was reachable from a clean
   // manifest read.
   const packageName = typeof m.package?.name === 'string' ? m.package.name.trim() : ''
   const packageVersion = typeof m.package?.version === 'string' ? m.package.version.trim() : ''
   if (packageName !== 'meshfleet' || !SEMVER_LIKE.test(packageVersion)) {
     return { status: 'mismatch', manifest_path: manifestPath }
   }
-  // Source commit, when present, must be a 40-char hex SHA. `null` is still
-  // a documented outcome for registry-installed packages (no git available);
-  // a non-null value that is not a SHA is the malformed case — the previous
-  // code accepted anything. A typo or tag name in this field is exactly the
-  // kind of "wrong package identity" the promotion gate exists to reject.
+  // Source commit, when present, must be a 40-char hex SHA. `null` is only
+  // permitted when accompanied by a non-empty commit_reason that names the
+  // documented cause ("git not available", a non-SHA ref, etc.). A null
+  // source_commit with NO reason (the previous code's silent-accept case)
+  // is the malformed scenario — a missing required field rather than a
+  // documented outcome. Registry-installed packages still pass: their
+  // manifest generator writes both `source_commit: null` AND a reason.
   if (m.source_commit !== null && m.source_commit !== undefined) {
-    if (typeof m.source_commit !== 'string' || !/^[0-9a-f]{40}$/.test(m.source_commit)) {
+    if (typeof m.source_commit !== "string" || !/^[0-9a-f]{40}$/.test(m.source_commit)) {
       return { status: 'mismatch', manifest_path: manifestPath }
     }
+  } else if (
+    typeof m.commit_reason !== "string" ||
+    m.commit_reason.trim() === ""
+  ) {
+    return { status: 'mismatch', manifest_path: manifestPath }
   }
   // Unsafe paths — reject any entrypoint whose relative path escapes the
   // manifest's distDir, contains null bytes, or is not a plain .js file.

@@ -334,6 +334,42 @@ export const WORK_RECEIPT_FIXTURES: readonly WorkReceiptFixture[] = [
       });
     },
   },
+  {
+    check: "work_receipt.invalid_persisted_schema",
+    description:
+      "a persisted row whose terminal_outcome is not one of the schema enum — the persisted-row validator rejects it before any invariant reads its fields",
+    plant(ledgerPath) {
+      // Plant with a valid KEY (so malformed_key does not co-fire) but a
+      // terminal_outcome that is NOT in the schema enum. The persisted
+      // validator emits invalid_persisted_schema as the primary finding;
+      // identity columns are preserved on the returned receipt so the
+      // duplicate / identity invariants still see this row.
+      //
+      // The payload_sha256 is computed FROM THE PLANTED ROW (including
+      // the invalid terminal_outcome) so the recompute path agrees with
+      // the stored digest and digest_mismatch does not co-fire. The
+      // fixture isolates invalid_persisted_schema as the unique named
+      // check with no other work_receipt.* error co-firing.
+      const planted: WorkReceiptInput = {
+        ...basePayload({ task_id: "t_invalid_persisted" }),
+        terminal_outcome: "exited" as WorkReceiptInput["terminal_outcome"],
+      };
+      rawInsert({
+        key: workReceiptKey(WORK_RECEIPT_SOURCE, planted.task_id, planted.run_id),
+        source: WORK_RECEIPT_SOURCE,
+        task_id: planted.task_id,
+        run_id: planted.run_id,
+        assignee: planted.assignee,
+        terminal_outcome: "exited",
+        result_contract: planted.result_contract,
+        quality_gate: planted.quality_gate,
+        completed_at: planted.completed_at,
+        evidence_json: JSON.stringify(planted.evidence),
+        payload_sha256: canonicalDigest(planted),
+        recorded_at: BASE_RECORDED_AT,
+      });
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------------

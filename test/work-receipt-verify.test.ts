@@ -312,18 +312,18 @@ test("verifier v3 ok=true on a clean row (baseline)", () => {
 });
 
 // -----------------------------------------------------------------------
-// v5 review-reproduction regression. The reproduction's five cases:
-//   - valid                   → green   (already pinned by the baseline test above)
-//   - malformed_evidence      → THROWS  (now: invalid_persisted_schema + ok=false)
-//   - unknown_enums           → green   (now: invalid_persisted_schema + ok=false)
-//   - blank_assignee          → green   (now: invalid_persisted_schema + ok=false)
-//   - invalid_time            → green   (now: invalid_persisted_schema + ok=false)
+// Persisted-schema regression. The four cases below all share the same
+// shape: the raw row violates one persisted-schema field (unknown enum,
+// blank assignee, non-array evidence_json, malformed task_id), and the
+// contract pinned here is invalid_persisted_schema + ok=false.
+//   - unknown terminal_outcome      → invalid_persisted_schema + ok=false
+//   - blank assignee               → invalid_persisted_schema + ok=false
+//   - invalid completed_at         → invalid_persisted_schema + ok=false
+//   - non-array evidence_json      → invalid_persisted_schema + ok=false
 //
-// The exact text from the reproduction shows each of the four bug cases
-// returned { ok: true, findings: [] }. The contracts pinned below: the
-// verifier NEVER throws on a malformed evidence row (P1.3), and it
-// ALWAYS reports invalid_persisted_schema for unknown enums, blank
-// assignee, and invalid timestamps (P1.4). NOT RUN in this pass.
+// The verifier NEVER throws on a corrupted row (the previous code threw
+// `wr.evidence.forEach is not a function` on the non-array case).
+// NOT RUN in this pass.
 // -----------------------------------------------------------------------
 
 test("verifier v3 invalid_persisted_schema on unknown enums (terminal_outcome='exited')", () => {
@@ -437,7 +437,7 @@ test("verifier v3 invalid_persisted_schema on invalid completed_at (negative)", 
   });
 });
 
-test("verifier v3 does NOT throw on a row whose evidence_json parses to a non-array (P1.3 regression)", () => {
+test("verifier v3 does NOT throw on a row whose evidence_json parses to a non-array", () => {
   // The reproduction's crash mode: `wr.evidence.forEach is not a function`.
   // The previous code coerced a non-array to the raw string and called
   // .forEach on it. The contract pinned here is: the verifier reaches a
@@ -494,8 +494,8 @@ test("verifier v3 does NOT throw on a row whose evidence_json parses to a non-ar
 // rewrote one row's primary key without updating the row's stored
 // (source, task_id, run_id) columns, leaving two rows whose stored
 // identity is identical but whose keys differ AND one of those keys no
-// longer matches its own stored identity. The supplier's t_7076ec8b
-// probe fixture is exactly this shape — it plants two rows whose
+// longer matches its own stored identity. The duplicate-probe fixture
+// below is exactly this shape — it plants two rows whose
 // stored identity is (hermes-kanban, t_duplicate_probe, 1) but whose
 // keys are `hermes-kanban\0t_duplicate_probe\01` and
 // `hermes-kanban\0t_other_valid_key\01`. The second row trips

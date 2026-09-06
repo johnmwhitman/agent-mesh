@@ -117,25 +117,22 @@ const TASK_ID_GRAMMAR = /^t_[A-Za-z0-9]+$/;
  * Persisted-row schema validator. The audit path reads raw SQLite columns
  * and casts them to `WorkReceipt` — TypeScript casts are NOT runtime
  * validation, and the previous code trusted them, which is precisely the
- * `wr.evidence.forEach is not a function` failure mode the v5 reproduction
- * captured (a hand-edited evidence_json that parses to a non-array leaves
- * a row whose declared shape is not what the verifier assumes). This
- * function is the audit's last gate: every persisted row is checked
- * against the persisted-schema contract BEFORE any invariant test reads
- * one of its fields. A row that fails any check is reported as
- * `work_receipt.invalid_persisted_schema` (one finding per failed field)
- * and the per-row invariants downstream that would crash on the bad
- * shape are skipped — the verifier never throws on a corrupted row.
+ * `wr.evidence.forEach is not a function` failure mode the malformed-
+ * evidence reproduction captured (a hand-edited evidence_json that parses
+ * to a non-array leaves a row whose declared shape is not what the
+ * verifier assumes). This function is the audit's last gate.
  *
- * Returns a clean `WorkReceipt` with `evidence: []` when `evidence_json`
- * is non-array (the verifier still treats such a row as having evidence
- * shape findings, never as having an array we can forEach).
+ * Reuses the same per-entry logic the writer's `validateEvidenceArray`
+ * applies, so persisted and writer-input paths share one source of truth
+ * for "what an evidence entry must look like". A row that fails any check
+ * is reported as `work_receipt.invalid_persisted_schema` (one finding per
+ * reason) and the row's raw identity columns (`source`, `task_id`,
+ * `run_id`) are preserved in the returned receipt so duplicate/identity
+ * findings downstream still fire on the same row.
  *
- * The contract is intentionally narrow: it asserts what the v5 schema
- * requires, not what the writer's validator `validateWorkReceipt`
- * additionally enforces. The writer enforces the full input contract
- * (trimmed strings, canonical key ordering, recomputed digest); the
- * reader enforces only what makes a row safe to read and reason about.
+ * The receipt returned on failure has `evidence: []` so downstream
+ * invariants (`.length`, `.forEach`) cannot crash — but the raw JSON is
+ * preserved in `reasons` so the verifier can report the offending bytes.
  */
 export interface PersistedWorkReceiptFields {
   key: string;
@@ -160,8 +157,9 @@ export interface PersistedWorkReceiptValidation {
    * The validated row. When `ok` is true, this is a fully-typed
    * `WorkReceipt` safe to pass to downstream invariants. When `ok` is
    * false, `evidence` is `[]` (so .forEach / .length never crash), and
-   * the other fields are passed through unchanged so the verifier can
-   * still print them in the finding text.
+   * the identity columns (`source`, `task_id`, `run_id`) are preserved
+   * verbatim so the duplicate/identity checks can still reason about
+   * the row.
    */
   receipt: WorkReceipt;
 }
@@ -208,14 +206,17 @@ export function validatePersistedWorkReceiptFields(
       `quality_gate must be one of ${QUALITY_GATE_STATUSES.join("|")}, got ${JSON.stringify(raw.quality_gate)}`,
     );
   }
+  // completed_at is unix SECONDS per the writer contract (validated by
+  // validateWorkReceipt); record reasons the same way for persisted rows
+  // so reader and writer share one source of truth on the unit.
   if (!Number.isInteger(raw.completed_at) || raw.completed_at <= 0) {
     reasons.push(
-      `completed_at must be a positive integer (unix ms), got ${JSON.stringify(raw.completed_at)}`,
+      `completed_at must be a positive integer (unix seconds), got ${JSON.stringify(raw.completed_at)}`,
     );
   }
   if (!Number.isInteger(raw.recorded_at) || raw.recorded_at <= 0) {
     reasons.push(
-      `recorded_at must be a positive integer (unix ms), got ${JSON.stringify(raw.recorded_at)}`,
+      `recorded_at must be a positive integer (unix seconds), got ${JSON.stringify(raw.recorded_at)}`,
     );
   }
   if (typeof raw.payload_sha256 !== "string" || !HEX_SHA256.test(raw.payload_sha256)) {
@@ -229,29 +230,45 @@ export function validatePersistedWorkReceiptFields(
     );
   }
 
-  // Parse evidence defensively. The previous code coerced to a string when
-  // JSON.parse yielded a non-array, then called .forEach on the coerced
-  // value — that was the v5 reproduction's crash. We instead:
-  //   - parse if possible;
-  //   - assert it IS an array (a non-array here is a corrupted row, not
-  //     a "treat as empty" case — the verifier will report evidence_shape);
-  //   - substitute `[]` so downstream invariants can still report
-  //     findings without crashing on .length or .forEach.
+  // Parse evidence defensively. Three failure modes:
+  //   - JSON.parse throws (corrupted bytes);
+  //   - JSON.parse yields a non-array (object, primitive, null);
+  //   - JSON.parse yields an array whose entries are not objects
+  //     (the v5 reproduction's case: `wr.evidence.forEach` was actually
+  //     safe on an array, but entries that are primitives/null would
+  //     later crash `computeWorkReceiptPayloadSha256` when it stringified
+  //     them — validate each entry before the digest recompute path).
+  //
+  // On any failure we emit a persisted-schema reason AND substitute []
+  // so downstream invariants never see a non-array.
   let evidence: WorkReceipt["evidence"] = [];
   if (typeof raw.evidence_json === "string") {
     let parsed: unknown;
     try {
       parsed = JSON.parse(raw.evidence_json);
-    } catch {
-      // Keep `[]` and let evidence_shape be reported downstream.
-      parsed = undefined;
-    }
-    if (parsed !== undefined && !Array.isArray(parsed)) {
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
       reasons.push(
-        `evidence_json must parse to an array, got ${typeof parsed} (${JSON.stringify(parsed).slice(0, 64)})`,
+        `evidence_json must be valid JSON, got parse error: ${detail} (raw bytes: ${raw.evidence_json.slice(0, 80)})`,
       );
-    } else if (Array.isArray(parsed)) {
-      evidence = parsed as WorkReceipt["evidence"];
+    }
+    if (parsed !== undefined) {
+      if (!Array.isArray(parsed)) {
+        reasons.push(
+          `evidence_json must parse to an array, got ${parsed === null ? "null" : typeof parsed} (${JSON.stringify(parsed).slice(0, 64)})`,
+        );
+      } else {
+        // Reuse the writer's per-entry validation. validateEvidenceArray
+        // rejects null/primitive/non-object entries and produces a per-index
+        // reason for each — these flow into the verifier's findings so the
+        // audit surfaces exactly which entry broke the contract.
+        const entryCheck = validateEvidenceArray(parsed);
+        if (entryCheck.reasons.length > 0) {
+          for (const r of entryCheck.reasons) reasons.push(`evidence_json ${r}`);
+        } else {
+          evidence = entryCheck.normalized;
+        }
+      }
     }
   }
 
@@ -408,7 +425,7 @@ function isOneOf(value: unknown, allowed: readonly string[]): boolean {
   return typeof value === "string" && (allowed as readonly string[]).includes(value);
 }
 
-function validateEvidenceArray(
+export function validateEvidenceArray(
   evidence: unknown[],
 ): { reasons: string[]; normalized: WorkReceiptEvidence[] } {
   const reasons: string[] = [];
