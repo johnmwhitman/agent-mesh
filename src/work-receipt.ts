@@ -114,6 +114,165 @@ const HEX_SHA256 = /^[0-9a-f]{64}$/;
 const TASK_ID_GRAMMAR = /^t_[A-Za-z0-9]+$/;
 
 /**
+ * Persisted-row schema validator. The audit path reads raw SQLite columns
+ * and casts them to `WorkReceipt` — TypeScript casts are NOT runtime
+ * validation, and the previous code trusted them, which is precisely the
+ * `wr.evidence.forEach is not a function` failure mode the v5 reproduction
+ * captured (a hand-edited evidence_json that parses to a non-array leaves
+ * a row whose declared shape is not what the verifier assumes). This
+ * function is the audit's last gate: every persisted row is checked
+ * against the persisted-schema contract BEFORE any invariant test reads
+ * one of its fields. A row that fails any check is reported as
+ * `work_receipt.invalid_persisted_schema` (one finding per failed field)
+ * and the per-row invariants downstream that would crash on the bad
+ * shape are skipped — the verifier never throws on a corrupted row.
+ *
+ * Returns a clean `WorkReceipt` with `evidence: []` when `evidence_json`
+ * is non-array (the verifier still treats such a row as having evidence
+ * shape findings, never as having an array we can forEach).
+ *
+ * The contract is intentionally narrow: it asserts what the v5 schema
+ * requires, not what the writer's validator `validateWorkReceipt`
+ * additionally enforces. The writer enforces the full input contract
+ * (trimmed strings, canonical key ordering, recomputed digest); the
+ * reader enforces only what makes a row safe to read and reason about.
+ */
+export interface PersistedWorkReceiptFields {
+  key: string;
+  source: string;
+  task_id: string;
+  run_id: number;
+  assignee: string;
+  terminal_outcome: string;
+  result_contract: string;
+  quality_gate: string;
+  completed_at: number;
+  evidence_json: string;
+  payload_sha256: string;
+  recorded_at: number;
+}
+
+export interface PersistedWorkReceiptValidation {
+  ok: boolean;
+  /** Reasons the row's persisted schema disagrees with the contract. Empty when ok. */
+  reasons: string[];
+  /**
+   * The validated row. When `ok` is true, this is a fully-typed
+   * `WorkReceipt` safe to pass to downstream invariants. When `ok` is
+   * false, `evidence` is `[]` (so .forEach / .length never crash), and
+   * the other fields are passed through unchanged so the verifier can
+   * still print them in the finding text.
+   */
+  receipt: WorkReceipt;
+}
+
+export function validatePersistedWorkReceiptFields(
+  raw: PersistedWorkReceiptFields,
+): PersistedWorkReceiptValidation {
+  const reasons: string[] = [];
+  if (typeof raw.key !== "string" || raw.key === "") {
+    reasons.push(`key must be a non-empty string, got ${JSON.stringify(raw.key)}`);
+  }
+  if (raw.source !== WORK_RECEIPT_SOURCE) {
+    reasons.push(
+      `source must be the literal "${WORK_RECEIPT_SOURCE}", got ${JSON.stringify(raw.source)}`,
+    );
+  }
+  if (typeof raw.task_id !== "string" || !TASK_ID_GRAMMAR.test(raw.task_id)) {
+    reasons.push(
+      `task_id must match /${TASK_ID_GRAMMAR.source}/, got ${JSON.stringify(raw.task_id)}`,
+    );
+  }
+  if (!Number.isInteger(raw.run_id) || raw.run_id <= 0) {
+    reasons.push(
+      `run_id must be a positive integer, got ${JSON.stringify(raw.run_id)}`,
+    );
+  }
+  if (typeof raw.assignee !== "string" || raw.assignee.trim() === "") {
+    reasons.push(
+      `assignee must be a non-empty string, got ${JSON.stringify(raw.assignee)}`,
+    );
+  }
+  if (!isOneOf(raw.terminal_outcome, TERMINAL_OUTCOMES)) {
+    reasons.push(
+      `terminal_outcome must be one of ${TERMINAL_OUTCOMES.join("|")}, got ${JSON.stringify(raw.terminal_outcome)}`,
+    );
+  }
+  if (!isOneOf(raw.result_contract, RESULT_CONTRACT_STATUSES)) {
+    reasons.push(
+      `result_contract must be one of ${RESULT_CONTRACT_STATUSES.join("|")}, got ${JSON.stringify(raw.result_contract)}`,
+    );
+  }
+  if (!isOneOf(raw.quality_gate, QUALITY_GATE_STATUSES)) {
+    reasons.push(
+      `quality_gate must be one of ${QUALITY_GATE_STATUSES.join("|")}, got ${JSON.stringify(raw.quality_gate)}`,
+    );
+  }
+  if (!Number.isInteger(raw.completed_at) || raw.completed_at <= 0) {
+    reasons.push(
+      `completed_at must be a positive integer (unix ms), got ${JSON.stringify(raw.completed_at)}`,
+    );
+  }
+  if (!Number.isInteger(raw.recorded_at) || raw.recorded_at <= 0) {
+    reasons.push(
+      `recorded_at must be a positive integer (unix ms), got ${JSON.stringify(raw.recorded_at)}`,
+    );
+  }
+  if (typeof raw.payload_sha256 !== "string" || !HEX_SHA256.test(raw.payload_sha256)) {
+    reasons.push(
+      `payload_sha256 must be a 64-char hex SHA-256 digest, got ${JSON.stringify(raw.payload_sha256)}`,
+    );
+  }
+  if (typeof raw.evidence_json !== "string") {
+    reasons.push(
+      `evidence_json must be a string (the column is TEXT), got ${typeof raw.evidence_json}`,
+    );
+  }
+
+  // Parse evidence defensively. The previous code coerced to a string when
+  // JSON.parse yielded a non-array, then called .forEach on the coerced
+  // value — that was the v5 reproduction's crash. We instead:
+  //   - parse if possible;
+  //   - assert it IS an array (a non-array here is a corrupted row, not
+  //     a "treat as empty" case — the verifier will report evidence_shape);
+  //   - substitute `[]` so downstream invariants can still report
+  //     findings without crashing on .length or .forEach.
+  let evidence: WorkReceipt["evidence"] = [];
+  if (typeof raw.evidence_json === "string") {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw.evidence_json);
+    } catch {
+      // Keep `[]` and let evidence_shape be reported downstream.
+      parsed = undefined;
+    }
+    if (parsed !== undefined && !Array.isArray(parsed)) {
+      reasons.push(
+        `evidence_json must parse to an array, got ${typeof parsed} (${JSON.stringify(parsed).slice(0, 64)})`,
+      );
+    } else if (Array.isArray(parsed)) {
+      evidence = parsed as WorkReceipt["evidence"];
+    }
+  }
+
+  const receipt: WorkReceipt = {
+    schema: WORK_RECEIPT_SCHEMA,
+    source: raw.source as typeof WORK_RECEIPT_SOURCE,
+    task_id: raw.task_id,
+    run_id: raw.run_id,
+    assignee: raw.assignee,
+    terminal_outcome: raw.terminal_outcome as WorkReceipt["terminal_outcome"],
+    result_contract: raw.result_contract as WorkReceipt["result_contract"],
+    quality_gate: raw.quality_gate as WorkReceipt["quality_gate"],
+    completed_at: raw.completed_at,
+    evidence,
+    payload_sha256: raw.payload_sha256,
+    recorded_at: raw.recorded_at,
+  };
+  return { ok: reasons.length === 0, reasons, receipt };
+}
+
+/**
  * Pure validation. Returns either a normalized record (canonical ordering +
  *  trimmed strings) or a list of rejection reasons. The caller never has to
  * guess what was wrong, and the rejection list is stable for the contract

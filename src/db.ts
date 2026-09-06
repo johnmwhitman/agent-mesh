@@ -780,11 +780,125 @@ function validateA2aV4Layout(db: Database.Database): void {
   if (integrity.length !== 1 || integrity[0]?.integrity_check !== "ok") throw new Error("invalid v4 a2a layout: integrity check failed");
 }
 
-/** Internal guard used as the first operation in every durable-acceptance transaction. */
+/**
+ * v5 work_receipts layout validator. The v5 marker on `meta` is a HARD
+ * claim: "this ledger carries a work_receipts collection with the schema
+ * `WORK_RECEIPT_SCHEMA_V5`". A v5 ledger whose work_receipts table is
+ * missing, partial, or indexed differently is NOT a v5 ledger — it is a
+ * partially-applied migration or a hand-edited marker, and either reading
+ * or writing to it on the assumption "the table is there" is a lie the
+ * verifier would silently amplify (count zero work receipts, audit green
+ * while every Hermes write fails with no-such-table).
+ *
+ * Failure here is loud and immediate; the open path refuses to advance the
+ * marker (it is already at v5) and the read path surfaces an error the
+ * caller can name. No silent repair: this contract is precisely what the
+ * `v5-layout-reproduction.json` audit proved the prior code violated
+ * (fresh-v5 + DROP TABLE work_receipts → green).
+ */
+const WORK_RECEIPT_V5_COLUMNS: ReadonlyArray<{ name: string; type: string; notnull: boolean; pk: number }> = [
+  { name: "key", type: "TEXT", notnull: true, pk: 1 },
+  { name: "source", type: "TEXT", notnull: true, pk: 0 },
+  { name: "task_id", type: "TEXT", notnull: true, pk: 0 },
+  { name: "run_id", type: "INTEGER", notnull: true, pk: 0 },
+  { name: "assignee", type: "TEXT", notnull: true, pk: 0 },
+  { name: "terminal_outcome", type: "TEXT", notnull: true, pk: 0 },
+  { name: "result_contract", type: "TEXT", notnull: true, pk: 0 },
+  { name: "quality_gate", type: "TEXT", notnull: true, pk: 0 },
+  { name: "completed_at", type: "INTEGER", notnull: true, pk: 0 },
+  { name: "evidence_json", type: "TEXT", notnull: true, pk: 0 },
+  { name: "payload_sha256", type: "TEXT", notnull: true, pk: 0 },
+  { name: "recorded_at", type: "INTEGER", notnull: true, pk: 0 },
+];
+const WORK_RECEIPT_V5_INDEXES: ReadonlyArray<{ name: string; table: string }> = [
+  { name: "idx_work_receipts_task", table: "work_receipts" },
+  { name: "idx_work_receipts_source_task", table: "work_receipts" },
+];
+
+function validateWorkReceiptsV5Layout(db: Database.Database): void {
+  const tableRow = db
+    .prepare("SELECT name FROM sqlite_schema WHERE type='table' AND name='work_receipts'")
+    .get() as { name: string } | undefined;
+  if (!tableRow) {
+    throw new Error(
+      "invalid v5 work_receipts layout: work_receipts table is missing — the meta marker says v5 but the table does not exist; refusing to read or write (this is the audit-green-but-writes-fail failure mode the v5-layout-reproduction.json probe captured)",
+    );
+  }
+  const actual = db.prepare("PRAGMA table_info(work_receipts)").all() as Array<{ name: string; type: string; notnull: number; pk: number }>;
+  if (actual.length !== WORK_RECEIPT_V5_COLUMNS.length) {
+    throw new Error(
+      `invalid v5 work_receipts layout: expected ${WORK_RECEIPT_V5_COLUMNS.length} columns, found ${actual.length}`,
+    );
+  }
+  const expectedByName = new Map(WORK_RECEIPT_V5_COLUMNS.map((c) => [c.name, c]));
+  for (const col of actual) {
+    const expected = expectedByName.get(col.name);
+    if (!expected) {
+      throw new Error("invalid v5 work_receipts layout: unexpected column " + col.name);
+    }
+    if (asciiFold(col.type) !== asciiFold(expected.type)) {
+      throw new Error(
+        `invalid v5 work_receipts layout: column ${col.name} has type ${col.type}, expected ${expected.type}`,
+      );
+    }
+    if ((col.notnull === 1) !== expected.notnull) {
+      throw new Error(
+        `invalid v5 work_receipts layout: column ${col.name} NOT NULL mismatch (got notnull=${col.notnull})`,
+      );
+    }
+    if (col.pk !== expected.pk) {
+      throw new Error(
+        `invalid v5 work_receipts layout: column ${col.name} PRIMARY KEY position mismatch (got pk=${col.pk})`,
+      );
+    }
+  }
+  // PK must be exactly `key` (no auto-increment rowid shadow, no surrogate).
+  const pkColumns = actual.filter((c) => c.pk > 0).map((c) => c.name);
+  if (pkColumns.length !== 1 || pkColumns[0] !== "key") {
+    throw new Error(
+      `invalid v5 work_receipts layout: PRIMARY KEY must be exactly 'key', got [${pkColumns.join(",")}]`,
+    );
+  }
+  for (const idx of WORK_RECEIPT_V5_INDEXES) {
+    const found = db
+      .prepare("SELECT name, tbl_name FROM sqlite_schema WHERE type='index' AND name = ?")
+      .get(idx.name) as { name: string; tbl_name: string } | undefined;
+    if (!found || asciiFold(found.tbl_name) !== asciiFold(idx.table)) {
+      throw new Error(`invalid v5 work_receipts layout: required index '${idx.name}' is missing`);
+    }
+  }
+  // v4 invariants still apply on v5; the marker is purely additive.
+  validateA2aV4Layout(db);
+  const integrity = db.prepare("PRAGMA integrity_check").all() as Array<{ integrity_check?: string }>;
+  if (integrity.length !== 1 || integrity[0]?.integrity_check !== "ok") {
+    throw new Error("invalid v5 work_receipts layout: integrity_check failed");
+  }
+}
+
+/**
+ * Internal guard used as the first operation in every durable-acceptance transaction.
+ */
 export function assertA2aDurableSchema(db: Database.Database): void {
   const version = physicalStorageVersion(db);
   if (version !== 4) throw new Error("durable acceptance requires physical storage schema version 4");
   validateA2aV4Layout(db);
+}
+
+/**
+ * Internal guard used by every code path that reads or writes the
+ * `work_receipts` collection (the verifier's audit copy, the live
+ * `recordWorkReceipt` / `readWorkReceiptLive` / `countWorkReceiptsLive`
+ * helpers). Throws on a marked-v5 layout that is missing or partial —
+ * the caller decides whether to surface that as a finding or a refusal.
+ */
+export function assertWorkReceiptsV5Schema(db: Database.Database): void {
+  const version = physicalStorageVersion(db);
+  if (version < 5) {
+    throw new Error(
+      `work_receipts collection requires physical storage schema version 5, found ${version} (pre-v5 ledgers legitimately lack the table)`,
+    );
+  }
+  validateWorkReceiptsV5Layout(db);
 }
 
 function ensureColumn(db: Database.Database, table: "fleets" | "work_items" | "attempts", column: string, definition: string): void {
@@ -967,13 +1081,17 @@ function migrateStorage(db: Database.Database): void {
     }
     if (version === 4) validateA2aV4Layout(db);
     if (version === 4) {
-      // v5: work_receipts collection. Additive; no version-marker validation
-      // beyond the row's own presence (verified on the read path by the table
-      // existence check in work-receipt.ts).
+      // v5: work_receipts collection. Additive; the v4 invariants still hold.
+      // Validate the freshly-built v5 layout BEFORE advancing the meta marker,
+      // so a partial migration rolls back at this exact step instead of
+      // leaving the ledger marked-v5-with-no-table (the audit-green-but-writes-
+      // -fail failure mode v5-layout-reproduction.json captured).
       db.exec(WORK_RECEIPT_SCHEMA_V5);
+      validateWorkReceiptsV5Layout(db);
       db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('storage_schema_version', '5')").run();
       version = 5;
     }
+    if (version === 5) validateWorkReceiptsV5Layout(db);
   }).immediate;
   migrate();
 }
@@ -1420,6 +1538,7 @@ export function readWorkReceiptLive(
   runId: number,
 ): { source: string; task_id: string; run_id: number; payload_sha256: string; evidence_json: string; recorded_at: number } | null {
   const db = getDb();
+  assertWorkReceiptsV5Schema(db);
   const row = db
     .prepare(
       "SELECT source, task_id, run_id, payload_sha256, evidence_json, recorded_at FROM work_receipts " +
@@ -1431,13 +1550,26 @@ export function readWorkReceiptLive(
   return row ?? null;
 }
 
-/** Count rows in work_receipts on the LIVE handle. Returns 0 if the table is absent. */
+/** Count rows in work_receipts on the LIVE handle. Returns 0 if the table is absent (pre-v5 only). */
 export function countWorkReceiptsLive(): number {
   const db = getDb();
-  const tableRow = db
-    .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='work_receipts'")
-    .get() as { name: string } | undefined;
-  if (!tableRow) return 0;
+  // Pre-v5 ledgers legitimately lack the table; the version gate below is the
+  // supported pre-v5 path. On a marked-v5 ledger, the v5 schema validator runs
+  // FIRST and throws when the table is missing or partial — the
+  // audit-green-but-writes-fail failure mode v5-layout-reproduction.json
+  // captured. A throw here lets the live caller surface the layout failure to
+  // its operator, instead of silently counting zero.
+  const version = physicalStorageVersion(db);
+  if (version < 5) {
+    const tableRow = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='work_receipts'")
+      .get() as { name: string } | undefined;
+    if (!tableRow) return 0;
+    // Pre-v5-but-the-table-exists is supported (a future backfill will land
+    // here); do NOT run the v5 schema check, just count.
+  } else {
+    assertWorkReceiptsV5Schema(db);
+  }
   const row = db.prepare("SELECT COUNT(*) AS n FROM work_receipts").get() as { n: number };
   return row.n;
 }

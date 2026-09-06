@@ -111,7 +111,7 @@ export interface HealthReport {
  * prior build) shows up as `false` without needing an out-of-band check.
  */
 export interface BuildIdentityReport {
-  status: 'ok' | 'absent' | 'unreadable'
+  status: 'ok' | 'absent' | 'unreadable' | 'mismatch'
   /** Schema marker from the loaded manifest. 'unknown' when not loaded. */
   schema?: string
   /** Package name from the loaded manifest. */
@@ -138,6 +138,13 @@ export interface BuildIdentityReport {
 
 const BUILD_MANIFEST_FILENAME = 'meshfleet-build-manifest.json'
 const DIST_DIR_NAME = 'dist'
+/**
+ * A loose semver grammar: 1-3 numeric segments separated by dots, optionally
+ * followed by `-prerelease` and/or `+build`. Catches `0.21.1`, `1.2.3-rc.4+abc`,
+ * rejects empty strings, plain words, and the `null`/missing-package.version
+ * case the previous code accepted silently.
+ */
+const SEMVER_LIKE = /^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.\-]+)*$/
 
 /** Resolve the `dist/` directory this process was loaded from. */
 function resolveRuntimeDistDir(): string | null {
@@ -220,8 +227,18 @@ export function getHealth(): HealthReport {
   // anything would leave `status: 'ok'` over a log nobody can read.
   const hasUnreadableEventLog = eventsBytes < 0
 
+  // A build-identity mismatch (missing package metadata, wrong package name,
+  // byte mismatch, unsafe entrypoint path, missing required runtime
+  // entrypoint, malformed source_commit) is a HARD failure. The previous
+  // code returned `status: 'ok'` while `entrypoints_match_runtime: false`,
+  // making `status` unreliable as the promotion gate. The mismatch status
+  // is now surfaced to `status: 'error'` here so a caller that only reads
+  // `status` cannot mistake a broken install for a healthy one.
+  const buildIdentity = readBuildIdentity()
+  const hasBuildIdentityMismatch = buildIdentity.status === 'mismatch'
+
   let status: 'ok' | 'degraded' | 'error' = 'ok'
-  if (hasCorruptLedger) status = 'error'
+  if (hasCorruptLedger || hasBuildIdentityMismatch) status = 'error'
   else if (hasStuckFleet || hasUnreadableEventLog) status = 'degraded'
 
   return {
@@ -237,7 +254,7 @@ export function getHealth(): HealthReport {
     events_log_bytes: eventsBytes,
     last_event_timestamp: lastTimestamp,
     work_receipt_count: readWorkReceiptCount(),
-    build_identity: readBuildIdentity(),
+    build_identity: buildIdentity,
   }
 }
 
@@ -306,11 +323,60 @@ function readBuildIdentity(): BuildIdentityReport {
   if (Object.keys(entrypoints).length === 0) {
     return { status: 'unreadable', manifest_path: manifestPath }
   }
-  let match = true
+  // Fail-closed checks: when the manifest loads cleanly the fields the
+  // promotion gate relies on MUST be present and well-formed. The previous
+  // code returned `status: 'ok'` regardless of missing package metadata,
+  // which meant a manifest with package.version=null still passed the
+  // promotion gate — the byte 0x35 (the version-byte mismatch failure mode
+  // v5-codex-source-review.txt documented) was reachable from a clean
+  // manifest read.
+  const packageName = typeof m.package?.name === 'string' ? m.package.name.trim() : ''
+  const packageVersion = typeof m.package?.version === 'string' ? m.package.version.trim() : ''
+  if (packageName !== 'meshfleet' || !SEMVER_LIKE.test(packageVersion)) {
+    return { status: 'mismatch', manifest_path: manifestPath }
+  }
+  // Source commit, when present, must be a 40-char hex SHA. `null` is still
+  // a documented outcome for registry-installed packages (no git available);
+  // a non-null value that is not a SHA is the malformed case — the previous
+  // code accepted anything. A typo or tag name in this field is exactly the
+  // kind of "wrong package identity" the promotion gate exists to reject.
+  if (m.source_commit !== null && m.source_commit !== undefined) {
+    if (typeof m.source_commit !== 'string' || !/^[0-9a-f]{40}$/.test(m.source_commit)) {
+      return { status: 'mismatch', manifest_path: manifestPath }
+    }
+  }
+  // Unsafe paths — reject any entrypoint whose relative path escapes the
+  // manifest's distDir, contains null bytes, or is not a plain .js file.
+  // The hash map is a publisher <-> runtime contract; a path the runtime
+  // cannot resolve is a hole the promotion gate exists to surface.
+  const safeEntrypoints: Record<string, string> = {}
   for (const [rel, expected] of Object.entries(entrypoints)) {
     if (typeof expected !== 'string' || !/^[0-9a-f]{64}$/.test(expected)) {
-      return { status: 'unreadable', manifest_path: manifestPath }
+      return { status: 'mismatch', manifest_path: manifestPath }
     }
+    if (
+      rel.includes('\u0000') ||
+      rel.includes('\\') ||
+      rel.startsWith('/') ||
+      rel.split('/').some((segment) => segment === '..' || segment === '.') ||
+      !rel.endsWith('.js')
+    ) {
+      return { status: 'mismatch', manifest_path: manifestPath }
+    }
+    safeEntrypoints[rel] = expected
+  }
+  // Required runtime entrypoints. The package's main export maps to
+  // dist/index.js; the `meshfleet` bin maps to dist/bin/meshfleet.js. A
+  // manifest that lists neither is not the published runtime, regardless
+  // of what else is present.
+  const REQUIRED_RUNTIME_ENTRYPOINTS = ['index.js', 'bin/meshfleet.js'] as const
+  for (const required of REQUIRED_RUNTIME_ENTRYPOINTS) {
+    if (!Object.prototype.hasOwnProperty.call(safeEntrypoints, required)) {
+      return { status: 'mismatch', manifest_path: manifestPath }
+    }
+  }
+  let match = true
+  for (const [rel, expected] of Object.entries(safeEntrypoints)) {
     try {
       const bytes = readFileSync(join(distDir, rel))
       const got = createHash('sha256').update(bytes).digest('hex')
@@ -323,15 +389,20 @@ function readBuildIdentity(): BuildIdentityReport {
       break
     }
   }
+  // Fail closed on byte mismatch — the previous code returned `status: 'ok'`
+  // with `entrypoints_match_runtime: false` and let the caller treat the
+  // mismatch as a warning. Promotion gating that ever reads `status` cannot
+  // trust it under that contract, so the only fix is to make mismatch
+  // visible at the status field too.
   return {
-    status: 'ok',
+    status: match ? 'ok' : 'mismatch',
     schema: 'meshfleet.build/v1',
-    package_name: m.package?.name,
-    package_version: m.package?.version,
+    package_name: packageName,
+    package_version: packageVersion,
     source_commit: m.source_commit ?? null,
     commit_reason: m.commit_reason ?? null,
-    entrypoint_count: Object.keys(entrypoints).length,
-    entrypoints,
+    entrypoint_count: Object.keys(safeEntrypoints).length,
+    entrypoints: safeEntrypoints,
     entrypoints_match_runtime: match,
     manifest_path: manifestPath,
   }

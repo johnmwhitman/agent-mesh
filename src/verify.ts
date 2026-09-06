@@ -32,6 +32,7 @@ import {
   WORK_RECEIPT_SOURCE,
   computeWorkReceiptPayloadSha256,
   parseWorkReceiptKey,
+  validatePersistedWorkReceiptFields,
   type WorkReceipt,
 } from "./work-receipt.js";
 import { readLifecycleSnapshot, readLifecycleSnapshotFile, verifyLifecycleSnapshot } from "./lifecycle-visibility.js";
@@ -1388,14 +1389,44 @@ export function verifyLedger(now: number = Date.now()): VerifyReport {
     // Preserve the historical fresh-install verifier behavior. The opt-in
     // lifecycle inspector remains strict and never creates an absent ledger.
     if (error instanceof Error && error.message === "ledger file not found") {
-      const wr = loadWorkReceiptsFromFile(resolveDbFileSafely());
-      return verifyMeshData(readLedger(), now, wr);
+      const loaded = loadWorkReceiptsFromFile(resolveDbFileSafely());
+      return finalizeVerifyReport(verifyMeshData(readLedger(), now, loaded.rows), loaded.invalidKeys, snapshot, now);
     }
     throw error;
   }
-  const wr = loadWorkReceiptsFromFile(resolveDbFileSafely());
-  const core = verifyMeshData(snapshot.data, now, wr);
-  const findings = [...core.findings, ...verifyLifecycleSnapshot(snapshot, now)];
+  const loaded = loadWorkReceiptsFromFile(resolveDbFileSafely());
+  const core = verifyMeshData(snapshot.data, now, loaded.rows);
+  return finalizeVerifyReport(core, loaded.invalidKeys, snapshot, now);
+}
+
+/**
+ * Splice the persisted-schema findings and the lifecycle-snapshot findings
+ * into the core verifyMeshData report. Both are read-only audit concerns
+ * that the snapshot read path does not itself produce (the schema check
+ * happens at the audit copy, the lifecycle check happens on a separate
+ * snapshot).
+ */
+function finalizeVerifyReport(
+  core: VerifyReport,
+  invalidKeys: ReadonlyMap<string, string[]>,
+  snapshot: ReturnType<typeof readLifecycleSnapshot> | undefined,
+  now: number,
+): VerifyReport {
+  const extra: VerifyFinding[] = [];
+  for (const [key, reasons] of invalidKeys) {
+    for (const reason of reasons) {
+      extra.push({
+        severity: "error",
+        check: "work_receipt.invalid_persisted_schema",
+        subject: key,
+        detail: `work_receipts row fails the persisted-schema contract: ${reason}`,
+      });
+    }
+  }
+  if (snapshot) {
+    extra.push(...verifyLifecycleSnapshot(snapshot, now));
+  }
+  const findings = [...core.findings, ...extra];
   const errors = findings.filter((finding) => finding.severity === "error").length;
   return { ...core, ok: errors === 0, errors, warnings: findings.length - errors, findings };
 }
@@ -1428,9 +1459,13 @@ function resolveDbFileSafely(): string {
  *     when the truth was "could not look". Callers either get rows or get
  *     an exception.
  */
-function loadWorkReceiptsFromFile(file: string): ReadonlyMap<string, WorkReceipt> {
-  const out = new Map<string, WorkReceipt>();
-  if (!file || file === ":memory:" || !existsSync(file)) return out;
+function loadWorkReceiptsFromFile(file: string): {
+  rows: ReadonlyMap<string, WorkReceipt>;
+  invalidKeys: ReadonlyMap<string, string[]>;
+} {
+  const rows = new Map<string, WorkReceipt>();
+  const invalidKeys = new Map<string, string[]>();
+  if (!file || file === ":memory:" || !existsSync(file)) return { rows, invalidKeys };
   let conn: Database.Database | null = null;
   let tmp: string | null = null;
   try {
@@ -1442,11 +1477,61 @@ function loadWorkReceiptsFromFile(file: string): ReadonlyMap<string, WorkReceipt
     }
     copyFileSync(file, copy);
     conn = new Database(copy, { readonly: true, fileMustExist: true });
+    // The audit MUST fail closed on a marked-v5 ledger whose work_receipts
+    // table is missing or partial — the v5-layout-reproduction.json probe
+    // captured exactly this: fresh v5 + DROP TABLE work_receipts audits
+    // green and re-opens at v5. The runtime check below reads the meta
+    // marker the same way the live migrator does; a v5 ledger without its
+    // table is the documented layout failure, not a "no rows" state.
+    const versionRow = conn
+      .prepare("SELECT value FROM meta WHERE key = 'storage_schema_version'")
+      .get() as { value: string } | undefined;
+    const auditVersion = versionRow ? Number(versionRow.value) : 0;
     const table = conn
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='work_receipts'")
       .get() as { name: string } | undefined;
-    if (!table) return out;
-    const rows = conn
+    if (auditVersion >= 5 && !table) {
+      throw new Error(
+        `invalid v5 work_receipts layout in audit copy: meta marker says v5 but the work_receipts table is missing — refusing to audit (this is the audit-green-but-writes-fail failure mode v5-layout-reproduction.json captured)`,
+      );
+    }
+    if (!table) return { rows, invalidKeys };
+    // The full v5 layout check on a marked-v5 audit copy catches a partial
+    // table (missing columns, missing indexes, integrity_check failure).
+    // Pre-v5 audit copies that nonetheless have a work_receipts table skip
+    // the strict check — the layout validator is for the version that
+    // declared the table, not for older ledgers that gained one by other
+    // means.
+    if (auditVersion >= 5) {
+      const columns = conn.prepare("PRAGMA table_info(work_receipts)").all() as Array<{ name: string }>;
+      if (columns.length !== 12) {
+        throw new Error(
+          `invalid v5 work_receipts layout in audit copy: expected 12 columns, found ${columns.length}`,
+        );
+      }
+      const expectedNames = new Set([
+        "key",
+        "source",
+        "task_id",
+        "run_id",
+        "assignee",
+        "terminal_outcome",
+        "result_contract",
+        "quality_gate",
+        "completed_at",
+        "evidence_json",
+        "payload_sha256",
+        "recorded_at",
+      ]);
+      for (const col of columns) {
+        if (!expectedNames.has(col.name)) {
+          throw new Error(
+            `invalid v5 work_receipts layout in audit copy: unexpected column ${col.name}`,
+          );
+        }
+      }
+    }
+    const rawRows = conn
       .prepare(
         "SELECT key, source, task_id, run_id, assignee, terminal_outcome, result_contract, " +
           "quality_gate, completed_at, evidence_json, payload_sha256, recorded_at FROM work_receipts",
@@ -1465,38 +1550,20 @@ function loadWorkReceiptsFromFile(file: string): ReadonlyMap<string, WorkReceipt
         payload_sha256: string;
         recorded_at: number;
       }>;
-    for (const r of rows) {
-      // evidence_json may be corrupted (legacy hand-edit, partial write). We
-      // preserve the raw bytes as evidence on the WorkReceipt — the verifier
-      // checks each entry's shape and reports an evidence_shape finding when
-      // the JSON is malformed, rather than silently coercing to [] (which
-      // would green-light the audit).
-      let evidence: unknown;
-      try {
-        evidence = JSON.parse(r.evidence_json);
-        if (!Array.isArray(evidence)) {
-          // Surface as evidence_shape downstream; do NOT silently normalize.
-          evidence = r.evidence_json;
-        }
-      } catch {
-        evidence = r.evidence_json;
+    for (const r of rawRows) {
+      // Persisted-schema contract check. Every row is checked against the
+      // contract BEFORE the verifier reads one of its fields, so a corrupted
+      // row cannot crash the audit (the v5 reproduction's crash mode) and
+      // cannot produce a silent green (the P1.4 gap: a row with an unknown
+      // enum, blank assignee, or invalid timestamp passed every existing
+      // check). TypeScript casts are not validation — these are.
+      const validation = validatePersistedWorkReceiptFields(r);
+      rows.set(r.key, validation.receipt);
+      if (!validation.ok) {
+        invalidKeys.set(r.key, validation.reasons);
       }
-      out.set(r.key, {
-        schema: WORK_RECEIPT_SCHEMA,
-        source: r.source as typeof WORK_RECEIPT_SOURCE,
-        task_id: r.task_id,
-        run_id: r.run_id,
-        assignee: r.assignee,
-        terminal_outcome: r.terminal_outcome as WorkReceipt["terminal_outcome"],
-        result_contract: r.result_contract as WorkReceipt["result_contract"],
-        quality_gate: r.quality_gate as WorkReceipt["quality_gate"],
-        completed_at: r.completed_at,
-        evidence: evidence as WorkReceipt["evidence"],
-        payload_sha256: r.payload_sha256,
-        recorded_at: r.recorded_at,
-      });
     }
-    return out;
+    return { rows, invalidKeys };
   } finally {
     try { conn?.close(); } catch { /* best-effort */ }
     if (tmp) {
@@ -1519,11 +1586,9 @@ export function verifyLedgerFile(file: string, now: number = Date.now()): Verify
   // itself. No WAL conversion, no schema creation, no meta writes.
   try {
     const snapshot = readLifecycleSnapshotFile(file);
-    const wr = loadWorkReceiptsFromFile(file);
-    const core = verifyMeshData(snapshot.data, now, wr);
-    const findings = [...core.findings, ...verifyLifecycleSnapshot(snapshot, now)];
-    const errors = findings.filter((finding) => finding.severity === "error").length;
-    return { ...core, ok: errors === 0, errors, warnings: findings.length - errors, findings };
+    const loaded = loadWorkReceiptsFromFile(file);
+    const core = verifyMeshData(snapshot.data, now, loaded.rows);
+    return finalizeVerifyReport(core, loaded.invalidKeys, snapshot, now);
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     if (/file is not a database|not a database|SQLITE_NOTADB|malformed/i.test(detail)) {

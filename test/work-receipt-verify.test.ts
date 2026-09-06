@@ -312,6 +312,181 @@ test("verifier v3 ok=true on a clean row (baseline)", () => {
 });
 
 // -----------------------------------------------------------------------
+// v5 review-reproduction regression. The reproduction's five cases:
+//   - valid                   → green   (already pinned by the baseline test above)
+//   - malformed_evidence      → THROWS  (now: invalid_persisted_schema + ok=false)
+//   - unknown_enums           → green   (now: invalid_persisted_schema + ok=false)
+//   - blank_assignee          → green   (now: invalid_persisted_schema + ok=false)
+//   - invalid_time            → green   (now: invalid_persisted_schema + ok=false)
+//
+// The exact text from the reproduction shows each of the four bug cases
+// returned { ok: true, findings: [] }. The contracts pinned below: the
+// verifier NEVER throws on a malformed evidence row (P1.3), and it
+// ALWAYS reports invalid_persisted_schema for unknown enums, blank
+// assignee, and invalid timestamps (P1.4). NOT RUN in this pass.
+// -----------------------------------------------------------------------
+
+test("verifier v3 invalid_persisted_schema on unknown enums (terminal_outcome='exited')", () => {
+  withTempLedger((ledgerPath) => {
+    // Bypass the schema writer's enum gate by planting the raw string. The
+    // previous code cast it and produced ok=true with zero findings; the
+    // contract pinned here is invalid_persisted_schema + ok=false.
+    insertWorkReceiptRow({
+      key: workReceiptKey(WORK_RECEIPT_SOURCE, "t_unknown_enums", 1),
+      source: WORK_RECEIPT_SOURCE,
+      task_id: "t_unknown_enums",
+      run_id: 1,
+      assignee: "alice",
+      terminal_outcome: "exited",
+      result_contract: "ok",
+      quality_gate: "passed",
+      completed_at: 1_700_000_000,
+      evidence_json: '[{"kind":"git_commit","handle":"h1"}]',
+      payload_sha256: computeWorkReceiptPayloadSha256({
+        schema: WORK_RECEIPT_SCHEMA,
+        task_id: "t_unknown_enums",
+        run_id: 1,
+        assignee: "alice",
+        terminal_outcome: "completed",
+        result_contract: "ok",
+        quality_gate: "passed",
+        completed_at: 1_700_000_000,
+        evidence: [{ kind: "git_commit", handle: "h1" }],
+        payload_sha256: "",
+      } as WorkReceiptInput),
+      recorded_at: 1_700_000_001,
+    });
+    const result = verifyLedgerFile(ledgerPath);
+    const findings = result.findings.filter(
+      (f) => f.check === "work_receipt.invalid_persisted_schema",
+    );
+    assert.ok(findings.length >= 1, `expected invalid_persisted_schema; got ${JSON.stringify(result.findings.map((f) => f.check))}`);
+    assert.equal(result.ok, false);
+  });
+});
+
+test("verifier v3 invalid_persisted_schema on blank assignee", () => {
+  withTempLedger((ledgerPath) => {
+    insertWorkReceiptRow({
+      key: workReceiptKey(WORK_RECEIPT_SOURCE, "t_blank_assignee", 1),
+      source: WORK_RECEIPT_SOURCE,
+      task_id: "t_blank_assignee",
+      run_id: 1,
+      assignee: "   ",
+      terminal_outcome: "completed",
+      result_contract: "ok",
+      quality_gate: "passed",
+      completed_at: 1_700_000_000,
+      evidence_json: '[{"kind":"git_commit","handle":"h1"}]',
+      payload_sha256: computeWorkReceiptPayloadSha256({
+        schema: WORK_RECEIPT_SCHEMA,
+        task_id: "t_blank_assignee",
+        run_id: 1,
+        assignee: "alice",
+        terminal_outcome: "completed",
+        result_contract: "ok",
+        quality_gate: "passed",
+        completed_at: 1_700_000_000,
+        evidence: [{ kind: "git_commit", handle: "h1" }],
+        payload_sha256: "",
+      } as WorkReceiptInput),
+      recorded_at: 1_700_000_001,
+    });
+    const result = verifyLedgerFile(ledgerPath);
+    const findings = result.findings.filter(
+      (f) => f.check === "work_receipt.invalid_persisted_schema",
+    );
+    assert.ok(findings.length >= 1, `expected invalid_persisted_schema for blank assignee; got ${JSON.stringify(result.findings.map((f) => f.check))}`);
+    assert.equal(result.ok, false);
+  });
+});
+
+test("verifier v3 invalid_persisted_schema on invalid completed_at (negative)", () => {
+  withTempLedger((ledgerPath) => {
+    insertWorkReceiptRow({
+      key: workReceiptKey(WORK_RECEIPT_SOURCE, "t_neg_time", 1),
+      source: WORK_RECEIPT_SOURCE,
+      task_id: "t_neg_time",
+      run_id: 1,
+      assignee: "alice",
+      terminal_outcome: "completed",
+      result_contract: "ok",
+      quality_gate: "passed",
+      completed_at: -1,
+      evidence_json: '[{"kind":"git_commit","handle":"h1"}]',
+      payload_sha256: computeWorkReceiptPayloadSha256({
+        schema: WORK_RECEIPT_SCHEMA,
+        task_id: "t_neg_time",
+        run_id: 1,
+        assignee: "alice",
+        terminal_outcome: "completed",
+        result_contract: "ok",
+        quality_gate: "passed",
+        completed_at: 1_700_000_000,
+        evidence: [{ kind: "git_commit", handle: "h1" }],
+        payload_sha256: "",
+      } as WorkReceiptInput),
+      recorded_at: 1_700_000_001,
+    });
+    const result = verifyLedgerFile(ledgerPath);
+    const findings = result.findings.filter(
+      (f) => f.check === "work_receipt.invalid_persisted_schema",
+    );
+    assert.ok(findings.length >= 1, `expected invalid_persisted_schema; got ${JSON.stringify(result.findings.map((f) => f.check))}`);
+    assert.equal(result.ok, false);
+  });
+});
+
+test("verifier v3 does NOT throw on a row whose evidence_json parses to a non-array (P1.3 regression)", () => {
+  // The reproduction's crash mode: `wr.evidence.forEach is not a function`.
+  // The previous code coerced a non-array to the raw string and called
+  // .forEach on it. The contract pinned here is: the verifier reaches a
+  // verdict (ok=true|false), reports invalid_persisted_schema, and never
+  // throws.
+  withTempLedger((ledgerPath) => {
+    insertWorkReceiptRow({
+      key: workReceiptKey(WORK_RECEIPT_SOURCE, "t_evidence_obj", 1),
+      source: WORK_RECEIPT_SOURCE,
+      task_id: "t_evidence_obj",
+      run_id: 1,
+      assignee: "alice",
+      terminal_outcome: "refused",
+      result_contract: "refused",
+      quality_gate: "failed",
+      completed_at: 1_700_000_000,
+      evidence_json: '{"kind":"git_commit","handle":"h1"}',
+      payload_sha256: computeWorkReceiptPayloadSha256({
+        schema: WORK_RECEIPT_SCHEMA,
+        task_id: "t_evidence_obj",
+        run_id: 1,
+        assignee: "alice",
+        terminal_outcome: "refused",
+        result_contract: "refused",
+        quality_gate: "failed",
+        completed_at: 1_700_000_000,
+        evidence: [],
+        payload_sha256: "",
+      } as WorkReceiptInput),
+      recorded_at: 1_700_000_001,
+    });
+    // The .digest_mismatch path runs because the planted payload_sha256
+    // matches the empty-evidence recompute, not the planted one. We
+    // accept either invalid_persisted_schema OR digest_mismatch — the
+    // pinned contract is "no throw, ok=false, no fewer findings than
+    // before".
+    const result = verifyLedgerFile(ledgerPath);
+    assert.equal(typeof result.ok, "boolean");
+    assert.equal(result.ok, false);
+    const findings = result.findings.filter(
+      (f) =>
+        f.check === "work_receipt.invalid_persisted_schema" ||
+        f.check === "work_receipt.digest_mismatch",
+    );
+    assert.ok(findings.length >= 1, `expected invalid_persisted_schema or digest_mismatch; got ${JSON.stringify(result.findings.map((f) => f.check))}`);
+  });
+});
+
+// -----------------------------------------------------------------------
 // RED-ON-REVERT additions for duplicate_logical_key and identity_mismatch.
 //
 // The verifier must surface BOTH invariants as errors. The two invariants
