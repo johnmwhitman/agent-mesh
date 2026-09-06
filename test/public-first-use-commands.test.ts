@@ -91,7 +91,6 @@ test("first-use path: every file carries at least one explicit `--package=meshfl
     "COMPATIBILITY.md",
     "src/demo.ts",
     "src/bin/inspect.ts",
-    "src/bin/dashboard.ts",
     "src/bin/meshfleet.ts",
     "src/doctor.ts",
   ];
@@ -133,17 +132,66 @@ test("inspect.ts USAGE block does not include a bare `npx agent-mesh` line", () 
   );
 });
 
-test("dashboard.ts JSDoc header does not include a bare `npx agent-mesh` line", () => {
+test("dashboard usage selects the package's dashboard bin, not the inspector", () => {
   const dashboard = read("src/bin/dashboard.ts");
   const start = dashboard.indexOf("/**");
   const end = dashboard.indexOf("*/", start);
   assert.ok(start >= 0 && end > start, "JSDoc header not found");
   const header = dashboard.slice(start, end);
+  assert.match(
+    header,
+    /npx -y --package=meshfleet -- agent-mesh-dashboard\b/,
+    "dashboard usage must invoke the agent-mesh-dashboard bin",
+  );
   assert.doesNotMatch(
     header,
-    /(^|\s)npx\s+agent-mesh\b/,
-    "JSDoc header contains a bare `npx agent-mesh` line",
+    /--\s+agent-mesh\s+dashboard\b/,
+    "agent-mesh is the inspector bin and must not receive a dashboard subcommand",
   );
+  const pkg = JSON.parse(read("package.json")) as {
+    bin: Record<string, string>;
+  };
+  assert.equal(pkg.bin["agent-mesh-dashboard"], "dist/bin/dashboard.js");
+  assert.equal(pkg.bin["agent-mesh"], "dist/bin/inspect.js");
+});
+
+test("README separates the pinned published walkthrough from source-only local-demo", () => {
+  const readme = read("README.md");
+  assert.match(
+    readme,
+    /npx -y --package=meshfleet@0\.20\.0 -- agent-mesh demo/,
+    "published no-key walkthrough must pin the exact verified package version",
+  );
+  assert.match(
+    readme,
+    /not in the\s+published 0\.20\.0 package/,
+    "local-demo must be labeled unavailable in the published package",
+  );
+  assert.match(
+    readme,
+    /spawn_fleet with agents \[\{ role: "scout", prompt: "Count the receipts\."/,
+    "source-only local-demo example must supply the required role field",
+  );
+  assert.doesNotMatch(
+    readme,
+    /agents: \[\{ id: "scout"[^\n]*runtime: "local-demo"/,
+    "local-demo example must not use id in place of the required role field",
+  );
+});
+
+test("README real-task path uses the supported published default and requests voluntary balanced feedback", () => {
+  const readme = read("README.md");
+  assert.match(readme, /Omit `runtime` so the published default `opencode-cli` adapter is used/);
+  assert.match(readme, /issues\/new\?template=usefulness\.yml/);
+  assert.match(readme, /\*\*useful\*\*, \*\*not useful\*\*, or \*\*blocked\*\*/);
+  assert.match(readme, /do not upload source code, prompts, credentials,\s+secrets, or raw ledger files/);
+
+  const feedback = read(".github/ISSUE_TEMPLATE/usefulness.yml");
+  assert.match(feedback, /- Useful\s+- Not useful\s+- Blocked/);
+  assert.match(feedback, /task I selected beyond the scripted demo/);
+  assert.match(feedback, /internal contributor or paid tester/);
+  assert.match(feedback, /second meaningful task date/i);
+  assert.match(feedback, /Do not include source code, prompts, agent specifications, credentials, secrets, or raw ledger files/);
 });
 
 test("demo.ts next-steps block explicitly selects the meshfleet package", () => {

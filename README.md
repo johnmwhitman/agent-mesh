@@ -31,6 +31,9 @@ OpenCode is a single-agent runtime. You talk to it, it does things. The moment y
 
 Meshfleet adds the missing layer: a fleet of agents that run in parallel, message each other, hand off work, and self-organize. As independent OS processes, not background tasks. No artificial ceiling.
 
+The following is a **source/operator-configured example**, not a claim that every
+runtime shown ships in the current npm package:
+
 ```typescript
 const { fleet_id } = await callTool("spawn_fleet", {
   agents: [
@@ -99,21 +102,60 @@ For noncanonical development-only source-checkout usage (not the recommended rel
 
 Restart OpenCode. Spawn a fleet. [Wiring it into your client →](#wiring-it-into-your-client)
 
-### No worker CLI installed yet? Spawn a demo fleet anyway
+### Start with the published package (0.20.0)
 
-Every install ships a `local-demo` runtime — the current Node executable running a
-deterministic worker bundled in the package. No OpenCode, no API keys, no network. Ask
-your MCP host to spawn with it:
+The npm registry currently serves `meshfleet@0.20.0`. Its no-key walkthrough is a
+scripted ledger demonstration: it proves that the package and inspector run, not that
+a model-backed worker completed a real task.
+
+```bash
+npx -y --package=meshfleet@0.20.0 -- agent-mesh demo
+```
+
+That immutable release ends by printing an old unbound inspector next step. Do
+not run that unbound form: npm resolves its package token to the unrelated reserved
+`agent-mesh@0.0.1` package. Inspect the demonstration with the package bound
+explicitly instead:
+
+```bash
+npx -y --package=meshfleet@0.20.0 -- agent-mesh inspect --verify
+```
+
+### Source-only deterministic runtime
+
+The newer source checkout documented on this page includes a `local-demo` runtime —
+the current Node executable running a deterministic worker. It is **not in the
+published 0.20.0 package**. After building this source checkout, ask your MCP host to
+spawn with it:
 
 ```
-spawn_fleet with agents [{ id: "scout", prompt: "Count the receipts.", runtime: "local-demo" }]
+spawn_fleet with agents [{ role: "scout", prompt: "Count the receipts.", runtime: "local-demo" }]
 ```
 
 The spawn, lifecycle events, receipts, and `collect_results` are all real; only the
 worker is synthetic, and it says so in its output (`"model": null`, no invented text).
 `local-demo` is never used for automatic failover — a real agent that fails is never
-silently replaced by an echo. Attach OpenCode/Claude/Kimi runtimes when you want
-model-backed agents. For the fully scripted walkthrough instead: `meshfleet demo`.
+silently replaced by an echo.
+
+### Try one real, read-only task
+
+Prerequisite: OpenCode is already installed and configured for an account you are
+authorized to use. Meshfleet does not create credentials, choose billing scope, or
+make provider calls until you ask it to spawn a worker. Through your MCP host:
+
+1. Call `spawn_fleet` with
+   `agents: [{ role: "explorer", prompt: "Read this repository's README and list its three main sections. Do not edit files." }]`.
+   Omit `runtime` so the published default `opencode-cli` adapter is used.
+2. Pass the returned `fleet_id` to `collect_results`, then inspect the local evidence
+   with `npx -y --package=meshfleet@0.20.0 -- agent-mesh inspect --verify`.
+3. Treat `complete` and the local consistency report as recorded claims, not proof
+   that the answer or code is correct. Review the worker's result yourself.
+
+Then [share voluntary first-use feedback](https://github.com/johnmwhitman/agent-mesh/issues/new?template=usefulness.yml)
+and say whether the path was **useful**, **not useful**, or **blocked**, plus the first
+step where you got stuck. Please do not upload source code, prompts, credentials,
+secrets, or raw ledger files. If it helped, try the same evidence check on a different
+meaningful task another day; rerunning the scripted demo is not return use.
 
 ---
 

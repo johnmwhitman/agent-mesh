@@ -1,0 +1,71 @@
+name: First-use usefulness
+description: Tell us whether Meshfleet helped, did not help, or where you were blocked
+title: "[first-use] "
+labels:
+  - use-case
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for trying Meshfleet on your own task. This is voluntary feedback.
+        Do not include source code, prompts, agent specifications, credentials, secrets, or raw ledger files. A brief sanitized reference is enough.
+
+  - type: dropdown
+    id: outcome
+    attributes:
+      label: Outcome
+      description: Did Meshfleet help you understand or finish the task?
+      options:
+        - Useful
+        - Not useful
+        - Blocked
+    validations:
+      required: true
+
+  - type: dropdown
+    id: eligibility
+    attributes:
+      label: Use context
+      description: This keeps internal, paid-test, and demo-only runs out of the external-use cohort.
+      options:
+        - I am an independent developer and used Meshfleet on a task I selected beyond the scripted demo
+        - I only ran the scripted demo
+        - I am an internal contributor or paid tester
+        - Other or prefer not to say
+    validations:
+      required: true
+
+  - type: textarea
+    id: task-and-result
+    attributes:
+      label: Task and result
+      description: Briefly describe the outcome you wanted and whether you reached it. Keep all details sanitized.
+      placeholder: I wanted to understand a handoff between two agents. I was able to inspect the receipt trail, but...
+    validations:
+      required: true
+
+  - type: textarea
+    id: friction
+    attributes:
+      label: First blocked or unclear step
+      description: If nothing blocked you, say “none.”
+    validations:
+      required: true
+
+  - type: input
+    id: completion-reference
+    attributes:
+      label: Optional sanitized completion reference
+      description: A non-sensitive issue, commit, or local task identifier; never paste code, prompts, or a ledger.
+
+  - type: textarea
+    id: discovery-and-assistance
+    attributes:
+      label: Optional discovery and assistance context
+      description: How did you find Meshfleet, and did anyone help you complete the path?
+
+  - type: input
+    id: return-use
+    attributes:
+      label: Optional second meaningful task date
+      description: If you used Meshfleet on a different task on another day, give the date. Otherwise write “pending” or leave blank.

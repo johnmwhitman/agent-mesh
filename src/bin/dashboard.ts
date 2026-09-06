@@ -4,13 +4,13 @@
  * and (D2.1) the receipt timeline.
  *
  * Usage:
- *   npx -y --package=meshfleet -- agent-mesh dashboard          # refresh every 1s (default)
- *   npx -y --package=meshfleet -- agent-mesh dashboard --interval 500         # custom interval in ms
- *   npx -y --package=meshfleet -- agent-mesh dashboard --once                  # one-shot, exit immediately
- *   npx -y --package=meshfleet -- agent-mesh dashboard --receipts              # enable receipt timeline
+ *   npx -y --package=meshfleet -- agent-mesh-dashboard          # refresh every 1s (default)
+ *   npx -y --package=meshfleet -- agent-mesh-dashboard --interval 500         # custom interval in ms
+ *   npx -y --package=meshfleet -- agent-mesh-dashboard --once                  # one-shot, exit immediately
+ *   npx -y --package=meshfleet -- agent-mesh-dashboard --receipts              # enable receipt timeline
  *                                                   # (panel always shown when on)
- *   npx -y --package=meshfleet -- agent-mesh dashboard --receipts --receipt-limit 20   # cap rows shown
- *   npx -y --package=meshfleet -- agent-mesh dashboard --fleet <id>            # scope to one fleet
+ *   npx -y --package=meshfleet -- agent-mesh-dashboard --receipts --receipt-limit 20   # cap rows shown
+ *   npx -y --package=meshfleet -- agent-mesh-dashboard --fleet <id>            # scope to one fleet
  *
  * Reads the same JSON ledger as the MCP server. No IPC, no daemon — just
  * follows the event stream with ledger polling as a fallback. Ctrl+C to exit.
