@@ -166,7 +166,7 @@ export function runDemo(opts: { quiet?: boolean } = {}): DemoResult {
     say("");
     say("Next steps:");
     say('  1. Wire the MCP server into your client: add meshfleet ("command": "npx", "args": ["meshfleet"]) to your mcp.json.');
-    say("  2. Audit your own ledger any time: npx agent-mesh inspect --verify");
+    say("  2. Audit your own ledger any time: npx -y --package=meshfleet -- agent-mesh inspect --verify");
     say("  3. Full tour and spec: README.md — https://meshfleet.app");
 
     return { report, verifyLine, ratificationStatus: status, tempDir, dbFile };

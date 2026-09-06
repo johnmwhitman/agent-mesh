@@ -2,6 +2,21 @@
 
 All notable changes to Agent Mesh are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.2] - 2026-09-06
+
+Maintenance release branched from `v0.20.0` (commit `a361e273`) to enable MCP Registry discovery without dragging in the 47-file post-`v0.21.1` delta. Retains the original MCP bin mapping (`meshfleet` → `dist/index.js`) and `agent-mesh` runtime; changes only the verified stale package-bound command strings, the version/lockfile, the `mcpName` field, and a focused acceptance test.
+
+### Added
+- `mcpName: "io.github.johnmwhitman/meshfleet"` in `package.json` so the MCP Registry metadata can bind to this exact npm package.
+- Focused acceptance test `test/registry-publication-v0.21.2.test.ts` covering the package-bound command rewrites, the `mcpName` field, and the version bump.
+
+### Changed
+- First-use files (`README.md`, `CONTRIBUTING.md`, `COMPATIBILITY.md`, `examples/codebase-exploration.md`, `src/bin/inspect.ts`, `src/bin/dashboard.ts`, `src/demo.ts`, `src/doctor.ts`) updated so every example command selects the `meshfleet` npm package explicitly via `npx -y --package=meshfleet -- agent-mesh ...`. Bare `npx agent-mesh` resolves to the squatted `agent-mesh@0.0.1` placeholder and is no longer taught by the package.
+- `package.json` and `package-lock.json` version bumped from `0.20.0` (lockfile baseline `0.19.0`) to `0.21.2`. No source/api/feature changes versus `0.20.0`.
+
+### Fixed
+- `agent-mesh` / `agent-mesh-dashboard` bin dispatches are reached through the published `meshfleet` package, not the squatted npm placeholder.
+
 ## [Unreleased]
 
 ## [0.20.0] - 2026-07-29

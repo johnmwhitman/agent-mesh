@@ -1,6 +1,6 @@
 {
   "name": "meshfleet",
-  "version": "0.20.0",
+  "version": "0.21.2",
   "description": "Auditable multi-agent coordination for OpenCode — parallel agent fleets with P2P messaging, witnessed receipts, and quorum ratification. Who saw this, who approved it, prove it.",
   "main": "dist/index.js",
   "type": "module",
@@ -61,6 +61,7 @@
     "multi-agent"
   ],
   "license": "MIT",
+  "mcpName": "io.github.johnmwhitman/meshfleet",
   "homepage": "https://meshfleet.app",
   "repository": {
     "type": "git",

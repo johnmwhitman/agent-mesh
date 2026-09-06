@@ -2,18 +2,22 @@
 /**
  * agent-mesh inspect — CLI inspector for running fleets.
  *
+ * IMPORTANT: `agent-mesh` is published as the `meshfleet` npm package (the
+ * bare `agent-mesh` package on npm is a different reserved placeholder).
+ * Invoke this CLI as `npx -y --package=meshfleet -- agent-mesh <subcommand>`.
+ *
  * Usage:
- *   npx agent-mesh inspect                    # show all fleets (default)
- *   npx agent-mesh inspect <fleet_id>         # show one fleet + its agents
- *   npx agent-mesh inspect --metrics          # fleet summary metrics
- *   npx agent-mesh inspect --events [n]      # recent events (default 20)
- *   npx agent-mesh inspect --export [file]   # dump the full ledger as JSON
- *   npx agent-mesh inspect --verify [file]   # audit ledger integrity (exit 1 on errors)
- *   npx agent-mesh inspect --verify-v2 [file] # opt-in versioned verifier envelope (exit 1 on errors)
- *   npx agent-mesh inspect --verify-v3 [file] # opt-in local consistency bands (exit 1 on errors)
- *   npx agent-mesh inspect --explain         # explain each --verify finding (implies --verify)
- *   npx agent-mesh inspect --json            # JSON output for fleets / --councils / --verify
- *   npx agent-mesh inspect --help             # usage
+ *   npx -y --package=meshfleet -- agent-mesh inspect                    # show all fleets (default)
+ *   npx -y --package=meshfleet -- agent-mesh inspect <fleet_id>         # show one fleet + its agents
+ *   npx -y --package=meshfleet -- agent-mesh inspect --metrics          # fleet summary metrics
+ *   npx -y --package=meshfleet -- agent-mesh inspect --events [n]      # recent events (default 20)
+ *   npx -y --package=meshfleet -- agent-mesh inspect --export [file]   # dump the full ledger as JSON
+ *   npx -y --package=meshfleet -- agent-mesh inspect --verify [file]   # audit ledger integrity (exit 1 on errors)
+ *   npx -y --package=meshfleet -- agent-mesh inspect --verify-v2 [file] # opt-in versioned verifier envelope (exit 1 on errors)
+ *   npx -y --package=meshfleet -- agent-mesh inspect --verify-v3 [file] # opt-in local consistency bands (exit 1 on errors)
+ *   npx -y --package=meshfleet -- agent-mesh inspect --explain         # explain each --verify finding (implies --verify)
+ *   npx -y --package=meshfleet -- agent-mesh inspect --json            # JSON output for fleets / --councils / --verify
+ *   npx -y --package=meshfleet -- agent-mesh inspect --help             # usage
  *
  * Reads the same SQLite ledger as the MCP server (via the withLedger seam).
  */
@@ -53,26 +57,28 @@ import { verifyLedger, verifyLedgerFile } from '../verify.js'
 import { runDemo } from '../demo.js'
 
 const USAGE = `agent-mesh inspect — CLI inspector for running fleets
+  (published as the 'meshfleet' npm package — invoke via
+   'npx -y --package=meshfleet -- agent-mesh <subcommand>')
 
   Usage:
-  npx agent-mesh inspect                    Show all fleets
-  npx agent-mesh inspect <fleet_id>         Show one fleet and its agents
-  npx agent-mesh inspect --metrics          Show summary metrics
-  npx agent-mesh inspect --events [n]      Show recent events (default 20)
-  npx agent-mesh inspect --receipts [fleet] Show message receipts (who saw / acked)
-  npx agent-mesh inspect --councils [fleet] Show councils (tally vs quorum, who voted)
-  npx agent-mesh inspect timeline [fleet] [--from bound] [--to bound]  Reconstruct an optional half-open incident window
-  npx agent-mesh inspect --follow|-f [--fleet id]  Live-tail new P2P messages (ctrl-c to stop)
-  npx agent-mesh inspect --export [file]    Dump the full ledger as JSON (stdout if no file)
-  npx agent-mesh inspect --verify [file]    Audit ledger integrity (exit 1 on errors); [file] audits that ledger file read-only
-  npx agent-mesh inspect --verify-v2 [file] Opt-in versioned verifier envelope (exit 1 on errors); [file] audits that ledger file read-only
-  npx agent-mesh inspect --verify-v3 [file] Opt-in severity-derived local consistency bands (exit 1 on errors); [file] audits that ledger file read-only
-  npx agent-mesh inspect --lifecycle [fleet] Show opt-in SQLite lifecycle diagnostics (--json supported)
-  npx agent-mesh inspect --explain          Explain each --verify finding: meaning, benign cause, how to investigate (implies --verify)
-  npx agent-mesh inspect --json             Machine-readable output for all inspect data modes
-  npx agent-mesh doctor                     Diagnose install health (--json for machine output)
-  npx agent-mesh inspect --help             This help
-  npx agent-mesh demo                       60-second walkthrough on a temp ledger, ends with a real --verify
+  npx -y --package=meshfleet -- agent-mesh inspect                    Show all fleets
+  npx -y --package=meshfleet -- agent-mesh inspect <fleet_id>         Show one fleet and its agents
+  npx -y --package=meshfleet -- agent-mesh inspect --metrics          Show summary metrics
+  npx -y --package=meshfleet -- agent-mesh inspect --events [n]      Show recent events (default 20)
+  npx -y --package=meshfleet -- agent-mesh inspect --receipts [fleet] Show message receipts (who saw / acked)
+  npx -y --package=meshfleet -- agent-mesh inspect --councils [fleet] Show councils (tally vs quorum, who voted)
+  npx -y --package=meshfleet -- agent-mesh inspect timeline [fleet] [--from bound] [--to bound]  Reconstruct an optional half-open incident window
+  npx -y --package=meshfleet -- agent-mesh inspect --follow|-f [--fleet id]  Live-tail new P2P messages (ctrl-c to stop)
+  npx -y --package=meshfleet -- agent-mesh inspect --export [file]    Dump the full ledger as JSON (stdout if no file)
+  npx -y --package=meshfleet -- agent-mesh inspect --verify [file]    Audit ledger integrity (exit 1 on errors); [file] audits that ledger file read-only
+  npx -y --package=meshfleet -- agent-mesh inspect --verify-v2 [file] Opt-in versioned verifier envelope (exit 1 on errors); [file] audits that ledger file read-only
+  npx -y --package=meshfleet -- agent-mesh inspect --verify-v3 [file] Opt-in severity-derived local consistency bands (exit 1 on errors); [file] audits that ledger file read-only
+  npx -y --package=meshfleet -- agent-mesh inspect --lifecycle [fleet] Show opt-in SQLite lifecycle diagnostics (--json supported)
+  npx -y --package=meshfleet -- agent-mesh inspect --explain          Explain each --verify finding: meaning, benign cause, how to investigate (implies --verify)
+  npx -y --package=meshfleet -- agent-mesh inspect --json             Machine-readable output for all inspect data modes
+  npx -y --package=meshfleet -- agent-mesh doctor                     Diagnose install health (--json for machine output)
+  npx -y --package=meshfleet -- agent-mesh inspect --help             This help
+  npx -y --package=meshfleet -- agent-mesh demo                       60-second walkthrough on a temp ledger, ends with a real --verify
 `
 
 function main(): void {
@@ -563,7 +569,7 @@ function printAllFleets(): void {
     process.stdout.write(formatFleetSummary(fleet) + '\n')
   }
   process.stdout.write(
-    `\nTip: run \`npx agent-mesh inspect <fleet_id>\` to see agents in a fleet.\n`
+    `\nTip: run \`npx -y --package=meshfleet -- agent-mesh inspect <fleet_id>\` to see agents in a fleet.\n`
   )
 }
 

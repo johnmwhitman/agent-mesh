@@ -81,14 +81,14 @@ After ~60-90 seconds, you'll have:
 - **From the Code Reviewer**: a prioritized risk list
 - **From the Architect**: a phased refactor plan with specific file lists
 
-You'll see this via `npx agent-mesh inspect --events 5` or by calling `collect_results` for each agent.
+You'll see this via `npx -y --package=meshfleet -- agent-mesh inspect --events 5` or by calling `collect_results` for each agent.
 
 ## Variations
 
 - **Add a Security Auditor** to the fleet for security-sensitive refactors
 - **Add a Test Engineer** to identify which existing tests cover the refactor scope
 - **Skip the Architect** and just have the Explorer + Code Reviewer hand off to a human
-- **Time it**: spawn the fleet, then `npx agent-mesh inspect` repeatedly to see each agent complete
+- **Time it**: spawn the fleet, then `npx -y --package=meshfleet -- agent-mesh inspect` repeatedly to see each agent complete
 
 ## Why this works
 
