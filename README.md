@@ -112,10 +112,10 @@ a model-backed worker completed a real task.
 npx -y --package=meshfleet@0.20.0 -- agent-mesh demo
 ```
 
-That immutable release ends by printing an old unbound inspector next step. Do
-not run that unbound form: npm resolves its package token to the unrelated reserved
-`agent-mesh@0.0.1` package. Inspect the demonstration with the package bound
-explicitly instead:
+That immutable release already prints its demonstration audit, removes the throwaway
+ledger, and then prints an old unbound inspector next step. Do not run that unbound
+form: npm resolves its package token to the unrelated reserved `agent-mesh@0.0.1`
+package. To inspect your own configured MCP ledger later, bind the package explicitly:
 
 ```bash
 npx -y --package=meshfleet@0.20.0 -- agent-mesh inspect --verify
