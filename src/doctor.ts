@@ -191,7 +191,7 @@ export function checkLedgerOpen(
       check: 'ledger-open',
       status: 'fail',
       detail: `ledger at ${dbFile} exists but cannot be read: ${errMessage(e)}`,
-      fix: `run \`npx agent-mesh inspect --verify\`; if corrupt, move ${dbFile} aside and restart`,
+      fix: `run \`npx -y --package=meshfleet -- agent-mesh inspect --verify\`; if corrupt, move ${dbFile} aside and restart`,
     }
   }
 }

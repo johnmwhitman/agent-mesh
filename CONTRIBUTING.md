@@ -76,7 +76,7 @@ Open a GitHub issue with:
 - What actually happened
 - Steps to reproduce
 - Environment (Node version, OpenCode version, OS)
-- Relevant output from `npx agent-mesh inspect` (redact sensitive data)
+- Relevant output from `npx -y --package=meshfleet -- agent-mesh inspect` (redact sensitive data)
 - If related to a fleet crash, include the contents of `~/.config/opencode/agent-mesh.events.log` (last 50 lines)
 
 ## Good first issues
@@ -95,7 +95,7 @@ src/
 ├── inspector.ts     # Pure formatters for CLI output
 ├── index.ts         # MCP server: transport, tool handlers
 └── bin/
-    └── inspect.ts   # CLI: `npx agent-mesh inspect`
+    └── inspect.ts   # CLI: `npx -y --package=meshfleet -- agent-mesh inspect`
 ```
 
 The data layer (`core.ts`) is the only place that reads/writes the JSON ledger. The MCP server (`index.ts`) imports it for tool handlers. The CLI (`bin/inspect.ts`) imports it directly. This separation lets us test the data layer without spinning up an MCP server, and test the formatters without touching the filesystem.

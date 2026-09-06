@@ -20,8 +20,9 @@ const USAGE = `meshfleet — auditable multi-agent coordination over MCP
   npx meshfleet --version        Print the version
   npx meshfleet --help           This help
 
-  Fleet inspection lives on the companion bin:
-  npx agent-mesh inspect --help
+  Fleet inspection lives on the companion bin (which selects the meshfleet
+  package explicitly to avoid the squatted agent-mesh npm name):
+  npx -y --package=meshfleet -- agent-mesh inspect --help
 `
 
 async function main(): Promise<void> {

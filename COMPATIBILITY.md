@@ -389,7 +389,7 @@ Test fixtures for every released `schema_version` live in `test/fixtures/ledger-
 
 Open an issue at https://github.com/johnmwhitman/agent-mesh/issues with:
 - agent-mesh version (`npm list -g agent-mesh` or `cat package.json`)
-- ledger `schema_version` (inspect `~/.config/opencode/agent-mesh.db` with `npx agent-mesh inspect --export`)
+- ledger `schema_version` (inspect `~/.config/opencode/agent-mesh.db` with `npx -y --package=meshfleet -- agent-mesh inspect --export`)
 - A redacted copy of the failing operation
 - The full error output
 
