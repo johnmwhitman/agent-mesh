@@ -58,6 +58,39 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 
 ### Fixed
 
+- **`offmachine-backed` receipt regression: 12 commits sat single-disk on
+  `feat/v5-receipt-consumer-integration-t_facfb923` because
+  `core.hooksPath=.githooks` (RELATIVE) does not resolve from worktrees
+  created OUTSIDE the canonical repo path.** Git resolves a relative
+  `core.hooksPath` against the directory containing the worktree's `.git`
+  (i.e., the worktree's own parent), not the main repo's. The worktree at
+  `/Users/johnwhitman/AI/.worktrees/meshfleet-v5-audit-repair-20260906/`
+  had `.githooks` resolution `/Users/johnwhitman/AI/.worktrees/meshfleet-v5-audit-repair-20260906/.githooks/`,
+  which does not exist, so neither `pre-commit` nor `post-commit` fired
+  for the 12 v5-audit commits landed between 2026-09-06 13:38 and 15:56 CDT.
+  Three changes: **(1)** the 12 outstanding commits are now on
+  `private-offsite` (push was `git push --no-verify --no-tags private-offsite refs/heads/<branch>:refs/heads/<branch>`,
+  non-force, no `--force-with-lease`, no `:branch` deletion), and the
+  5 sibling commits on `codex/v5-audit-repair-20260906` were pushed the
+  same way; `checks/agent-mesh-offmachine-backed.sh` now reads
+  `0 local-only commits not on any off-machine remote`; **(2)** a new
+  `.githooks/pre-commit` self-heals `core.hooksPath` to the absolute path
+  of the canonical repo's `.githooks` whenever a commit fires from a
+  worktree whose `core.hooksPath` is unset, relative, or points at a
+  directory that does not contain the canonical `post-commit` script —
+  it is non-fatal (network / config errors all exit 0), honors
+  `git config hooks.private-offsite false` like the post-commit hook
+  does, and never touches `--global` / `--system` config; **(3)** the
+  committed `.git/config` keeps `core.hooksPath=.githooks` (the per-clone
+  bootstrap is intentionally NOT in `.git/config` because the path is
+  machine-local), and a fresh-clone operator runs
+  `git config --local core.hooksPath "$(git rev-parse --git-common-dir)/../.githooks"`
+  once to install the absolute path before the first worktree is created
+  off the clone. The post-commit hook's exact push line at
+  `.githooks/post-commit:70` is unchanged:
+  `git push --no-verify --no-tags "$REMOTE" "refs/heads/$branch:refs/heads/$branch"`
+  — equivalent to `git push private-offsite HEAD` for the same-branch
+  case but more explicit and works for any branch the worktree creates.
 - **`tally_ratification` advertised `readOnlyHint: true` while its handler
   persists terminal status via `resolveRatification`.** The published
   description already said it persists; the annotation lied. Callers routing

@@ -1,0 +1,89 @@
+#!/bin/sh
+# meshfleet: pre-commit hook — self-heal `core.hooksPath` so the
+# post-commit auto-push fires in EVERY checkout, including worktrees
+# created OUTSIDE the canonical repo (the 12 single-disk commits
+# `feat/v5-receipt-consumer-integration-t_facfb923` from 2026-09-06
+# 13:38–15:56 CDT sat local-only because their worktree lived at
+# /Users/johnwhitman/AI/.worktrees/meshfleet-v5-audit-repair-20260906/
+# — `core.hooksPath=.githooks` (RELATIVE) resolved there to a missing
+# directory and the post-commit hook never ran).
+#
+# Resolution rule (do not weaken without seat review):
+#   * Git resolves a relative `core.hooksPath` against the directory
+#     containing the .git directory. For a worktree, that is the
+#     worktree's own parent — not the main repo's.
+#   * The fix: write the ABSOLUTE path of the canonical repo's
+#     `.githooks` into `core.hooksPath` for the current repo's git
+#     config. That makes the post-commit hook reachable from every
+#     worktree of this clone.
+#   * This hook ONLY touches `core.hooksPath`. It does NOT push, does
+#     NOT touch refs, does NOT bypass the operator opt-out
+#     (`git config hooks.private-offsite false`).
+#
+# Failure modes (all non-fatal — pre-commit must NEVER block a commit):
+#   * `git rev-parse --git-common-dir` fails        → exit 0 silently.
+#   * `core.hooksPath` already resolves to a real dir → noop.
+#   * `core.hooksPath` is missing or wrong         → set absolute path.
+#   * Setting the value fails                      → exit 0 silently;
+#     the offmachine-backed check will surface the drift.
+
+set -u
+
+# Operator opt-out covers the WHOLE off-machine push chain, not just
+# the post-commit step. Honoring it here is consistent with .githooks/post-commit.
+if [ "$(git config --get hooks.private-offsite 2>/dev/null)" = "false" ]; then
+  exit 0
+fi
+
+# `git rev-parse --git-common-dir` returns the path of the shared .git/
+# directory (the main repo's .git, NOT the per-worktree .git/worktrees/<n>/).
+# For the canonical repo this prints the absolute path of .git/. For a
+# worktree it ALSO prints the main repo's .git/. That is exactly what
+# we need to compute the canonical .githooks absolute path.
+common=$(git rev-parse --git-common-dir 2>/dev/null) || exit 0
+
+# git may return the path with a trailing slash; normalize.
+case "$common" in
+  */) common_dir="${common%/}" ;;
+  *)  common_dir="$common" ;;
+esac
+
+# Resolve to absolute if relative. `git rev-parse --git-common-dir`
+# returns an absolute path on macOS/Linux; defensively handle relative.
+case "$common_dir" in
+  /*) ;;
+  *)  common_dir="$(cd "$common_dir" 2>/dev/null && pwd)" || exit 0 ;;
+esac
+
+# Canonical hooks directory: <common>/../.githooks.
+hooks_abs=$(cd "$common_dir/.." 2>/dev/null && pwd)/.githooks 2>/dev/null || exit 0
+
+# If the canonical hooks directory is missing or unreadable, do nothing —
+# the post-commit hook will already fail to find its script, and the
+# offmachine-backed check is the catch-net.
+[ -d "$hooks_abs" ] || exit 0
+[ -x "$hooks_abs/post-commit" ] || exit 0
+
+# What does the CURRENT `core.hooksPath` resolve to (absolute, for compare)?
+current=$(git config --get core.hooksPath 2>/dev/null) || current=""
+current_abs=""
+if [ -n "$current" ]; then
+  case "$current" in
+    /*) current_abs="$current" ;;
+    *)  current_abs="$(cd "$common_dir/../$current" 2>/dev/null && pwd)" || current_abs="" ;;
+  esac
+fi
+
+# If the resolved path already points at the canonical .githooks, noop.
+if [ -n "$current_abs" ] && [ "$current_abs" = "$hooks_abs" ]; then
+  exit 0
+fi
+
+# Either `core.hooksPath` is unset/relative and points somewhere that is
+# not the canonical .githooks, OR it points at a directory that doesn't
+# contain post-commit. Repair it: write the absolute path to the LOCAL
+# repo config. Local only — this never touches `--global` / `--system`
+# and never reaches into another clone.
+git config --local core.hooksPath "$hooks_abs" 2>/dev/null || exit 0
+
+exit 0
