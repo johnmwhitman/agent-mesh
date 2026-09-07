@@ -8,19 +8,21 @@
  * finished dispatch turn does, and a fresh process B collects. The seat's exchange hit
  * `delivered: 0, lost: 1, "MCP server crashed before this agent completed … process_lost"` —
  * the agent's row decayed to `interrupted, stopped_reason: "process_lost"` because the legacy
- * spawn path has no durable ownership and no orphan-survival mechanism.
+ * spawn path had no orphan-survival mechanism.
  *
  * The seat prescribed two acceptable structural repairs:
- *   (a) detach the child (own process group, no inherited stdio pipes to the server) with
- *       boot-reconciler re-adoption of orphans on the next server start, OR
+ *   (a) detach the child (own process group, no inherited stdio pipes to the server) AND
+ *       observe-time reconciliation that promotes the orphan's RESULT_PATH envelope to
+ *       `complete`/`failed` on the next `collect_results`, OR
  *   (b) route one-shot submitters through durable lifecycle mode by default.
  *
- * This test pins BOTH halves simultaneously because either alone is insufficient: a child
- * that survives still loses its in-memory wait/heartbeat, so the parent must recognise the
- * durable lease and re-settle the completed work; durable mode alone re-executes work the
- * server never needed to relaunch, which is correct for crash recovery but irrelevant if the
- * worker never finished. The combined fix is the receipt's `expected: 0`: a process A
- * submits work, dies immediately, and a process B reads `delivered = 1, lost = 0`.
+ * This test pins (a). The detached-spawn is structural (process.ts spawns each child as a
+ * POSIX process-group leader so SIGTERM doesn't cascade); the orphan-survival is the
+ * `reconcileOrphanedAgentsInFleet` reconciliation in core.ts that `collect_results` invokes
+ * before summarising. (b) is a separate lane with its own coordinator; mixing modes is
+ * not a goal of this test. The combined property the seat pins (`expected: 0` against
+ * `delivered = 0, lost = 1`) is the structural separation PLUS the observe-time
+ * reconciliation: a worker that survives AND whose envelope is honoured by the next reader.
  *
  * The seat's exact receipt runs against the operator-installed binary at
  * `~/.claude.json["mcpServers"]["meshfleet"]["args"][0]`; this test runs against the WORKTREE'S
@@ -308,12 +310,19 @@ test("one-shot submitter survives the spawning server's exit: a fresh server col
     closeDb();
 
     // ---------------------------------------------------------------------------------
-    // Process B: the collecting harness. Starts FRESH against the same on-disk ledger. On
-    // boot the durable LifecycleExecutionCoordinator runs its recovery pass — expired
-    // runtime pids terminated, expired leases reclaimed, `recoverExpired` schedules a
-    // retry, and `launchDue` re-launches the work whose lease was server-A's. The
-    // re-launched worker is FRESH (the original may have been orphaned and finished);
-    // its sleeper eventually writes `complete` and exits 0.
+    // Process B: the collecting harness. Starts FRESH against the same on-disk ledger.
+    // On boot, `recoverInterruptedAgents` runs its recovery pass and flips dead legacy
+    // agents to `interrupted, stopped_reason: process_lost` (the rally's original
+    // symptom). The orphan worker — the one process A's server had spawned but whose
+    // in-memory wait it never got to run — has its own life; it is a detached process
+    // group (process.ts), so it survives the server's SIGTERM and continues running.
+    //
+    // When the orphan eventually writes its `done` envelope and exits, the next
+    // `collect_results` call observes the envelope and reconciles the row to `complete`
+    // through `reconcileOrphanedAgentsInFleet`. The legacy path does NOT re-launch the
+    // worker — durable-mode coverage is intentionally a different lane. The
+    // chaos-durability fix is the observe-time reconciliation; the structural separation
+    // is the existing detached-spawn.
     //
     // `collect_results` is NOT a wait — it returns the current ledger view, full stop.
     // Polling here matches the fleet-timeout-mcp pattern: read status, sleep, repeat
@@ -343,7 +352,7 @@ test("one-shot submitter survives the spawning server's exit: a fresh server col
         });
         const status = await parseToolText<{ agents?: Array<{ status: string; error?: string; output?: string }> }>(statusRaw);
         const dump = JSON.stringify({ summary, lastSeenStatus, status }, null, 2);
-        assert.fail(`chaos durability violated (durable path did not deliver). ${dump}`);
+        assert.fail(`chaos durability violated (legacy-mode reconciliation did not deliver). ${dump}`);
       }
       assert.equal(summary.delivered, 1,
         `delivered must be 1 (the seat's property). got lost=${summary.lost} ` +
@@ -359,12 +368,12 @@ test("one-shot submitter survives the spawning server's exit: a fresh server col
     closeDb();
     const data = loadData();
     const agent = Object.values(data.agents).find((a) => a.fleet_id === fleet.fleet_id);
-    assert.ok(agent, "fleet's agent row still exists in the durable ledger");
+    assert.ok(agent, "fleet's agent row still exists in the legacy ledger");
     assert.equal(agent.status, "complete",
       `agent must reach 'complete' after recovery; observed '${agent.status}'. ` +
       `agent.error=${JSON.stringify(agent.error ?? null)}. ` +
-      `If observed 'failed', the durable path fired but the local-demo worker errored; ` +
-      `if observed 'interrupted', durable mode was not actually used.`);
+      `If observed 'failed', the opencode worker errored; ` +
+      `if observed 'interrupted', reconciliation did not promote the orphan's envelope.`);
     assert.notEqual(agent.error ?? "", "MCP server crashed before this agent completed",
       "a delivered agent must not carry the crash-cascade error string");
   } finally {

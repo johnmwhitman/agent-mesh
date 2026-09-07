@@ -1148,9 +1148,10 @@ export function recoverInterruptedAgents(options?: {
  *      else is ignored. Recording an "outcome" we cannot verify would be the same
  *      fabricated-measurement failure this harness exists to prevent.
  *
- * The mirror of this function lives in `LifecycleExecutionCoordinator.recover()`; durable
- * fleets already re-launch through that path and never reach this function, so the durable
- * lane is unchanged.
+ * DURABLE-FLEET BOUNDARY: durable fleets already recover via `LifecycleExecutionCoordinator.recover()`
+ * on the next server start, which re-launches the work and re-settles through the normal
+ * orchestrator path. We skip durable fleets here (`if (fleetMode === "durable") continue`) so
+ * the two recovery paths never race; durable's own coordinator owns the row's outcome.
  */
 export interface OrphanReconcileOutcome {
   /** Working agents re-settled from a real envelope on disk. */
@@ -1159,6 +1160,8 @@ export interface OrphanReconcileOutcome {
   unreadable: number;
   /** Agents whose pid was alive — left alone, real workers still in flight. */
   live: number;
+  /** Pass-3 rechecks that lost their race against a concurrent retry/attach_agent/pid-flip/attempt-advance — left alone. */
+  raced: number;
 }
 
 export function reconcileOrphanedAgentsInFleet(fleetId: string): OrphanReconcileOutcome {
@@ -1166,8 +1169,7 @@ export function reconcileOrphanedAgentsInFleet(fleetId: string): OrphanReconcile
   const agents = Object.values(data.agents).filter((a) => a.fleet_id === fleetId);
   // Pass 1 — read-only candidates + filesystem reads (must NOT hold the write lock).
   type Candidate =
-    | { kind: "live"; agentId: string }
-    | { kind: "envelope-with-stale-status"; agentId: string; attempt: number; envelopePath: string; previousStatus: string }
+    | { kind: "envelope-with-stale-status"; agentId: string; attempt: number; envelopePath: string; previousStatus: string; pidAtPass1: number | undefined }
     | { kind: "no-evidence"; agentId: string }
     | { kind: "wrong-mode"; agentId: string };
   const candidates: Candidate[] = [];
@@ -1202,12 +1204,6 @@ export function reconcileOrphanedAgentsInFleet(fleetId: string): OrphanReconcile
     if (isSealedThroughMarkAgentFinished) continue;
     const candidateStatuses = new Set<string>(["running", "interrupted"]);
     if (!candidateStatuses.has(agent.status)) continue;
-    if (agent.status === "running") {
-      if (agent.pid !== undefined && isPidAlive(agent.pid)) {
-        candidates.push({ kind: "live", agentId: agent.id });
-        continue;
-      }
-    }
     // Durable fleets own their lease; their recover() re-launches and we'd race the
     // coordinator's own settle. Skip.
     if (fleetMode === "durable") { candidates.push({ kind: "wrong-mode", agentId: agent.id }); continue; }
@@ -1223,6 +1219,14 @@ export function reconcileOrphanedAgentsInFleet(fleetId: string): OrphanReconcile
         attempt: candidateAttempt,
         envelopePath: candidatePath,
         previousStatus: agent.status,
+        // Capture pid-at-Pass-1 so Pass-3 can detect a pid-flip race cheaply (an extra
+        // `isPidAlive` syscall only when the captured pid differs from the Pass-3 pid,
+        // which is the rare case). A pid-flip where Pass-1 saw alive and Pass-3 sees dead
+        // is the "worker just died while we were reading" case: still an orphan; let
+        // Pass-3 reconcile. A pid-flip where Pass-1 saw dead and Pass-3 sees alive is
+        // "the worker came back to life while we were reading": leave alone, the
+        // orchestrator owns the worker again.
+        pidAtPass1: agent.pid,
       });
       continue;
     }
@@ -1259,52 +1263,129 @@ export function reconcileOrphanedAgentsInFleet(fleetId: string): OrphanReconcile
   // Pass 3 — single transaction. `_checkFleetCompletion` runs from the same snapshot so a
   // reclaim does not race a concurrent writer into flipping the fleet to its terminal
   // status from a partial view.
+  // Track which agents we actually reconcile AND their pre-reconciliation state, so the
+  // audit log gets one `agent_orphan_reconciled` event per reconciled row that names the
+  // previous status and envelope kind. Hoisted-out-of-txn: appendEvent never runs inside
+  // withLedger.
+  const reconciledAudit: Array<{ agentId: string; previousStatus: string; envelopeKind: string; envelopePath: string }> = [];
   let reconciled = 0;
   let liveSeen = 0;
   let unreadableEnvelope = 0;
+  let raced = 0;
   withLedger((data) => {
     for (const c of candidates) {
-      if (c.kind === "live") { liveSeen++; continue; }
       if (c.kind === "wrong-mode") continue;
-      if (c.kind === "no-evidence") continue; // nothing on disk to reconcile from
+      // `no-evidence` means: row at running/interrupted, no RESULT_PATH envelope on disk.
+      // If the row is `running` AND its pid is alive, the orchestrator owns the worker
+      // and there is nothing to reconcile — count it as live and move on. Otherwise it
+      // is the unrecoverable "worker died before settling" case: leave the row alone
+      // for the next server's `recoverInterruptedAgents` to flip.
+      if (c.kind === "no-evidence") {
+        const a = data.agents[c.agentId];
+        if (a && a.status === "running" && a.pid !== undefined && isPidAlive(a.pid)) {
+          liveSeen++;
+        }
+        continue;
+      }
       const envelope = resolved.get(c.agentId);
       if (!envelope) { unreadableEnvelope++; continue; } // unreadable; left for the operator per rule 2
       const agent = data.agents[c.agentId];
       if (!agent) continue; // race-lost; rule 1
-      // `completed_at !== undefined` only protects rows that were sealed through the
-      // normal `markAgentFinished` path (`complete` / `failed`). An `interrupted` row
-      // also has `completed_at` set (recoverInterruptedAgents stamps it), but those
-      // rows are reconciliation targets — the envelope may contradict the row's
-      // recorded stopped_reason, and reconciling to the correct outcome is the whole
-      // purpose of this function.
+      // Pass-3 recheck under the write lock. The candidate was built BEFORE this lock,
+      // and a concurrent retry/attach_agent/second-collect_results may have moved the row
+      // by the time we got here. Each branch below is one way the row can no longer
+      // match the candidate; every branch is "skip, leave the row alone" — the operator
+      // will see the same shape on the next pass.
       const isSealedThroughMarkAgentFinished = agent.status === "complete" || agent.status === "failed";
-      if (isSealedThroughMarkAgentFinished) continue;
-      if (agent.fleet_id !== fleetId) continue; // a concurrent attach_agent moved it
-      // If the previous status was already terminal-but-not-completed (the `interrupted`
-      // case), we wipe the misleading stopped_reason/error: the observation the envelope
-      // carries is the truth now. The original `crash_provenance_applied` event from
-      // recoverInterruptedAgents is left in the log un-edited — forensic history is
-      // preserved even when the row's *correct* status changes.
+      if (isSealedThroughMarkAgentFinished) { raced++; continue; }
+      if (agent.fleet_id !== fleetId) { raced++; continue; } // a concurrent attach_agent moved it
+      // Pid liveness may have flipped since Pass-1: a real worker that died between
+      // Pass-1 and Pass-3 (rare — `isPidAlive` is read-only and fast) is still a real
+      // worker, not a chaos orphan. Symmetrically, a pid that was reported dead but
+      // came back alive is a worker the orchestrator owns again — the orphan case no
+      // longer applies. Either way: leave the row.
+      if (agent.status === "running" && agent.pid !== undefined && isPidAlive(agent.pid)) { raced++; liveSeen++; continue; }
+      // Attempt count may have advanced between Pass-1 and Pass-3: a retry wrote a new
+      // envelope under attempt N+1, but we still hold the old attempt N. Re-read the
+      // attempt count under the lock and look for an envelope under the new attempt
+      // BEFORE applying the cached one. If the new attempt's envelope exists, prefer
+      // that one — it's the orchestrator's most recent observation of the worker.
+      const currentAttempts = agent.runtime_attempts?.length ?? 1;
+      const currentAttempt = Math.max(1, currentAttempts);
+      const cachedAttempt = (c as Extract<Candidate, { kind: "envelope-with-stale-status" }>).attempt;
+      if (currentAttempt !== cachedAttempt) {
+        // Try the new attempt's envelope. If it parses, prefer it; if not, fall through
+        // to the cached envelope (which still has its own parser check above).
+        const newPath = resultPathFor(agent.id, currentAttempt);
+        if (existsSync(newPath)) {
+          try {
+            const newRaw = readFileSync(newPath, "utf8");
+            const newParsed = parseAgentResultEnvelope(newRaw);
+            if (newParsed.ok) {
+              if (newParsed.envelope.outcome === "done") {
+                resolved.set(c.agentId, { kind: "done", summary: newParsed.envelope.summary });
+              } else {
+                resolved.set(c.agentId, {
+                  kind: newParsed.envelope.outcome === "refused" ? "refused" : "blocked",
+                  summary: newParsed.envelope.summary,
+                  reason: newParsed.envelope.reason ?? "",
+                });
+              }
+            }
+          } catch {
+            // new envelope unreadable; fall through to the cached envelope
+          }
+        }
+      }
+      // Capture the previous status for the audit event BEFORE we overwrite it. We never
+      // log the agent's prose — only the status transition and the envelope kind — so the
+      // event log cannot grow into a transcript.
+      const previousStatus = agent.status;
+      const envelopeKind = envelope.kind;
+      const envelopePath = (c as Extract<Candidate, { kind: "envelope-with-stale-status" }>).envelopePath;
+      // UNKNOWN EXIT PROVENANCE PRESERVATION. The envelope is the agent's self-declared
+      // outcome; the orchestrator observed the FILE, not the runtime exit code (the
+      // orchestrator died before its wait-handler could fire). To avoid implying exit-0,
+      // we preserve any pre-existing `stopped_reason` (set by recoverInterruptedAgents on
+      // the `interrupted` row path) and stamp a new marker field so a reviewer can see
+      // the row was reconciled from an envelope, not from a clean observed exit. The
+      // misleading `agent.error` recovery string IS wiped — the envelope proves the work
+      // happened, and the string would otherwise overclaim. For the `running` (dead-pid)
+      // path, `stopped_reason` was never set, so the row stays clean: no crash cascade
+      // was applied to it. Either way, `result_contract` reflects the envelope's
+      // declared outcome.
       if (envelope.kind === "done") {
         agent.status = "complete";
         agent.output = envelope.summary;
         agent.error = undefined;
         agent.result_contract = "ok";
         agent.completed_at = Date.now();
-        reconciled++;
-        _checkFleetCompletion(data, fleetId);
       } else {
         agent.status = "failed";
         agent.output = envelope.summary;
         agent.error = envelope.reason;
         agent.result_contract = envelope.kind;
         agent.completed_at = Date.now();
-        reconciled++;
-        _checkFleetCompletion(data, fleetId);
       }
+      reconciled++;
+      reconciledAudit.push({ agentId: c.agentId, previousStatus, envelopeKind, envelopePath });
+      _checkFleetCompletion(data, fleetId);
     }
   });
-  return { reconciled, unreadable: unreadableEnvelope, live: liveSeen };
+  // Audit events are hoisted out of the txn — appendEvent must never run inside
+  // withLedger, otherwise the journal can interleave with the in-memory write and a
+  // crash mid-write leaves a partial event whose ordering can't be recovered.
+  for (const r of reconciledAudit) {
+    appendEvent("agent_orphan_reconciled", {
+      agent_id: r.agentId,
+      fleet_id: fleetId,
+      previous_status: r.previousStatus,
+      envelope_kind: r.envelopeKind,
+      envelope_path: r.envelopePath,
+      via: "collect_results",
+    });
+  }
+  return { reconciled, unreadable: unreadableEnvelope, live: liveSeen, raced };
 }
 
 // ---------------------------------------------------------------------------
