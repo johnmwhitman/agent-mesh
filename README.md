@@ -2,7 +2,7 @@
 
 > **Auditable multi-agent coordination for OpenCode.** Spawn parallel agents as independent OS processes. Route work to specialists. Let agents collaborate peer-to-peer — with witnessed receipts and quorum ratification, so you can answer: *who saw this, who approved it, prove it.* The core is MIT and free.
 
-**Website**: [meshfleet.app](https://meshfleet.app) · **Source version**: 0.21.1 · [npm](https://www.npmjs.com/package/meshfleet) · [CI](https://github.com/johnmwhitman/agent-mesh/actions)
+**Website**: [meshfleet.app](https://meshfleet.app) · **Source version**: 0.21.3 · [npm](https://www.npmjs.com/package/meshfleet) · [CI](https://github.com/johnmwhitman/agent-mesh/actions)
 
 *Maintained: current source and Git tags are visible in [the repository](https://github.com/johnmwhitman/agent-mesh); a tag is an intent to ship and [the registry](https://www.npmjs.com/package/meshfleet?activeTab=versions) is the only record of what shipped · issues answered within 48h · no download-count theater.*
 
@@ -310,7 +310,7 @@ evidence, authenticated provenance, or external time.
 
 ---
 
-## 37 MCP tools
+## 40 MCP tools
 
 **Fleets**
 
@@ -337,6 +337,7 @@ evidence, authenticated provenance, or external time.
 | `verify_ledger` | Audit the whole ledger's internal consistency — errors mean it asserts something its own records don't support |
 | `verify_ledger_v2` | Versioned unsigned-snapshot consistency envelope around the unchanged verifier report from a dedicated read-only file snapshot; the handler performs no ledger writes |
 | `verify_ledger_v3` | Opt-in detached verifier envelope with severity-derived local consistency labels only; not provenance or confidence; the handler uses a dedicated read-only file snapshot and performs no ledger writes |
+| `get_build_identity` | Full BuildIdentityReport for the running install — package name/version, source_commit, entrypoint_count, the per-entrypoint SHA-256 map, and the `entrypoints_match_runtime` bit. Dedicated diagnostic name for verifying a specific path's hash against the published manifest. Same surface as `get_health()` with no verbosity arg. |
 
 **Councils (quorum ratification)**
 
@@ -357,7 +358,7 @@ evidence, authenticated provenance, or external time.
 | `compile_route_candidates` | Pure offline projection of sanitized manifest/observation snapshots; does not rank, persist, execute, authorize, wake, or contact providers |
 | `record_routing_outcome` | Feed results back to improve routing |
 | `list_agents` | Discover 100+ premade agent personalities |
-| `get_health` / `ping` | Fleet health and liveness |
+| `get_health` / `ping` | Fleet health and liveness. `get_health` accepts an optional `verbosity` argument — `"full"` (default, full BuildIdentityReport including per-entrypoint SHA-256 map) or `"summary"` (entrypoints map omitted for a smaller routine-probe payload). Use the dedicated `get_build_identity` tool for the diagnostic name when verifying a specific path's hash against the published manifest. |
 
 **Discussions (bounded two-agent negotiation)**
 
@@ -370,7 +371,7 @@ evidence, authenticated provenance, or external time.
 
 See [docs/discussions.md](docs/discussions.md) for the full quickstart, tool reference, and terminal-state precedence.
 
-That's 37. We counted twice this time.
+That's 40. We counted twice this time.
 
 RoutePlane catalog discovery is a separate package library and CLI, not an MCP
 tool: it fetches RoutePlane's fixed loopback model catalog and projects

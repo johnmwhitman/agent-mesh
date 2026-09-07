@@ -19,6 +19,16 @@ Maintenance release branched from `v0.20.0` (commit `a361e273`) to enable MCP Re
 
 ## [Unreleased]
 
+### 0.21.3 release candidate
+
+- Add opt-in `get_health({"verbosity":"summary"})` for routine probes. It omits
+  the per-module hash table while retaining the same server-side integrity checks
+  and all other build-identity fields. The default remains the full response.
+- Add `get_build_identity` for full diagnostic readback; the MCP surface now has
+  40 tools. Unknown health verbosity values are rejected.
+- Keep package, lockfile, public version claims, and installed-runtime version
+  checks aligned for the portable release. See [compact health](docs/COMPACT-HEALTH.md).
+
 ### Changed
 
 - **The result contract now ENFORCES (release N+1).** Release N (2026-08-19) shipped

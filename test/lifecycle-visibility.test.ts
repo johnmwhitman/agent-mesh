@@ -151,12 +151,12 @@ test("active verifier preserves special collection keys, reports v4, and rejects
       Object.defineProperty(data.templates!, "__proto__", { value: { name: "special" }, enumerable: true, configurable: true });
     });
     const snapshot = readLifecycleSnapshot(temp.dbFile);
-    assert.equal(snapshot.storageVersion, 4);
+    assert.equal(snapshot.storageVersion, 5);
     assert.equal(Object.hasOwn(snapshot.data.fleets, "__proto__"), true);
     assert.equal(Object.hasOwn(snapshot.data.templates!, "__proto__"), true);
     assert.equal(verifyLedger().ok, true);
-    withLedgerAndStorage((_data, db) => db.prepare("UPDATE meta SET value = '5' WHERE key = 'storage_schema_version'").run());
-    assert.throws(() => readLifecycleSnapshot(temp.dbFile), /unsupported storage schema version: 5/);
+    withLedgerAndStorage((_data, db) => db.prepare("UPDATE meta SET value = '6' WHERE key = 'storage_schema_version'").run());
+    assert.throws(() => readLifecycleSnapshot(temp.dbFile), /unsupported storage schema version: 6/);
   } finally { temp.cleanup(); }
 });
 

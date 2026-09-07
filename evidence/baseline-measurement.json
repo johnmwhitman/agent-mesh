@@ -1,0 +1,10 @@
+{
+  "observed_at": "2026-09-07T02:49:38.645Z",
+  "full_bytes": 33854,
+  "projected_compact_bytes": 556,
+  "entrypoint_count": 348,
+  "entrypoint_field_bytes": 33283,
+  "build_status": "ok",
+  "source_commit": "3f3ac22d80c073803dffbc8ad996c7a29f566f6a",
+  "package_version": "0.21.1"
+}

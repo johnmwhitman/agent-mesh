@@ -51,7 +51,7 @@ import {
 } from "./core.js";
 import { defaultDbFile, readLedger, resolveDbFile, withLedger } from "./db.js";
 import { migrateJsonToSqlite } from "./migrate.js";
-import { checkRateLimit, getHealth, ping } from "./health.js";
+import { checkRateLimit, getHealth, getBuildIdentity, ping, type HealthVerbosity } from "./health.js";
 import {
   saveFleetTemplate as saveFleetTemplateFn,
   listFleetTemplates as listFleetTemplatesFn,
@@ -68,6 +68,12 @@ import {
 import { verifyLedger, verifyLedgerFile } from "./verify.js";
 import { buildVerifyEnvelopeV2 } from "./verify-envelope-v2.js";
 import { buildVerifyEnvelopeV3 } from "./verify-envelope-v3.js";
+import {
+  WORK_RECEIPT_SCHEMA,
+  WORK_RECEIPT_SOURCE,
+  getWorkReceipt as getWorkReceiptFn,
+  recordWorkReceipt as recordWorkReceiptFn,
+} from "./work-receipt.js";
 import { notifySubscribers } from "./realtime.js";
 import { isSseServerRunning, startSseServer, stopSseServer, subscribeInboxUrl, subscribeEventsUrl } from "./sse-server.js";
 import type { A2ATaskStatus } from "./a2a/http.js";
@@ -1562,7 +1568,24 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "get_health",
       description:
-        "Health report: ledger size, fleet/agent/message counts, uptime, last event. Use for monitoring and alerting.",
+        "Fleet health + liveness. Pass verbosity=\"summary\" for a smaller routine probe (entrypoints map omitted); default \"full\" is the full BuildIdentityReport. Use `get_build_identity` for diagnostics.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          verbosity: {
+            type: "string",
+            enum: ["full", "summary"],
+            description:
+              "\"full\" (default) returns the same shape as prior versions, with build_identity.entrypoints populated. \"summary\" omits the per-entrypoint map while preserving every other build_identity field. Server-side integrity verification (re-hash on every call) is unchanged regardless of verbosity.",
+          },
+        },
+      },
+      annotations: { readOnlyHint: true, idempotentHint: true, destructiveHint: false, openWorldHint: false },
+    },
+    {
+      name: "get_build_identity",
+      description:
+        "Full BuildIdentityReport for the running install: package name/version, source_commit, entrypoint_count, per-entrypoint SHA-256 map, entrypoints_match_runtime bit. Diagnostic access to the install's identity.",
       inputSchema: { type: "object", properties: {} },
       annotations: { readOnlyHint: true, idempotentHint: true, destructiveHint: false, openWorldHint: false },
     },
@@ -1713,6 +1736,93 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         additionalProperties: false,
       },
       annotations: { readOnlyHint: true, idempotentHint: true, destructiveHint: false, openWorldHint: false },
+    },
+    {
+      name: "record_work_receipt",
+      description:
+        "Record a first-class external work receipt (Hermes Kanban result contract). " +
+        "Stores the canonicalized payload in the `work_receipts` collection with an " +
+        "immutable idempotency key of (source, task_id, run_id). Byte-equivalent replays " +
+        "return the existing row; conflicting replays (same key, different bytes) refuse " +
+        "history and return an error. Does not attest, fetch, or verify the evidence — " +
+        "see Kanban receipt dogfood design §4.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          schema: {
+            type: "string",
+            enum: [WORK_RECEIPT_SCHEMA],
+            description:
+              "Schema marker. Must be the literal `hermes.kanban-result/v1`.",
+          },
+          task_id: { type: "string", pattern: "^t_[A-Za-z0-9]+$" },
+          run_id: { type: "integer", minimum: 1 },
+          assignee: { type: "string", minLength: 1 },
+          terminal_outcome: { type: "string", enum: ["completed", "failed", "refused", "blocked"] },
+          result_contract: {
+            type: "string",
+            enum: ["ok", "refused", "blocked", "artifact_missing", "invalid", "absent"],
+          },
+          quality_gate: { type: "string", enum: ["passed", "failed"] },
+          completed_at: { type: "integer", minimum: 1 },
+          evidence: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                kind: { type: "string", enum: ["git_commit", "attachment", "artifact", "command_run", "external"] },
+                handle: { type: "string", minLength: 1 },
+                digest: { type: "string", pattern: "^[0-9a-f]{64}$" },
+              },
+              required: ["kind", "handle"],
+              additionalProperties: false,
+            },
+          },
+          payload_sha256: { type: "string", pattern: "^[0-9a-f]{64}$" },
+        },
+        required: [
+          "schema",
+          "task_id",
+          "run_id",
+          "assignee",
+          "terminal_outcome",
+          "result_contract",
+          "quality_gate",
+          "completed_at",
+          "evidence",
+          "payload_sha256",
+        ],
+        additionalProperties: false,
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    {
+      name: "get_work_receipt",
+      description:
+        "Read back a work receipt by composite key. Returns the exact stored bytes plus " +
+        "the server's `recorded_at`. `not_found` means no row exists for that key; a " +
+        "schema-shaped error means the key itself is malformed.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          source: { type: "string", enum: [WORK_RECEIPT_SOURCE] },
+          task_id: { type: "string", pattern: "^t_[A-Za-z0-9]+$" },
+          run_id: { type: "integer", minimum: 1 },
+        },
+        required: ["source", "task_id", "run_id"],
+        additionalProperties: false,
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
   ].filter((tool) => toolAllowedByAccessProfile(tool.name)),
 }));
@@ -2321,6 +2431,69 @@ toolHandlers["verify_ledger_v3"] = async () => {
     }
 };
 
+toolHandlers["record_work_receipt"] = async (args) => {
+    const a = args as Record<string, unknown> | undefined;
+    if (!a || typeof a !== "object") {
+      return jsonError("record_work_receipt: arguments must be a JSON object");
+    }
+    const result = recordWorkReceiptFn(a);
+    if ("error" in result) {
+      return jsonError(
+        "record_work_receipt: invalid input (" +
+          result.reasons.join("; ") +
+          ")",
+      );
+    }
+    if (result.outcome.kind === "conflict") {
+      // Same key, different bytes: refuse history. The MCP caller receives a
+      // structured error so it can decide whether to retry with the right
+      // bytes, log the conflict, or escalate.
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify({
+              error: "work_receipt_conflict",
+              detail: `key (source=${WORK_RECEIPT_SOURCE}, task_id=${result.receipt.task_id}, run_id=${result.receipt.run_id}) already exists with a different payload_sha256`,
+              existing_payload_sha256: result.outcome.existing_payload_sha256,
+              existing_recorded_at: result.outcome.existing_recorded_at,
+              attempted_payload_sha256: result.receipt.payload_sha256,
+            }),
+          },
+        ],
+        isError: true,
+      };
+    }
+    return jsonResult({
+      ok: true,
+      inserted: result.outcome.kind === "inserted",
+      replayed: result.outcome.kind === "replayed",
+      recorded_at: result.outcome.recorded_at,
+      receipt: result.receipt,
+    });
+};
+
+toolHandlers["get_work_receipt"] = async (args) => {
+    const a = args as { source?: unknown; task_id?: unknown; run_id?: unknown } | undefined;
+    const source = typeof a?.source === "string" ? a.source : "";
+    const taskId = typeof a?.task_id === "string" ? a.task_id : "";
+    const runIdRaw = a?.run_id;
+    const runId =
+      typeof runIdRaw === "number" && Number.isInteger(runIdRaw) && runIdRaw > 0
+        ? runIdRaw
+        : 0;
+    const result = getWorkReceiptFn(source, taskId, runId);
+    if (!result.ok) {
+      if (result.reason === "not_found") {
+        return jsonError(
+          `get_work_receipt: no work receipt for source=${JSON.stringify(source)} task_id=${JSON.stringify(taskId)} run_id=${JSON.stringify(runIdRaw)}`,
+        );
+      }
+      return jsonError(`get_work_receipt: ${result.reason}`);
+    }
+    return jsonResult({ ok: true, receipt: result.receipt });
+};
+
 toolHandlers["open_ratification"] = async (args) => {
     const a = args as {
       proposer: string;
@@ -2611,7 +2784,41 @@ toolHandlers["ping"] = async (args) => {
 };
 
 toolHandlers["get_health"] = async (args) => {
-    return jsonResult(getHealth());
+    // Optional `verbosity` argument. DEFAULT is "full" — preserves the prior
+    // default shape (per-entrypoint build_identity.entrypoints map populated).
+    // A caller that passes verbosity="summary" gets a smaller routine-probe
+    // payload with the entrypoints map omitted.
+    //
+    // Unknown values are rejected rather than silently defaulting: a
+    // misspelled verbosity that fell back to "full" would still cross the
+    // wire with a payload the caller did not ask for.
+    const { verbosity } = args as { verbosity?: unknown };
+    const invalidVerbosity = requireEnum(
+      "get_health",
+      "verbosity",
+      verbosity,
+      ["full", "summary"] as readonly string[],
+      { optional: true },
+    );
+    if (invalidVerbosity) return jsonError(invalidVerbosity);
+    try {
+      const report = getHealth(
+        verbosity === undefined ? undefined : { verbosity: verbosity as HealthVerbosity },
+      );
+      return jsonResult(report);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return jsonError(`get_health: ${message}`);
+    }
+};
+
+toolHandlers["get_build_identity"] = async (_args) => {
+    // Dedicated diagnostic surface — always returns the FULL BuildIdentityReport
+    // including the per-entrypoint SHA-256 map. Same shape as
+    // get_health() with no verbosity arg, exposed under a distinct name so
+    // operators / CI / drift checks can call it without remembering the
+    // verbosity enum.
+    return jsonResult(getBuildIdentity());
 };
 
 toolHandlers["subscribe_inbox"] = async (args) => {

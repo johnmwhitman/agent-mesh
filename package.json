@@ -1,6 +1,6 @@
 {
   "name": "meshfleet",
-  "version": "0.21.1",
+  "version": "0.21.3",
   "description": "Auditable multi-agent coordination for OpenCode — parallel agent fleets with P2P messaging, witnessed receipts, and quorum ratification. Who saw this, who approved it, prove it.",
   "main": "dist/index.js",
   "type": "module",
@@ -34,7 +34,7 @@
   ],
   "scripts": {
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
-    "build": "npm run clean && tsc && tsc -p tsconfig.test.json",
+    "build": "npm run clean && tsc && tsc -p tsconfig.test.json && node scripts/write-build-manifest.mjs",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
     "inspect": "node dist/bin/inspect.js",
