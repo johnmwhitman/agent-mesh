@@ -51,7 +51,7 @@ import {
 } from "./core.js";
 import { defaultDbFile, readLedger, resolveDbFile, withLedger } from "./db.js";
 import { migrateJsonToSqlite } from "./migrate.js";
-import { checkRateLimit, getHealth, ping } from "./health.js";
+import { checkRateLimit, getHealth, getBuildIdentity, ping, type HealthVerbosity } from "./health.js";
 import {
   saveFleetTemplate as saveFleetTemplateFn,
   listFleetTemplates as listFleetTemplatesFn,
@@ -1568,7 +1568,24 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "get_health",
       description:
-        "Health report: ledger size, fleet/agent/message counts, uptime, last event. Use for monitoring and alerting.",
+        "Fleet health + liveness. Pass verbosity=\"summary\" for a smaller routine probe (entrypoints map omitted); default \"full\" is the full BuildIdentityReport. Use `get_build_identity` for diagnostics.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          verbosity: {
+            type: "string",
+            enum: ["full", "summary"],
+            description:
+              "\"full\" (default) returns the same shape as prior versions, with build_identity.entrypoints populated. \"summary\" omits the per-entrypoint map while preserving every other build_identity field. Server-side integrity verification (re-hash on every call) is unchanged regardless of verbosity.",
+          },
+        },
+      },
+      annotations: { readOnlyHint: true, idempotentHint: true, destructiveHint: false, openWorldHint: false },
+    },
+    {
+      name: "get_build_identity",
+      description:
+        "Full BuildIdentityReport for the running install: package name/version, source_commit, entrypoint_count, per-entrypoint SHA-256 map, entrypoints_match_runtime bit. Diagnostic access to the install's identity.",
       inputSchema: { type: "object", properties: {} },
       annotations: { readOnlyHint: true, idempotentHint: true, destructiveHint: false, openWorldHint: false },
     },
@@ -2767,7 +2784,41 @@ toolHandlers["ping"] = async (args) => {
 };
 
 toolHandlers["get_health"] = async (args) => {
-    return jsonResult(getHealth());
+    // Optional `verbosity` argument. DEFAULT is "full" — preserves the prior
+    // default shape (per-entrypoint build_identity.entrypoints map populated).
+    // A caller that passes verbosity="summary" gets a smaller routine-probe
+    // payload with the entrypoints map omitted.
+    //
+    // Unknown values are rejected rather than silently defaulting: a
+    // misspelled verbosity that fell back to "full" would still cross the
+    // wire with a payload the caller did not ask for.
+    const { verbosity } = args as { verbosity?: unknown };
+    const invalidVerbosity = requireEnum(
+      "get_health",
+      "verbosity",
+      verbosity,
+      ["full", "summary"] as readonly string[],
+      { optional: true },
+    );
+    if (invalidVerbosity) return jsonError(invalidVerbosity);
+    try {
+      const report = getHealth(
+        verbosity === undefined ? undefined : { verbosity: verbosity as HealthVerbosity },
+      );
+      return jsonResult(report);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return jsonError(`get_health: ${message}`);
+    }
+};
+
+toolHandlers["get_build_identity"] = async (_args) => {
+    // Dedicated diagnostic surface — always returns the FULL BuildIdentityReport
+    // including the per-entrypoint SHA-256 map. Same shape as
+    // get_health() with no verbosity arg, exposed under a distinct name so
+    // operators / CI / drift checks can call it without remembering the
+    // verbosity enum.
+    return jsonResult(getBuildIdentity());
 };
 
 toolHandlers["subscribe_inbox"] = async (args) => {

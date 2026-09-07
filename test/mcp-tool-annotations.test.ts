@@ -36,6 +36,7 @@ const READ_ONLY_TOOLS = [
   "collect_results",
   "compile_route_candidates",
   "fleet_status",
+  "get_build_identity",
   "get_discussion",
   "get_health",
   "get_inbox",
@@ -117,7 +118,7 @@ test("every listed tool carries full annotations (all 4 MCP hints as booleans)",
   }
 });
 
-test("tools/list payload size is measured, tool count = 39, under 60 KiB", async () => {
+test("tools/list payload size is measured, tool count = 40, under 60 KiB", async () => {
   const tempProject = mkdtempSync(join(tmpdir(), "meshfleet-annotations-sz-"));
   const { transport, client } = spawnMeshfleet(tempProject, "sz");
   try {
@@ -126,7 +127,7 @@ test("tools/list payload size is measured, tool count = 39, under 60 KiB", async
     const serialized = JSON.stringify(response);
     const bytes = Buffer.byteLength(serialized, "utf8");
 
-    assert.equal(response.tools.length, 39, `expected 39 tools, got ${response.tools.length}`);
+    assert.equal(response.tools.length, 40, `expected 40 tools, got ${response.tools.length}`);
 
     // Pre-change report had a tools/list block of ~47 KiB (see agent-mesh-mcp2.md).
     // After: +annotations on every tool (~30-90 bytes each, ~37*60 = 2220 bytes)

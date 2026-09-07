@@ -1,0 +1,20 @@
+{
+  "measured_at": "2026-09-07T03:30:48.855Z",
+  "package_version": "0.21.3",
+  "build_identity_package_version": "0.21.3",
+  "source_commit": "3f3ac22d80c073803dffbc8ad996c7a29f566f6a",
+  "manifest_entrypoint_count": 349,
+  "build_identity_entrypoint_count": 349,
+  "default_bytes_stable": 33952,
+  "summary_bytes_stable": 553,
+  "full_bytes_stable": 33952,
+  "get_build_identity_bytes": 33757,
+  "default_to_summary_ratio": "61.40",
+  "pct_reduction": "98.37",
+  "default_status": "ok",
+  "default_build_status": "ok",
+  "default_match_runtime": true,
+  "summary_status": "ok",
+  "summary_build_status": "ok",
+  "summary_match_runtime": true
+}

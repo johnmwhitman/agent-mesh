@@ -1,0 +1,44 @@
+{
+  "measured_at": "2026-09-07T03:10:00Z",
+  "source_commit": "3f3ac22d80c073803dffbc8ad996c7a29f566f6a",
+  "package_version": "0.21.1",
+  "build": "rally/v5-portable-delivery-20260907",
+  "scope": "Frozen before/after comparison on the SAME compiled dist/ (same build state, same manifest, same on-disk dist/ bytes). Volatile counters excluded (uptime_ms, last_event_timestamp) — they reflect the call moment, not the payload shape. entrypoint_count is read from the runtime manifest, not hardcoded in any public API description.",
+  "baseline_observed_at_source_2a": "2026-09-07T02:14:38Z",
+  "baseline_full_bytes_at_source_2a": 33984,
+  "post_change_same_build": {
+    "default_get_health_bytes_stable": 33940,
+    "verbosity_summary_bytes_stable": 541,
+    "verbosity_full_bytes_stable": 33940,
+    "get_build_identity_bytes": 33757,
+    "default_to_summary_ratio": 62.7,
+    "default_to_summary_pct_reduction": 98.4,
+    "default_build_identity_entrypoints_keys": 349,
+    "default_build_identity_entrypoint_count": 349,
+    "default_build_identity_entrypoints_match_runtime": true,
+    "default_build_identity_status": "ok",
+    "default_build_identity_package_version": "0.21.1",
+    "default_build_identity_source_commit": "3f3ac22d80c073803dffbc8ad996c7a29f566f6a",
+    "summary_build_identity_entrypoints": "OMITTED",
+    "summary_build_identity_entrypoint_count": 349,
+    "summary_build_identity_entrypoints_match_runtime": true,
+    "summary_build_identity_status": "ok",
+    "summary_build_identity_source_commit": "3f3ac22d80c073803dffbc8ad996c7a29f566f6a"
+  },
+  "contract": {
+    "default": "full — preserves prior shape (entrypoints map populated)",
+    "opt_in_summary": "verbosity='summary' — omits entrypoints map, keeps every other identity field",
+    "opt_in_full_explicit": "verbosity='full' — equivalent to default",
+    "diagnostic": "get_build_identity — dedicated MCP tool, always returns the full map",
+    "server_side_integrity": "UNCHANGED — readBuildIdentity() still re-hashes every listed dist/ file on every call regardless of caller verbosity",
+    "unknown_verbosity": "REJECTED — handler returns an error naming the field and the bad value"
+  },
+  "verification_artifacts": {
+    "red_to_green_tests": [
+      "test/get-health-compact.test.ts — 7 tests, all green"
+    ],
+    "typecheck": "npm run typecheck — exit 0",
+    "build": "npm run build — exit 0; 349 entrypoints"
+  },
+  "notes": "DEFAULT is preserved. The opt-in `verbosity=summary` is for routine first-use / consumer probes; explicit full and dedicated get_build_identity serve operators and CI."
+}

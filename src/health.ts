@@ -57,6 +57,38 @@ export function ping(): PingResult {
 // getHealth
 // ---------------------------------------------------------------------------
 
+/**
+ * Verbosity for `getHealth`.
+ *
+ *   - `"full"` (DEFAULT) — return the entire health report including the
+ *     per-entrypoint `build_identity.entrypoints` map. This is the prior
+ *     default behavior preserved unchanged for callers that read the
+ *     entrypoints field inline. Any caller that does NOT pass `verbosity`
+ *     gets exactly what it used to get.
+ *
+ *   - `"summary"` — return the report with the per-entrypoint
+ *     `build_identity.entrypoints` map OMITTED. Every other field on
+ *     `build_identity` is preserved verbatim: `entrypoint_count`,
+ *     `entrypoints_match_runtime`, `manifest_path`, `status`,
+ *     `source_commit`, `package_*`. Use this from routine first-use /
+ *     consumer probes where the inline hash table is unneeded.
+ *
+ * The server-side module integrity verification is unchanged for both
+ * verbosities: `readBuildIdentity()` still re-hashes every listed `dist/`
+ * file on every call. The full per-entrypoint surface is also explicitly
+ * available through the dedicated `get_build_identity` MCP tool.
+ *
+ * The default is `full` so existing callers — including internal callers
+ * that wrote the entrypoints field to disk for drift detection — are not
+ * silently broken by a "compact by default" change disguised as opt-in.
+ * Anyone who wants the compact probe asks for it explicitly.
+ */
+export type HealthVerbosity = 'summary' | 'full'
+
+export interface GetHealthOptions {
+  verbosity?: HealthVerbosity
+}
+
 export interface HealthReport {
   status: 'ok' | 'degraded' | 'error'
   uptime_ms: number
@@ -167,7 +199,54 @@ export function resolveRuntimeDistDir(): string | null {
   }
 }
 
-export function getHealth(): HealthReport {
+/**
+ * Accepted `verbosity` values for `getHealth`. The DEFAULT is `"full"` —
+ * preserves the prior default behavior (the per-entrypoint
+ * `build_identity.entrypoints` map is included on every call) so any
+ * caller that relied on the inline map is unaffected by the new option.
+ *
+ * Unknown values are rejected rather than silently defaulting: a
+ * misspelled verbosity that fell back to "full" would still cross the wire
+ * with a payload the caller did not ask for — defeating the entire point
+ * of the opt-in.
+ */
+function resolveVerbosity(opts: GetHealthOptions | undefined): HealthVerbosity {
+  const v = opts?.verbosity
+  if (v === undefined) return 'full'
+  if (v === 'summary' || v === 'full') return v
+  throw new Error(
+    `getHealth: 'verbosity' must be one of "summary" | "full" when provided, got ${JSON.stringify(v)} ` +
+      `(${typeof v}). Refusing to default — a misspelled value would silently cross the wire.`
+  )
+}
+
+/**
+ * Build the BuildIdentityReport that crosses the wire for the requested
+ * verbosity. `"full"` is the prior default shape — every field, including
+ * the per-entrypoint SHA-256 map. `"summary"` omits the entrypoints map
+ * while preserving every other field (`entrypoint_count`,
+ * `entrypoints_match_runtime`, `manifest_path`, `status`, `source_commit`,
+ * `package_*`) so a probe reading summary still has the install's
+ * identity and pass/fail bit.
+ *
+ * The server-side data is the SAME object in both cases; only the wire
+ * projection changes. Server integrity verification is unchanged.
+ */
+function projectBuildIdentity(
+  full: BuildIdentityReport,
+  verbosity: HealthVerbosity
+): BuildIdentityReport {
+  if (verbosity === 'full') return full
+  // summary: drop the entrypoints map. Everything else is preserved verbatim
+  // from the same load that produced the full report, including
+  // `entrypoints_match_runtime` (server-side re-hash ran; this just doesn't
+  // cross the wire with the per-entry table).
+  const { entrypoints: _omitted, ...rest } = full
+  return rest
+}
+
+export function getHealth(opts?: GetHealthOptions): HealthReport {
+  const verbosity = resolveVerbosity(opts)
   const data = loadData()
   const fleets = Object.values(data.fleets)
   const agents = Object.values(data.agents)
@@ -235,8 +314,14 @@ export function getHealth(): HealthReport {
   // making `status` unreliable as the promotion gate. The mismatch status
   // is now surfaced to `status: 'error'` here so a caller that only reads
   // `status` cannot mistake a broken install for a healthy one.
-  const buildIdentity = readBuildIdentity()
-  const hasBuildIdentityMismatch = buildIdentity.status === 'mismatch' || buildIdentity.status === 'unreadable'
+  //
+  // IMPORTANT: the FULL BuildIdentityReport (including the entrypoints map)
+  // is loaded and re-hashed on every call. The wire projection (summary vs
+  // full) only changes which fields cross the wire. Server-side integrity
+  // verification is unchanged regardless of verbosity.
+  const fullBuildIdentity = readBuildIdentity()
+  const buildIdentity = projectBuildIdentity(fullBuildIdentity, verbosity)
+  const hasBuildIdentityMismatch = fullBuildIdentity.status === 'mismatch' || fullBuildIdentity.status === 'unreadable'
   const receiptCount = readWorkReceiptCount()
 
   let status: 'ok' | 'degraded' | 'error' = 'ok'
@@ -274,15 +359,18 @@ function readWorkReceiptCount(): number | null {
 }
 
 /**
- * Load `dist/meshfleet-build-manifest.json` next to the running module and
+ * Read `dist/meshfleet-build-manifest.json` next to the running module and
  * return the surface. Three outcomes: `ok` (loaded, hashes recomputed against
  * disk), `unreadable` (file present but bytes are not valid JSON or the
  * schema is unknown), `absent` (file not next to the module — pre-feature
-  runtime, or `tsx` dev).
+ * runtime, or `tsx` dev).
  *
  * The runtime-vs-installed match check is intentionally cheap (one stat + one
  * hash per listed entrypoint) and unguarded; a one-off mismatch is what the
  * drift probe looks for, not a once-per-day event.
+ *
+ * Re-exported as `getBuildIdentity` so the diagnostic MCP tool can surface
+ * the full BuildIdentityReport (including the entrypoints map) by name.
  */
 export function readBuildIdentity(): BuildIdentityReport {
   const distDir = resolveRuntimeDistDir()
@@ -291,6 +379,21 @@ export function readBuildIdentity(): BuildIdentityReport {
   }
   return readBuildIdentityFromDir(distDir)
 }
+
+/**
+ * Dedicated diagnostic accessor for the full BuildIdentityReport. This is
+ * the surface operators and CI checks reach for when they need to verify a
+ * specific entrypoint's hash against the published manifest — the same
+ * server-side data `get_health({ verbosity: "full" })` returns, but named so
+ * it cannot be mistaken for a routine health probe.
+ *
+ * The function name is intentionally distinct from `readBuildIdentity`
+ * (which exists for the health internals) so the public contract is
+ * readable: `getBuildIdentity` is the API name an MCP tool or external
+ * caller uses; `readBuildIdentity` is the internal seam the health layer
+ * reads through.
+ */
+export const getBuildIdentity = readBuildIdentity
 
 /**
  * Read `meshfleet-build-manifest.json` from the supplied directory and
