@@ -40,6 +40,7 @@ import {
   MESSAGE_TYPES,
   MessageType,
   recoverInterruptedAgents,
+  reconcileOrphanedAgentsInFleet,
   reconcileAbandonedFleets,
   registerCapability,
   routeWork,
@@ -2090,6 +2091,17 @@ toolHandlers["collect_results"] = async (args) => {
     const { fleet_id } = args as { fleet_id: string };
     const bad = requireString("collect_results", "fleet_id", fleet_id);
     if (bad) return jsonError(bad);
+    // Rally Track A (2026-09-07, seat fable-5.1): a one-shot submitter (Antigravity
+    // dispatch, claude -p, a CLI, a kanban worker that finishes) lost its fleet because
+    // the in-memory orchestrator died with the spawning process. Orphaned workers that
+    // SURVIVED long enough to write their RESULT_PATH envelope would otherwise sit at
+    // status="running" until the next reboot — and at reboot, recoverInterruptedAgents
+    // flipped them to `interrupted, stopped_reason: process_lost`. The honest reconciliation
+    // is at observe time: read each "running" agent's envelope file (if any) and either
+    // complete / fail it from the envelope, OR let the existing interrupted-rollback stand.
+    // The function is a no-op when nothing needs reconciliation; cost is one read of the
+    // ledger + per-candidate `existsSync` and `parseAgentResultEnvelope` calls.
+    reconcileOrphanedAgentsInFleet(fleet_id);
     const data = readLedger();
     const agents = Object.values(data.agents).filter(
       (a) => a.fleet_id === fleet_id

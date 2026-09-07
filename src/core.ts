@@ -13,6 +13,7 @@ import { mapLegacyMessage, projectLegacyMessage } from "./a2a/legacy-map.js";
 import { A2A_MESSAGE_TYPES, type A2AMessageType } from "./a2a/types.js";
 import type { RuntimeDiagnostic } from "./runtime/types.js";
 import type { ResultContractStatus } from "./result-contract.js";
+import { parseAgentResultEnvelope, resultPathFor } from "./result-contract.js";
 import { notifyEventSubscribers } from "./event-stream.js";
 
 // ---------------------------------------------------------------------------
@@ -1115,6 +1116,195 @@ export function recoverInterruptedAgents(options?: {
     provenance_applied: provenanced.length,
     fleets_marked: fleetsMarked,
   };
+}
+
+/**
+ * Reconcile the orphan after a one-shot submitter's death against any result envelope the
+ * worker wrote before exiting. Rally Track A (2026-09-07, seat fable-5.1):
+ *
+ *   - Antigravity dispatch, claude -p, a CLI, a kanban worker that finishes — every
+ *     one-shot submitter loses its fleet when the legacy spawn path is used, because the
+ *     legacy orchestrator's in-memory `activeLegacyRuns` map and heartbeat die with the
+ *     spawning process. The orphaned worker MAY stay alive long enough to write its
+ *     `RESULT_PATH` envelope and exit cleanly; nothing today looks for it.
+ *
+ *   - `recoverInterruptedAgents` only inspects `agent.pid` liveness. A worker that
+ *     already exited has a dead pid → the row is flipped to `interrupted,
+ *     stopped_reason: process_lost`, the envelope file is discarded, and the next
+ *     `collect_results` calls the work lost.
+ *
+ *   - The fix is to reconcile the orphan, NOT to delete it. If the envelope file the
+ *     orchestrator asked the worker to write exists and parses, the run was OBSERVED —
+ *     preserving that observation is the property `checks/meshfleet-detached-exchange.sh`
+ *     pins (`expected: 0` against `delivered=0, lost=1`).
+ *
+ * Two design rules make this safe against the loss-accounting class:
+ *   1. NEVER overwrite a row that is already terminal (executed by `markAgentFinished`'s
+ *      `agent.completed_at !== undefined` check, which is the same guard that protects against
+ *      a double-finisher race elsewhere). A late envelope for an already-`complete` row is
+ *      discarded — completeness is its own source of truth.
+ *   2. NEVER pretend the envelope belongs to the run when its schema marker doesn't match.
+ *      A real result file is `mf.agent.result/v1` (or the text-result variant); anything
+ *      else is ignored. Recording an "outcome" we cannot verify would be the same
+ *      fabricated-measurement failure this harness exists to prevent.
+ *
+ * The mirror of this function lives in `LifecycleExecutionCoordinator.recover()`; durable
+ * fleets already re-launch through that path and never reach this function, so the durable
+ * lane is unchanged.
+ */
+export interface OrphanReconcileOutcome {
+  /** Working agents re-settled from a real envelope on disk. */
+  reconciled: number;
+  /** Envelope files that existed but were unparseable — left for the operator. */
+  unreadable: number;
+  /** Agents whose pid was alive — left alone, real workers still in flight. */
+  live: number;
+}
+
+export function reconcileOrphanedAgentsInFleet(fleetId: string): OrphanReconcileOutcome {
+  const data = readLedger();
+  const agents = Object.values(data.agents).filter((a) => a.fleet_id === fleetId);
+  // Pass 1 — read-only candidates + filesystem reads (must NOT hold the write lock).
+  type Candidate =
+    | { kind: "live"; agentId: string }
+    | { kind: "envelope-with-stale-status"; agentId: string; attempt: number; envelopePath: string; previousStatus: string }
+    | { kind: "no-evidence"; agentId: string }
+    | { kind: "wrong-mode"; agentId: string };
+  const candidates: Candidate[] = [];
+  // We need the durable-mode filter up front; it lives in SQLite. Read just this fleet's mode.
+  const fleetMode = withLedgerAndStorage((_data, db) => {
+    const row = db.prepare("SELECT lifecycle_mode FROM fleets WHERE id = ?").get(fleetId) as
+      | { lifecycle_mode?: string | null } | undefined;
+    return row?.lifecycle_mode ?? undefined;
+  });
+  for (const agent of agents) {
+    // Reconciliation has TWO legitimate subjects:
+    //   (a) A `running` agent whose pid is dead but envelope exists — the orchestrator
+    //       lost the in-memory wait but the orphan completed and the envelope is the
+    //       evidence.
+    //   (b) An `interrupted` agent whose recoverInterruptedAgents flip on next boot was
+    //       *wrong* — the orchestrator already died, the orphan had already finished,
+    //       and the row was mis-cast to `interrupted, stopped_reason: process_lost`
+    //       before this code saw the envelope. The envelope is the evidence.
+    //
+    // A `running` agent with a LIVE pid is a real worker — leave it for the orchestrator
+    // to settle. A `running` agent with a dead pid and NO envelope is the unrecoverable
+    // case (worker died before settling); it stays at `running` until a later pass or the
+    // next server's `recoverInterruptedAgents` flips it (at which point the new envelope
+    // would reconcile it on the next collect_results).
+    //
+    // A `complete`/`failed` row is NEVER reconciled: the orchestrator's own
+    // `markAgentFinished` already stamped those terminals, and double-sealing from a
+    // late envelope would be a measurement fabrication. The Pass-3 stop is on STATUS, not
+    // completed_at, because an interrupted row's `completed_at` is part of the crash-
+    // cascade stamp — clearing it along with the row's status is the reconciliation.
+    const isSealedThroughMarkAgentFinished = agent.status === "complete" || agent.status === "failed";
+    if (isSealedThroughMarkAgentFinished) continue;
+    const candidateStatuses = new Set<string>(["running", "interrupted"]);
+    if (!candidateStatuses.has(agent.status)) continue;
+    if (agent.status === "running") {
+      if (agent.pid !== undefined && isPidAlive(agent.pid)) {
+        candidates.push({ kind: "live", agentId: agent.id });
+        continue;
+      }
+    }
+    // Durable fleets own their lease; their recover() re-launches and we'd race the
+    // coordinator's own settle. Skip.
+    if (fleetMode === "durable") { candidates.push({ kind: "wrong-mode", agentId: agent.id }); continue; }
+    const attempts = agent.runtime_attempts?.length ?? 1;
+    // The latest attempt is what its envelope lives under. A retry that hasn't yet had its
+    // adapter recorded still reads as attempt 1.
+    const candidateAttempt = Math.max(1, attempts);
+    const candidatePath = resultPathFor(agent.id, candidateAttempt);
+    if (existsSync(candidatePath)) {
+      candidates.push({
+        kind: "envelope-with-stale-status",
+        agentId: agent.id,
+        attempt: candidateAttempt,
+        envelopePath: candidatePath,
+        previousStatus: agent.status,
+      });
+      continue;
+    }
+    candidates.push({ kind: "no-evidence", agentId: agent.id });
+  }
+  // Pass 2 — read each envelope OUTSIDE the lock. Torn-by-crash bytes are still possible;
+  // the parser treats "not JSON" and "missing fields" as un-parseable and we leave the row
+  // alone in that case, which keeps the recovery idempotent (re-attempting reconciliation
+  // finds the same torn bytes and produces the same refusal).
+  type ParsedEnvelope =
+    | { kind: "done"; summary: string; output?: string; reason?: string }
+    | { kind: "refused" | "blocked"; summary: string; reason: string };
+  const resolved = new Map<string, ParsedEnvelope>();
+  let unreadable = 0;
+  for (const c of candidates) {
+    if (c.kind !== "envelope-with-stale-status") continue;
+    let raw: string;
+    try { raw = readFileSync(c.envelopePath, "utf8"); }
+    catch { unreadable++; continue; }
+    const parsed = parseAgentResultEnvelope(raw);
+    if (!parsed.ok) { unreadable++; continue; }
+    if (parsed.envelope.outcome === "done") {
+      resolved.set(c.agentId, { kind: "done", summary: parsed.envelope.summary });
+    } else {
+      resolved.set(c.agentId, {
+        kind: parsed.envelope.outcome === "refused" ? "refused" : "blocked",
+        summary: parsed.envelope.summary,
+        // reason is required by the parser for non-done outcomes; the cast is the type
+        // system catching up with the runtime guarantees.
+        reason: parsed.envelope.reason ?? "",
+      });
+    }
+  }
+  // Pass 3 — single transaction. `_checkFleetCompletion` runs from the same snapshot so a
+  // reclaim does not race a concurrent writer into flipping the fleet to its terminal
+  // status from a partial view.
+  let reconciled = 0;
+  let liveSeen = 0;
+  let unreadableEnvelope = 0;
+  withLedger((data) => {
+    for (const c of candidates) {
+      if (c.kind === "live") { liveSeen++; continue; }
+      if (c.kind === "wrong-mode") continue;
+      if (c.kind === "no-evidence") continue; // nothing on disk to reconcile from
+      const envelope = resolved.get(c.agentId);
+      if (!envelope) { unreadableEnvelope++; continue; } // unreadable; left for the operator per rule 2
+      const agent = data.agents[c.agentId];
+      if (!agent) continue; // race-lost; rule 1
+      // `completed_at !== undefined` only protects rows that were sealed through the
+      // normal `markAgentFinished` path (`complete` / `failed`). An `interrupted` row
+      // also has `completed_at` set (recoverInterruptedAgents stamps it), but those
+      // rows are reconciliation targets — the envelope may contradict the row's
+      // recorded stopped_reason, and reconciling to the correct outcome is the whole
+      // purpose of this function.
+      const isSealedThroughMarkAgentFinished = agent.status === "complete" || agent.status === "failed";
+      if (isSealedThroughMarkAgentFinished) continue;
+      if (agent.fleet_id !== fleetId) continue; // a concurrent attach_agent moved it
+      // If the previous status was already terminal-but-not-completed (the `interrupted`
+      // case), we wipe the misleading stopped_reason/error: the observation the envelope
+      // carries is the truth now. The original `crash_provenance_applied` event from
+      // recoverInterruptedAgents is left in the log un-edited — forensic history is
+      // preserved even when the row's *correct* status changes.
+      if (envelope.kind === "done") {
+        agent.status = "complete";
+        agent.output = envelope.summary;
+        agent.error = undefined;
+        agent.result_contract = "ok";
+        agent.completed_at = Date.now();
+        reconciled++;
+        _checkFleetCompletion(data, fleetId);
+      } else {
+        agent.status = "failed";
+        agent.output = envelope.summary;
+        agent.error = envelope.reason;
+        agent.result_contract = envelope.kind;
+        agent.completed_at = Date.now();
+        reconciled++;
+        _checkFleetCompletion(data, fleetId);
+      }
+    }
+  });
+  return { reconciled, unreadable: unreadableEnvelope, live: liveSeen };
 }
 
 // ---------------------------------------------------------------------------
