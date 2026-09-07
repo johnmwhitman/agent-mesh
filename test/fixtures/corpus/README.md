@@ -39,10 +39,22 @@ into one "N/N covered" number** — that number would be marketing.
 | `anomaly` | 14 | Genuinely surprising, but claims no more than the records support (an orphaned reference, a stale projection). Raises a **warning**; `ok` stays true. A warning-only detection is deliberately *not* counted as "caught". |
 | `undetectable` | 10 | The free core structurally cannot see it. Must produce **zero** findings. |
 
-Together the `caught` and `anomaly` vectors name **all 56** checks the verifier can
+Together the `caught` and `anomaly` vectors name **all 63** checks the verifier can
 emit outside the `discussion.*` family, which carries its own corpus
 (`tampered-discussion-*.json`). The count is re-derived from `src/verify.ts` on
 every run, so adding a check without adding a vector fails the suite.
+
+The `work_receipt.*` family lives on the SQLite-backed verifier path
+(`verifyLedgerFile` reads from a private read-only audit copy of the
+`work_receipts` table, not from MeshData). It cannot be expressed as a
+MeshData tamper fixture, so the coverage contract is an executable table in
+[`test/work-receipt-fixtures.ts`](../../work-receipt-fixtures.ts) that
+plants a real row for each check, runs `verifyLedgerFile`, and asserts the
+named check fires at error severity. The corpus coverage test in
+`test/corpus.test.ts` cross-checks the table against the source-derived
+emitted set: a new `work_receipt.*` check without a fixture entry, a
+fixture entry whose check no longer exists in verify.ts, or a fixture whose
+`plant` function does not actually fire its named check, all fail the suite.
 
 ## The `undetectable` bucket is the point
 

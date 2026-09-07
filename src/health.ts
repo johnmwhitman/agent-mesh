@@ -24,9 +24,12 @@ import {
   readFileSync,
   statSync,
 } from 'node:fs'
-import { join, dirname } from 'node:path'
+import { createHash } from 'node:crypto'
+import { fileURLToPath } from 'node:url'
+import { basename, dirname, join } from 'node:path'
 import { loadData, resolveEventLogFile } from './core.js'
 import { resolveDbFile } from './db.js'
+import { workReceiptCount } from './work-receipt.js'
 
 // ---------------------------------------------------------------------------
 // Process startup time (for uptime)
@@ -66,6 +69,24 @@ export interface HealthReport {
   events_log_bytes: number
   last_event_timestamp?: number
   /**
+   * Total rows in the `work_receipts` collection. Reads via the live shared
+   * handle so the count is consistent with `record_work_receipt` /
+   * `get_work_receipt` rather than with a stale audit snapshot. 0 on
+   * pre-v5 ledgers (the table is purely additive and backfill-free).
+   * Null means the count could not be read; overall health is then error.
+   */
+  work_receipt_count: number | null
+  /**
+   * The build-identity surface for the ratified three-copy promotion
+   * contract (Kanban receipt dogfood design §5). Mirrors the runtime's own
+   * `dist/meshfleet-build-manifest.json` so a caller can compare it against
+   * the installed copy and the repo manifest. `null` when the manifest is
+   * absent (the running build predates the schema); `status` distinguishes
+   * the three failure modes so a downstream probe can act without parsing
+   * the whole object.
+   */
+  build_identity: BuildIdentityReport
+  /**
    * Fleets whose agents have ALL reached a terminal state with at least one
    * `interrupted` — the fleet's process died rather than finishing or erroring.
    * These are not hangs, so they do not set `degraded`, but they are counted so
@@ -76,6 +97,74 @@ export interface HealthReport {
    * 24h in a ledger that has not been reconciled.
    */
   abandoned_fleets: number
+}
+
+/**
+ * Build-identity surface — exactly the shape of `meshfleet-build-manifest.json`
+ * (v1) carried on the health response. The whole file is read once per call
+ * (no caching) so a caller sees the latest on-disk manifest immediately after
+ * a deploy, and a manifest read failure is reported as `status='unreadable'`
+ * rather than as `'ok'` with a missing field.
+ *
+ * `entrypoints_match_runtime` is a derived flag: when the manifest is loaded
+ * AND the same `dist/` files hash to the same bytes on disk at the time of
+ * the call. A stale install (e.g. tarball unpacked but dist/ left from a
+ * prior build) shows up as `false` without needing an out-of-band check.
+ */
+export interface BuildIdentityReport {
+  status: 'ok' | 'absent' | 'unreadable' | 'mismatch'
+  /** Schema marker from the loaded manifest. 'unknown' when not loaded. */
+  schema?: string
+  /** Package name from the loaded manifest. */
+  package_name?: string
+  /** Package version from the loaded manifest. */
+  package_version?: string
+  /** Git SHA from the loaded manifest, or null when the build lacked git. */
+  source_commit?: string | null
+  /** Why `source_commit` is null (e.g. 'git not available'). */
+  commit_reason?: string | null
+  /** Number of entrypoints listed in the manifest. */
+  entrypoint_count?: number
+  /** Map of relative path -> SHA-256. */
+  entrypoints?: Record<string, string>
+  /**
+   * True when the loaded manifest's hashes match the on-disk bytes of the
+   * same `dist/` files at the time of this call. False on mismatch; `null`
+   * when the manifest itself failed to load.
+   */
+  entrypoints_match_runtime?: boolean | null
+  /** Absolute path the manifest was loaded from. */
+  manifest_path?: string
+}
+
+const BUILD_MANIFEST_FILENAME = 'meshfleet-build-manifest.json'
+const DIST_DIR_NAME = 'dist'
+/**
+ * A loose semver grammar: 1-3 numeric segments separated by dots, optionally
+ * followed by `-prerelease` and/or `+build`. Catches `0.21.1`, `1.2.3-rc.4+abc`,
+ * rejects empty strings, plain words, and the `null`/missing-package.version
+ * case the previous code accepted silently.
+ */
+const SEMVER_LIKE = /^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.\-]+)*$/
+
+/** Resolve the `dist/` directory this process was loaded from. */
+export function resolveRuntimeDistDir(): string | null {
+  // import.meta.url is `file://…/dist/health.js` (after build) or
+  // `file://…/src/health.ts` (tsx dev). Either way, `dist/` (or `src/`)
+  // sits next to it. We resolve the directory of the running file and look
+  // for the manifest in that directory; in production builds, that directory
+  // IS `dist/`.
+  try {
+    const here = dirname(fileURLToPath(import.meta.url))
+    const candidate = join(here, BUILD_MANIFEST_FILENAME)
+    if (basename(here) === DIST_DIR_NAME || existsSync(candidate)) return here
+    // src/ fallback for `tsx`-driven development — health.ts lives next to
+    // its source dist/ if invoked from there. Production builds always hit
+    // the first branch.
+    return null
+  } catch {
+    return null
+  }
 }
 
 export function getHealth(): HealthReport {
@@ -139,8 +228,19 @@ export function getHealth(): HealthReport {
   // anything would leave `status: 'ok'` over a log nobody can read.
   const hasUnreadableEventLog = eventsBytes < 0
 
+  // A build-identity mismatch (missing package metadata, wrong package name,
+  // byte mismatch, unsafe entrypoint path, missing required runtime
+  // entrypoint, malformed source_commit) is a HARD failure. The previous
+  // code returned `status: 'ok'` while `entrypoints_match_runtime: false`,
+  // making `status` unreliable as the promotion gate. The mismatch status
+  // is now surfaced to `status: 'error'` here so a caller that only reads
+  // `status` cannot mistake a broken install for a healthy one.
+  const buildIdentity = readBuildIdentity()
+  const hasBuildIdentityMismatch = buildIdentity.status === 'mismatch' || buildIdentity.status === 'unreadable'
+  const receiptCount = readWorkReceiptCount()
+
   let status: 'ok' | 'degraded' | 'error' = 'ok'
-  if (hasCorruptLedger) status = 'error'
+  if (hasCorruptLedger || hasBuildIdentityMismatch || receiptCount === null) status = 'error'
   else if (hasStuckFleet || hasUnreadableEventLog) status = 'degraded'
 
   return {
@@ -155,6 +255,176 @@ export function getHealth(): HealthReport {
     ledger_bytes: ledgerBytes,
     events_log_bytes: eventsBytes,
     last_event_timestamp: lastTimestamp,
+    work_receipt_count: receiptCount,
+    build_identity: buildIdentity,
+  }
+}
+
+/**
+ * Work-receipt row count, wrapped so the live-handle read stays inside the
+ * try/catch around `getHealth`'s I/O (a corrupted ledger cannot turn a
+ * health check into an exception).
+ */
+function readWorkReceiptCount(): number | null {
+  try {
+    return workReceiptCount()
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Load `dist/meshfleet-build-manifest.json` next to the running module and
+ * return the surface. Three outcomes: `ok` (loaded, hashes recomputed against
+ * disk), `unreadable` (file present but bytes are not valid JSON or the
+ * schema is unknown), `absent` (file not next to the module — pre-feature
+  runtime, or `tsx` dev).
+ *
+ * The runtime-vs-installed match check is intentionally cheap (one stat + one
+ * hash per listed entrypoint) and unguarded; a one-off mismatch is what the
+ * drift probe looks for, not a once-per-day event.
+ */
+export function readBuildIdentity(): BuildIdentityReport {
+  const distDir = resolveRuntimeDistDir()
+  if (!distDir) {
+    return { status: 'absent' }
+  }
+  return readBuildIdentityFromDir(distDir)
+}
+
+/**
+ * Read `meshfleet-build-manifest.json` from the supplied directory and
+ * validate every field the promotion gate depends on. Extracted from
+ * readBuildIdentity so tests can plant malformed manifests in a temp
+ * directory and exercise the real promotion-gate logic without module
+ * URL redirection. Production callers go through readBuildIdentity, which
+ * resolves the directory from `import.meta.url` (no env seam).
+ */
+export function readBuildIdentityFromDir(distDir: string): BuildIdentityReport {
+  const manifestPath = join(distDir, BUILD_MANIFEST_FILENAME)
+  let parsed: unknown
+  try {
+    const raw = readFileSync(manifestPath, 'utf-8')
+    parsed = JSON.parse(raw)
+  } catch {
+    return { status: 'unreadable', manifest_path: manifestPath }
+  }
+  if (
+    parsed === null ||
+    typeof parsed !== 'object' ||
+    Array.isArray(parsed) ||
+    (parsed as { schema?: unknown }).schema !== 'meshfleet.build/v1'
+  ) {
+    return { status: 'unreadable', manifest_path: manifestPath }
+  }
+  const m = parsed as {
+    package?: { name?: string; version?: string }
+    source_commit?: string | null
+    commit_reason?: string | null
+    entrypoints?: Record<string, string>
+  }
+  if (
+    typeof m.entrypoints !== 'object' ||
+    m.entrypoints === null ||
+    Array.isArray(m.entrypoints)
+  ) {
+    return { status: 'unreadable', manifest_path: manifestPath }
+  }
+  // The entrypoint map is the canonical SHA-256 -> path table; an empty map is
+  // a manifest that built nothing, which we treat as unreadable so a
+  // degraded build never claims 'ok'.
+  const entrypoints = m.entrypoints
+  if (Object.keys(entrypoints).length === 0) {
+    return { status: 'unreadable', manifest_path: manifestPath }
+  }
+  // Fail-closed checks: when the manifest loads cleanly the fields the
+  // promotion gate relies on MUST be present and well-formed. The previous
+  // code returned `status: 'ok'` regardless of missing package metadata,
+  // which meant a manifest with package.version=null still passed the
+  // promotion gate — a version-byte mismatch was reachable from a clean
+  // manifest read.
+  const packageName = typeof m.package?.name === 'string' ? m.package.name.trim() : ''
+  const packageVersion = typeof m.package?.version === 'string' ? m.package.version.trim() : ''
+  if (packageName !== 'meshfleet' || !SEMVER_LIKE.test(packageVersion)) {
+    return { status: 'mismatch', manifest_path: manifestPath }
+  }
+  // Source commit, when present, must be a 40-char hex SHA. `null` is only
+  // permitted when accompanied by a non-empty commit_reason that names the
+  // documented cause ("git not available", a non-SHA ref, etc.). A null
+  // source_commit with NO reason (the previous code's silent-accept case)
+  // is the malformed scenario — a missing required field rather than a
+  // documented outcome. Registry-installed packages still pass: their
+  // manifest generator writes both `source_commit: null` AND a reason.
+  if (m.source_commit !== null && m.source_commit !== undefined) {
+    if (typeof m.source_commit !== "string" || !/^[0-9a-f]{40}$/.test(m.source_commit)) {
+      return { status: 'mismatch', manifest_path: manifestPath }
+    }
+  } else if (
+    typeof m.commit_reason !== "string" ||
+    m.commit_reason.trim() === ""
+  ) {
+    return { status: 'mismatch', manifest_path: manifestPath }
+  }
+  // Unsafe paths — reject any entrypoint whose relative path escapes the
+  // manifest's distDir, contains null bytes, or is not a plain .js file.
+  // The hash map is a publisher <-> runtime contract; a path the runtime
+  // cannot resolve is a hole the promotion gate exists to surface.
+  const safeEntrypoints: Record<string, string> = {}
+  for (const [rel, expected] of Object.entries(entrypoints)) {
+    if (typeof expected !== 'string' || !/^[0-9a-f]{64}$/.test(expected)) {
+      return { status: 'mismatch', manifest_path: manifestPath }
+    }
+    if (
+      rel.includes('\u0000') ||
+      rel.includes('\\') ||
+      rel.startsWith('/') ||
+      rel.split('/').some((segment) => segment === '..' || segment === '.') ||
+      !rel.endsWith('.js')
+    ) {
+      return { status: 'mismatch', manifest_path: manifestPath }
+    }
+    safeEntrypoints[rel] = expected
+  }
+  // Required runtime entrypoints. The package's main export maps to
+  // dist/index.js; the `meshfleet` bin maps to dist/bin/meshfleet.js. A
+  // manifest that lists neither is not the published runtime, regardless
+  // of what else is present.
+  const REQUIRED_RUNTIME_ENTRYPOINTS = ['index.js', 'bin/meshfleet.js'] as const
+  for (const required of REQUIRED_RUNTIME_ENTRYPOINTS) {
+    if (!Object.prototype.hasOwnProperty.call(safeEntrypoints, required)) {
+      return { status: 'mismatch', manifest_path: manifestPath }
+    }
+  }
+  let match = true
+  for (const [rel, expected] of Object.entries(safeEntrypoints)) {
+    try {
+      const bytes = readFileSync(join(distDir, rel))
+      const got = createHash('sha256').update(bytes).digest('hex')
+      if (got !== expected) {
+        match = false
+        break
+      }
+    } catch {
+      match = false
+      break
+    }
+  }
+  // Fail closed on byte mismatch — the previous code returned `status: 'ok'`
+  // with `entrypoints_match_runtime: false` and let the caller treat the
+  // mismatch as a warning. Promotion gating that ever reads `status` cannot
+  // trust it under that contract, so the only fix is to make mismatch
+  // visible at the status field too.
+  return {
+    status: match ? 'ok' : 'mismatch',
+    schema: 'meshfleet.build/v1',
+    package_name: packageName,
+    package_version: packageVersion,
+    source_commit: m.source_commit ?? null,
+    commit_reason: m.commit_reason ?? null,
+    entrypoint_count: Object.keys(safeEntrypoints).length,
+    entrypoints: safeEntrypoints,
+    entrypoints_match_runtime: match,
+    manifest_path: manifestPath,
   }
 }
 

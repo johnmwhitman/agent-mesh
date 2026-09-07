@@ -21,13 +21,26 @@
  *
  * Read-only by design: verification never mutates the ledger it audits.
  */
-import { existsSync } from "fs";
+import { existsSync } from "node:fs";
 import { BROADCAST, SEALED_FLEET_STATUSES, TERMINAL_AGENT_STATUSES, fleetLatticeOutcome, isRoutableCapability, isUsableAgentId, messageRecipients, type MeshData, type Message, type Receipt } from "./core.js";
 import { MAX_TOTAL_WEIGHT, MAX_VOTE_WEIGHT, computeTally, parseVoteAction } from "./ratify.js";
 import { deriveDiscussion, parseEnvelope, parseReceiptAction } from "./discussion.js";
-import { readLedger } from "./db.js";
+import { readLedger, resolveDbFile, assertWorkReceiptsV5Schema } from "./db.js";
+import {
+  EVIDENCE_KINDS,
+  WORK_RECEIPT_SCHEMA,
+  WORK_RECEIPT_SOURCE,
+  computeWorkReceiptPayloadSha256,
+  parseWorkReceiptKey,
+  validatePersistedWorkReceiptFields,
+  type WorkReceipt,
+} from "./work-receipt.js";
 import { readLifecycleSnapshot, readLifecycleSnapshotFile, verifyLifecycleSnapshot } from "./lifecycle-visibility.js";
 import { runtimeModelsMatch } from "./spawn-result.js";
+import Database from "better-sqlite3";
+import { copyFileSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 /**
  * Discussion integrity-finding codes (src/discussion.ts) that get ERROR
@@ -155,7 +168,11 @@ function derivedAcknowledged(msg: Message, validatedAckReceipts: ReadonlySet<str
 }
 
 /** Verify a MeshData snapshot. Pure and read-only; `now` only affects deadline-dependent tally recomputation. */
-export function verifyMeshData(data: MeshData, now: number = Date.now()): VerifyReport {
+export function verifyMeshData(
+  data: MeshData,
+  now: number = Date.now(),
+  workReceiptRows: ReadonlyMap<string, WorkReceipt> = new Map(),
+): VerifyReport {
   const findings: VerifyFinding[] = [];
   const error = (check: string, subject: string, detail: string): void => {
     findings.push({ severity: "error", check, subject, detail });
@@ -163,6 +180,42 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
   const warning = (check: string, subject: string, detail: string): void => {
     findings.push({ severity: "warning", check, subject, detail });
   };
+
+  // Common invariant boundary. Every persisted work_receipt passed into
+  // the verifier is checked against the persisted-schema contract here:
+  // unknown enums, blank assignee, invalid timestamps, non-hex
+  // payload_sha256, non-array or malformed evidence_json, malformed
+  // task_id — every reason surfaces as an invalid_persisted_schema
+  // finding instead of silently corrupting downstream invariants or
+  // crashing the audit. Direct callers (the corpus test, a future
+  // synthetic MeshData build, a non-file load path) get the same
+  // failure-as-finding treatment the file-audit path gets through
+  // loadWorkReceiptsFromFile → finalizeVerifyReport.
+  for (const [rowKey, wr] of workReceiptRows) {
+    const validation = validatePersistedWorkReceiptFields({
+      key: rowKey,
+      source: wr.source,
+      task_id: wr.task_id,
+      run_id: wr.run_id,
+      assignee: wr.assignee,
+      terminal_outcome: wr.terminal_outcome,
+      result_contract: wr.result_contract,
+      quality_gate: wr.quality_gate,
+      completed_at: wr.completed_at,
+      evidence_json: JSON.stringify(wr.evidence),
+      payload_sha256: wr.payload_sha256,
+      recorded_at: wr.recorded_at,
+    });
+    if (!validation.ok) {
+      for (const reason of validation.reasons) {
+        error(
+          "work_receipt.invalid_persisted_schema",
+          rowKey,
+          `work_receipts row fails the persisted-schema contract: ${reason}`,
+        );
+      }
+    }
+  }
 
   const receipts = data.receipts ?? {};
   const ratifications = data.ratifications ?? {};
@@ -1160,6 +1213,239 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
     }
   }
 
+  // --- work receipts (Hermes Kanban result contract) ---------------------
+  //
+  // These are first-class rows in the `work_receipts` collection, distinct
+  // from P2P receipts. Each row carries an immutable idempotency key
+  // (source, task_id, run_id), a canonical payload, a payload_sha256 the
+  // server recomputed before INSERT, and the server's recorded_at.
+  //
+  // The verifier v3 reads rows from a private readonly audit copy and reports:
+  //   - malformed_key: a row whose key cannot be parsed (a backfilled legacy
+  //     row, or a hand-edit) — the row is still counted as data but its
+  //     lookup-shape is unprovable;
+  //   - identity_mismatch: a row whose PARSED primary key disagrees with the
+  //     row's OWN stored (source, task_id, run_id) columns. The composite
+  //     primary key is supposed to be a deterministic encoding of the
+  //     identity columns; a hand-edit that rewrote one but not the other
+  //     leaves a row whose lookup-shape and its stored identity disagree.
+  //     The verifier reports the disagreement; it does NOT silently
+  //     deduplicate or rewrite either side, because the ledger's own bytes
+  //     are the only audit truth available here.
+  //   - digest_mismatch: the row's stored payload_sha256 disagrees with the
+  //     digest recomputed from its own canonicalized fields;
+  //   - duplicate_logical_key: two or more rows whose (source, task_id,
+  //     run_id) match despite different primary keys. The v5 schema has a
+  //     PRIMARY KEY on `key` only — there is no UNIQUE INDEX on the logical
+  //     tuple — so a legacy backfill, a hand-edit, or a writer bug can
+  //     legitimately produce two distinct keys with identical identity
+  //     columns. Each such row is reported as its own finding (no
+  //     deduplication; the ledger's bytes stay unaltered).
+  //   - impossible_success: terminal_outcome=refused|failed with
+  //     result_contract=ok, or terminal_outcome=completed with
+  //     result_contract outside {ok, artifact_missing};
+  //   - evidence_shape: an evidence entry whose kind, handle, or digest does
+  //     not match the contract grammar.
+  //
+  // v3 is unsigned local-consistency: every check here is re-derivable from
+  // the row's own bytes. The verifier does not attest authorship, freshness,
+  // or external truth.
+  const EVIDENCE_KINDS_SET: ReadonlySet<string> = new Set(EVIDENCE_KINDS);
+  const isValidEvidenceKind = (kind: unknown): boolean =>
+    typeof kind === "string" && EVIDENCE_KINDS_SET.has(kind);
+
+  // Pre-pass: cross-row invariants. Each rowKey that parses gets bucketed by
+  // its STORED (source, task_id, run_id) columns — not the parsed key —
+  // because the duplicate-logical-key invariant is "two stored rows share
+  // the same identity columns", regardless of whether one of those rows
+  // ALSO fails identity_mismatch. We report identity_mismatch per offending
+  // row, then bucket the stored identity columns across ALL rows (including
+  // disputed ones) so the duplicate fire is co-reported when the same
+  // fixture trips both invariants. A single audit run must surface every
+  // corrupted-ledger shape at once.
+  const logicalTupleToKeys = new Map<string, string[]>();
+  for (const [rowKey, wr] of workReceiptRows) {
+    const parsedKey = parseWorkReceiptKey(rowKey);
+    if (!parsedKey) {
+      // malformed_key is emitted below in the per-row pass; skip the tuple
+      // bucket so a key that doesn't parse cannot collide with itself.
+      continue;
+    }
+    if (
+      parsedKey.source !== wr.source ||
+      parsedKey.task_id !== wr.task_id ||
+      parsedKey.run_id !== wr.run_id
+    ) {
+      error(
+        "work_receipt.identity_mismatch",
+        rowKey,
+        `work_receipts row's parsed primary key 'source=${JSON.stringify(parsedKey.source)} task_id=${JSON.stringify(parsedKey.task_id)} run_id=${parsedKey.run_id}' disagrees with the row's stored identity columns 'source=${JSON.stringify(wr.source)} task_id=${JSON.stringify(wr.task_id)} run_id=${wr.run_id}' — the lookup-shape and the identity columns are out of sync`,
+      );
+      // Still bucket this row by its STORED identity columns: the duplicate
+      // invariant is "two rows share the same logical tuple in storage",
+      // and that test reads from storage. Skipping the bucket would hide
+      // the duplicate in fixtures that co-fire both invariants.
+    }
+    const tupleKey = `${wr.source}\u0000${wr.task_id}\u0000${wr.run_id}`;
+    const bucket = logicalTupleToKeys.get(tupleKey);
+    if (bucket) bucket.push(rowKey);
+    else logicalTupleToKeys.set(tupleKey, [rowKey]);
+  }
+  for (const [, rowKeys] of logicalTupleToKeys) {
+    if (rowKeys.length < 2) continue;
+    // Every row in a duplicate bucket is reported — the contract says the
+    // verifier surfaces the corrupted-ledger shape, never silently drops
+    // rows or relies on writer constraints. Sort by row key so the finding
+    // text is deterministic across runs and across audits of the same file.
+    const sorted = [...rowKeys].sort();
+    for (const rowKey of sorted) {
+      const peers = sorted.filter((k) => k !== rowKey);
+      error(
+        "work_receipt.duplicate_logical_key",
+        rowKey,
+        `work_receipts row's (source, task_id, run_id) tuple is shared by ${peers.length} other stored row(s) with different primary keys: ${peers.map((k) => JSON.stringify(k)).join(", ")} — the v5 schema does not enforce a UNIQUE INDEX on the logical identity columns, so a legacy backfill or hand-edit can produce duplicates; this verifier does not deduplicate, it reports`,
+      );
+    }
+  }
+
+  for (const [rowKey, wr] of workReceiptRows) {
+    // Persisted-schema contract check happens once at the common invariant
+    // boundary at the top of verifyMeshData (see the pre-pass above); the
+    // per-row invariants below skip themselves when a row's identity is
+    // unrecoverable (the parsed-key check), but do NOT re-validate the
+    // schema fields — that work was already done and emitted as
+    // invalid_persisted_schema findings above.
+    const parsedKey = parseWorkReceiptKey(rowKey);
+    if (!parsedKey) {
+      error(
+        "work_receipt.malformed_key",
+        rowKey,
+        `work_receipts row has a key that does not parse as source\\x00task_id\\x00run_id`,
+      );
+      continue;
+    }
+    // Defense-in-depth at the per-row invariant loop. The persisted-row
+    // validator substitutes `evidence: []` on every parse failure, so this
+    // branch is unreachable for rows loaded via loadWorkReceiptsFromFile —
+    // but verifyMeshData is the boundary that BOTH the file-audit path AND
+    // the snapshot path share. A future caller that bypasses the load
+    // path (a custom test, a synthetic MeshData build) gets the same
+    // failure-as-finding treatment instead of a thrown TypeError that
+    // takes the whole audit down.
+    if (!Array.isArray(wr.evidence)) {
+      error(
+        "work_receipt.evidence_shape",
+        rowKey,
+        `work_receipts row evidence is not an array (got ${wr.evidence === null ? "null" : typeof wr.evidence}); skipping per-entry checks to keep the audit available`,
+      );
+      continue;
+    }
+    let recomputed: string;
+    try {
+      recomputed = computeWorkReceiptPayloadSha256({
+        schema: WORK_RECEIPT_SCHEMA,
+        task_id: wr.task_id,
+        run_id: wr.run_id,
+        assignee: wr.assignee,
+        terminal_outcome: wr.terminal_outcome,
+        result_contract: wr.result_contract,
+        quality_gate: wr.quality_gate,
+        completed_at: wr.completed_at,
+        evidence: wr.evidence,
+        payload_sha256: wr.payload_sha256,
+      });
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      error(
+        "work_receipt.invalid_persisted_schema",
+        rowKey,
+        `work_receipts row's recompute threw — fields did not match the digest contract: ${detail}`,
+      );
+      continue;
+    }
+    if (recomputed !== wr.payload_sha256) {
+      error(
+        "work_receipt.digest_mismatch",
+        rowKey,
+        `work_receipts row's stored payload_sha256 ${wr.payload_sha256} does not match the canonical digest ${recomputed} recomputed from its fields`,
+      );
+    }
+    if (
+      (wr.terminal_outcome === "refused" || wr.terminal_outcome === "failed") &&
+      wr.result_contract === "ok"
+    ) {
+      error(
+        "work_receipt.impossible_success",
+        rowKey,
+        `work_receipts row declares terminal_outcome=${wr.terminal_outcome} but result_contract=ok (the declared outcome contradicts the recorded contract)`,
+      );
+    }
+    if (
+      wr.terminal_outcome === "completed" &&
+      wr.result_contract !== "ok" &&
+      wr.result_contract !== "artifact_missing"
+    ) {
+      error(
+        "work_receipt.impossible_success",
+        rowKey,
+        `work_receipts row declares terminal_outcome=completed but result_contract=${wr.result_contract} (completed work with no artifact and not ok is contractually impossible)`,
+      );
+    }
+    if (wr.quality_gate === "passed" && wr.result_contract !== "ok") {
+      error(
+        "work_receipt.impossible_success",
+        rowKey,
+        `work_receipts row declares quality_gate=passed but result_contract=${wr.result_contract} (the strict numerator requires both)`,
+      );
+    }
+    if (wr.quality_gate === "passed" && wr.evidence.length === 0) {
+      error(
+        "work_receipt.evidence_shape",
+        rowKey,
+        `work_receipts row declares quality_gate=passed with zero evidence entries (the success numerator requires at least one handle)`,
+      );
+    }
+    wr.evidence.forEach((entry, idx) => {
+      // Defense-in-depth: a non-object entry would crash every field read
+      // below. The persisted-row validator already rejected this case and
+      // substituted [], but verifyMeshData is the common invariant boundary
+      // for both the file-audit path and the snapshot path; treat any
+      // non-object entry as an evidence_shape finding instead of throwing.
+      if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
+        error(
+          "work_receipt.evidence_shape",
+          rowKey,
+          `work_receipts row evidence[${idx}] is not a single JSON object (got ${entry === null ? "null" : typeof entry})`,
+        );
+        return;
+      }
+      if (!isValidEvidenceKind(entry.kind)) {
+        error(
+          "work_receipt.evidence_shape",
+          rowKey,
+          `work_receipts row evidence[${idx}].kind=${JSON.stringify(entry.kind)} is not one of ${EVIDENCE_KINDS.join("|")}`,
+        );
+      }
+      if (typeof entry.handle !== "string" || entry.handle.trim() === "") {
+        error(
+          "work_receipt.evidence_shape",
+          rowKey,
+          `work_receipts row evidence[${idx}].handle must be a non-empty string`,
+        );
+      }
+      if (
+        entry.digest !== undefined &&
+        (typeof entry.digest !== "string" || !/^[0-9a-f]{64}$/.test(entry.digest))
+      ) {
+        error(
+          "work_receipt.evidence_shape",
+          rowKey,
+          `work_receipts row evidence[${idx}].digest must be a 64-char hex SHA-256 when present, got ${JSON.stringify(entry.digest)}`,
+        );
+      }
+    });
+  }
+
   const errors = findings.filter((f) => f.severity === "error").length;
   return {
     ok: errors === 0,
@@ -1179,18 +1465,165 @@ export function verifyMeshData(data: MeshData, now: number = Date.now()): Verify
 
 /** Verify the active ledger (lock-free snapshot read; never mutates). */
 export function verifyLedger(now: number = Date.now()): VerifyReport {
-  let snapshot;
-  try { snapshot = readLifecycleSnapshot(); }
-  catch (error) {
+  let snapshot: ReturnType<typeof readLifecycleSnapshot> | undefined;
+  try {
+    snapshot = readLifecycleSnapshot();
+  } catch (error) {
     // Preserve the historical fresh-install verifier behavior. The opt-in
     // lifecycle inspector remains strict and never creates an absent ledger.
-    if (error instanceof Error && error.message === "ledger file not found") return verifyMeshData(readLedger(), now);
+    if (error instanceof Error && error.message === "ledger file not found") {
+      const loaded = loadWorkReceiptsFromFile(resolveDbFileSafely());
+      return finalizeVerifyReport(verifyMeshData(readLedger(), now, loaded.rows), loaded.invalidKeys, snapshot, now);
+    }
     throw error;
   }
-  const core = verifyMeshData(snapshot.data, now);
-  const findings = [...core.findings, ...verifyLifecycleSnapshot(snapshot, now)];
+  const loaded = loadWorkReceiptsFromFile(resolveDbFileSafely());
+  const core = verifyMeshData(snapshot.data, now, loaded.rows);
+  return finalizeVerifyReport(core, loaded.invalidKeys, snapshot, now);
+}
+
+/**
+ * Splice the lifecycle-snapshot findings into the core verifyMeshData
+ * report, retaining raw persisted-schema findings lost by safe decoding,
+ * then recomputes the ok/errors/warnings tallies.
+ */
+function finalizeVerifyReport(
+  core: VerifyReport,
+  invalidKeys: ReadonlyMap<string, string[]>,
+  snapshot: ReturnType<typeof readLifecycleSnapshot> | undefined,
+  now: number,
+): VerifyReport {
+  const extra: VerifyFinding[] = [];
+  const existing = new Set(core.findings.map(f => JSON.stringify([f.check, f.subject, f.detail])));
+  // Raw parse failures can disappear when safe decoded values are serialized
+  // again. Retain those findings alongside the common invariant checks.
+  for (const [key, reasons] of invalidKeys) {
+    for (const reason of reasons) {
+      const finding: VerifyFinding = {
+        severity: "error", check: "work_receipt.invalid_persisted_schema", subject: key,
+        detail: `work_receipts row fails the persisted-schema contract: ${reason}`,
+      };
+      if (!existing.has(JSON.stringify([finding.check, finding.subject, finding.detail]))) extra.push(finding);
+    }
+  }
+  if (snapshot) {
+    extra.push(...verifyLifecycleSnapshot(snapshot, now));
+  }
+  const findings = [...core.findings, ...extra];
   const errors = findings.filter((finding) => finding.severity === "error").length;
   return { ...core, ok: errors === 0, errors, warnings: findings.length - errors, findings };
+}
+
+/**
+ * Resolve the configured ledger file path without throwing. Returns an empty
+ * string when no ledger is configured (in-memory test, fresh install).
+ */
+function resolveDbFileSafely(): string {
+  try {
+    return resolveDbFile();
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Read the `work_receipts` rows from a ledger FILE on a private readonly
+ * connection. Mirrors `readLedgerFile`'s audit-copy pattern: zero touch on
+ * the original. Returns an empty Map only when the file or table is absent;
+ * any other read failure is thrown so the verifier cannot silently green.
+ *
+ * Invariants:
+ *   - The audit copy is closed before any open SQLite file under the live
+ *     handle is touched; the live ledger is NEVER read by this function.
+ *   - Missing work_receipts table is an explicit supported case (pre-v5
+ *     ledger) — we return `out` unchanged.
+ *   - A read, query, or permission error that is NOT a missing table MUST
+ *     propagate; an empty Map on those errors would green-light the audit
+ *     when the truth was "could not look". Callers either get rows or get
+ *     an exception.
+ */
+function loadWorkReceiptsFromFile(file: string): {
+  rows: ReadonlyMap<string, WorkReceipt>;
+  invalidKeys: ReadonlyMap<string, string[]>;
+} {
+  const rows = new Map<string, WorkReceipt>();
+  const invalidKeys = new Map<string, string[]>();
+  if (!file || file === ":memory:" || !existsSync(file)) return { rows, invalidKeys };
+  let conn: Database.Database | null = null;
+  let tmp: string | null = null;
+  try {
+    tmp = mkdtempSync(join(tmpdir(), "meshfleet-verify-wr-"));
+    const copy = join(tmp, "audit.db");
+    for (const ext of ["-shm", "-wal"]) {
+      const side = file + ext;
+      if (existsSync(side)) copyFileSync(side, copy + ext);
+    }
+    copyFileSync(file, copy);
+    conn = new Database(copy, { readonly: true, fileMustExist: true });
+    // The audit MUST fail closed on a marked-v5 ledger whose work_receipts
+    // table is missing or partial — the audit-green-but-writes-fail failure
+    // mode (fresh v5 + DROP TABLE work_receipts → green + reopens at v5).
+    // The runtime check below reads the meta marker the same way the live
+    // migrator does; a v5 ledger without its table is the documented
+    // layout failure, not a "no rows" state.
+    const versionRow = conn
+      .prepare("SELECT value FROM meta WHERE key = 'storage_schema_version'")
+      .get() as { value: string } | undefined;
+    const auditVersion = versionRow ? Number(versionRow.value) : 0;
+    const table = conn
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='work_receipts'")
+      .get() as { name: string } | undefined;
+    if (auditVersion >= 5 && !table) {
+      throw new Error(
+        `invalid v5 work_receipts layout in audit copy: meta marker says v5 but the work_receipts table is missing — refusing to audit (this is the audit-green-but-writes-fail failure mode)`,
+      );
+    }
+    if (!table) return { rows, invalidKeys };
+    // The full v5 layout check on a marked-v5 audit copy catches a partial
+    // table (missing columns, missing indexes, integrity_check failure).
+    // Pre-v5 audit copies that nonetheless have a work_receipts table skip
+    // the strict check — the layout validator is for the version that
+    // declared the table, not for older ledgers that gained one by other
+    // means.
+    if (auditVersion >= 5) assertWorkReceiptsV5Schema(conn);
+    const rawRows = conn
+      .prepare(
+        "SELECT key, source, task_id, run_id, assignee, terminal_outcome, result_contract, " +
+          "quality_gate, completed_at, evidence_json, payload_sha256, recorded_at FROM work_receipts",
+      )
+      .all() as Array<{
+        key: string;
+        source: string;
+        task_id: string;
+        run_id: number;
+        assignee: string;
+        terminal_outcome: string;
+        result_contract: string;
+        quality_gate: string;
+        completed_at: number;
+        evidence_json: string;
+        payload_sha256: string;
+        recorded_at: number;
+      }>;
+    for (const r of rawRows) {
+      // Persisted-schema contract check. Every row is checked against the
+      // contract BEFORE the verifier reads one of its fields, so a corrupted
+      // row cannot crash the audit and cannot produce a silent green (a row with an unknown
+      // enum, blank assignee, or invalid timestamp passed every existing
+      // check). TypeScript casts are not validation — these are.
+      const validation = validatePersistedWorkReceiptFields(r);
+      rows.set(r.key, validation.receipt);
+      if (!validation.ok) {
+        invalidKeys.set(r.key, validation.reasons);
+      }
+    }
+    return { rows, invalidKeys };
+  } finally {
+    try { conn?.close(); } catch { /* best-effort */ }
+    if (tmp) {
+      try { rmSync(tmp, { recursive: true, force: true }); } catch { /* leak beats mask */ }
+    }
+  }
 }
 
 /**
@@ -1207,10 +1640,9 @@ export function verifyLedgerFile(file: string, now: number = Date.now()): Verify
   // itself. No WAL conversion, no schema creation, no meta writes.
   try {
     const snapshot = readLifecycleSnapshotFile(file);
-    const core = verifyMeshData(snapshot.data, now);
-    const findings = [...core.findings, ...verifyLifecycleSnapshot(snapshot, now)];
-    const errors = findings.filter((finding) => finding.severity === "error").length;
-    return { ...core, ok: errors === 0, errors, warnings: findings.length - errors, findings };
+    const loaded = loadWorkReceiptsFromFile(file);
+    const core = verifyMeshData(snapshot.data, now, loaded.rows);
+    return finalizeVerifyReport(core, loaded.invalidKeys, snapshot, now);
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     if (/file is not a database|not a database|SQLITE_NOTADB|malformed/i.test(detail)) {

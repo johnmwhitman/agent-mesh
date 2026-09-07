@@ -117,12 +117,12 @@ const PRE_D3_TOOL_NAMES = [
 
 const D3_DISCUSSION_TOOL_NAMES = ["ask_peer", "wake_agent", "reply_discussion", "get_discussion"];
 
-test("registry includes D3 plus additive routing, verifier-v2/v3, speculative backlog, and unified event stream tools (37 total)", () => {
+test("registry includes D3 plus additive routing, verifier-v2/v3, speculative backlog, and unified event stream tools (39 total)", () => {
   const declared = declaredToolNames(source);
   const registered = registeredHandlerNames(source);
 
-  assert.equal(declared.size, 37, `expected 37 advertised tools, got ${declared.size}: ${[...declared].sort().join(", ")}`);
-  assert.equal(registered.size, 37, `expected 37 registered handlers, got ${registered.size}: ${[...registered].sort().join(", ")}`);
+  assert.equal(declared.size, 39, `expected 39 advertised tools, got ${declared.size}: ${[...declared].sort().join(", ")}`);
+  assert.equal(registered.size, 39, `expected 39 registered handlers, got ${registered.size}: ${[...registered].sort().join(", ")}`);
   assert.ok(declared.has("recommend_route"));
   assert.ok(registered.has("recommend_route"));
   assert.ok(declared.has("compile_route_candidates"));
@@ -137,9 +137,9 @@ test("registry includes D3 plus additive routing, verifier-v2/v3, speculative ba
   assert.ok(registered.has("subscribe_events"));
 });
 
-test("README advertises the 37-tool registry including verifier v3, speculative backlog, and unified event stream", () => {
-  assert.match(readme, /^## 37 MCP tools$/m, "README must advertise the 37-tool registry");
-  assert.match(readme, /^That's 37\. We counted twice this time\.$/m, "README summary must agree with the 37-tool registry");
+test("README advertises the 39-tool registry including verifier v3, speculative backlog, and unified event stream", () => {
+  assert.match(readme, /^## 39 MCP tools$/m, "README must advertise the 39-tool registry");
+  assert.match(readme, /^That's 39\. We counted twice this time\.$/m, "README summary must agree with the 39-tool registry");
   assert.match(
     readme,
     /^\| `compile_route_candidates` \| Pure offline projection of sanitized manifest\/observation snapshots; does not rank, persist, execute, authorize, wake, or contact providers \|$/m,
