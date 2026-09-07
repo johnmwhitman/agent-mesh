@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -10,6 +10,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
 const repoRoot = join(import.meta.dirname, "..");
+const sourceVersion = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8")).version;
 
 type CallToolResultShape = { content: Array<{ type: string; text: string }>; isError?: boolean };
 
@@ -274,7 +275,7 @@ test("MCP stdio parity: record_work_receipt and get_work_receipt are advertised,
         realpath.startsWith(installedReal),
         `manifest_path ${realpath} (resolved from ${manifestPath}) is NOT inside the installed package ${installedReal} (resolved from ${installed}) — packed-consumer parity not proven`,
       );
-      assert.equal(healthReport.build_identity.package_version, "0.21.1");
+      assert.equal(healthReport.build_identity.package_version, sourceVersion);
       console.log(`packed-consumer test: tarball sha ${tarballSha}, manifest ${manifestPath}`);
     } finally {
       await client.close();
