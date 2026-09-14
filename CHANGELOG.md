@@ -19,6 +19,22 @@ Maintenance release branched from `v0.20.0` (commit `a361e273`) to enable MCP Re
 
 ## [Unreleased]
 
+## [0.21.5] - 2026-09-14
+
+Isolated lifetime-fix identity on top of the 0.21.4 portable freeze (`ed8f3944`).
+Adds observe-time orphan reconciliation (`reconcileOrphanedAgentsInFleet`) so a
+legacy worker that survives its one-shot submitter's exit is sealed from its
+RESULT_PATH envelope on the next `collect_results`. Schema remains
+`CURRENT_STORAGE_SCHEMA_VERSION = 5`. Not an npm publication; not a tag; not
+an operator-install refresh.
+
+### Added
+- `reconcileOrphanedAgentsInFleet` at `collect_results`: Pass-3 recheck of
+  status, pid liveness, attempt count, and fleet_id; preserves unknown exit
+  provenance on the interrupted path.
+- Tests: `test/reconcile-orphans.test.ts` (11) and
+  `test/chaos-detached-exchange.test.ts` (1).
+
 ## [0.21.4] - 2026-09-14
 
 Unique portable freeze of the reviewed v5 + compact-health product. Annotated
