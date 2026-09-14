@@ -19,6 +19,15 @@ Maintenance release branched from `v0.20.0` (commit `a361e273`) to enable MCP Re
 
 ## [Unreleased]
 
+## [0.21.4] - 2026-09-14
+
+Unique portable freeze of the reviewed v5 + compact-health product. Annotated
+`v0.21.3` already peels to `dccab142` (pre-release-parity commit); this version
+is the non-colliding identity for source `a4524598` plus this version bump.
+Runtime contract is unchanged from 0.21.3: `get_health` default remains `full`;
+`verbosity=summary` is opt-in; server-side rehash is unchanged. Not an npm
+publication.
+
 ### 0.21.3 release candidate
 
 - Add opt-in `get_health({"verbosity":"summary"})` for routine probes. It omits
