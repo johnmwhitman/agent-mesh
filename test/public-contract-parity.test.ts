@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -213,4 +214,70 @@ test("advisory routing and runtime failover remain separate contracts", () => {
   assert.match(advisory, /runtime execution layer.*failover/s);
   assert.match(adapter, /fixture-driven end-to-end.*failover/s);
   assert.doesNotMatch(adapter, /proven against a real provider outage/);
+});
+
+// Lens #4 cycle 2: pin HANDOFF.md historical narrative claims to mechanical evidence.
+// The cross-platform proof claim (GHA run-id + commit SHA), the Base release claim (parity
+// snapshot SHA), and the crash-handler narrative ("five of seven agents survived") were all
+// prose-only statements a re-write could move without anything failing. The GHA run-id is a
+// public artifact on github.com/<owner>/<repo>/actions/runs/<id> — pin it as a literal so a
+// future hand-edit that drops the digits fails. The two commit SHAs (`e14bd8f`, `01f0fa0`)
+// and the Base parity snapshot claim are pinned to git-history existence: if the SHA is
+// rewritten or force-pushed away, git cat-file -e exits non-zero and the test exits 1. The
+// "five of seven" line is a historical narrative claim — it has no mechanical witness, only
+// a literal-shape check, so the test pins the digit-pair (5/7) and the survival verb so a
+// re-word that drops the count fails.
+test("public handoff pins historical cross-platform proof, Base parity, and crash narrative", () => {
+  // (1) GHA run-id: literal-shape pin. The number is a public artifact; if a re-write drops
+  // the digits, this fails.
+  const ghaRunMatch = handoff.match(/GitHub Actions run\s+`(\d+)`/);
+  assert.ok(ghaRunMatch, "HANDOFF.md must publish a `GitHub Actions run <id>` literal");
+  const ghaRunId = ghaRunMatch[1];
+  assert.match(ghaRunId, /^\d{8,12}$/, `GHA run id '${ghaRunId}' must be 8-12 digits`);
+  // (2) GHA run-id paired commit SHA: pin to git-history existence. spawnSync uses the
+  // explicit `git` binary so this works regardless of the test runner's cwd; if the SHA is
+  // rewritten or force-pushed away, exit code is non-zero and the test fails.
+  const ghaCommitMatch = handoff.match(/GitHub Actions run\s+`\d+`\s+at\s+`([0-9a-f]{7,40})`/);
+  assert.ok(ghaCommitMatch, "HANDOFF.md must publish a `at <sha>` SHA after the GHA run id");
+  const ghaSha = ghaCommitMatch[1];
+  const gitProbe = spawnSync("git", ["-C", repoRoot, "cat-file", "-e", ghaSha], {
+    encoding: "utf8",
+  });
+  assert.equal(
+    gitProbe.status,
+    0,
+    `HANDOFF.md GHA-paired commit '${ghaSha}' must exist in git history (cat-file -e exit=${
+      gitProbe.status ?? "null"
+    }, stderr=${gitProbe.stderr?.trim() ?? ""})`,
+  );
+
+  // (3) Base release claim: pin the SHA `01f0fa0` (parity snapshot) to git-history existence
+  // so a force-push that erases the SHA fires.
+  const baseMatch = handoff.match(/Base\s+`([0-9a-f]{7,40})`\s+passed\s+(\d+)\/(\d+)/);
+  assert.ok(baseMatch, "HANDOFF.md must publish a `Base <sha> passed N/N` literal");
+  const baseSha = baseMatch[1];
+  assert.equal(
+    baseMatch[2],
+    baseMatch[3],
+    `Base parity claim must report every test passing (got ${baseMatch[2]}/${baseMatch[3]})`,
+  );
+  const baseProbe = spawnSync("git", ["-C", repoRoot, "cat-file", "-e", baseSha], {
+    encoding: "utf8",
+  });
+  assert.equal(
+    baseProbe.status,
+    0,
+    `HANDOFF.md Base parity commit '${baseSha}' must exist in git history (cat-file -e exit=${
+      baseProbe.status ?? "null"
+    }, stderr=${baseProbe.stderr?.trim() ?? ""})`,
+  );
+
+  // (4) Crash-handler narrative: literal-shape pin on the "five of seven" digit pair and the
+  // survival verb. No mechanical witness exists for a historical incident; the best pin is a
+  // shape that catches a re-word that drops the count.
+  assert.match(
+    handoff,
+    /five of seven agents survived/,
+    "HANDOFF.md must preserve the crash-handler narrative 'five of seven agents survived'",
+  );
 });
