@@ -160,9 +160,8 @@ scrubbed environment, new-session request, and unattended permission request.
 Agentic adapters receive workspace-only edit intent plus the caller's optional
 opaque `workspace_binding`; restricted text adapters receive edits forbidden
 and no workspace authority. The adapter remains the authority that accepts or
-rejects that spec. Durable lifecycle mode refuses
-per-agent runtime selection because its persisted agent row does not yet retain
-the runtime id.
+rejects that spec. The unfinished durable spawn path refuses per-agent runtime
+selection because its persisted agent row does not yet retain the runtime id.
 
 Registration is operator configuration, not public machine state. The Kimi and
 Claude Code adapters require absolute command paths and accept configured version

@@ -8,14 +8,15 @@ ADRs, current source, and executable fixtures outrank this summary.
 - The `meshfleet.a2a` v0.1 codec and legacy mapping are implemented with an
   independent Python reference and language-neutral fixture evidence. There is
   no public authenticated canonical-envelope ingress or `send_a2a` MCP tool.
-- The durable lifecycle kernel is implemented for single-host SQLite authority:
-  fenced leases, persisted retries, recovery, cancellation, and a repairable
-  event outbox. It is not multi-host coordination.
+- The durable lifecycle kernel is implemented as unfinished internal SQLite
+  authority: fenced leases, persisted retries, recovery, cancellation, and a
+  repairable event outbox. It is not the shipped spawn switch and not
+  multi-host coordination.
 - The runtime registry is provider-neutral. OpenCode is the default; Kimi,
   Claude Code, and direct text-only MiniMax are configuration-gated
   fixture-verified adapters. MiniMax is explicit-only. Per-agent
-  runtime selection is available in legacy lifecycle mode and refused in
-  durable mode.
+  runtime selection is available on the shipped spawn path. Unfinished durable
+  spawn is not a public mode switch.
 - Slice 4C-1 is a test-only offline local-admission evaluator. Its 70 mandatory cases,
   Python agreement, and static harness sidecar do not complete every
   exhaustive profile gate, so it remains `unverified` and unexported.

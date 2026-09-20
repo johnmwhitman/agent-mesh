@@ -19,6 +19,14 @@ Maintenance release branched from `v0.20.0` (commit `a361e273`) to enable MCP Re
 
 ## [Unreleased]
 
+### Changed
+
+- **One shipped spawn path.** New fleets use the in-memory coordinator. Durable
+  and shadow remain in-tree unfinished internals gated by
+  `MESHFLEET_UNFINISHED_LIFECYCLE_MODE`; `MESHFLEET_LIFECYCLE_MODE` is no longer
+  a public three-mode switch. Default behavior for existing in-memory users is
+  unchanged.
+
 ## [0.21.5] - 2026-09-14
 
 Isolated lifetime-fix identity on top of the 0.21.4 portable freeze (`ed8f3944`).

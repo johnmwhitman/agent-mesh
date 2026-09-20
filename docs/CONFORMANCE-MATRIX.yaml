@@ -84,7 +84,7 @@
       "target": "runtime registry and OpenCode default",
       "status": "runtime-launch-verified",
       "evidence": ["src/runtime/registry.ts", "src/runtime/opencode.ts", "test/runtime-adapter.test.ts", "test/spawn-runtime-actually-runs.test.ts"],
-      "notes": "spawn_fleet supports per-agent runtime selection in legacy lifecycle mode; unconfigured runtimes and durable-mode selection fail closed."
+      "notes": "spawn_fleet supports per-agent runtime selection on the shipped in-memory path; unconfigured runtimes fail closed."
     },
     {
       "target": "local-process runtime adapter",

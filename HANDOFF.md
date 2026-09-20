@@ -26,8 +26,7 @@ MeshFleet Core is a local-first MCP coordination server. It provides fleet
 lifecycle, messaging and receipts, ratification, capability routing, health,
 discussions, templates, advisory route projection, and read-only ledger
 verification. The default worker runtime is OpenCode. A caller may select another
-operator-registered runtime per agent in legacy lifecycle mode; durable mode
-currently refuses that selector. The shipped Claude Code and direct MiniMax
+operator-registered runtime per agent. The shipped Claude Code and direct MiniMax
 adapters are fixture-verified and disabled unless configured; MiniMax is an
 explicit-only text lane with no workspace authority. Runtime and model labels are
 evidence, not account, entitlement, billing, availability, or identity proof.
