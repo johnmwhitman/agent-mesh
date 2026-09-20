@@ -26,6 +26,7 @@ Maintenance release branched from `v0.20.0` (commit `a361e273`) to enable MCP Re
   `MESHFLEET_UNFINISHED_LIFECYCLE_MODE`; `MESHFLEET_LIFECYCLE_MODE` is no longer
   a public three-mode switch. Default behavior for existing in-memory users is
   unchanged.
+- Add an opt-in compact MCP catalog without changing the compatible 40-tool default. `MESHFLEET_COMPACT_CATALOG=1` advertises 36 tools by omitting `compile_route_candidates`, `recommend_route`, `plan_speculative_backlog`, and deprecated `verify_ledger_v2`; within compact mode, `MESHFLEET_ROUTE_ADVISOR=1` restores the three advisory tools. Handlers are unchanged. The selected catalog is fixed at process startup, so MeshFleet does not advertise runtime `tools/list_changed` notifications.
 
 ## [0.21.5] - 2026-09-14
 

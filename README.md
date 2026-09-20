@@ -310,7 +310,9 @@ evidence, authenticated provenance, or external time.
 
 ---
 
-## 40 MCP tools
+## MCP tools
+
+Default stdio `tools/list` remains the compatible **40-tool** catalog. Set `MESHFLEET_COMPACT_CATALOG=1` to advertise a 36-tool compact catalog that omits three advisory routing tools (`compile_route_candidates`, `recommend_route`, `plan_speculative_backlog`) and deprecated `verify_ledger_v2`. Within compact mode, `MESHFLEET_ROUTE_ADVISOR=1` restores the three advisory tools for a 39-tool catalog. Prefer `verify_ledger` plus `verify_ledger_v3` for new integrations.
 
 **Fleets**
 
@@ -371,7 +373,7 @@ evidence, authenticated provenance, or external time.
 
 See [docs/discussions.md](docs/discussions.md) for the full quickstart, tool reference, and terminal-state precedence.
 
-That's 40. We counted twice this time.
+Default `tools/list` remains 40 for compatibility. Set `MESHFLEET_COMPACT_CATALOG=1` for the 36-tool compact profile. In compact mode, set `MESHFLEET_ROUTE_ADVISOR=1` to restore the three advisory routing tools; `verify_ledger_v2` remains callable by exact name but is omitted from compact discovery.
 
 RoutePlane catalog discovery is a separate package library and CLI, not an MCP
 tool: it fetches RoutePlane's fixed loopback model catalog and projects
@@ -496,7 +498,10 @@ a new check without a fixture fails the build.
 
 ### Implemented versioned evidence scope
 
-`verify_ledger_v2` is an implemented opt-in MCP verifier surface. The existing
+`verify_ledger_v2` is an implemented MCP verifier surface. It remains on the
+compatible default catalog, but is deprecated and hidden from compact
+`tools/list` when `MESHFLEET_COMPACT_CATALOG=1`; the handler remains callable
+for this release. Prefer `verify_ledger` plus `verify_ledger_v3`. The existing
 `verify_ledger`, `VerifyReport`, `VerifyFinding`, `agent-mesh inspect --verify`,
 and `meshfleet.inspect/v1` remain unchanged.
 
