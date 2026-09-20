@@ -1,5 +1,10 @@
 # Advisory agent, runtime, and model routing
 
+The three advisory MCP tools (`recommend_route`, `compile_route_candidates`,
+`plan_speculative_backlog`) are omitted from the default stdio catalog. Set
+`MESHFLEET_ROUTE_ADVISOR=1` to advertise them. `route_work` remains the
+in-ledger routing tool on the default catalog.
+
 `recommend_route` ranks caller-supplied candidate snapshots against sanitized task
 traits. It is the stateless counterpart to `route_work`, which searches capabilities
 already registered in MeshFleet's local ledger.

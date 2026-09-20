@@ -310,7 +310,9 @@ evidence, authenticated provenance, or external time.
 
 ---
 
-## 40 MCP tools
+## MCP tools
+
+Default stdio `tools/list` advertises **36** fleet, receipt, council, discussion, and verifier tools. Three advisory routing tools (`compile_route_candidates`, `recommend_route`, `plan_speculative_backlog`) are omitted unless `MESHFLEET_ROUTE_ADVISOR=1`. `verify_ledger_v2` remains implemented and callable, but is deprecated and hidden from the default catalog; use `verify_ledger` plus `verify_ledger_v3`.
 
 **Fleets**
 
@@ -371,7 +373,7 @@ evidence, authenticated provenance, or external time.
 
 See [docs/discussions.md](docs/discussions.md) for the full quickstart, tool reference, and terminal-state precedence.
 
-That's 40. We counted twice this time.
+Default `tools/list` is 36. Set `MESHFLEET_ROUTE_ADVISOR=1` to advertise the three advisory routing tools. `verify_ledger_v2` remains callable but is omitted from the default catalog.
 
 RoutePlane catalog discovery is a separate package library and CLI, not an MCP
 tool: it fetches RoutePlane's fixed loopback model catalog and projects
@@ -496,7 +498,10 @@ a new check without a fixture fails the build.
 
 ### Implemented versioned evidence scope
 
-`verify_ledger_v2` is an implemented opt-in MCP verifier surface. The existing
+`verify_ledger_v2` is an implemented opt-in MCP verifier surface. It is
+deprecated on the default MCP catalog (hidden from `tools/list`; the handler
+remains callable for this release). Prefer `verify_ledger` plus
+`verify_ledger_v3`. The existing
 `verify_ledger`, `VerifyReport`, `VerifyFinding`, `agent-mesh inspect --verify`,
 and `meshfleet.inspect/v1` remain unchanged.
 

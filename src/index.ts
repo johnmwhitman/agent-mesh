@@ -163,12 +163,28 @@ const AUDIT_TOOL_NAMES: ReadonlySet<string> = new Set([
   "plan_speculative_backlog",
   "recommend_route",
 ]);
+const ADVISORY_ROUTE_TOOL_NAMES: ReadonlySet<string> = new Set([
+  "compile_route_candidates",
+  "plan_speculative_backlog",
+  "recommend_route",
+]);
+const DEPRECATED_DEFAULT_CATALOG_TOOL_NAMES: ReadonlySet<string> = new Set([
+  "verify_ledger_v2",
+]);
+const routeAdvisorCatalogEnabled = process.env.MESHFLEET_ROUTE_ADVISOR === "1";
 const toolAllowedByAccessProfile = (name: string): boolean =>
   !isAuditProfile || AUDIT_TOOL_NAMES.has(name);
+const toolAdvertised = (name: string): boolean => {
+  if (!toolAllowedByAccessProfile(name)) return false;
+  if (isAuditProfile) return true;
+  if (ADVISORY_ROUTE_TOOL_NAMES.has(name) && !routeAdvisorCatalogEnabled) return false;
+  if (DEPRECATED_DEFAULT_CATALOG_TOOL_NAMES.has(name)) return false;
+  return true;
+};
 
 const server = new Server(
   { name: "agent-mesh", version: MESH_VERSION },
-  { capabilities: { tools: {} } }
+  { capabilities: { tools: { listChanged: true } } }
 );
 
 // ---------------------------------------------------------------------------
@@ -1825,7 +1841,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         openWorldHint: false,
       },
     },
-  ].filter((tool) => toolAllowedByAccessProfile(tool.name)),
+  ].filter((tool) => toolAdvertised(tool.name)),
 }));
 
 // ---------------------------------------------------------------------------

@@ -58,9 +58,10 @@ test("verify_ledger_v2 wraps the same isolated legacy report without writing", a
     const { tools } = await client.listTools();
     const legacyTool = tools.find((tool) => tool.name === "verify_ledger");
     const v2Tool = tools.find((tool) => tool.name === "verify_ledger_v2");
+    const v3Tool = tools.find((tool) => tool.name === "verify_ledger_v3");
     assert.ok(legacyTool, "legacy verifier must remain advertised");
-    assert.ok(v2Tool, "missing MCP tool: verify_ledger_v2");
-    assert.deepEqual(v2Tool.inputSchema, { type: "object", properties: {} });
+    assert.ok(v3Tool, "verify_ledger_v3 must remain the advertised envelope");
+    assert.equal(v2Tool, undefined, "deprecated verify_ledger_v2 must not appear on the default catalog");
 
     const legacy = JSON.parse(textOf(await client.callTool({ name: "verify_ledger", arguments: {} }))) as Record<string, unknown>;
     const beforeV2 = snapshot(dir);

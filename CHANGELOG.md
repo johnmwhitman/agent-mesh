@@ -19,6 +19,10 @@ Maintenance release branched from `v0.20.0` (commit `a361e273`) to enable MCP Re
 
 ## [Unreleased]
 
+### Changed
+
+- Default MCP `tools/list` advertises 36 fleet, receipt, council, discussion, and verifier tools. `compile_route_candidates`, `recommend_route`, and `plan_speculative_backlog` are omitted unless `MESHFLEET_ROUTE_ADVISOR=1`. Deprecated `verify_ledger_v2` is hidden from the default catalog; `verify_ledger` plus `verify_ledger_v3` remain. Handlers are unchanged. `capabilities.tools.listChanged` is `true` because the advertised set depends on access profile and that flag.
+
 ## [0.21.5] - 2026-09-14
 
 Isolated lifetime-fix identity on top of the 0.21.4 portable freeze (`ed8f3944`).
