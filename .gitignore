@@ -9,6 +9,15 @@ agent-mesh.json
 .omo/
 out-receipted-fleet/
 scratch/
+# Dotted local-probe dir. `scratch/` was already ignored; `.scratch/` was
+# committed once (a SQLite probe) because the pattern did not match.
+.scratch/
+# Root one-off measurement dumps (not a published contract). Blackbox
+# receipts stay under blackbox/*/evidence/.
+/evidence/
+# Local-admission splice backups. The live corpus is corpus.json; megabyte
+# twins belong in /tmp, not the tree.
+test/fixtures/a2a/local-admission/v0.1/corpus.json.pristine-*
 # Session worktrees for multi-commit work. The tree itself must never be
 # committed — a node_modules symlink inside one was committed once.
 .wt-meshfleet/
