@@ -13,6 +13,7 @@ import {
   type ExecutionSpec,
   type RuntimeAdapter,
   type RuntimeDescriptor,
+  type RuntimeFailureClass,
   type RuntimeHandle,
   type RuntimeResult,
   type ValidationResult,
@@ -50,6 +51,7 @@ function normalized(
   error?: string,
   stdout = "",
   resultContract?: ResultContractStatus,
+  failureClass?: RuntimeFailureClass,
 ): RuntimeResult {
   return {
     status,
@@ -62,6 +64,7 @@ function normalized(
     diagnostics: error ? [{ severity: "error", message: error }] : [],
     identity: { adapterId: "minimax-cli", evidence: "none" },
     ...(resultContract ? { resultContract } : {}),
+    ...(failureClass ? { failureClass } : {}),
   };
 }
 
@@ -205,11 +208,11 @@ export class MiniMaxCliRuntimeAdapter implements RuntimeAdapter {
             return normalized(raw, "failure", `MiniMax process failed with exit code ${raw.exitCode}`);
           }
           if (raw.stdout.trim().length === 0) {
-            return normalized(raw, "failure", "MiniMax returned an empty final response");
+            return normalized(raw, "failure", "MiniMax returned an empty final response", "", undefined, "deterministic");
           }
           const parsed = parseAgentTextResultEnvelope(raw.stdout);
           if (!parsed.ok) {
-            return normalized(raw, "failure", `Invalid MiniMax text result: ${parsed.reason}`);
+            return normalized(raw, "failure", `Invalid MiniMax text result: ${parsed.reason}`, "", undefined, "deterministic");
           }
           return normalized(raw, "success", undefined, parsed.output, parsed.status);
         },

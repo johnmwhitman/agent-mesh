@@ -109,15 +109,18 @@ test("MiniMax subscription adapter refuses authority and selector expansion", ()
 test("MiniMax subscription adapter fails closed on empty and nonzero output without raw diagnostics", async () => {
   const empty = await execute(spec({ environment: { MESH_MINIMAX_FAKE_MODE: "empty" } }));
   assert.equal(empty.status, "failure");
+  assert.equal(empty.failureClass, "deterministic");
   assert.equal(empty.stdout, "");
   assert.match(empty.error ?? "", /empty final response/i);
 
   const plain = await execute(spec({ environment: { MESH_MINIMAX_FAKE_MODE: "plain" } }));
   assert.equal(plain.status, "failure");
+  assert.equal(plain.failureClass, "deterministic");
   assert.match(plain.error ?? "", /invalid MiniMax text result/i);
 
   const failed = await execute(spec({ environment: { MESH_MINIMAX_FAKE_MODE: "failure" } }));
   assert.equal(failed.status, "failure");
+  assert.equal(failed.failureClass, undefined, "provider/runtime exits remain transient by default");
   assert.equal(failed.stdout, "");
   assert.equal(failed.stderr, "");
   assert.equal(failed.exitCode, 7);

@@ -123,7 +123,7 @@ import {
 import { buildFailureDetail, projectSuccessDiagnostics } from "./spawn-attempt.js";
 import { getDefaultRuntimeAdapter, requireRuntimeAdapter, availableRuntimeIds } from "./runtime/registry.js";
 import { CHILD_MARKER_ENV, containRecordedProcess } from "./runtime/process.js";
-import type { ExecutionSpec, RuntimeAdapter, RuntimeHandle, RuntimeResult } from "./runtime/types.js";
+import type { ExecutionSpec, RuntimeAdapter, RuntimeFailureClass, RuntimeHandle, RuntimeResult } from "./runtime/types.js";
 import { decideFailover } from "./failover.js";
 import { defaultLifecycleMode, LifecycleExecutionCoordinator, repairLifecycleOutbox } from "./lifecycle-execution.js";
 import {
@@ -401,7 +401,7 @@ function trySpawn(input: SpawnAgentInput, agentId: string, attempt: number): voi
       fleetTimeoutEnforcer.refresh(input.fleetId);
     });
   }).catch((error: unknown) => {
-    handleTransientFailure(input, agentId, attempt, "", "", error instanceof Error ? error.message : String(error));
+    handleRuntimeFailure(input, agentId, attempt, "", "", error instanceof Error ? error.message : String(error));
   });
 }
 
@@ -430,7 +430,7 @@ function settleLegacyNonTimeout(
   // `failed`. Reading it in one place keeps the rule auditable; reading it twice would
   // let the two paths drift.
   //
-  // Why not just call the existing failure branch? `handleTransientFailure` retries —
+  // Why not just call the existing failure branch? transient runtime failures retry —
   // a contract failure is the agent's FINAL word (it chose not to write an envelope, or
   // wrote one that does not parse), not a transient runtime fault. Retrying would burn
   // the budget proving the same silent outcome, exactly the overclaim release N existed
@@ -508,7 +508,7 @@ function settleLegacyNonTimeout(
     );
     return;
   }
-  handleTransientFailure(
+  handleRuntimeFailure(
     input,
     agentId,
     attempt,
@@ -518,6 +518,7 @@ function settleLegacyNonTimeout(
     result.identity.agent,
     result.identity.model,
     resultContract,
+    result.failureClass,
   );
 }
 
@@ -601,7 +602,7 @@ function selectFailoverRuntime(
   };
 }
 
-function handleTransientFailure(
+function handleRuntimeFailure(
   input: SpawnAgentInput,
   agentId: string,
   attempt: number,
@@ -613,9 +614,30 @@ function handleTransientFailure(
   // Undefined when no attempt ever ran (the spawn itself threw). Recording `absent` there would
   // blame an agent for a silence it had no chance to break.
   resultContract?: ResultContractStatus,
+  failureClass: RuntimeFailureClass = "transient",
 ): void {
   if (readLedger().agents[agentId]?.status !== "running") return;
   const failureDetail = buildFailureDetail(stderr, errorDetail);
+  if (failureClass === "deterministic") {
+    appendEvent("agent_failed_permanent", {
+      agent_id: agentId,
+      fleet_id: input.fleetId,
+      attempts: attempt,
+      last_error: failureDetail,
+      timestamp: Date.now(),
+    });
+    markAgentFinished(
+      agentId,
+      "failed",
+      stdout,
+      `Deterministic failure on attempt ${attempt}: ${failureDetail}`,
+      runtimeAgent,
+      runtimeModel,
+      undefined,
+      resultContract,
+    );
+    return;
+  }
   if (!shouldAgentRetry(attempt)) {
     appendEvent("agent_failed_permanent", {
       agent_id: agentId,
