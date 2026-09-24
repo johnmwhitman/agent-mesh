@@ -4,6 +4,7 @@ import { KimiRuntimeAdapter } from "./kimi.js";
 import { ClaudeRuntimeAdapter } from "./claude.js";
 import { LocalDemoRuntimeAdapter } from "./local-demo.js";
 import { MiniMaxCliRuntimeAdapter } from "./minimax.js";
+import { GrokCliRuntimeAdapter } from "./grok.js";
 import type { RuntimeAdapter } from "./types.js";
 
 /** Registry holds every runtime an agent could be spawned under. Selection is not yet
@@ -65,6 +66,7 @@ export function createDefaultRuntimeRegistry(): RuntimeAdapterRegistry {
   registerKimiIfConfigured(registry);
   registerClaudeIfConfigured(registry);
   registerMiniMaxIfConfigured(registry);
+  registerGrokIfConfigured(registry);
   // Unconditional, unlike Kimi/Claude, because it needs NO operator
   // configuration to be truthful: the command is the current Node executable
   // and the argv is a worker shipped inside this package — no machine paths,
@@ -73,6 +75,22 @@ export function createDefaultRuntimeRegistry(): RuntimeAdapterRegistry {
   // rather than pretending to honor them. Default runtime is unchanged.
   registry.register(new LocalDemoRuntimeAdapter());
   return registry;
+}
+
+/** Register the operator-owned direct Grok text lane only when explicitly bound. */
+function registerGrokIfConfigured(registry: RuntimeAdapterRegistry): void {
+  const command = process.env.MESHFLEET_GROK_COMMAND?.trim();
+  if (!command) return;
+  const harnessVersion = process.env.MESHFLEET_GROK_VERSION?.trim();
+  if (!harnessVersion) {
+    throw new Error(
+      "MESHFLEET_GROK_VERSION is required when MESHFLEET_GROK_COMMAND is configured",
+    );
+  }
+  registry.register(new GrokCliRuntimeAdapter({
+    command,
+    harnessVersion,
+  }));
 }
 
 /** Register the operator-owned direct MiniMax text lane only when explicitly bound. */
