@@ -96,11 +96,37 @@ The additive `meshfleet/recommend-route` library subpath exposes only the pure
 advisory evaluator and validators over caller-supplied sanitized evidence. It is
 not selection or execution authority.
 
-**Promise so far**: every minor release has been additive. No tool has been removed. Three
-signatures have been tightened — `send_messages` batch items, `send_message`, and
-`register_capability`, all unreleased — deliberately and documented in the narrowing notes below:
-the shapes they now refuse were violations of the contracts the schemas already claimed to
-enforce, or rows the verifier already reported as contradictions.
+**Promise so far**: every minor release has been additive. No handler has been
+deleted. The unreleased opt-in compact catalog below hides four already-shipped
+names from compact `tools/list` without changing default discovery or removing
+their handlers. Three signatures have
+been tightened — `send_messages` batch items, `send_message`, and
+`register_capability`, all unreleased — deliberately and documented in the
+narrowing notes below: the shapes they now refuse were violations of the
+contracts the schemas already claimed to enforce, or rows the verifier already
+reported as contradictions.
+
+### Additive opt-in compact stdio catalog (unreleased)
+
+Default `tools/list` remains the compatible 40-tool catalog. Set
+`MESHFLEET_COMPACT_CATALOG=1` to select a 36-tool catalog that omits
+`compile_route_candidates`, `recommend_route`, `plan_speculative_backlog`, and
+`verify_ledger_v2`. Within compact mode, set `MESHFLEET_ROUTE_ADVISOR=1` to
+restore the three advisory names for a 39-tool catalog. `route_work` remains the
+in-ledger routing tool in every non-audit profile. The audit access profile
+still advertises its four-tool catalog (`ping` plus the three advisory tools).
+
+`verify_ledger_v2` is deprecated as a second wrapper around the same verifier.
+The compact catalog keeps `verify_ledger` and `verify_ledger_v3`. The v2 MCP
+handler and `inspect --verify-v2` remain callable for this release and are
+scheduled for removal after one release. Callers that already know the v2 tool
+name still succeed; compact sessions will not see it in `tools/list`.
+
+`capabilities.tools.listChanged` remains absent. The selected catalog is fixed
+for the lifetime of one server process, so MeshFleet does not claim support for
+runtime `notifications/tools/list_changed`. `ttlMs` / `cacheScope` are not
+published on `tools/list`: the SDK has no typed fields for them, and a cache TTL
+would be wrong across those startup-selected catalogs.
 
 ### ⚠️ `send_messages` narrowing and stricter `verify_ledger` findings (unreleased)
 

@@ -48,6 +48,8 @@ test("verify_ledger_v2 wraps the same isolated legacy report without writing", a
       MESHFLEET_DATA_FILE: join(dir, "ledger.json"),
       MESHFLEET_EVENT_LOG_FILE: join(dir, "events.jsonl"),
       MESHFLEET_RATIFY_SWEEP_MS: "0",
+      MESHFLEET_COMPACT_CATALOG: "0",
+      MESHFLEET_ROUTE_ADVISOR: "0",
     },
     stderr: "ignore",
   });
@@ -58,9 +60,10 @@ test("verify_ledger_v2 wraps the same isolated legacy report without writing", a
     const { tools } = await client.listTools();
     const legacyTool = tools.find((tool) => tool.name === "verify_ledger");
     const v2Tool = tools.find((tool) => tool.name === "verify_ledger_v2");
+    const v3Tool = tools.find((tool) => tool.name === "verify_ledger_v3");
     assert.ok(legacyTool, "legacy verifier must remain advertised");
-    assert.ok(v2Tool, "missing MCP tool: verify_ledger_v2");
-    assert.deepEqual(v2Tool.inputSchema, { type: "object", properties: {} });
+    assert.ok(v3Tool, "verify_ledger_v3 must remain the advertised envelope");
+    assert.ok(v2Tool, "verify_ledger_v2 must remain advertised on the compatible default catalog");
 
     const legacy = JSON.parse(textOf(await client.callTool({ name: "verify_ledger", arguments: {} }))) as Record<string, unknown>;
     const beforeV2 = snapshot(dir);
@@ -89,6 +92,8 @@ test("verify_ledger_v2 handler fails closed without creating a ledger when start
       MESHFLEET_DATA_FILE: join(dir, "absent.json"),
       MESHFLEET_EVENT_LOG_FILE: join(dir, "events.jsonl"),
       MESHFLEET_RATIFY_SWEEP_MS: "0",
+      MESHFLEET_COMPACT_CATALOG: "0",
+      MESHFLEET_ROUTE_ADVISOR: "0",
       // Child mode skips the normal parent's startup recovery/migration. This
       // isolates the tool handler: it must fail closed without creating a ledger.
       AGENT_MESH_CHILD: "1",

@@ -142,8 +142,14 @@ test("registry includes D3 plus additive routing, verifier-v2/v3, speculative ba
 });
 
 test("README advertises the 40-tool registry including verifier v3, speculative backlog, and unified event stream", () => {
-  assert.match(readme, /^## 40 MCP tools$/m, "README must advertise the 40-tool registry");
-  assert.match(readme, /^That's 40\. We counted twice this time\.$/m, "README summary must agree with the 40-tool registry");
+  assert.match(readme, /^## MCP tools$/m, "README must advertise the MCP tool registry");
+  assert.match(
+    readme,
+    /Default stdio `tools\/list` remains the compatible \*\*40-tool\*\* catalog/,
+    "README must preserve the compatible 40-tool default catalog",
+  );
+  assert.match(readme, /MESHFLEET_COMPACT_CATALOG=1/, "README must document the compact-catalog opt-in");
+  assert.match(readme, /MESHFLEET_ROUTE_ADVISOR=1/, "README must document the advisory-catalog opt-in");
   assert.match(
     readme,
     /^\| `compile_route_candidates` \| Pure offline projection of sanitized manifest\/observation snapshots; does not rank, persist, execute, authorize, wake, or contact providers \|$/m,
@@ -192,6 +198,21 @@ test("compatibility record includes the opt-in verifier-v3 and speculative backl
     compatibility,
     /raises the count to 37/,
     "compatibility contract must acknowledge the 37th tool (subscribe_events)",
+  );
+  assert.match(
+    compatibility,
+    /MESHFLEET_COMPACT_CATALOG=1/,
+    "compatibility must document the additive compact-catalog opt-in",
+  );
+  assert.match(
+    compatibility,
+    /MESHFLEET_ROUTE_ADVISOR=1/,
+    "compatibility must document the compact-catalog advisory opt-in",
+  );
+  assert.match(
+    compatibility,
+    /`verify_ledger_v2` is deprecated/,
+    "compatibility must deprecate verify_ledger_v2 as a duplicate default-catalog envelope",
   );
 });
 
