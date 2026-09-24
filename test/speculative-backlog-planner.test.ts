@@ -33,6 +33,7 @@ async function withServer(fn: (client: Client, dataDir: string) => Promise<void>
       MESHFLEET_DATA_FILE: join(dir, "ledger.json"),
       MESHFLEET_EVENT_LOG_FILE: join(dir, "events.jsonl"),
       MESHFLEET_RATIFY_SWEEP_MS: "0",
+      MESHFLEET_ROUTE_ADVISOR: "1",
     },
     stderr: "ignore",
   });

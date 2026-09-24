@@ -96,11 +96,33 @@ The additive `meshfleet/recommend-route` library subpath exposes only the pure
 advisory evaluator and validators over caller-supplied sanitized evidence. It is
 not selection or execution authority.
 
-**Promise so far**: every minor release has been additive. No tool has been removed. Three
-signatures have been tightened — `send_messages` batch items, `send_message`, and
-`register_capability`, all unreleased — deliberately and documented in the narrowing notes below:
-the shapes they now refuse were violations of the contracts the schemas already claimed to
-enforce, or rows the verifier already reported as contradictions.
+**Promise so far**: every minor release has been additive. No handler has been
+deleted. The unreleased default-catalog change below hides four already-shipped
+names from `tools/list` without removing their handlers. Three signatures have
+been tightened — `send_messages` batch items, `send_message`, and
+`register_capability`, all unreleased — deliberately and documented in the
+narrowing notes below: the shapes they now refuse were violations of the
+contracts the schemas already claimed to enforce, or rows the verifier already
+reported as contradictions.
+
+### ⚠️ Default stdio catalog omits advisory routing tools and `verify_ledger_v2` (unreleased)
+
+Default `tools/list` no longer advertises `compile_route_candidates`,
+`recommend_route`, or `plan_speculative_backlog`. Set `MESHFLEET_ROUTE_ADVISOR=1`
+to restore those three names. `route_work` remains the in-ledger routing tool on
+the default catalog. The audit access profile still advertises its four-tool
+catalog (`ping` plus the three advisory tools).
+
+`verify_ledger_v2` is deprecated as a second wrapper around the same verifier.
+The default catalog keeps `verify_ledger` and `verify_ledger_v3`. The v2 MCP
+handler and `inspect --verify-v2` remain callable for this release and are
+scheduled for removal after one release. Callers that already know the v2 tool
+name still succeed; new sessions will not see it in `tools/list`.
+
+`capabilities.tools.listChanged` is `true` because the advertised set depends on
+the access profile and `MESHFLEET_ROUTE_ADVISOR`. `ttlMs` / `cacheScope` are not
+published on `tools/list`: the SDK has no typed fields for them, and a cache TTL
+would be wrong across those catalogs.
 
 ### ⚠️ `send_messages` narrowing and stricter `verify_ledger` findings (unreleased)
 
