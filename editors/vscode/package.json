@@ -38,7 +38,7 @@
       "properties": {
         "meshfleet.cliCommand": {
           "type": "string",
-          "default": "npx agent-mesh",
+          "default": "npx -y --package=meshfleet -- agent-mesh",
           "description": "How to invoke the meshfleet CLI (the agent-mesh bin). Works with a workspace or global `npm install meshfleet`."
         },
         "meshfleet.refreshIntervalSeconds": {
