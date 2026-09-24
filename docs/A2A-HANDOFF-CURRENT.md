@@ -13,8 +13,9 @@ ADRs, current source, and executable fixtures outrank this summary.
   repairable event outbox. It is not the shipped spawn switch and not
   multi-host coordination.
 - The runtime registry is provider-neutral. OpenCode is the default; Kimi,
-  Claude Code, and direct text-only MiniMax are configuration-gated
-  fixture-verified adapters. MiniMax is explicit-only. Per-agent
+  Claude Code, direct text-only MiniMax, and source-blind text-only Grok are
+  configuration-gated fixture-verified adapters. MiniMax and Grok are
+  explicit-only and ineligible for automatic failover. Per-agent
   runtime selection is available on the shipped spawn path. Unfinished durable
   spawn is not a public mode switch.
 - Slice 4C-1 is a test-only offline local-admission evaluator. Its 70 mandatory cases,

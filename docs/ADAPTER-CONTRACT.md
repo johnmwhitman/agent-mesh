@@ -102,6 +102,7 @@ those target formats. See `docs/CONFIG-TRANSLATION.md`.
 | Kimi CLI native adapter | `fixture-verified` | An env-gated non-default adapter proves stdin-only prompts, scrubbed environment policy, bounded final-message JSONL, isolation-gated unattended edits, and descendant cleanup against a fake executable; no live provider execution, OAuth inspection, version attestation, account binding, or quota observation is claimed |
 | Claude Code CLI native adapter | `fixture-verified` | An env-gated non-default adapter proves stdin-only prompts, current print-mode argv, scrubbed environment policy, two-key workspace admission, safe noninteractive permission modes, hollow-success refusal, bounded output, and diagnostic redaction against a fake executable; no public account identity, credential, effective-model, quota, or attestation claim is made |
 | MiniMax subscription wrapper adapter | `fixture-verified` | An env-gated, explicit-only text adapter proves direct-route enforcement, scrubbed environment with fixed profile/interpreter locators, wrapper-owned credential discovery, hollow-success refusal, bounded output, cancellation, and diagnostic redaction; it has no workspace authority and makes no account, credential, effective-model, quota, or availability claim |
+| Grok subscription wrapper adapter | `fixture-verified` | An env-gated, explicit-only, non-failover text adapter proves a forced source-blind text-only wrapper boundary, scrubbed environment, structured final-text parsing, hollow-success refusal, bounded output, cancellation, and diagnostic redaction; it has no model, agent, workspace, or artifact authority and makes no account, credential, effective-model, quota, or availability claim |
 | Multi-host coordinator | `deferred` | No shared remote ownership authority exists |
 
 Runtime failover is a separate execution concern. `src/failover.ts`,
@@ -165,7 +166,9 @@ selection because its persisted agent row does not yet retain the runtime id.
 
 Registration is operator configuration, not public machine state. The Kimi and
 Claude Code adapters require absolute command paths and accept configured version
-labels; MiniMax requires both an absolute command and a configured version label.
+labels; MiniMax and Grok each require both an absolute command and a configured
+version label. Grok registration uses `MESHFLEET_GROK_COMMAND` plus
+`MESHFLEET_GROK_VERSION`; it does not probe the wrapper or provider.
 Agentic adapters' workspace-binding admission lists live in environment
 configuration and contain opaque identifiers, never paths or account names.
 Neither registration nor selection proves login, availability, entitlement,
@@ -217,7 +220,8 @@ implemented and fixture-verified by `src/a2a/static-harness-mapping.ts` and
 not emit client configuration. No `TransportAdapter`,
 `RuntimeAdapter`, renderer, MCP session, or process receipt implements this
 trust boundary. The sole success is an ephemeral plan, not adapter acceptance
-or lifecycle state.
+or lifecycle state. The outbound `GrokCliRuntimeAdapter` neither consumes this
+mapping nor promotes its offline evidence.
 
 ## Adoption sequence
 
@@ -334,6 +338,35 @@ runtime. The adapter:
 This is text completion, not workspace implementation. A caller that needs
 filesystem or shell work must select a runtime that truthfully advertises and
 admits those capabilities.
+
+## Native Grok subscription wrapper boundary
+
+`GrokCliRuntimeAdapter` is an outbound worker adapter for an operator-owned
+subscription wrapper. It is distinct from the static Grok configuration
+translation, which is offline mapping evidence and never selects or launches a
+runtime. The adapter is registered only when both `MESHFLEET_GROK_COMMAND` and
+`MESHFLEET_GROK_VERSION` are set; the command must be absolute and the version
+is configured compatibility evidence, not an executable attestation. It is
+explicit-only and ineligible for automatic failover. The adapter:
+
+- accepts only a bounded text prompt and refuses model and agent selectors,
+  workspace bindings or authority, artifact expectations, input bytes, resumed
+  sessions, and caller-controlled routing or credential environment;
+- launches with a scrubbed environment containing only fixed host-profile and
+  interpreter locators, then forces `GROK_TEXT_ONLY=1` and `NO_MEMORY=1` so the
+  wrapper has no local tools or ambient source/memory context;
+- requires a schema-bound `done`, `refused`, or `blocked` final-text declaration
+  and fails closed on empty, malformed, prose-only, nonzero, oversized,
+  timed-out, or cancelled execution;
+- withholds raw wrapper and provider diagnostics from normalized results because
+  they may contain prompts, paths, account state, or authentication detail; and
+- reports identity evidence as `none`: registration and successful text prove
+  neither account or credential state, effective model, entitlement, quota, nor
+  current or future availability.
+
+This boundary is source-blind text completion, not repository analysis or
+workspace implementation. A task requiring source access, files, shell, or
+artifacts must select a runtime that truthfully advertises and admits them.
 
 # Minimum interoperable implementation
 
