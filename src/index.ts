@@ -694,7 +694,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
                     "is adapter-specific (the default OpenCode runtime accepts it); `runtime` " +
                     "picks the harness itself, so agents " +
                     "in one fleet can run under different CLIs and one provider outage cannot stop " +
-                    "every agent at once. Not supported in durable lifecycle mode.",
+                    "every agent at once.",
                 },
                 workspace_binding: {
                   type: "string",
@@ -1958,9 +1958,8 @@ toolHandlers["spawn_fleet"] = async (args) => {
       const durableRuntimeAgent = specs.find((s) => s.runtime !== undefined);
       if (durableRuntimeAgent) {
         return jsonError(
-          "spawn_fleet: per-agent 'runtime' is not supported in durable lifecycle mode, because a " +
-            "durable respawn rehydrates from the agent row and the row does not persist it. Use " +
-            "legacy or shadow mode, or omit 'runtime'.",
+          "spawn_fleet: per-agent 'runtime' is not supported on the unfinished durable path, because a " +
+            "durable respawn rehydrates from the agent row and the row does not persist it. Omit 'runtime'.",
         );
       }
       try {

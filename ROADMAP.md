@@ -10,11 +10,11 @@ The ranked A2A strategy is canonical in
 1. **Canonical envelope and conformance** - pure v0.1 codec, fixtures, and
    internal legacy mapping are implemented. No public `send_a2a` tool, remote
    transport, or authenticated canonical ingress is shipped.
-2. **Durable lifecycle kernel** - implemented for single-host durable fleets:
-   lease-driven spawn/attach, deterministic persisted retry, scheduled recovery,
-   fencing, launch-intent quarantine, recorded-PID containment only, and a
-   sequence-ordered repairable event
-   outbox. Logical ledger schema remains v2.
+2. **Durable lifecycle kernel** - implemented internally for single-host SQLite
+   authority (leases, deterministic persisted retry, scheduled recovery, fencing,
+   launch-intent quarantine, recorded-PID containment, repairable event outbox).
+   It is not the shipped spawn switch: new fleets use the in-memory path.
+   Logical ledger schema remains v2.
 3. **Provider-neutral runtime adapters** - the runtime SPI, OpenCode default,
    deterministic local-process proof, and per-agent runtime selection are
    implemented. Kimi, Claude Code, and direct MiniMax adapters are fixture-verified,

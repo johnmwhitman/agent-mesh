@@ -1,7 +1,7 @@
 # MeshFleet public handoff
 
 **Source version:** `0.21.5` · **MCP surface:** **40 MCP tools** ·
-**current suite contract:** **1917/1917** tests collected, plus typecheck and build
+**current suite contract:** **1918/1918** tests collected, plus typecheck and build
 
 The latest completed cross-platform proof is GitHub Actions run `31315444631`
 at `e14bd8f` (9/9 jobs across Node 20/22/24 on Ubuntu, macOS, and Windows).
@@ -26,8 +26,7 @@ MeshFleet Core is a local-first MCP coordination server. It provides fleet
 lifecycle, messaging and receipts, ratification, capability routing, health,
 discussions, templates, advisory route projection, and read-only ledger
 verification. The default worker runtime is OpenCode. A caller may select another
-operator-registered runtime per agent in legacy lifecycle mode; durable mode
-currently refuses that selector. The shipped Claude Code and direct MiniMax
+operator-registered runtime per agent. The shipped Claude Code and direct MiniMax
 adapters are fixture-verified and disabled unless configured; MiniMax is an
 explicit-only text lane with no workspace authority. Runtime and model labels are
 evidence, not account, entitlement, billing, availability, or identity proof.

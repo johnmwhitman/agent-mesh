@@ -425,7 +425,7 @@ test("rejected wait settles once through redacted durable failure and public std
 
 test("two coordinators launch due work once; durable attach keeps legacy projections; shadow remains legacy-authoritative", async () => {
   const temp = withTempDb({ fleets: { f: { id: "f", status: "running", created_at: 1 } }, agents: { a: { id: "a", fleet_id: "f", role: "r", prompt: "p", status: "pending" } }, messages: {}, inboxes: { a: [] }, capabilities: {} });
-  const old = process.env.MESHFLEET_LIFECYCLE_MODE;
+  const old = process.env.MESHFLEET_UNFINISHED_LIFECYCLE_MODE;
   try {
     const store = new LifecycleStore();
     store.createWork({ workId: "a", fleetId: "f", agentId: "a" });
@@ -447,14 +447,14 @@ test("two coordinators launch due work once; durable attach keeps legacy project
     shadow.recordMode("shadow", "shadow");
     assert.equal(shadow.modeForFleet("shadow"), "shadow");
     assert.equal(new LifecycleStore().getState("shadow"), null);
-    process.env.MESHFLEET_LIFECYCLE_MODE = "shadow";
+    process.env.MESHFLEET_UNFINISHED_LIFECYCLE_MODE = "shadow";
     assert.equal(defaultLifecycleMode(), "shadow");
     a.stop();
     b.stop();
     durable.stop();
     shadow.stop();
   } finally {
-    if (old === undefined) delete process.env.MESHFLEET_LIFECYCLE_MODE; else process.env.MESHFLEET_LIFECYCLE_MODE = old;
+    if (old === undefined) delete process.env.MESHFLEET_UNFINISHED_LIFECYCLE_MODE; else process.env.MESHFLEET_UNFINISHED_LIFECYCLE_MODE = old;
     temp.cleanup();
   }
 });
