@@ -33,6 +33,11 @@ function readAgent(dir: string): Record<string, unknown> | undefined {
   return readAgents(dir)[0];
 }
 
+function invocationCount(marker: string): number {
+  if (!existsSync(marker)) return 0;
+  return readFileSync(marker, "utf8").split("\n").filter(Boolean).length;
+}
+
 async function waitForTerminalAgent(dir: string, prompt: string): Promise<Record<string, unknown>> {
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
@@ -61,12 +66,15 @@ test("spawn_fleet delivers through an explicitly selected Grok subscription runt
   const capturedLabel = join(dir, "LABEL");
   writeFileSync(command, [
     "#!/bin/sh",
-    `printf 'invoked' > '${marker}'`,
+    `printf 'invoked\\n' >> '${marker}'`,
     `printf '%s' "$1" > '${capturedLabel}'`,
     "task=$(cat)",
     `printf '%s' "$task" > '${capturedPrompt}'`,
     "case \"$task\" in",
     "  BLOCKED_WORKER*) printf '%s' '{\"schema\":\"mf.agent.text-result/v1\",\"outcome\":\"blocked\",\"summary\":\"fixture could not continue\",\"reason\":\"required input was missing\"}' ;;",
+    "  MALFORMED_WORKER*) printf '%s' 'not JSON' ;;",
+    "  EMPTY_WORKER*) : ;;",
+    "  TRANSIENT_WORKER*) printf '%s' 'private provider detail' >&2; exit 75 ;;",
     "  *) printf '%s' '{\"schema\":\"mf.agent.text-result/v1\",\"outcome\":\"done\",\"summary\":\"fixture completed\",\"output\":\"bounded Grok result\"}' ;;",
     "esac",
   ].join("\n"));
@@ -183,6 +191,54 @@ test("spawn_fleet delivers through an explicitly selected Grok subscription runt
     assert.equal(blocked.status, "failed", "ENFORCE: a declared blocked outcome banks failed");
     assert.equal(blocked.result_contract, "blocked");
     assert.equal(blocked.output, "fixture could not continue\n\nReason: required input was missing");
+
+    for (const [id, prompt] of [
+      [8, "MALFORMED_WORKER returns invalid JSON"],
+      [9, "EMPTY_WORKER returns no final response"],
+    ] as const) {
+      const before = invocationCount(marker);
+      send({
+        jsonrpc: "2.0",
+        id,
+        method: "tools/call",
+        params: {
+          name: "spawn_fleet",
+          arguments: {
+            agents: [{ role: "reviewer", prompt, runtime: "grok-cli" }],
+          },
+        },
+      });
+      assert.match(await waitForResponse(() => stdout, id), new RegExp(`\\"id\\":${id}`));
+      const failed = await waitForTerminalAgent(dir, prompt);
+      assert.equal(failed.status, "failed");
+      assert.equal(
+        invocationCount(marker),
+        before + 1,
+        "a deterministic text-result contract failure must terminalize after one attempt",
+      );
+    }
+
+    const transientBefore = invocationCount(marker);
+    const transientPrompt = "TRANSIENT_WORKER exits nonzero";
+    send({
+      jsonrpc: "2.0",
+      id: 10,
+      method: "tools/call",
+      params: {
+        name: "spawn_fleet",
+        arguments: {
+          agents: [{ role: "reviewer", prompt: transientPrompt, runtime: "grok-cli" }],
+        },
+      },
+    });
+    assert.match(await waitForResponse(() => stdout, 10), /"id":10/);
+    const transient = await waitForTerminalAgent(dir, transientPrompt);
+    assert.equal(transient.status, "failed");
+    assert.equal(
+      invocationCount(marker),
+      transientBefore + 3,
+      "a nonzero runtime failure must retain the configured transient retry budget",
+    );
   } finally {
     server.kill();
     await new Promise<void>((resolve) => {

@@ -189,15 +189,18 @@ test("Grok subscription adapter refuses authority, selectors, and caller environ
 test("Grok subscription adapter fails closed on empty and nonzero output without raw diagnostics", async () => {
   const empty = await execute(spec({ prompt: "EMPTY" }));
   assert.equal(empty.status, "failure");
+  assert.equal(empty.failureClass, "deterministic");
   assert.equal(empty.stdout, "");
   assert.match(empty.error ?? "", /empty final response/i);
 
   const plain = await execute(spec({ prompt: "PLAIN" }));
   assert.equal(plain.status, "failure");
+  assert.equal(plain.failureClass, "deterministic");
   assert.match(plain.error ?? "", /invalid Grok text result/i);
 
   const failed = await execute(spec({ prompt: "FAILURE" }));
   assert.equal(failed.status, "failure");
+  assert.equal(failed.failureClass, undefined, "provider/runtime exits remain transient by default");
   assert.equal(failed.stdout, "");
   assert.equal(failed.stderr, "");
   assert.equal(failed.exitCode, 7);

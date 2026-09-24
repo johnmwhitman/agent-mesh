@@ -118,7 +118,7 @@ test("GUARD: the success call site passes the diagnostic, never raw stderr", () 
   // settlement boundary without importing index.ts, whose top-level side effect starts a server.
   const settlementStart = indexSource.indexOf("function settleLegacyNonTimeout(");
   const successStart = indexSource.indexOf('if (result.status === "success")', settlementStart);
-  const failureStart = indexSource.indexOf("handleTransientFailure(", successStart);
+  const failureStart = indexSource.indexOf("handleRuntimeFailure(", successStart);
   assert.ok(settlementStart >= 0, "CONTROL: failed to locate legacy non-timeout settlement");
   assert.ok(successStart > settlementStart, "CONTROL: failed to locate the success branch");
   assert.ok(failureStart > successStart, "CONTROL: failed to locate the failure boundary after success");
