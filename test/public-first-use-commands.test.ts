@@ -23,11 +23,15 @@ const firstUseFiles = [
   "src/bin/dashboard.ts",
   "src/bin/meshfleet.ts",
   "src/doctor.ts",
+  "editors/vscode/package.json",
+  "editors/vscode/src/extension.ts",
+  ".github/ISSUE_TEMPLATE/bug.md",
 ];
 
 // Matches a runnable command the user could paste, including the literal
 // `npx agent-mesh` token (with or without a leading `npx -y --package=meshfleet --`).
-const npxAgentMeshPattern = /(?:^|[\s`(,])npx(?:\s+-y)?\s+--package=meshfleet\s+--\s+agent-mesh\b|(?:^|[\s`(,])npx\s+agent-mesh\b/g;
+// Quote is in the prefix class so JSON/TS string defaults (vscode cliCommand) are scanned.
+const npxAgentMeshPattern = /(?:^|[\s`"(,])npx(?:\s+-y)?\s+--package=meshfleet\s+--\s+agent-mesh\b|(?:^|[\s`"(,])npx\s+agent-mesh\b/g;
 
 type FirstUseFileFindings = {
   path: string;
@@ -51,10 +55,10 @@ function scanFile(relPath: string): FirstUseFileFindings {
   // (the bin name) — that path is also published in `meshfleet` and never
   // resolvable as the squatted package because the bin is hyphenated.
   const allMatches = [
-    ...stripped.matchAll(/(?:^|[\s`(,])npx\s+agent-mesh\b/g),
+    ...stripped.matchAll(/(?:^|[\s`"(,])npx\s+agent-mesh\b/g),
   ];
   const bareNpxAgentMeshCount = allMatches.filter((m) => {
-    const after = m[0].replace(/^[\s`(,]/, "");
+    const after = m[0].replace(/^[\s`"(,]/, "");
     // `npx agent-mesh-dashboard` and `npx agent-mesh-dashboard ...` are bin names
     // inside the `meshfleet` package; the squatted package has no such bin, so
     // npm still selects the right tarball. We only forbid bare `agent-mesh`
@@ -93,6 +97,9 @@ test("first-use path: every file carries at least one explicit `--package=meshfl
     "src/bin/inspect.ts",
     "src/bin/meshfleet.ts",
     "src/doctor.ts",
+    "editors/vscode/package.json",
+    "editors/vscode/src/extension.ts",
+    ".github/ISSUE_TEMPLATE/bug.md",
   ];
   for (const path of expectedPresentIn) {
     assert.ok(
@@ -155,16 +162,21 @@ test("dashboard usage selects the package's dashboard bin, not the inspector", (
   assert.equal(pkg.bin["agent-mesh"], "dist/bin/inspect.js");
 });
 
-test("README separates the pinned published walkthrough from source-only local-demo", () => {
+test("README separates the published walkthrough from source-only local-demo", () => {
   const readme = read("README.md");
   assert.match(
     readme,
-    /npx -y --package=meshfleet@0\.20\.0 -- agent-mesh demo/,
-    "published no-key walkthrough must pin the exact verified package version",
+    /npx -y --package=meshfleet -- agent-mesh demo/,
+    "published no-key walkthrough must bind --package=meshfleet",
+  );
+  assert.doesNotMatch(
+    readme,
+    /npx -y --package=meshfleet@0\.20\.0 -- agent-mesh/,
+    "first-use walkthrough must not pin the stale 0.20.0 npm artifact",
   );
   assert.match(
     readme,
-    /not in the\s+published 0\.20\.0 package/,
+    /not in the\s+published package/,
     "local-demo must be labeled unavailable in the published package",
   );
   assert.match(
