@@ -102,30 +102,30 @@ For noncanonical development-only source-checkout usage (not the recommended rel
 
 Restart OpenCode. Spawn a fleet. [Wiring it into your client →](#wiring-it-into-your-client)
 
-### Start with the published package (0.20.0)
+### Start with the published package
 
-The npm registry currently serves `meshfleet@0.20.0`. Its no-key walkthrough is a
+The published `meshfleet` package's no-key walkthrough is a
 scripted ledger demonstration: it proves that the package and inspector run, not that
 a model-backed worker completed a real task.
 
 ```bash
-npx -y --package=meshfleet@0.20.0 -- agent-mesh demo
+npx -y --package=meshfleet -- agent-mesh demo
 ```
 
-That immutable release already prints its demonstration audit, removes the throwaway
+That published walkthrough already prints its demonstration audit, removes the throwaway
 ledger, and then prints an old unbound inspector next step. Do not run that unbound
 form: npm resolves its package token to the unrelated reserved `agent-mesh@0.0.1`
 package. To inspect your own configured MCP ledger later, bind the package explicitly:
 
 ```bash
-npx -y --package=meshfleet@0.20.0 -- agent-mesh inspect --verify
+npx -y --package=meshfleet -- agent-mesh inspect --verify
 ```
 
 ### Source-only deterministic runtime
 
 The newer source checkout documented on this page includes a `local-demo` runtime —
 the current Node executable running a deterministic worker. It is **not in the
-published 0.20.0 package**. After building this source checkout, ask your MCP host to
+published package**. After building this source checkout, ask your MCP host to
 spawn with it:
 
 ```
@@ -147,7 +147,7 @@ make provider calls until you ask it to spawn a worker. Through your MCP host:
    `agents: [{ role: "explorer", prompt: "Read this repository's README and list its three main sections. Do not edit files." }]`.
    Omit `runtime` so the published default `opencode-cli` adapter is used.
 2. Pass the returned `fleet_id` to `collect_results`, then inspect the local evidence
-   with `npx -y --package=meshfleet@0.20.0 -- agent-mesh inspect --verify`.
+   with `npx -y --package=meshfleet -- agent-mesh inspect --verify`.
 3. Treat `complete` and the local consistency report as recorded claims, not proof
    that the answer or code is correct. Review the worker's result yourself.
 
