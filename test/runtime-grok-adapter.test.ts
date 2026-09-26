@@ -58,7 +58,11 @@ const provider = spawn(process.execPath, [
 ], { detached: true, stdio: "ignore" });
 if (!provider.pid || !pidFile) process.exit(2);
 provider.unref();
-writeFileSync(pidFile, String(provider.pid));
+// The handler MUST be installed before the pid file is written: the pid file is the test's
+// readiness signal, and the test cancels as soon as it sees it. Until a listener exists the
+// OS default disposition applies, so a SIGTERM landing between the write and the listener
+// killed this wrapper outright, orphaning the provider (macOS, Node 24 leg of CI run
+// 36255863419: "condition did not become observable before ceiling").
 process.on("SIGTERM", () => {
   try { process.kill(-provider.pid, "SIGTERM"); } catch {}
   setTimeout(() => {
@@ -66,8 +70,15 @@ process.on("SIGTERM", () => {
     process.exit(143);
   }, 500);
 });
+writeFileSync(pidFile, String(provider.pid));
 setInterval(() => {}, 1000);
 `;
+
+/** Names libuv injects into every Windows child environment (libuv src/win/process.c). */
+const LIBUV_WIN32_REQUIRED_ENV = new Set([
+  "HOMEDRIVE", "HOMEPATH", "LOGONSERVER", "PATH", "SYSTEMDRIVE", "SYSTEMROOT",
+  "TEMP", "USERDOMAIN", "USERNAME", "USERPROFILE", "WINDIR",
+]);
 
 async function waitFor(check: () => boolean, ceilingMs = 2_000): Promise<void> {
   const deadline = Date.now() + ceilingMs;
@@ -160,9 +171,19 @@ test("Grok subscription adapter sends prompt bytes on stdin with one fixed argv 
   assert.equal(observed.noMemory, "1", "the wrapper must receive only the task prompt, not ambient memory");
   assert.equal(observed.grokTextOnly, "1", "the wrapper must disable every local tool");
   assert.equal(observed.childMarker, "1");
+  const expectedNames = ["AGENT_MESH_CHILD", "GROK_TEXT_ONLY", "HOME", "NO_MEMORY", "PATH", "USER"];
   assert.deepEqual(
-    observed.environmentNames.filter((name) => name !== "__CF_USER_TEXT_ENCODING"),
-    ["AGENT_MESH_CHILD", "GROK_TEXT_ONLY", "HOME", "NO_MEMORY", "PATH", "USER"],
+    observed.environmentNames.filter(
+      (name) =>
+        name !== "__CF_USER_TEXT_ENCODING" &&
+        // On Windows, libuv's process spawn re-adds these variables from the PARENT environment
+        // whenever a child's environment block omits them (src/win/process.c `required_vars`), so
+        // they reach every child regardless of what the adapter admits. Measured on all three
+        // windows-2022 legs of CI run 36255863419: exactly this set, and nothing else, appeared.
+        // Every other name, including the three must-not-cross names above, is still asserted.
+        !(process.platform === "win32" && LIBUV_WIN32_REQUIRED_ENV.has(name) && !expectedNames.includes(name)),
+    ),
+    expectedNames,
   );
   assert.deepEqual(result.identity, { adapterId: "grok-cli", evidence: "none" });
   assert.equal(result.stderr, "");
