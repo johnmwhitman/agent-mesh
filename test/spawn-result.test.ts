@@ -1108,20 +1108,204 @@ test('spawn result: banner-mode sibling-provider stderr pre-existing behavior un
   assert.match(result.warning ?? '', /auxiliary provider/i)
 })
 
-test('spawn result: rotated attribution — no observed AND no requested = unattributed stderr is auxiliary', () => {
+test('spawn result: unattributed provider-only stderr + no observed AND no requested = FATAL (fail-closed)', () => {
+  // v2 fail-closed contract (post a0470a73 review BLOCK):
+  //
   // Edge case: no banner (none parsed), no requested model, stderr
   // carries only a generic provider-shape error. The attribution gate
-  // cannot possibly identify the warned-about runtime because the
-  // caller told us nothing. Pre-fix this elevated to fatal; post-fix
-  // it drops to warning. The empty-stdout branch still runs first
-  // when stdout is empty, so this case only matters when stdout is
-  // non-empty but unattributed.
+  // cannot prove the warned-about runtime is a sibling (no comparison
+  // target). v1 patch dropped this to the warning channel; v2 patch
+  // restores fail-closed so the spawn surfaces as a fatal primary
+  // provider error and the retry loop / caller see the truth. The
+  // empty-stdout branch still runs first when stdout is empty, so this
+  // case only matters when stdout is non-empty but unattributed.
+  //
+  // Pre-v1: success=false (fatal). v1: success=true (auxiliary,
+  // fail-OPEN). v2: success=false (fatal) — restored.
   const result = classifySpawnResult({
     exitCode: 0,
     stdout: 'partial-looking answer',
     stderr: 'Error: API 429 for some-provider/some-model: rate limit',
   })
 
+  assert.equal(result.success, false, result.error ?? '')
+  assert.match(result.error ?? '', /fatal primary provider/i)
+})
+
+// =========================================================================
+// v2 FAIL-CLOSED CONTRACT (post a0470a73 review BLOCK)
+// =========================================================================
+//
+// The brief specifies four contract tests:
+//   (a) real generic primary error, no banner, no requested model → FATAL;
+//   (b) the Astra-class sibling-429 line naming another provider →
+//       warning, not fatal;
+//   (c) an error naming the requested/observed model → FATAL;
+//   (d) an aliased model name → documented behavior.
+//
+// Test (a) is the regression pin for the v1 fail-open — it MUST fail on
+// a0470a73 and pass after the v2 patch. Tests (b) and (c) pin the two
+// half-bells of the attribution gate (downgrade vs upgrade). Test (d)
+// pins the aliasing contract for `runtimeModelsMatch` inside the
+// diagnostic gate — same runtime under a provider-prefix alias is
+// fatal, not auxiliary.
+
+test('spawn result v2 (a): real generic primary error + no banner + no requestedModel = FATAL', () => {
+  // Regression pin for the v1 fail-open. Pre-v1 the diagnostic
+  // gate's no-target guard returned `true` (fail-closed), the line
+  // matched `PROVIDER_DIAGNOSTIC` (it doesn't — `Error: Unauthorized`
+  // does not match `API 429 for` / `ProviderModelNotFoundError`), so
+  // `isRuntimeDiagnostic` was never reached and the spawn returned
+  // success. v1 (a0470a73) returned `false` from the no-target guard
+  // for cases where attribution shape matched (it doesn't here
+  // either, so the path was unchanged — but the fix weakened the
+  // contract for cases where attribution shape DID match without a
+  // comparison target, which is exactly the regression this test
+  // covers with `Error: API 429 for some-provider/some-model`). For
+  // the canonical test (a) shape, the regression is the same: a real
+  // primary error with no in-band evidence of which provider ran is
+  // classified as auxiliary by v1 (the spawn returns success with a
+  // warning) and as fatal by v2. The shape used here is
+  // provider-shape to match the diagnostic regex so the line actually
+  // reaches the attribution gate.
+  //
+  // To make the test (a) shape unambiguous the spawned stderr names
+  // a provider/model AND the caller supplies no banner / no
+  // requestedModel — the attribution gate has no comparison target
+  // and must default to FATAL.
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'partial-looking answer',
+    stderr: 'Error: API 429 for some-provider/some-model: rate limit',
+  })
+
+  assert.equal(result.success, false, result.error ?? '')
+  assert.match(result.error ?? '', /fatal primary provider/i)
+})
+
+test('spawn result v2 (a, generic-only): no-banner + no-requestedModel + Error: Unauthorized = FATAL', () => {
+  // Companion to test (a): the canonical brief-example shape with no
+  // attribution regex match (no `API 429 for`, no
+  // `ProviderModelNotFoundError:`). `Error: Unauthorized` matches
+  // the `^Error:` filter at L416 and reaches the attribution gate
+  // with empty attribution. v1 classified it as success + warning
+  // (fail-open: no-target guard returned false, attribution was
+  // empty, the fallback returned true at the end — wait, the
+  // no-target guard at L273 short-circuited and returned false, so
+  // the line went to the auxiliary-warning channel). v2 short-
+  // circuits with `true` (fail-closed) and the spawn surfaces as a
+  // fatal primary provider error.
+  //
+  // Pre-v1 contract was already fail-closed here (the empty-
+  // attribution fallback at the end of the function returns `true`
+  // when the runtime is on the record — but with NO runtime on the
+  // record the v1 patch's no-target guard now returns true too.
+  // Both contracts agree: this test pins the test (a) shape without
+  // depending on the regex-match-vs-no-match distinction.
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'partial-looking answer',
+    stderr: 'Error: Unauthorized',
+  })
+
+  assert.equal(result.success, false, result.error ?? '')
+  assert.match(result.error ?? '', /fatal primary provider/i)
+})
+
+test('spawn result v2 (b): Astra-class sibling-429 line naming another provider = warning, not fatal', () => {
+  // The ONLY legitimate downgrade to auxiliary-warning: stderr
+  // carries a 429 line whose attribution shape names a DIFFERENT
+  // provider than the one on the record (banner present). This is
+  // the f9dd28b0 Grok / MiniMax fleet symptom — a sibling-pool 429
+  // got attributed to the primary runtime by mistake; the retry loop
+  // spent a paid hop against a sibling provider that never observed
+  // the spawn. The banner is `xai/grok-4.5`, the stderr names
+  // `anthropic/claude-haiku-4-5`, the attribution.provider is
+  // `anthropic` (matched from `API 429 for ...` in the regex), the
+  // runtime on record is `xai`, they differ → auxiliary.
+  //
+  // `requestedAgent: 'oracle'` is passed (so the no-banner guard at
+  // L373 does NOT fire — the banner parses), but no `requestedModel`
+  // is passed (the no-model guard at L396 is irrelevant — banner
+  // already supplies observedModel).
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'partial-looking answer',
+    stderr: [
+      '> oracle · xai/grok-4.5',
+      'Error: API 429 for anthropic/claude-haiku-4-5: secondary pool limit',
+    ].join('\n'),
+    requestedAgent: 'oracle',
+  })
+
   assert.equal(result.success, true, result.error ?? '')
   assert.match(result.warning ?? '', /auxiliary provider/i)
+})
+
+test('spawn result v2 (c): error naming the requested/observed model = FATAL', () => {
+  // Positive half: when the stderr line shape-matches the runtime
+  // on the record (banner / DB-observed / requested), the line IS
+  // this runtime's failure and must be elevated to fatal. Pre-v1
+  // this was already the contract; v1 and v2 both preserve it.
+  // Without this half the gate would mask real failures behind a
+  // warning. Banner is `oracle · xai/grok-4.5`; stderr names
+  // `xai/grok-4.5`; attribution.model matches observed via the leaf
+  // strip; `isRuntimeDiagnostic` returns `true`; classification is
+  // fatal.
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'partial-looking answer',
+    stderr: [
+      '> oracle · xai/grok-4.5',
+      'Error: ProviderModelNotFoundError: xai/grok-4.5',
+    ].join('\n'),
+    requestedAgent: 'oracle',
+  })
+
+  assert.equal(result.success, false, result.error ?? '')
+  assert.match(result.error ?? '', /fatal primary provider/i)
+  assert.match(result.error ?? '', /xai\/grok-4\.5/i)
+})
+
+test('spawn result v2 (d): aliased model name (requested without provider prefix vs stderr with prefix) = FATAL', () => {
+  // Documented behavior: `runtimeModelsMatch` strips the provider
+  // prefix symmetrically (first slash only). A caller passing
+  // `requestedModel: 'grok-4.5'` and stderr carrying `API 429 for
+  // xai/grok-4.5` is treated as the same runtime under an alias —
+  // fatal, not auxiliary. This protects callers who log intent
+  // without the prefix; it must not silently mask a real failure by
+  // downgrading to warning. The no-banner guard at L396 fires first
+  // (no banner AND requestedModel is set), so the classification
+  // surfaces as "Requested model but runtime model banner is missing
+  // or unparsable" — a non-success, fail-closed outcome. The
+  // attribution-gate logic itself would also return true under v2
+  // because `runtimeModelsMatch('xai/grok-4.5', 'grok-4.5')` is true
+  // — but the no-banner guard wins, which is the truthful ordering.
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'partial-looking answer',
+    stderr: 'Error: API 429 for xai/grok-4.5: rate limit',
+    requestedModel: 'grok-4.5',
+  })
+
+  assert.equal(result.success, false, result.error ?? '')
+})
+
+test('spawn result v2 (d, banner-present): aliased stderr under matching banner = FATAL', () => {
+  // Companion to test (d) under the banner-present path: stderr
+  // names `xai/grok-4.5`, banner says `xai/grok-4.5`. Same alias
+  // consideration but with banner as the runtime on record — the
+  // attribution gate sees the exact match and returns `true` (fatal).
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'partial-looking answer',
+    stderr: [
+      '> oracle · xai/grok-4.5',
+      'Error: ProviderModelNotFoundError: xai/grok-4.5',
+    ].join('\n'),
+    requestedAgent: 'oracle',
+  })
+
+  assert.equal(result.success, false, result.error ?? '')
+  assert.match(result.error ?? '', /fatal primary provider/i)
 })

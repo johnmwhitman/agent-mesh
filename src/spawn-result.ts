@@ -245,32 +245,54 @@ function isRuntimeDiagnostic(
   observedModel: string | undefined,
   requestedModel?: string
 ): boolean {
-  // Attribution requires EITHER an observed banner/DB model OR a
-  // caller-named requested model. Without one of those, there is no
-  // truthful way to attribute a stderr line to the runtime the caller
-  // is observing — a `ProviderModelNotFoundError: x` from a sibling
-  // pool, an `API 429 for y` from a parallel CLI session, or an
-  // OpenCode-internal auth-plugin warning all match the diagnostic
-  // regex without belonging to this spawn.
+  // FAIL-CLOSED CONTRACT (revised after a0470a73 review BLOCK):
   //
-  // The pre-fix contract returned `true` whenever the observed model
-  // was absent, which elevated every unattributed stderr line into a
-  // "Fatal primary provider error" — that elevation is a poison pill
-  // for the retry loop (the 2026-09-26 f9dd28b0 Grok / MiniMax fleet
-  // symptom): a paid retry hop is spent against a sibling provider
-  // that never observed the spawn, and the failure propagates across
-  // retries that have no chance of succeeding.
+  // The diagnostic gate is the LAST step before classification. Any
+  // line that survives the malformed / fallback / requested-guard /
+  // banner-mismatch gates AND matches the diagnostic regex (a generic
+  // `Error: Unauthorized`, `API 429 for ...`, `ProviderModelNotFoundError: ...`,
+  // `opencode-claude-auth`, `Insufficient balance`, etc.) belongs to
+  // one of two places: THIS runtime on the record, or a sibling pool
+  // that we cannot prove is not this runtime. The only branch that
+  // may downgrade to the auxiliary-warning channel is the one with
+  // AFFIRMATIVE evidence the line belongs to a DIFFERENT runtime —
+  // i.e. attribution shape names a provider/model whose identity we
+  // can compare AND it differs from the observed/requested identity.
+  // Anything less is fail-closed: return `true` and let the
+  // caller/retry loop treat the spawn as fatally failed.
   //
-  // When attribution shape identifies a model OR provider, the
-  // existing model-match / provider-match rules apply (unchanged) and
-  // the line is fatal only when it disagrees with the runtime on
-  // record. When attribution shape is empty AND we have no runtime
-  // identity to compare against, the line drops to the auxiliary
-  // channel: the contract that callers depend on to retry against a
-  // different runtime rather than marking this one fatally failed.
+  // Why fail-closed: the v1 patch (a0470a73) returned `false` whenever
+  // there was no observed AND no requested runtime target. That
+  // dropped every unattributed stderr line into the auxiliary-warning
+  // channel, including real generic primary errors like
+  // `Error: Unauthorized` with a partial-stdout / no-banner / no-
+  // requested-model spawn — exit 0, real auth failure, no in-band
+  // banner to confirm which provider actually ran, classification
+  // returned success. A retry loop that trusts that classification
+  // re-fires the spawn against a sibling provider it never should have
+  // touched, AND a caller that trusts it loses the fatal signal for a
+  // real primary failure. The Astra-class Grok / MiniMax f9dd28b0
+  // symptom is the ONLY legitimate "downgrade to warning" case: a
+  // 429 line whose attribution shape names a sibling provider, with
+  // a banner that names the requested runtime. Everything else is a
+  // primary diagnostic that must propagate.
+  //
+  // When attribution shape identifies a model OR provider that
+  // matches the runtime on record (banner, DB-observed, or requested)
+  // the line IS this runtime's failure. When attribution shape
+  // identifies a model OR provider that differs from the runtime on
+  // record, the line belongs to a sibling pool and drops to the
+  // auxiliary channel — that is the ONLY downgrade path. Aliased
+  // names (e.g. requested `grok-4.5`, stderr `API 429 for
+  // xai/grok-4.5`) match under `runtimeModelsMatch`'s symmetric first-
+  // slash strip and stay fatal — the alias is the same runtime, not a
+  // sibling.
   const observed = observedModel?.toLowerCase();
   const requested = requestedModel?.toLowerCase();
-  if (!observed && !requested) return false;
+  // No comparison target means no proof of sibling identity — fail
+  // closed against the runtime we cannot rule out. This is the case
+  // the v1 patch loosened to `return false` and the review BLOCKED.
+  if (!observed && !requested) return true;
   const runtimeModel = (observed ?? requested)!;
   let [runtimeProvider, runtimeModelName] = runtimeModel.includes("/")
     ? runtimeModel.split("/", 2)
@@ -280,18 +302,31 @@ function isRuntimeDiagnostic(
   }
 
   if (attribution.model) {
-    return runtimeModelsMatch(attribution.model, runtimeModel) || attribution.model === runtimeModelName;
+    // Match the named model against the runtime on the record (with
+    // provider-prefix aliasing). Match → this runtime's failure
+    // (fatal). Differ → affirmative sibling identity → auxiliary.
+    return (
+      runtimeModelsMatch(attribution.model, runtimeModel) ||
+      attribution.model === runtimeModelName
+    );
   }
-  if (attribution.provider) return attribution.provider === runtimeProvider;
-  // A runtime is on the record (observed or requested) and the stderr
-  // line carries no model-shaped attribution token. We cannot prove
-  // the line belongs to a DIFFERENT runtime — keep the legacy
-  // "could not disprove" default of true so the line continues to
-  // fail-closed against the runtime on the record. The new
-  // unattributed path is gated by the !observed && !requested guard
-  // above; nothing here weakens the in-band banner-attributed
-  // contract callers have always depended on (e.g. `> oracle ·
-  // anthropic/claude-opus-4-8` + generic `Error: Unauthorized`).
+  if (attribution.provider) {
+    // Match the named provider against the runtime on the record.
+    // Match → this runtime's failure (fatal). Differ → affirmative
+    // sibling identity → auxiliary. This is the Astra-class downgrade
+    // path: stderr `opencode-claude-auth: API 429 for claude-haiku-4-5`
+    // under banner `> oracle · xai/grok-4.5` returns false here and
+    // lands on the warning channel.
+    return attribution.provider === runtimeProvider;
+  }
+  // Attribution shape is empty (e.g. a generic `Error: Unauthorized`
+  // line that does not name a provider/model) and we have a runtime
+  // target to compare against. We cannot prove the line belongs to a
+  // DIFFERENT runtime — there is no positive evidence of a sibling.
+  // Default to fatal against the runtime on the record. This is the
+  // fail-closed behaviour the v1 patch weakened via the
+  // `!observed && !requested` guard above; that path is restored
+  // here.
   return true;
 }
 
