@@ -69,6 +69,19 @@ gains fields and the adapter gains a new warning code and opt-in environment var
   `finally`, so a failure fails the test and no longer hangs the runner. It is
   skipped on Windows, with the reason given in the test: orphan survival is
   POSIX-only in `src/runtime/process.ts`, and its shebang fixture cannot execute there.
+- Three more test defects surfaced by a full 3-OS run of this branch. They were invisible
+  because push CI runs on Ubuntu only:
+  - `work-receipt-stdio` called `npm` and `cat` directly, which Windows cannot resolve
+    (`spawnSync npm ENOENT` on all three Windows legs). It now uses `npm.cmd` through a
+    shell on win32 and reads the tarball with `readFileSync`.
+  - The Grok adapter env-scrub test expected an exact child environment. On Windows,
+    libuv adds its required variables (`SYSTEMROOT`, `TEMP`, `USERNAME`, …) from the
+    parent to every child. The test now allows exactly that libuv set on win32 and still
+    asserts that everything else, including the must-not-cross names, stays out.
+  - The Grok nested-provider fixture wrote its readiness pid file before installing its
+    SIGTERM handler. A cancel landing in that window killed the wrapper and orphaned the
+    provider (seen once on macOS / Node 24). The handler is now installed first.
+- HANDOFF's Windows skip inventory is corrected to the measured 25, up from 21.
 
 ## [0.21.2] - 2026-09-06
 

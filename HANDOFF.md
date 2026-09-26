@@ -70,7 +70,7 @@ only. Failover's unit-level spec and registry tests run on every platform.
 
 ## Platform-skipped tests (what does not run on Windows)
 
-The suite collects the same total everywhere, but **21 tests skip on
+The suite collects the same total everywhere, but **25 tests skip on
 `windows-2022`**, consistent across Node 20, 22, and 24. Every skip is a
 deliberate `process.platform === "win32"` (or equivalent) predicate, not flake.
 This repository's own rule is that a test that does not run is indistinguishable
@@ -80,10 +80,12 @@ silently:
 | Count | Subset | Stated reason |
 |---|---|---|
 | 3 | ledger SIGKILL/checkpoint storm recovery | POSIX signals are required |
-| 7 | local process adapter signal semantics (SIGTERM escalation, process-group termination, cancellation races) | Windows `TerminateProcess` cannot deliver a catchable SIGTERM |
+| 8 | local process adapter signal semantics (SIGTERM escalation, process-group termination, cancellation races) | Windows `TerminateProcess` cannot deliver a catchable SIGTERM |
 | 2 | Kimi adapter descendant process-group kill | Windows does not expose process-group signal semantics |
+| 1 | Grok adapter termination grace for a detached provider | POSIX process groups are required |
+| 1 | chaos durability: a worker outlives its one-shot submitter (`chaos-detached-exchange`) | orphan survival is POSIX-only (`src/runtime/process.ts` detaches workers only off win32) and the shebang fixture is not executable by `CreateProcess` |
 | 5 | **runtime failover end-to-end** (refusal → hop → receipts, plus three negative controls) | the backup-runtime leg cannot be stubbed: the Kimi adapter scrubs its child environment by design, so the `process.execPath`+`NODE_OPTIONS` stub that serves the default runtime has no channel to the Kimi child |
-| 1 | MiniMax `spawn_fleet` wiring | POSIX shell/chmod fixture; adapter behavior is covered cross-platform with `process.execPath` |
+| 2 | Grok and MiniMax `spawn_fleet` wiring | POSIX shell/chmod fixture; adapter behavior is covered cross-platform with `process.execPath` |
 | 3 | doctor checks (two unwritable-directory cases, one PATH probe) | POSIX permission semantics / platform predicate |
 
 The signal-semantics rows are structural platform differences and are expected to
