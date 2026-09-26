@@ -52,21 +52,15 @@ function walk(dir: string): string[] {
 /**
  * dist/a/b.js -> src/a/b.ts, in POSIX form for a readable assertion message.
  *
- * `npm run build` runs `tsc` (rootDir=./src) and then `tsc -p tsconfig.test.json`
- * (rootDir=.). The first build emits dist/a/b.js; the second emits dist/src/a/b.js
- * alongside the first because TypeScript preserves the relative path from rootDir.
- * Tests under test/ land at dist/test/foo.test.js from the same rootDir=. build.
- * `dist/a/b.js` is the canonical product; `dist/src/a/b.js` is the duplicate the
- * rootDir=. build always writes when include covers src/. Both must map back to a
- * real source, so sourceFor tries the canonical src/-rooted path first and then
- * the repo-root path which strips a leading `src/` or `test/` directory if the
- * candidate doesn't exist on disk.
+ * `npm run build` emits the runtime with `tsc` (rootDir=./src), then checks the
+ * test sources with the no-emit `tsconfig.test.json`. Keeping that second config
+ * no-emit is important: when it wrote to dist/ it duplicated every runtime file
+ * under dist/src/ and compiled the entire test suite under dist/test/, and both
+ * trees were then included in the npm tarball.
  */
 function sourceFor(distFile: string): string {
   const rel = relative(distDir, distFile).replace(/\.js$/, ".ts");
-  const canonical = join(srcDir, rel);
-  if (existsSync(canonical)) return canonical;
-  return join(repoRoot, rel);
+  return join(srcDir, rel);
 }
 
 test("every file in dist/ has a source in src/ — no stale build output", () => {
