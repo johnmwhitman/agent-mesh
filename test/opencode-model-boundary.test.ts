@@ -6,6 +6,7 @@ import {
   validateOpenCodeProviderNamespace,
   resolveOpenCodeCliModel,
   openCodeProviderNamespaceFromEnv,
+  openCodeRequireModelEvidenceFromEnv,
   openCodeSessionEvidenceFromEnv,
 } from "../src/spawn-config.js";
 import { runtimeModelsMatch } from "../src/spawn-result.js";
@@ -214,4 +215,13 @@ test("banner classification compares harness-qualified observed ids against the 
   // serving the identical wire id still matches. That is existing behavior,
   // not a weakening introduced here.
   assert.equal(runtimeModelsMatch("ollama/glm-5.2", "other/ollama/glm-5.2"), true);
+});
+
+test("strict model binding is opt-in and only 1/true enable it", () => {
+  assert.equal(openCodeRequireModelEvidenceFromEnv({}), false);
+  assert.equal(openCodeRequireModelEvidenceFromEnv({ MESHFLEET_OPENCODE_REQUIRE_MODEL_EVIDENCE: "" }), false);
+  assert.equal(openCodeRequireModelEvidenceFromEnv({ MESHFLEET_OPENCODE_REQUIRE_MODEL_EVIDENCE: "0" }), false);
+  assert.equal(openCodeRequireModelEvidenceFromEnv({ MESHFLEET_OPENCODE_REQUIRE_MODEL_EVIDENCE: "yes" }), false);
+  assert.equal(openCodeRequireModelEvidenceFromEnv({ MESHFLEET_OPENCODE_REQUIRE_MODEL_EVIDENCE: "1" }), true);
+  assert.equal(openCodeRequireModelEvidenceFromEnv({ MESHFLEET_OPENCODE_REQUIRE_MODEL_EVIDENCE: " TRUE " }), true);
 });
