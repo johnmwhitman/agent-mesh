@@ -15,38 +15,24 @@
 // INVALID_AUTHORIZATION_SNAPSHOT, not AUTHORIZATION_DENIED. That class is
 // covered by tick-54's snapshot/grammar slice.
 //
-// Inputs: pristine-44 corpus at test/fixtures/a2a/local-admission/v0.1/corpus.json
+// Inputs: live corpus at test/fixtures/a2a/local-admission/v0.1/corpus.json.
+// A one-shot splice still needs a 44-case sentinel at /tmp/corpus-pristine-44.json
+// (operator-supplied; never commit a megabyte twin next to corpus.json).
 // Outputs: 5 new cases appended to the cases array; mandatory_case_ids updated.
 //   Result: 44 → 49 mandatory cases.
 //
-// Idempotent: rerun against an already-expanded corpus no-ops (it splices 6 entries
-// exactly once). The pristine-44 sentinel under /tmp/corpus-pristine-44.json must
-// be present; the script restores from it before re-splicing so every regeneration
-// is bit-identical.
+// Idempotent: rerun against an already-expanded corpus no-ops without the
+// /tmp sentinel. A real splice still restores from that sentinel so every
+// regeneration is bit-identical.
 
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { execFileSync } from "node:child_process";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(__dirname, "..");
 const CORPUS = resolve(REPO, "test/fixtures/a2a/local-admission/v0.1/corpus.json");
 const PRISTINE = "/tmp/corpus-pristine-44.json";
-
-if (!existsSync(PRISTINE)) {
-  console.error(`Missing pristine-44 sentinel at ${PRISTINE}; refusing to splice.`);
-  console.error("Restore from a known-good origin/main corpus first, then re-run.");
-  process.exit(1);
-}
-
-const PRISTINE_CORPUS = JSON.parse(readFileSync(PRISTINE, "utf8"));
-const BASE_ID = "valid.admission-plan";
-const baseCase = PRISTINE_CORPUS.cases.find((c) => c.id === BASE_ID);
-if (!baseCase) {
-  console.error(`Pristine corpus missing base case ${BASE_ID}.`);
-  process.exit(2);
-}
 
 const mutations = [
   {
@@ -76,9 +62,35 @@ const mutations = [
   },
 ];
 
+const current = JSON.parse(readFileSync(CORPUS, "utf8"));
+const existing = new Set(current.mandatory_case_ids);
+const allPresent = mutations.every((m) => existing.has(m.id));
+if (allPresent) {
+  console.log(`All 6 ids already present in corpus; nothing to do. (${current.cases.length} cases)`);
+  process.exit(0);
+}
+const anyPresent = mutations.some((m) => existing.has(m.id));
+if (anyPresent) {
+  console.error(`Partial splice detected: ${mutations.filter((m) => existing.has(m.id)).map((m) => m.id).join(", ")} already present, others missing. Aborting to avoid bit-flip.`);
+  process.exit(3);
+}
+
+if (!existsSync(PRISTINE)) {
+  console.error(`Missing pristine-44 sentinel at ${PRISTINE}; refusing to splice.`);
+  console.error("Place a 44-case corpus at that path (from git history if needed), then re-run.");
+  process.exit(1);
+}
+
+const PRISTINE_CORPUS = JSON.parse(readFileSync(PRISTINE, "utf8"));
+const BASE_ID = "valid.admission-plan";
+const baseCase = PRISTINE_CORPUS.cases.find((c) => c.id === BASE_ID);
+if (!baseCase) {
+  console.error(`Pristine corpus missing base case ${BASE_ID}.`);
+  process.exit(2);
+}
+
 const baseRequest = JSON.parse(baseCase.invocation_args.request_json);
 const baseEnvelope = baseCase.invocation_args.envelope_json;
-const baseExpected = baseCase.expected;
 
 const newCases = mutations.map(({ id, desc, mutate }) => {
   const req = JSON.parse(JSON.stringify(baseRequest));
@@ -99,20 +111,6 @@ const newCases = mutations.map(({ id, desc, mutate }) => {
     },
   };
 });
-
-// Idempotency: if all 6 ids already present, no-op.
-const current = JSON.parse(readFileSync(CORPUS, "utf8"));
-const existing = new Set(current.mandatory_case_ids);
-const allPresent = mutations.every((m) => existing.has(m.id));
-if (allPresent) {
-  console.log(`All 6 ids already present in corpus; nothing to do. (${current.cases.length} cases)`);
-  process.exit(0);
-}
-const anyPresent = mutations.some((m) => existing.has(m.id));
-if (anyPresent) {
-  console.error(`Partial splice detected: ${mutations.filter((m) => existing.has(m.id)).map((m) => m.id).join(", ")} already present, others missing. Aborting to avoid bit-flip.`);
-  process.exit(3);
-}
 
 // Splice. Preserve source order: append the 6 new cases after the existing 44.
 const newIds = mutations.map((m) => m.id);
