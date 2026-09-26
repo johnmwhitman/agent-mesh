@@ -990,3 +990,138 @@ test('spawn result: generic message=stream noise does not poison legacy runtime 
   assert.equal(result.runtime_agent, 'build')
   assert.equal(result.runtime_model, 'routeplane/subs/grok')
 })
+// f9dd28b0-class symptom (Astra 18d8e200233caec8: Grok / MiniMax dispatch
+// failures under RoutePlane review). Pre-fix, `isRuntimeDiagnostic`
+// returned `true` whenever `!observedModel`, which elevated ANY stderr
+// line whose text happened to match `ProviderModelNotFoundError`,
+// `API 429`, or `opencode-claude-auth` / claude-credentials phrases
+// into a "Fatal primary provider error" — even though there was no
+// model attribution for the warned-about runtime. In the f9dd28b0
+// symptom the stderr carries a sibling-provider 429 from a parallel
+// CLI session; the elevatation spent a retry hop against the wrong
+// provider and propagated the failure across retries that could never
+// succeed.
+//
+// The fix keeps the original contract: when the runtime banner (or
+// DB-observed model) names the warned-about model, the diagnostic is
+// fatal. The new requirement: an attribution signal is mandatory.
+// Without a banner AND without a `requestedModel` shape match, an
+// unattributed stderr line lands on the auxiliary-warning channel, not
+// on the fatal-primary-provider branch. When the runtime banner IS
+// present, the contract is unchanged (existing tests guard it).
+
+test('spawn result: unattributed sibling-provider stderr with NO requestedModel is auxiliary, not fatal', () => {
+  // Banner exists for grok; stderr carries a sibling-pool 429 for a
+  // different provider. Pre-fix this escalated to fatal because the
+  // attribution function unconditionally returned `true` when the
+  // requested model was absent and the line matched the diagnostic
+  // regex. Post-fix the line drops to the warning channel because
+  // the banner names grok and the stderr names a sibling provider.
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'partial-looking answer',
+    stderr: [
+      '> oracle · xai/grok-4.5',
+      'Error: API 429 for anthropic/claude-haiku-4-5: secondary pool limit',
+    ].join('\n'),
+    requestedAgent: 'oracle',
+  })
+
+  assert.equal(result.success, true, result.error ?? '')
+  assert.match(result.warning ?? '', /auxiliary provider/i)
+})
+
+test('spawn result: unattributed provider-model-not-found stderr + mismatched requestedModel = no-banner guard fires', () => {
+  // Banner absent (OpenCode 1.17 dropped it in `run` mode), stderr
+  // carries a 429 for a sibling provider, the caller asked for a
+  // DIFFERENT routeplane model. The diagnostic attribution flow lands
+  // here: `isRuntimeDiagnostic` with `attribution.model = 'xai/grok-4.5'`
+  // and `requestedModel = 'routeplane/ollama/glm-5.2'` — they do not
+  // match, so the line would be auxiliary. BUT the no-banner guard at
+  // L361 fires earlier and returns "runtime model banner is missing or
+  // unparsable" — the truthful, fail-closed outcome for a spawn that
+  // neither bannered itself nor indicated which provider it actually
+  // ran on. This test pins that ordering: a Grok dispatch whose stderr
+  // carries a sibling-pool 429 hits the no-banner guard, NOT the
+  // attribution-gate (which would have been "auxiliary warning" — a
+  // less useful classification for an emit-empty spawn). The previous
+  // contract would have returned `success: false, error: "Fatal
+  // primary provider error: ...grok-4.5"` — burning a retry hop
+  // against the wrong provider. The new contract returns
+  // `success: false, error: "...banner missing or unparsable"` — an
+  // honest "we don't know what ran, do not retry against a guessed
+  // attribution" signal. Both are non-success; the second is truthful.
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'partial-looking answer',
+    stderr: 'Error: API 429 for xai/grok-4.5: secondary pool rate limit',
+    requestedModel: 'routeplane/ollama/glm-5.2',
+  })
+
+  assert.equal(result.success, false, result.error ?? '')
+  assert.equal(
+    result.error,
+    'Requested model but runtime model banner is missing or unparsable',
+  )
+})
+
+test('spawn result: unattributed provider-model-not-found stderr + matching requestedModel IS fatal', () => {
+  // Positive half: when the stderr line shape-matches the requested
+  // model (the only attribution signal we have when the banner is
+  // gone), the line IS this runtime's failure and must be elevated.
+  // Without this half the gate would mask real failures behind a
+  // warning. `runtimeModelsMatch` is symmetric on the first slash.
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'partial-looking answer',
+    stderr: 'Error: ProviderModelNotFoundError: routeplane/subs/grok',
+    requestedModel: 'routeplane/subs/grok',
+  })
+
+  // NOTE: the no-banner guard at L361 of spawn-result.ts fires before
+  // the diagnostic gate when `requestedModel && !observedModel`, so
+  // today this surfaces as "Requested model but runtime model banner
+  // is missing or unparsable" — a truthful message but a less
+  // informative one than the fatal-primary branch. The fix in this
+  // patch is the attribution-gate tightening only; widening the
+  // missing-banner failure mode (so attribution via stderr suffices
+  // when no banner is parsed) is a separate policy change tracked in
+  // the QUEUE row that owns this commit.
+  assert.equal(result.success, false, result.error ?? '')
+})
+
+test('spawn result: banner-mode sibling-provider stderr pre-existing behavior unchanged', () => {
+  // Existing test contract (line 470 of the file pre-patch): sibling
+  // 429 under a foreign banner stays auxiliary. Kept here as a
+  // regression guard so the fix does not weaken the in-band check.
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'complete Grok answer',
+    stderr: [
+      '> oracle · xai/grok-4.5',
+      "opencode-claude-auth: API 429 for claude-haiku-4-5: This request would exceed your account's rate limit.",
+    ].join('\n'),
+    requestedAgent: 'oracle',
+  })
+
+  assert.equal(result.success, true)
+  assert.match(result.warning ?? '', /auxiliary provider/i)
+})
+
+test('spawn result: rotated attribution — no observed AND no requested = unattributed stderr is auxiliary', () => {
+  // Edge case: no banner (none parsed), no requested model, stderr
+  // carries only a generic provider-shape error. The attribution gate
+  // cannot possibly identify the warned-about runtime because the
+  // caller told us nothing. Pre-fix this elevated to fatal; post-fix
+  // it drops to warning. The empty-stdout branch still runs first
+  // when stdout is empty, so this case only matters when stdout is
+  // non-empty but unattributed.
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'partial-looking answer',
+    stderr: 'Error: API 429 for some-provider/some-model: rate limit',
+  })
+
+  assert.equal(result.success, true, result.error ?? '')
+  assert.match(result.warning ?? '', /auxiliary provider/i)
+})

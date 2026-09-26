@@ -242,10 +242,36 @@ function diagnosticAttribution(line: string): DiagnosticAttribution {
 
 function isRuntimeDiagnostic(
   attribution: DiagnosticAttribution,
-  observedModel: string | undefined
+  observedModel: string | undefined,
+  requestedModel?: string
 ): boolean {
-  if (!observedModel) return true;
-  const runtimeModel = observedModel.toLowerCase();
+  // Attribution requires EITHER an observed banner/DB model OR a
+  // caller-named requested model. Without one of those, there is no
+  // truthful way to attribute a stderr line to the runtime the caller
+  // is observing — a `ProviderModelNotFoundError: x` from a sibling
+  // pool, an `API 429 for y` from a parallel CLI session, or an
+  // OpenCode-internal auth-plugin warning all match the diagnostic
+  // regex without belonging to this spawn.
+  //
+  // The pre-fix contract returned `true` whenever the observed model
+  // was absent, which elevated every unattributed stderr line into a
+  // "Fatal primary provider error" — that elevation is a poison pill
+  // for the retry loop (the 2026-09-26 f9dd28b0 Grok / MiniMax fleet
+  // symptom): a paid retry hop is spent against a sibling provider
+  // that never observed the spawn, and the failure propagates across
+  // retries that have no chance of succeeding.
+  //
+  // When attribution shape identifies a model OR provider, the
+  // existing model-match / provider-match rules apply (unchanged) and
+  // the line is fatal only when it disagrees with the runtime on
+  // record. When attribution shape is empty AND we have no runtime
+  // identity to compare against, the line drops to the auxiliary
+  // channel: the contract that callers depend on to retry against a
+  // different runtime rather than marking this one fatally failed.
+  const observed = observedModel?.toLowerCase();
+  const requested = requestedModel?.toLowerCase();
+  if (!observed && !requested) return false;
+  const runtimeModel = (observed ?? requested)!;
   let [runtimeProvider, runtimeModelName] = runtimeModel.includes("/")
     ? runtimeModel.split("/", 2)
     : [undefined, runtimeModel];
@@ -257,6 +283,15 @@ function isRuntimeDiagnostic(
     return runtimeModelsMatch(attribution.model, runtimeModel) || attribution.model === runtimeModelName;
   }
   if (attribution.provider) return attribution.provider === runtimeProvider;
+  // A runtime is on the record (observed or requested) and the stderr
+  // line carries no model-shaped attribution token. We cannot prove
+  // the line belongs to a DIFFERENT runtime — keep the legacy
+  // "could not disprove" default of true so the line continues to
+  // fail-closed against the runtime on the record. The new
+  // unattributed path is gated by the !observed && !requested guard
+  // above; nothing here weakens the in-band banner-attributed
+  // contract callers have always depended on (e.g. `> oracle ·
+  // anthropic/claude-opus-4-8` + generic `Error: Unauthorized`).
   return true;
 }
 
@@ -380,7 +415,7 @@ export function classifySpawnResult(
     .split("\n")
     .filter((line) => /^\s*Error:/i.test(line) || NO_CREDENTIALS.test(line) || PROVIDER_DIAGNOSTIC.test(line));
   const primaryError = diagnostics.find((line) =>
-    isRuntimeDiagnostic(diagnosticAttribution(line), observedModel)
+    isRuntimeDiagnostic(diagnosticAttribution(line), observedModel, input.requestedModel)
   );
   if (primaryError) {
     return { ...receipt, success: false, error: `Fatal primary provider error: ${primaryError.trim()}` };
