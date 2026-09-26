@@ -25,12 +25,8 @@
   },
   "files": [
     "dist",
-    "mcp.json",
     "README.md",
-    "LICENSE",
-    "AGENT-MESH-SPEC.md",
-    "SPEC-P2P.md",
-    "SPEC-COUNCILS.md"
+    "LICENSE"
   ],
   "scripts": {
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
