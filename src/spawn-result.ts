@@ -338,15 +338,27 @@ function diagnosticAttribution(line: string): DiagnosticAttribution {
   //    providerID/modelID makes the record unattributed, which is FATAL. A
   //    payload may quote any model id, so falling back to it would let a
   //    malformed primary record downgrade itself.
+  //
+  //    WHICH lines are structured: ANY line carrying at least one logfmt
+  //    `key=value` field (whitespace- or start-anchored key, see parseLogfmt).
+  //    Deliberately the widest rule, not a list of OpenCode keys, because
+  //    the classification only ever REMOVES downgrades: a structured line can
+  //    downgrade solely via one complete providerID + modelID pair, while a
+  //    free-text line can downgrade via any model id it quotes. So every line
+  //    wrongly counted as structured errs toward FATAL (fail closed), and
+  //    every line wrongly counted as free text is a potential false
+  //    downgrade. An allow-list of keys (level, message, session.id,
+  //    error.*, ...) would re-open the hole for the next key OpenCode adds or
+  //    omits; this rule has no key list to fall out of date. The
+  //    human-facing diagnostics that free-text attribution exists for
+  //    (`Error: API 429 for x`, `ProviderModelNotFoundError: x`, the Claude
+  //    credential sentence) carry no `key=value` tokens and still take
+  //    path 2. URL query strings (`?a=b`) are not fields: the key must
+  //    follow whitespace or the line start.
   const fields = parseLogfmt(line);
-  const providerIDs = fields?.get("providerID");
-  const modelIDs = fields?.get("modelID");
-  const isStructuredRecord =
-    fields !== null &&
-    (providerIDs !== undefined ||
-      modelIDs !== undefined ||
-      (fields.has("level") && fields.has("message")));
-  if (isStructuredRecord) {
+  if (fields !== null) {
+    const providerIDs = fields.get("providerID");
+    const modelIDs = fields.get("modelID");
     if (
       providerIDs?.length === 1 &&
       modelIDs?.length === 1 &&

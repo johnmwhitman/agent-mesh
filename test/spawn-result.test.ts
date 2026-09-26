@@ -1661,3 +1661,36 @@ test('v3 (i): an incomplete or ambiguous structured record never falls back to i
   assert.equal(control.success, true, control.error)
   assert.match(control.warning ?? '', /auxiliary provider/i)
 })
+
+test('v3 (j): ANY logfmt-shaped line is a structured record; partial records without identity fields are fatal', () => {
+  // GPT-5.6 re-review of d263bcc6: a partial structured record with no
+  // identity fields and no `message` fell through to free-text attribution.
+  const primary = infoRecord('kilo', 'nvidia/nemotron-3.5-lightning:free')
+  const payload = 'error.error="RateLimitError: API 429 for anthropic/claude-haiku-4-5"'
+  const cases: Array<[string, string]> = [
+    ['reviewer example (timestamp+level+session.id+error.error)',
+      `timestamp=x level=ERROR session.id=ses_x ${payload}`],
+    ['level + error.error only', `level=ERROR ${payload}`],
+    ['session.id + error.error only', `session.id=ses_x ${payload}`],
+    ['error.error only', payload],
+    ['unknown key + free-text 429', 'Error: retry=3 API 429 for anthropic/claude-haiku-4-5'],
+  ]
+  for (const [name, line] of cases) {
+    assert.match(line, /API 429 for anthropic\/claude-haiku-4-5/, name)
+    const result = classifySpawnResult({ exitCode: 0, stdout: 'ok', stderr: [primary, line].join('\n') })
+    assert.equal(result.success, false, `${name} :: ${result.warning}`)
+    assert.match(result.error ?? '', /fatal primary provider error/i, name)
+  }
+
+  // Controls: a well-formed sibling record still downgrades, and so does a
+  // plain free-text sibling line (no key=value tokens), so the rule is not
+  // "every diagnostic is fatal".
+  for (const line of [
+    `timestamp=x level=ERROR message="stream error" providerID=anthropic modelID=claude-haiku-4-5 session.id=ses_x small=true agent=title mode=primary ${payload}`,
+    'Error: API 429 for anthropic/claude-haiku-4-5: secondary pool limit',
+  ]) {
+    const control = classifySpawnResult({ exitCode: 0, stdout: 'ok', stderr: [primary, line].join('\n') })
+    assert.equal(control.success, true, `${line} :: ${control.error}`)
+    assert.match(control.warning ?? '', /auxiliary provider/i)
+  }
+})
