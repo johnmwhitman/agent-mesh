@@ -109,7 +109,7 @@ scripted ledger demonstration: it proves that the package and inspector run, not
 a model-backed worker completed a real task.
 
 ```bash
-npx meshfleet demo
+npx -y --package=meshfleet -- agent-mesh demo
 ```
 
 That published walkthrough runs entirely against a throwaway temp ledger (nothing under
