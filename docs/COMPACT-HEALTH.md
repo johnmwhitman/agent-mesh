@@ -6,14 +6,14 @@ call. Full responses remain the default for existing integrations.
 
 ## Start from the portable archive
 
-With Node 24 and the `meshfleet-0.21.5.tgz` archive in an empty directory:
+With Node 24 and the `meshfleet-0.22.0.tgz` archive in an empty directory:
 
 ```sh
-npm install --omit=dev --no-audit --no-fund ./meshfleet-0.21.5.tgz
+npm install --omit=dev --no-audit --no-fund ./meshfleet-0.22.0.tgz
 node -p "require('meshfleet/package.json').version"
 ```
 
-The version should be `0.21.5`. This installs the local archive; it does not
+The version should be `0.22.0`. This installs the local archive; it does not
 claim that this version is available from the npm registry.
 
 Configure your MCP client to launch `npx --no-install meshfleet` from that

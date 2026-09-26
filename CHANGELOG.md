@@ -2,6 +2,74 @@
 
 All notable changes to Agent Mesh are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [0.22.0] - 2026-09-26
+
+**The first npm release since 0.21.1.** Versions 0.21.2 through 0.21.5 were tagged
+but never reached npm (see "Release pipeline" below for why), so this entry covers
+everything a 0.21.1 user gets by upgrading. The detailed 0.21.2, 0.21.4 and 0.21.5
+sections further down still describe their own changes; 0.21.3 has no separate
+section (its notes sit under 0.21.4). A minor bump because the OpenCode receipt
+gains fields and the adapter gains a new warning code and opt-in environment variable.
+
+### Changed
+
+- **OpenCode 1.17 compatibility: spawn-result attribution v3.** OpenCode 1.17 dropped
+  the `> agent · model` banner that MeshFleet used to learn which model actually
+  ran, so healthy 1.17 runs were failing. The observed model now comes from
+  independent evidence, most direct first: the OpenCode INFO stream record, the
+  opt-in session DB, then the legacy banner. Receipts carry two new fields,
+  `model_verified` and `model_evidence` (`runtime-log` | `session-db` | `banner` |
+  `none`). A healthy run (exit 0 with output) with no model evidence now succeeds
+  with a `MODEL_UNVERIFIED` warning when a model was requested, and `verify` reports
+  a disclosed `MODEL_UNVERIFIED` row as a warning. Set
+  `MESHFLEET_OPENCODE_REQUIRE_MODEL_EVIDENCE=1` to restore the old hard failure.
+  Attribution stays fail-closed: every stderr diagnostic is still fatal unless it
+  names a provider set disjoint from the runtime's (#200).
+- **Slimmer npm tarball.** Compiled tests, the spec documents and `mcp.json` are no longer
+  shipped. Measured with `npm pack --dry-run`: 365 files / 991 kB packed at 0.21.5,
+  84 files / 367 kB packed (1.4 MB unpacked) at 0.22.0 (#198).
+- **One shipped spawn path.** New fleets use the in-memory coordinator. Durable
+  and shadow remain in-tree unfinished internals gated by
+  `MESHFLEET_UNFINISHED_LIFECYCLE_MODE`; `MESHFLEET_LIFECYCLE_MODE` is no longer
+  a public three-mode switch. Default behavior for existing in-memory users is
+  unchanged.
+- Deterministic runtime contract failures are no longer retried (#196).
+- Patched transitive dependencies refreshed (`fast-uri`, `hono`, `qs`).
+
+### Added
+
+- Opt-in compact MCP catalog without changing the compatible 40-tool default. `MESHFLEET_COMPACT_CATALOG=1` advertises 36 tools by omitting `compile_route_candidates`, `recommend_route`, `plan_speculative_backlog`, and deprecated `verify_ledger_v2`; within compact mode, `MESHFLEET_ROUTE_ADVISOR=1` restores the three advisory tools. Handlers are unchanged. The selected catalog is fixed at process startup, so MeshFleet does not advertise runtime `tools/list_changed` notifications.
+- An explicit Grok text runtime adapter, disabled unless configured (#195).
+
+### Documentation
+
+- README quickstart rewritten for a first-time user: every command was run as
+  written, `MESHFLEET_DB_FILE` is explained, and stale version claims are gone.
+  First-use paths no longer teach bare `npx agent-mesh`, which resolves to an
+  unrelated `agent-mesh@0.0.1` package (#199).
+
+### Release pipeline
+
+- **Why 0.21.2 through 0.21.5 never reached npm.** `.github/workflows/release.yml`
+  has never completed a publish. Every run whose nine test legs passed (v0.15.1,
+  v0.19.0, v0.20.0, v0.21.1, v0.21.2) signed provenance and then failed with
+  `E404 Not Found - PUT https://registry.npmjs.org/meshfleet`, which is npm's answer
+  when the credential cannot write the package. v0.21.0 and v0.21.3 failed their
+  version-claim tests because README/HANDOFF were not bumped with `package.json`.
+  On v0.21.5 all three Windows legs hung for GitHub's six-hour default. Every
+  version on npm so far, including 0.21.1, was published by hand without provenance.
+- The publish job now runs Node 24 (npm 11) so it can publish through npm Trusted
+  Publishing (OIDC), with `NPM_TOKEN` kept as the fallback. The job fails early if
+  npm is older than 11.5.1.
+- Each test leg has a 30-minute timeout, and `fail-fast` is off so one attempt
+  reports every platform. Publication still needs all nine legs green.
+- `test/chaos-detached-exchange.test.ts` now kills every server it started in its
+  `finally`, so a failure fails the test and no longer hangs the runner. It is
+  skipped on Windows, with the reason given in the test: orphan survival is
+  POSIX-only in `src/runtime/process.ts`, and its shebang fixture cannot execute there.
+
 ## [0.21.2] - 2026-09-06
 
 Maintenance release branched from `v0.20.0` (commit `a361e273`) to enable MCP Registry discovery without dragging in the 47-file post-`v0.21.1` delta. Retains the original MCP bin mapping (`meshfleet` → `dist/index.js`) and `agent-mesh` runtime; changes only the verified stale package-bound command strings, the version/lockfile, the `mcpName` field, and a focused acceptance test.
@@ -16,17 +84,6 @@ Maintenance release branched from `v0.20.0` (commit `a361e273`) to enable MCP Re
 
 ### Fixed
 - `agent-mesh` / `agent-mesh-dashboard` bin dispatches are reached through the published `meshfleet` package, not the squatted npm placeholder.
-
-## [Unreleased]
-
-### Changed
-
-- **One shipped spawn path.** New fleets use the in-memory coordinator. Durable
-  and shadow remain in-tree unfinished internals gated by
-  `MESHFLEET_UNFINISHED_LIFECYCLE_MODE`; `MESHFLEET_LIFECYCLE_MODE` is no longer
-  a public three-mode switch. Default behavior for existing in-memory users is
-  unchanged.
-- Add an opt-in compact MCP catalog without changing the compatible 40-tool default. `MESHFLEET_COMPACT_CATALOG=1` advertises 36 tools by omitting `compile_route_candidates`, `recommend_route`, `plan_speculative_backlog`, and deprecated `verify_ledger_v2`; within compact mode, `MESHFLEET_ROUTE_ADVISOR=1` restores the three advisory tools. Handlers are unchanged. The selected catalog is fixed at process startup, so MeshFleet does not advertise runtime `tools/list_changed` notifications.
 
 ## [0.21.5] - 2026-09-14
 
