@@ -115,7 +115,7 @@ npx meshfleet demo
 That published walkthrough runs entirely against a throwaway temp ledger (nothing under
 `~/.config/opencode` is touched) and prints its demonstration audit, then a next-step
 inspector command. To inspect your own configured MCP ledger later, bind the package
-explicitly — bare `npx agent-mesh` resolves npm's unrelated reserved `agent-mesh@0.0.1`
+explicitly — running the `agent-mesh` bin through npx without `--package=meshfleet` resolves npm's unrelated reserved `agent-mesh@0.0.1`
 package, not this one:
 
 ```bash
