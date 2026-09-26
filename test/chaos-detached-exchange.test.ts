@@ -84,8 +84,10 @@ async function spawnMcpxServer(env: Record<string, string>): Promise<ChildServer
   const proc = (transport as unknown as { _process?: { pid?: number; once?: (ev: string, cb: (c: number | null, s: NodeJS.Signals | null) => void) => void } })._process;
   assert.ok(proc && typeof proc.pid === "number", "StdioClientTransport must expose a real child pid");
   const pid = proc.pid;
+  let hasExited = false;
   const exited = new Promise<number>((resolve) => {
     proc.once?.("exit", (code: number | null, signal: NodeJS.Signals | null) => {
+      hasExited = true;
       resolve(code ?? (signal ? 128 : 0));
     });
   });
@@ -95,9 +97,14 @@ async function spawnMcpxServer(env: Record<string, string>): Promise<ChildServer
     pid,
     exited,
     kill: async (): Promise<void> => {
+      // Idempotent: the outer finally calls this again for every server, and a pid that has
+      // already exited may have been reused by the OS.
+      if (hasExited) return;
       try { process.kill(pid, "SIGTERM"); } catch { /* may already be gone */ }
       await Promise.race([exited, new Promise((r) => setTimeout(r, 5_000))]);
-      try { process.kill(pid, "SIGKILL"); } catch { /* still gone */ }
+      if (!hasExited) {
+        try { process.kill(pid, "SIGKILL"); } catch { /* still gone */ }
+      }
     },
   };
 }
@@ -197,7 +204,31 @@ function buildFakeOpencode(dir: string, sleepMs: number, invokedPath: string, do
   return fakeBin;
 }
 
-test("one-shot submitter survives the spawning server's exit: a fresh server collects delivered=1 lost=0", { timeout: 240_000 }, async () => {
+/**
+ * Windows is a platform difference, not a flake, and is skipped with the reason stated.
+ *
+ * Measured on release run 35414063160 (tag v0.21.5, 2026-09-19): all three windows-2022 legs failed
+ * this test after ~11 s and then HUNG for the 6 h GitHub default job timeout. Two independent causes:
+ *   1. The property is POSIX-only by construction. `src/runtime/process.ts` spawns workers with
+ *      `detached: process.platform !== "win32"`, so on Windows the premise under test (a detached
+ *      worker that outlives its server) is not what the product does. Making Windows workers
+ *      survive their server is a product change with its own proof, not a fixture change.
+ *   2. The fixture cannot run there: `buildFakeOpencode` writes a `#!/usr/bin/env node` script, and
+ *      Windows `CreateProcess` does not honour shebangs, so the invoked marker never appears.
+ * The hang was the harness, not the product: the waitForFile throw skipped `submitter.kill()`, the
+ * live server kept its stdio pipes (and a lock on ledger.db) open, `temp.cleanup()` threw EBUSY over
+ * the real error, and the leaked child kept the test process alive. The `finally` below now kills
+ * every server this test started before cleanup, so a future failure here fails instead of hanging.
+ */
+const posixOnly = process.platform === "win32"
+  ? {
+      skip:
+        "orphan survival is POSIX-only: src/runtime/process.ts detaches workers only off win32, and the " +
+        "shebang sleeper fixture is not executable by Windows CreateProcess",
+    }
+  : {};
+
+test("one-shot submitter survives the spawning server's exit: a fresh server collects delivered=1 lost=0", { timeout: 240_000, ...posixOnly }, async () => {
   // A dedicated tmp dir for the test: the fake-opencode binary, the invocation marker, and the
   // done marker all live here. Separating them from `withTempDb`'s dir keeps the failure
   // surface local — the SLEEPER and the LEDGER have non-overlapping cleanup responsibilities.
@@ -219,6 +250,11 @@ test("one-shot submitter survives the spawning server's exit: a fresh server col
   const fakeOpencode = buildFakeOpencode(sleeperDir, WORKER_SLEEP_MS, invokedMarker, doneMarker);
 
   const temp = withTempDb();
+  // Every MCP server this test starts, so the outer `finally` can kill any that are still alive
+  // when an assertion throws early. A leaked server holds stdio pipes (which keep this test
+  // process alive forever) and, on Windows, a lock on ledger.db (which turns cleanup into EBUSY
+  // and masks the original failure).
+  const started: ChildServer[] = [];
   try {
     // Belt-and-braces: withTempDb sets the in-process override but does NOT export
     // MESHFLEET_DB_FILE into the env. Children inheriting `process.env` would otherwise hit
@@ -270,6 +306,7 @@ test("one-shot submitter survives the spawning server's exit: a fresh server col
     // kill window so the only signal the server receives is SIGTERM.
     // ---------------------------------------------------------------------------------
     const submitter = await spawnMcpxServer(env());
+    started.push(submitter);
     let submitterAlive = true;
     submitter.exited.then(() => { submitterAlive = false; });
     const spawnRes = await submitter.client.callTool({
@@ -330,6 +367,7 @@ test("one-shot submitter survives the spawning server's exit: a fresh server col
     // `cancelled`) or the budget is exhausted.
     // ---------------------------------------------------------------------------------
     const collector = await spawnMcpxServer(env());
+    started.push(collector);
     try {
       const collectDeadline = Date.now() + 60_000;
       let summary: CollectionSummary | undefined;
@@ -377,6 +415,10 @@ test("one-shot submitter survives the spawning server's exit: a fresh server col
     assert.notEqual(agent.error ?? "", "MCP server crashed before this agent completed",
       "a delivered agent must not carry the crash-cascade error string");
   } finally {
+    for (const server of started) {
+      await server.client.close().catch(() => {});
+      await server.kill();
+    }
     closeDb();
     temp.cleanup();
     rmSync(sleeperDir, { recursive: true, force: true, maxRetries: 5 });

@@ -3,9 +3,30 @@
 # that run in supported CI with OIDC — a local `npm publish` cannot produce
 # it — so releases flow through this workflow.
 #
-# One-time setup (maintainer): create an npm GRANULAR access token with
-# packages:read-write scoped to `meshfleet` and "bypass 2FA" enabled (npm
-# requires this for automation), then add it as the NPM_TOKEN repo secret.
+# Publish authentication (one-time, maintainer — on npmjs.com, not in this repo):
+#
+#   PREFERRED: npm Trusted Publishing (OIDC). On npmjs.com -> meshfleet ->
+#   Settings -> Trusted publishing, add a GitHub Actions publisher with
+#   owner `johnmwhitman`, repository `agent-mesh`, workflow `release.yml`
+#   (no environment). No long-lived token is involved; provenance is
+#   generated automatically. Needs npm >= 11.5.1, which is why the publish
+#   job runs Node 24 and asserts the npm version below.
+#
+#   NPM_TOKEN IS NOT USED BY DEFAULT. A token in the environment can stop npm
+#   from attempting OIDC at all, so the default publish step carries no token.
+#   Token publishing is an explicit opt-in: set the repository VARIABLE
+#   NPM_PUBLISH_AUTH=token (Settings -> Secrets and variables -> Actions ->
+#   Variables) and store a GRANULAR access token with read-and-write on
+#   `meshfleet` and "bypass 2FA" as the NPM_TOKEN secret. Unset the variable
+#   to return to OIDC.
+#
+# Why this matters (measured 2026-09-26): this workflow had NEVER published.
+# Every run whose nine test legs went green (v0.15.1, v0.19.0, v0.20.0,
+# v0.21.1, v0.21.2) signed provenance successfully and then got
+# `E404 Not Found - PUT https://registry.npmjs.org/meshfleet` — npm's answer
+# when the presented token cannot write the package. The NPM_TOKEN secret was
+# last set 2026-07-24 and has never authenticated a publish; every version on
+# npm (including 0.21.1, 2026-09-14) was published by hand, without provenance.
 #
 # To release: bump version + CHANGELOG on main, then push a tag:
 #   git tag v0.14.0 && git push origin v0.14.0
@@ -23,7 +44,16 @@ permissions:
 
 jobs:
   test:
+    # A green leg takes 5-14 minutes (release runs 2026-08-10 .. 2026-09-19). The v0.21.5 run
+    # (35414063160) had all three windows-2022 legs hang in `npm test` until GitHub's 360-minute
+    # default killed them — six hours to learn one failing test. 30 minutes is ~2x the slowest
+    # honest leg and turns a hang into a failure the same hour.
+    timeout-minutes: 30
     strategy:
+      # Report every leg. fail-fast cancelled eight legs on v0.21.0 and v0.21.3 after one macOS
+      # failure, so each attempt revealed one platform's problems at a time. `publish` still
+      # `needs: test`, so any red or cancelled leg blocks publication exactly as before.
+      fail-fast: false
       matrix:
         node: [20, 22, 24]
         os: [ubuntu-latest, macos-latest, windows-2022]
@@ -46,6 +76,8 @@ jobs:
   publish:
     needs: test
     runs-on: ubuntu-latest
+    # prepublishOnly re-runs build + the full suite (~5 min) before the upload.
+    timeout-minutes: 30
     permissions:
       contents: read
       id-token: write # OIDC — required for npm provenance
@@ -60,14 +92,35 @@ jobs:
             echo "tag $GITHUB_REF_NAME points at a commit not on main — refusing to publish"; exit 1; }
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
-          node-version: 22
+          # Node 24 bundles npm 11, which can publish through npm Trusted Publishing (OIDC).
+          # Node 22 bundles npm 10, which cannot.
+          node-version: 24
           registry-url: "https://registry.npmjs.org"
+      - name: Require an npm that supports trusted publishing (>= 11.5.1)
+        run: |
+          V=$(npm --version)
+          node -e 'const [a,b,c]=process.argv[1].split(".").map(Number);process.exit(a>11||(a===11&&(b>5||(b===5&&c>=1)))?0:1)' "$V" || {
+            echo "npm $V cannot publish via OIDC trusted publishing (needs >= 11.5.1)"; exit 1; }
+          echo "npm $V"
       - run: npm ci
       - name: Verify tag matches package.json version
         run: |
           PKG=$(node -p "require('./package.json').version")
           TAG="${GITHUB_REF_NAME#v}"
           [ "$PKG" = "$TAG" ] || { echo "tag v$TAG != package.json $PKG"; exit 1; }
-      - run: npm publish --provenance --access public
+      # Exactly one of the two publish steps runs.
+      #
+      # DEFAULT: npm Trusted Publishing (OIDC). No NODE_AUTH_TOKEN is set here on purpose;
+      # a token present in the environment can make npm skip the OIDC exchange, which is how
+      # a stale NPM_TOKEN would keep producing E404 after Trusted Publishing is configured.
+      # An `E404 Not Found - PUT .../meshfleet` from this step means the trusted publisher
+      # is not configured on npmjs.com for this repo + workflow file.
+      - name: Publish (npm Trusted Publishing, OIDC)
+        if: vars.NPM_PUBLISH_AUTH != 'token'
+        run: npm publish --provenance --access public
+      # OPT-IN ONLY: repository variable NPM_PUBLISH_AUTH=token selects the NPM_TOKEN secret.
+      - name: Publish (NPM_TOKEN, explicitly selected)
+        if: vars.NPM_PUBLISH_AUTH == 'token'
+        run: npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
