@@ -112,14 +112,22 @@ a model-backed worker completed a real task.
 npx -y --package=meshfleet -- agent-mesh demo
 ```
 
-That published walkthrough already prints its demonstration audit, removes the throwaway
-ledger, and then prints an old unbound inspector next step. Do not run that unbound
-form: npm resolves its package token to the unrelated reserved `agent-mesh@0.0.1`
-package. To inspect your own configured MCP ledger later, bind the package explicitly:
+That published walkthrough runs entirely against a throwaway temp ledger (nothing under
+`~/.config/opencode` is touched) and prints its demonstration audit, then a next-step
+inspector command. To inspect your own configured MCP ledger later, bind the package
+explicitly — running the `agent-mesh` bin through npx without `--package=meshfleet` resolves npm's unrelated reserved `agent-mesh@0.0.1`
+package, not this one:
 
 ```bash
 npx -y --package=meshfleet -- agent-mesh inspect --verify
 ```
+
+If that (or the MCP server itself) exits with `CRASH ... unsupported newer storage
+schema version`, it found a pre-existing ledger at the default path
+(`~/.config/opencode/agent-mesh.db`) written by a newer meshfleet build than the one
+you're running — common on a dev machine that already ran OpenCode/meshfleet, not on a
+fresh install. Point at a different ledger file with `MESHFLEET_DB_FILE=/path/to/other.db`
+(same variable your MCP client config can set) and it will not touch the existing file.
 
 ### Source-only deterministic runtime
 
@@ -687,7 +695,7 @@ src/
 
 Every write goes through **one** function — `withLedger(mutator)` in `db.ts` — which runs the mutation inside a single SQLite `BEGIN IMMEDIATE` transaction. Agents are real OS processes that each boot their own agent-mesh instance on the same ledger, so writes are genuinely concurrent; SQLite (WAL + `busy_timeout`) provides cross-process write exclusion, so this codebase owns no locking protocol and lost-update is impossible by construction. (An earlier JSON read-modify-write store silently lost 57 of 120 receipts under a two-process test; the SQLite seam passes the same test 200/200.) Readers use a lock-free `readLedger()`. Pure formatters live in `inspector.ts` — easy to test, no I/O.
 
-The ledger lives at `~/.config/opencode/agent-mesh.db` (SQLite); the event log at `~/.config/opencode/agent-mesh.events.log` (NDJSON). Dump the ledger as human-readable JSON any time with `npx -y --package=meshfleet -- agent-mesh inspect --export`. On first run after upgrading from a JSON ledger, the server migrates it once (validated, with a `.migrated.<ts>` backup kept).
+The ledger lives at `~/.config/opencode/agent-mesh.db` (SQLite); the event log at `~/.config/opencode/agent-mesh.events.log` (NDJSON). Override the ledger path with `MESHFLEET_DB_FILE=/path/to/file.db` — useful for a second install, a test ledger, or when an existing file at the default path was written by a newer/incompatible build. Dump the ledger as human-readable JSON any time with `npx -y --package=meshfleet -- agent-mesh inspect --export`. On first run after upgrading from a JSON ledger, the server migrates it once (validated, with a `.migrated.<ts>` backup kept).
 
 [Architecture orientation →](AGENT-MESH-SPEC.md) · [P2P messaging spec →](SPEC-P2P.md)
 
