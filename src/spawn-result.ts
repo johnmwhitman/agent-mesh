@@ -413,6 +413,9 @@ const MODEL_TOKEN = String.raw`["'\x60(\[{<]*([a-z0-9@][^\s"'\x60)\]}>,;]*)`;
 const API_429_MODEL = new RegExp(String.raw`API\s+429\s+for\s+` + MODEL_TOKEN, "i");
 const MODEL_NOT_FOUND = new RegExp(String.raw`\bProviderModelNotFoundError:?\s*` + MODEL_TOKEN, "i");
 
+/** Any field-shaped `key=` at line start or after whitespace, empty value included. */
+const LOGFMT_KEY_BOUNDARY = /(?:^|\s)[A-Za-z_][A-Za-z0-9_.-]*=/;
+
 function diagnosticAttribution(line: string): DiagnosticAttribution {
   // 1. A structured OpenCode 1.17 record (`level=ERROR message="stream error"
   //    providerID=... modelID=...`) attributes itself from its OWN fields, or
@@ -424,7 +427,8 @@ function diagnosticAttribution(line: string): DiagnosticAttribution {
   //    malformed primary record downgrade itself.
   //
   //    WHICH lines are structured: ANY line carrying at least one logfmt
-  //    `key=value` field (whitespace- or start-anchored key, see parseLogfmt).
+  //    `key=` boundary (whitespace- or start-anchored key, empty value
+  //    included; see LOGFMT_KEY_BOUNDARY).
   //    Deliberately the widest rule, not a list of OpenCode keys, because
   //    the classification only ever REMOVES downgrades: a structured line can
   //    downgrade solely via one complete providerID + modelID pair, while a
@@ -449,7 +453,14 @@ function diagnosticAttribution(line: string): DiagnosticAttribution {
   //    `error.*` key: OpenCode writes providerID/modelID ahead of the error
   //    payload, so an identity field after it is indistinguishable from one
   //    the payload supplied.
-  if (parseLogfmt(line) !== null) {
+  //
+  //    The structured-line GATE is any field-shaped `key=` boundary, value or
+  //    no value (`error.error= API 429 for ...` is structured). It must not
+  //    be the lenient scanner, which needs a non-empty value and would hand
+  //    such a line to free-text attribution. The gate's key class is wider
+  //    than the strict tokenizer's (it admits a leading `_`), so any line the
+  //    gate admits but the tokenizer cannot parse is malformed: FATAL.
+  if (LOGFMT_KEY_BOUNDARY.test(line)) {
     const pairs = parseLogfmtStrict(line);
     if (pairs === null) return {};
     const firstErrorKey = pairs.findIndex(([key]) => key === "error" || key.startsWith("error."));

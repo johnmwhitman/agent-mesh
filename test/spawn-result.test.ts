@@ -1754,3 +1754,38 @@ test('v3 (k, identity): a runtime-selection record that does not tokenize strict
   assert.equal(result.success, false)
   assert.equal(result.error, 'Malformed runtime-model evidence in primary INFO stream record')
 })
+
+test('v3 (l): an empty-valued key= boundary still makes the line structured (never free-text attributed)', () => {
+  // GPT-5.6 re-review of 46dc991e: the lenient scanner needs a NON-EMPTY value,
+  // so `error.error= API 429 for anthropic/...` looked like free text and its
+  // quoted sibling model id downgraded a primary failure.
+  const primary = infoRecord('kilo', 'nvidia/nemotron-3.5-lightning:free')
+  const cases = [
+    'error.error= API 429 for anthropic/claude-haiku-4-5',
+    'level=ERROR error.error= API 429 for anthropic/claude-haiku-4-5',
+    'foo= Error: API 429 for anthropic/x',
+    'Error: _note= API 429 for anthropic/claude-haiku-4-5',
+  ]
+  for (const line of cases) {
+    const result = classifySpawnResult({ exitCode: 0, stdout: 'ok', stderr: [primary, line].join('\n') })
+    assert.equal(result.success, false, `${line} :: ${result.warning}`)
+    assert.match(result.error ?? '', /fatal primary provider error/i, line)
+  }
+  // The bare `level=ERROR error.error=` record (no diagnostic keyword) is not
+  // a diagnostic line at all (pre-existing keyword-discovery scope); pinned so
+  // a change there is a deliberate decision, not a side effect.
+  const noKeyword = classifySpawnResult({ exitCode: 0, stdout: 'ok', stderr: [primary, 'level=ERROR error.error='].join('\n') })
+  assert.equal(noKeyword.success, true)
+  assert.equal(noKeyword.warning, undefined)
+
+  // Controls: a plain-text sibling line (no key= tokens) and a well-formed
+  // sibling record still downgrade.
+  for (const line of [
+    'Error: API 429 for anthropic/claude-haiku-4-5: secondary pool limit',
+    'timestamp=x level=ERROR message="stream error" providerID=anthropic modelID=claude-haiku-4-5 small=true error.error="RateLimitError: API 429"',
+  ]) {
+    const control = classifySpawnResult({ exitCode: 0, stdout: 'ok', stderr: [primary, line].join('\n') })
+    assert.equal(control.success, true, `${line} :: ${control.error}`)
+    assert.match(control.warning ?? '', /auxiliary provider/i)
+  }
+})
