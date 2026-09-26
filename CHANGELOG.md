@@ -60,9 +60,11 @@ gains fields and the adapter gains a new warning code and opt-in environment var
   version-claim tests because README/HANDOFF were not bumped with `package.json`.
   On v0.21.5 all three Windows legs hung for GitHub's six-hour default. Every
   version on npm so far, including 0.21.1, was published by hand without provenance.
-- The publish job now runs Node 24 (npm 11) so it can publish through npm Trusted
-  Publishing (OIDC), with `NPM_TOKEN` kept as the fallback. The job fails early if
-  npm is older than 11.5.1.
+- The publish job now publishes through npm Trusted Publishing (OIDC) by default. It
+  runs Node 24 (npm 11) and fails early if npm is older than 11.5.1. **`NPM_TOKEN` is
+  no longer used by default:** a token in the environment can stop npm from trying
+  OIDC, so the default publish step carries none. Token publishing is an explicit
+  opt-in through the repository variable `NPM_PUBLISH_AUTH=token`.
 - Each test leg has a 30-minute timeout, and `fail-fast` is off so one attempt
   reports every platform. Publication still needs all nine legs green.
 - `test/chaos-detached-exchange.test.ts` now kills every server it started in its

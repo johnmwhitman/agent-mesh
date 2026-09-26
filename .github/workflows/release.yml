@@ -12,9 +12,13 @@
 #   generated automatically. Needs npm >= 11.5.1, which is why the publish
 #   job runs Node 24 and asserts the npm version below.
 #
-#   FALLBACK: an npm GRANULAR access token with read-and-write on `meshfleet`
-#   and "bypass 2FA" enabled, stored as the NPM_TOKEN repo secret. npm tries
-#   OIDC first and falls back to this token.
+#   NPM_TOKEN IS NOT USED BY DEFAULT. A token in the environment can stop npm
+#   from attempting OIDC at all, so the default publish step carries no token.
+#   Token publishing is an explicit opt-in: set the repository VARIABLE
+#   NPM_PUBLISH_AUTH=token (Settings -> Secrets and variables -> Actions ->
+#   Variables) and store a GRANULAR access token with read-and-write on
+#   `meshfleet` and "bypass 2FA" as the NPM_TOKEN secret. Unset the variable
+#   to return to OIDC.
 #
 # Why this matters (measured 2026-09-26): this workflow had NEVER published.
 # Every run whose nine test legs went green (v0.15.1, v0.19.0, v0.20.0,
@@ -89,7 +93,7 @@ jobs:
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           # Node 24 bundles npm 11, which can publish through npm Trusted Publishing (OIDC).
-          # Node 22 bundles npm 10, which can only use NPM_TOKEN.
+          # Node 22 bundles npm 10, which cannot.
           node-version: 24
           registry-url: "https://registry.npmjs.org"
       - name: Require an npm that supports trusted publishing (>= 11.5.1)
@@ -104,9 +108,19 @@ jobs:
           PKG=$(node -p "require('./package.json').version")
           TAG="${GITHUB_REF_NAME#v}"
           [ "$PKG" = "$TAG" ] || { echo "tag v$TAG != package.json $PKG"; exit 1; }
-      # Auth: OIDC trusted publishing when configured on npmjs.com, else NPM_TOKEN.
-      # An `E404 Not Found - PUT .../meshfleet` here means NEITHER credential can write
-      # the package: configure the trusted publisher (preferred) or replace NPM_TOKEN.
-      - run: npm publish --provenance --access public
+      # Exactly one of the two publish steps runs.
+      #
+      # DEFAULT: npm Trusted Publishing (OIDC). No NODE_AUTH_TOKEN is set here on purpose;
+      # a token present in the environment can make npm skip the OIDC exchange, which is how
+      # a stale NPM_TOKEN would keep producing E404 after Trusted Publishing is configured.
+      # An `E404 Not Found - PUT .../meshfleet` from this step means the trusted publisher
+      # is not configured on npmjs.com for this repo + workflow file.
+      - name: Publish (npm Trusted Publishing, OIDC)
+        if: vars.NPM_PUBLISH_AUTH != 'token'
+        run: npm publish --provenance --access public
+      # OPT-IN ONLY: repository variable NPM_PUBLISH_AUTH=token selects the NPM_TOKEN secret.
+      - name: Publish (NPM_TOKEN, explicitly selected)
+        if: vars.NPM_PUBLISH_AUTH == 'token'
+        run: npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
