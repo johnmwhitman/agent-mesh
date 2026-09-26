@@ -1694,3 +1694,63 @@ test('v3 (j): ANY logfmt-shaped line is a structured record; partial records wit
     assert.match(control.warning ?? '', /auxiliary provider/i)
   }
 })
+
+test('v3 (k): logfmt fields are believed only when the WHOLE line tokenizes strictly', () => {
+  // GPT-5.6 re-review of ce656ac6: the lenient scanner accepted fields inside
+  // an UNTERMINATED quoted value, so a payload could smuggle top-level
+  // providerID/modelID and downgrade a primary failure.
+  const primary = infoRecord('kilo', 'nvidia/nemotron-3.5-lightning:free')
+  const smuggled = 'providerID=anthropic modelID=claude-haiku-4-5'
+  const cases: Array<[string, string]> = [
+    ['reviewer example: unterminated quote',
+      `timestamp=x level=ERROR error.error="RateLimitError: ${smuggled} API 429 for anthropic/claude-haiku-4-5`],
+    ['escaped-quote variant (quote never closes)',
+      `timestamp=x level=ERROR error.error="RateLimitError: \\" ${smuggled} API 429 for anthropic/claude-haiku-4-5`],
+    ['truncated mid-value',
+      `timestamp=x level=ERROR message="stream error" ${smuggled} error.error="RateLimitError: API 429 for anthr`],
+    ['identity after an unquoted error key',
+      `timestamp=x level=ERROR error.error=RateLimitError ${smuggled}`],
+    ['dangling escape at end of line',
+      `timestamp=x level=ERROR error.error="RateLimitError \\" ${smuggled}`],
+    ['quote inside a bare value',
+      `timestamp=x level=ERROR error.error=RateLimitError"b ${smuggled} c"`],
+    ['free-text prefix before fields',
+      `Error: RateLimitError upstream said ${smuggled}`],
+    ['single-quoted payload (not a logfmt quote)',
+      `timestamp=x level=ERROR error.error='RateLimitError ${smuggled} y'`],
+    ['identity duplicated after the error payload',
+      `timestamp=x level=ERROR ${smuggled} error.error="RateLimitError" providerID=anthropic`],
+    ['garbage after a closing quote',
+      `timestamp=x level=ERROR ${smuggled} error.error="RateLimitError"trailing`],
+  ]
+  for (const [name, line] of cases) {
+    const result = classifySpawnResult({ exitCode: 0, stdout: 'ok', stderr: [primary, line].join('\n') })
+    assert.equal(result.success, false, `${name} :: ${result.warning}`)
+    assert.match(result.error ?? '', /fatal primary provider error/i, name)
+  }
+
+  // Controls: well-formed sibling records still downgrade, including one whose
+  // quoted payload contains escaped quotes and key=value text (kept inside the
+  // value by the strict tokenizer).
+  for (const line of [
+    `timestamp=x level=ERROR message="stream error" ${smuggled} session.id=ses_x small=true agent=title mode=primary error.error="RateLimitError: API 429 for anthropic/claude-haiku-4-5"`,
+    `timestamp=x level=ERROR message="stream error" ${smuggled} error.error="RateLimitError: said \\"no\\" providerID=kilo modelID=nvidia/nemotron-3.5-lightning:free"`,
+  ]) {
+    const control = classifySpawnResult({ exitCode: 0, stdout: 'ok', stderr: [primary, line].join('\n') })
+    assert.equal(control.success, true, `${line} :: ${control.error}`)
+    assert.match(control.warning ?? '', /auxiliary provider/i)
+  }
+})
+
+test('v3 (k, identity): a runtime-selection record that does not tokenize strictly poisons identity', () => {
+  // The same lenient scanner fed runtime identity: an unterminated quote let a
+  // candidate's fields be believed. Now such a candidate is malformed evidence.
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'ok',
+    stderr: 'timestamp=x level=INFO message=stream providerID=kilo modelID=nvidia/nemotron-3.5-lightning:free session.id=ses_x small=false agent=build mode=primary note="unterminated',
+    requestedModel: 'kilo/nvidia/nemotron-3.5-lightning:free',
+  })
+  assert.equal(result.success, false)
+  assert.equal(result.error, 'Malformed runtime-model evidence in primary INFO stream record')
+})

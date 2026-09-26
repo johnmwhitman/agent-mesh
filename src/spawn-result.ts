@@ -139,6 +139,80 @@ function parseLogfmt(line: string): Map<string, string[]> | null {
   return found ? fields : null;
 }
 
+/**
+ * Strict whole-line logfmt tokenizer. `parseLogfmt` above is a lenient SCANNER:
+ * it finds `key=value` pairs anywhere, including inside an unterminated quoted
+ * value (`error.error="... providerID=anthropic ...` with no closing quote), so
+ * a payload can smuggle fields to the top level. This tokenizer guarantees
+ * field boundaries or refuses the line:
+ *
+ *   line   = ws* (pair (ws+ pair)*)? ws*
+ *   pair   = key "=" value
+ *   key    = [A-Za-z][A-Za-z0-9_.-]*
+ *   value  = quoted | bare
+ *   quoted = '"' ( [^"\\] | "\\" any )* '"'   then whitespace or end of line
+ *   bare   = [^\s"]*                            (may be empty; no '"' allowed)
+ *
+ * An unterminated quote, a dangling escape, garbage after a closing quote, a
+ * quote inside a bare value, or any non-pair word (free text) makes the WHOLE
+ * line malformed (`null`). Pairs are returned in order so callers can reason
+ * about position.
+ */
+function parseLogfmtStrict(line: string): Array<[string, string]> | null {
+  const pairs: Array<[string, string]> = [];
+  const n = line.length;
+  const isWs = (c: string): boolean => /\s/.test(c);
+  let i = 0;
+  for (;;) {
+    while (i < n && isWs(line[i])) i += 1;
+    if (i >= n) return pairs;
+    const keyMatch = /^[A-Za-z][A-Za-z0-9_.-]*=/.exec(line.slice(i));
+    if (!keyMatch) return null;
+    const key = keyMatch[0].slice(0, -1);
+    i += keyMatch[0].length;
+    let value = "";
+    if (line[i] === '"') {
+      i += 1;
+      let closed = false;
+      while (i < n) {
+        const c = line[i];
+        if (c === "\\") {
+          if (i + 1 >= n) return null; // dangling escape
+          value += line[i + 1];
+          i += 2;
+          continue;
+        }
+        if (c === '"') {
+          closed = true;
+          i += 1;
+          break;
+        }
+        value += c;
+        i += 1;
+      }
+      if (!closed) return null; // unterminated quote
+      if (i < n && !isWs(line[i])) return null; // garbage after the closing quote
+    } else {
+      while (i < n && !isWs(line[i])) {
+        if (line[i] === '"') return null; // quote inside a bare value
+        value += line[i];
+        i += 1;
+      }
+    }
+    pairs.push([key, value]);
+  }
+}
+
+function pairsToFields(pairs: ReadonlyArray<[string, string]>): Map<string, string[]> {
+  const fields = new Map<string, string[]>();
+  for (const [key, value] of pairs) {
+    const existing = fields.get(key);
+    if (existing) existing.push(value);
+    else fields.set(key, [value]);
+  }
+  return fields;
+}
+
 // The fields that a complete authoritative primary INFO record must carry, each
 // exactly once. Missing or duplicate values in any of these make the record
 // malformed rather than ignorable.
@@ -148,7 +222,7 @@ function modernRuntimeSelection(stderr: string): ModernRuntimeResult {
   const selections: Array<{ agent: string; model: string }> = [];
   let sawMalformedPrimary = false;
   for (const line of stderr.replace(ANSI_ESCAPE, "").split("\n")) {
-    const fields = parseLogfmt(line);
+    let fields = parseLogfmt(line);
     if (!fields) continue;
     // Only lines carrying `message` are runtime-selection records.
     const messageValues = fields.get("message");
@@ -170,6 +244,16 @@ function modernRuntimeSelection(stderr: string): ModernRuntimeResult {
       fields.has("modelID") ||
       fields.has("agent");
     if (!hasRuntimeDiscriminator) continue;
+    // The lenient scanner found a candidate. Its fields are trusted only if
+    // the WHOLE line tokenizes strictly: otherwise an unterminated quoted
+    // payload could have supplied `message=stream providerID=...` itself.
+    // An untrustworthy candidate poisons identity (fail closed).
+    const strictPairs = parseLogfmtStrict(line);
+    if (strictPairs === null) {
+      sawMalformedPrimary = true;
+      continue;
+    }
+    fields = pairsToFields(strictPairs);
     // Once we identify a candidate, the `small` field is the key discriminator:
     //   - unique small=true  → auxiliary/title-generation, ignored (not primary)
     //   - unique small=false → primary record, all required fields must be
@@ -355,17 +439,31 @@ function diagnosticAttribution(line: string): DiagnosticAttribution {
   //    credential sentence) carry no `key=value` tokens and still take
   //    path 2. URL query strings (`?a=b`) are not fields: the key must
   //    follow whitespace or the line start.
-  const fields = parseLogfmt(line);
-  if (fields !== null) {
-    const providerIDs = fields.get("providerID");
-    const modelIDs = fields.get("modelID");
-    if (
-      providerIDs?.length === 1 &&
-      modelIDs?.length === 1 &&
-      providerIDs[0].trim() !== "" &&
-      modelIDs[0].trim() !== ""
-    ) {
-      return { model: `${providerIDs[0]}/${modelIDs[0]}` };
+  //
+  //    Field BOUNDARIES must be guaranteed before any field is believed. The
+  //    lenient scanner only decides whether a line is logfmt-shaped; the
+  //    fields themselves come from the strict whole-line tokenizer. If that
+  //    refuses the line (unterminated quote, dangling escape, garbage after a
+  //    quote, free-text words), the line is malformed and unattributed: FATAL.
+  //    Identity fields must also appear exactly once and BEFORE any `error` /
+  //    `error.*` key: OpenCode writes providerID/modelID ahead of the error
+  //    payload, so an identity field after it is indistinguishable from one
+  //    the payload supplied.
+  if (parseLogfmt(line) !== null) {
+    const pairs = parseLogfmtStrict(line);
+    if (pairs === null) return {};
+    const firstErrorKey = pairs.findIndex(([key]) => key === "error" || key.startsWith("error."));
+    const identity = (name: string): string | undefined => {
+      const positions = pairs.flatMap(([key], index) => (key === name ? [index] : []));
+      if (positions.length !== 1) return undefined;
+      if (firstErrorKey !== -1 && positions[0] > firstErrorKey) return undefined;
+      const value = pairs[positions[0]][1];
+      return value.trim() === "" ? undefined : value;
+    };
+    const providerID = identity("providerID");
+    const modelID = identity("modelID");
+    if (providerID !== undefined && modelID !== undefined) {
+      return { model: `${providerID}/${modelID}` };
     }
     return {};
   }
