@@ -1,5 +1,9 @@
 import { OpenCodeRuntimeAdapter } from "./opencode.js";
-import { openCodeProviderNamespaceFromEnv, openCodeSessionEvidenceFromEnv } from "../spawn-config.js";
+import {
+  openCodeProviderNamespaceFromEnv,
+  openCodeRequireModelEvidenceFromEnv,
+  openCodeSessionEvidenceFromEnv,
+} from "../spawn-config.js";
 import { KimiRuntimeAdapter } from "./kimi.js";
 import { ClaudeRuntimeAdapter } from "./claude.js";
 import { LocalDemoRuntimeAdapter } from "./local-demo.js";
@@ -50,6 +54,9 @@ export function createDefaultRuntimeRegistry(): RuntimeAdapterRegistry {
       // child's opencode state database). Unset preserves today's behaviour
       // exactly: no file is read, banner rules apply unchanged.
       sessionEvidence: openCodeSessionEvidenceFromEnv(),
+      // Opt-in strict model binding: fail a requested-model spawn that no
+      // runtime source attested, instead of a MODEL_UNVERIFIED success.
+      requireModelEvidence: openCodeRequireModelEvidenceFromEnv(),
     }),
   );
   // The Kimi adapter shipped in #67 and was registered NOWHERE, so nothing could reach it:

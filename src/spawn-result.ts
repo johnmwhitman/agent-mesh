@@ -13,7 +13,26 @@ export interface SpawnResultInput {
    * apply unchanged.
    */
   runtimeModel?: string;
+  /**
+   * Strict mode. When true, a requested model with no runtime-model evidence
+   * from any source fails the spawn (the pre-v3 behaviour). Default false: the
+   * run is judged by exit code, output and stderr diagnostics, and the receipt
+   * carries `model_verified: false`.
+   */
+  requireModelEvidence?: boolean;
 }
+
+/**
+ * Where the observed runtime model came from, most direct first:
+ *   - `runtime-log`: OpenCode's own INFO `message=stream ... small=false
+ *     mode=primary` record (1.17+, emitted under `--print-logs`);
+ *   - `session-db`:  the opt-in OpenCode state-DB row joined by the session id
+ *     the child emitted (`runtimeModel` input);
+ *   - `banner`:      the legacy `> agent · model` line (pre-1.17 `run`);
+ *   - `none`:        no source attested a model. Never inferred from the
+ *     request, the argv or stderr diagnostics.
+ */
+export type ModelEvidenceSource = "runtime-log" | "session-db" | "banner" | "none";
 
 export interface SpawnResultClassification {
   success: boolean;
@@ -23,6 +42,9 @@ export interface SpawnResultClassification {
   warning?: string;
   runtime_agent?: string;
   runtime_model?: string;
+  /** True only when an independent source established `runtime_model`. */
+  model_verified: boolean;
+  model_evidence: ModelEvidenceSource;
 }
 
 const ANSI_ESCAPE = /\x1b\[[0-?]*[ -/]*[@-~]/g;
@@ -226,108 +248,154 @@ function modernRuntimeSelection(stderr: string): ModernRuntimeResult {
   return first;
 }
 
-function diagnosticAttribution(line: string): DiagnosticAttribution {
-  const apiModel = line.match(/API\s+429\s+for\s+([^\s:]+)/i)?.[1];
-  const missingModel = line.match(
-    /\bProviderModelNotFoundError:\s*([a-z0-9][\w.-]*(?:\/[a-z0-9][\w.-]*)+)\b/i
-  )?.[1];
-  const model = (apiModel ?? missingModel)?.replace(/[.,;]+$/, "").toLowerCase();
-  if (model) return { model };
+// ---------------------------------------------------------------------------
+// Model identity normalization for diagnostic attribution
+// ---------------------------------------------------------------------------
+//
+// Attribution answers ONE question: does this stderr line affirmatively belong
+// to a provider OTHER than the runtime on record? Anything short of a clear
+// "different provider" is the primary runtime's failure. So normalization only
+// ever makes two ids look MORE alike (aliases, gateway prefixes, family
+// inference all add provider identities to a set that must be DISJOINT for a
+// downgrade). It can never manufacture a sibling.
 
-  if (/opencode-claude-auth/i.test(line) || NO_CREDENTIALS.test(line)) {
-    return { provider: "anthropic" };
+/** Spelling variants of one provider namespace. Extend only with evidence. */
+const PROVIDER_ALIASES: Readonly<Record<string, string>> = {
+  "x-ai": "xai",
+  "x.ai": "xai",
+};
+
+/**
+ * Leaf-name families whose vendor is unambiguous. Used to give a bare id
+ * (`claude-haiku-4-5`, `grok-4`) a provider identity; union-ed with any
+ * explicit prefix, so it can only widen the overlap test.
+ */
+const MODEL_FAMILY_PROVIDERS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/^claude(?:-|$)/, "anthropic"],
+  [/^grok(?:-|$)/, "xai"],
+  [/^gemini(?:-|$)/, "google"],
+  [/^gpt(?:-|$)/, "openai"],
+  [/^kimi(?:-|$)/, "moonshotai"],
+  [/^minimax(?:-|$)/, "minimax"],
+  [/^glm(?:-|$)/, "z-ai"],
+  [/^deepseek(?:-|$)/, "deepseek"],
+];
+
+interface ModelIdentity {
+  /** Last path segment, lowercased (`grok-4.7`, `nemotron-3.5-lightning:free`). */
+  leaf?: string;
+  /** Every provider identity the id names or implies (gateways included). */
+  providers: Set<string>;
+}
+
+/** Strip wrapping quotes/brackets and trailing sentence punctuation, lowercase. */
+function cleanIdToken(raw: string): string {
+  return raw
+    .trim()
+    .toLowerCase()
+    .replace(/^["'`([{<]+/, "")
+    .replace(/["'`)\]}>.,;:!?]+$/, "");
+}
+
+function normalizeProvider(raw: string): string {
+  const cleaned = cleanIdToken(raw);
+  return PROVIDER_ALIASES[cleaned] ?? cleaned;
+}
+
+function modelIdentity(raw: string): ModelIdentity | undefined {
+  const segments = cleanIdToken(raw)
+    .split("/")
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0);
+  if (segments.length === 0) return undefined;
+  const leaf = segments[segments.length - 1];
+  // Every prefix segment is a provider identity: `openrouter/x-ai/grok-4.7`
+  // names the gateway (openrouter) AND the upstream (xai). Treating both as
+  // identities is the conservative choice — sharing either one is overlap.
+  const providers = new Set(segments.slice(0, -1).map(normalizeProvider));
+  for (const [family, provider] of MODEL_FAMILY_PROVIDERS) {
+    if (family.test(leaf)) providers.add(provider);
   }
+  return { leaf, providers };
+}
+
+/**
+ * A model token as it appears in free text: skip leading wrappers, then take
+ * everything up to whitespace, a closing wrapper, or a list separator. Colons
+ * are allowed inside (`kilo/x:free`); a trailing one is stripped by
+ * `cleanIdToken`.
+ */
+const MODEL_TOKEN = String.raw`["'\x60(\[{<]*([a-z0-9@][^\s"'\x60)\]}>,;]*)`;
+const API_429_MODEL = new RegExp(String.raw`API\s+429\s+for\s+` + MODEL_TOKEN, "i");
+const MODEL_NOT_FOUND = new RegExp(String.raw`\bProviderModelNotFoundError:?\s*` + MODEL_TOKEN, "i");
+
+function diagnosticAttribution(line: string): DiagnosticAttribution {
+  // 1. A structured OpenCode 1.17 record (`level=ERROR message="stream error"
+  //    providerID=... modelID=...`) attributes itself. Its fields win over any
+  //    model id quoted inside its free-text error payload.
+  const fields = parseLogfmt(line);
+  const providerIDs = fields?.get("providerID");
+  const modelIDs = fields?.get("modelID");
+  if (
+    providerIDs?.length === 1 &&
+    modelIDs?.length === 1 &&
+    providerIDs[0].trim() !== "" &&
+    modelIDs[0].trim() !== ""
+  ) {
+    return { model: `${providerIDs[0]}/${modelIDs[0]}` };
+  }
+
+  // 2. Free-text model tokens.
+  const apiModel = line.match(API_429_MODEL)?.[1];
+  const missingModel = line.match(MODEL_NOT_FOUND)?.[1];
+  const model = apiModel ?? missingModel;
+  if (model !== undefined) return { model };
+
+  // 3. Provider-only: the Claude Code credential sentence names Anthropic
+  //    without naming a model. The bare `opencode-claude-auth` plugin tag is
+  //    NOT attribution — the plugin logs on every run, whatever the primary
+  //    provider, so its name says nothing about who failed.
+  if (NO_CREDENTIALS.test(line)) return { provider: "anthropic" };
   return {};
 }
 
+/**
+ * Is this diagnostic line the PRIMARY runtime's failure?
+ *
+ * Fail-closed. Returns false (auxiliary) only when the runtime model is
+ * established by independent evidence AND the line affirmatively names a
+ * provider set disjoint from the runtime's, after normalization. Everything
+ * else is primary:
+ *   - no observed runtime model (the requested model is a wish, not evidence);
+ *   - a line that names nothing, or names a token with no provider identity;
+ *   - the same leaf model under any prefix (`xai/grok-4.7` vs
+ *     `openrouter/grok-4.7`);
+ *   - a shared provider with a different model (`anthropic/claude-opus-4-8`
+ *     runtime vs `API 429 for claude-haiku-4-5`): account-level limits, auth
+ *     and billing are shared across a provider's models.
+ */
 function isRuntimeDiagnostic(
   attribution: DiagnosticAttribution,
-  observedModel: string | undefined,
-  requestedModel?: string
+  observedModel: string | undefined
 ): boolean {
-  // FAIL-CLOSED CONTRACT (revised after a0470a73 review BLOCK):
-  //
-  // The diagnostic gate is the LAST step before classification. Any
-  // line that survives the malformed / fallback / requested-guard /
-  // banner-mismatch gates AND matches the diagnostic regex (a generic
-  // `Error: Unauthorized`, `API 429 for ...`, `ProviderModelNotFoundError: ...`,
-  // `opencode-claude-auth`, `Insufficient balance`, etc.) belongs to
-  // one of two places: THIS runtime on the record, or a sibling pool
-  // that we cannot prove is not this runtime. The only branch that
-  // may downgrade to the auxiliary-warning channel is the one with
-  // AFFIRMATIVE evidence the line belongs to a DIFFERENT runtime —
-  // i.e. attribution shape names a provider/model whose identity we
-  // can compare AND it differs from the observed/requested identity.
-  // Anything less is fail-closed: return `true` and let the
-  // caller/retry loop treat the spawn as fatally failed.
-  //
-  // Why fail-closed: the v1 patch (a0470a73) returned `false` whenever
-  // there was no observed AND no requested runtime target. That
-  // dropped every unattributed stderr line into the auxiliary-warning
-  // channel, including real generic primary errors like
-  // `Error: Unauthorized` with a partial-stdout / no-banner / no-
-  // requested-model spawn — exit 0, real auth failure, no in-band
-  // banner to confirm which provider actually ran, classification
-  // returned success. A retry loop that trusts that classification
-  // re-fires the spawn against a sibling provider it never should have
-  // touched, AND a caller that trusts it loses the fatal signal for a
-  // real primary failure. The Astra-class Grok / MiniMax f9dd28b0
-  // symptom is the ONLY legitimate "downgrade to warning" case: a
-  // 429 line whose attribution shape names a sibling provider, with
-  // a banner that names the requested runtime. Everything else is a
-  // primary diagnostic that must propagate.
-  //
-  // When attribution shape identifies a model OR provider that
-  // matches the runtime on record (banner, DB-observed, or requested)
-  // the line IS this runtime's failure. When attribution shape
-  // identifies a model OR provider that differs from the runtime on
-  // record, the line belongs to a sibling pool and drops to the
-  // auxiliary channel — that is the ONLY downgrade path. Aliased
-  // names (e.g. requested `grok-4.5`, stderr `API 429 for
-  // xai/grok-4.5`) match under `runtimeModelsMatch`'s symmetric first-
-  // slash strip and stay fatal — the alias is the same runtime, not a
-  // sibling.
-  const observed = observedModel?.toLowerCase();
-  const requested = requestedModel?.toLowerCase();
-  // No comparison target means no proof of sibling identity — fail
-  // closed against the runtime we cannot rule out. This is the case
-  // the v1 patch loosened to `return false` and the review BLOCKED.
-  if (!observed && !requested) return true;
-  const runtimeModel = (observed ?? requested)!;
-  let [runtimeProvider, runtimeModelName] = runtimeModel.includes("/")
-    ? runtimeModel.split("/", 2)
-    : [undefined, runtimeModel];
-  if (!runtimeProvider && runtimeModelName.startsWith("claude-")) {
-    runtimeProvider = "anthropic";
-  }
+  if (!observedModel) return true;
+  const observed = modelIdentity(observedModel);
+  if (!observed) return true;
 
-  if (attribution.model) {
-    // Match the named model against the runtime on the record (with
-    // provider-prefix aliasing). Match → this runtime's failure
-    // (fatal). Differ → affirmative sibling identity → auxiliary.
-    return (
-      runtimeModelsMatch(attribution.model, runtimeModel) ||
-      attribution.model === runtimeModelName
-    );
+  let named: ModelIdentity | undefined;
+  if (attribution.model !== undefined) {
+    named = modelIdentity(attribution.model);
+  } else if (attribution.provider !== undefined) {
+    named = { providers: new Set([normalizeProvider(attribution.provider)]) };
   }
-  if (attribution.provider) {
-    // Match the named provider against the runtime on the record.
-    // Match → this runtime's failure (fatal). Differ → affirmative
-    // sibling identity → auxiliary. This is the Astra-class downgrade
-    // path: stderr `opencode-claude-auth: API 429 for claude-haiku-4-5`
-    // under banner `> oracle · xai/grok-4.5` returns false here and
-    // lands on the warning channel.
-    return attribution.provider === runtimeProvider;
+  if (!named) return true;
+
+  if (named.leaf !== undefined && named.leaf === observed.leaf) return true;
+  if (named.providers.size === 0 || observed.providers.size === 0) return true;
+  for (const provider of named.providers) {
+    if (observed.providers.has(provider)) return true;
   }
-  // Attribution shape is empty (e.g. a generic `Error: Unauthorized`
-  // line that does not name a provider/model) and we have a runtime
-  // target to compare against. We cannot prove the line belongs to a
-  // DIFFERENT runtime — there is no positive evidence of a sibling.
-  // Default to fatal against the runtime on the record. This is the
-  // fail-closed behaviour the v1 patch weakened via the
-  // `!observed && !requested` guard above; that path is restored
-  // here.
-  return true;
+  return false;
 }
 
 export function classifySpawnResult(
@@ -348,14 +416,19 @@ export function classifySpawnResult(
   // mirrors the previous runtimeBanner logic but reuses the already-parsed
   // modern result instead of re-running modernRuntimeSelection.
   let banner: { agent: string; model: string } | undefined;
+  let bannerSource: "runtime-log" | "banner" | undefined;
   if (modern && !("conflict" in modern) && !("malformed" in modern)) {
     banner = modern;
+    bannerSource = "runtime-log";
   }
   // When modern evidence conflicts or is malformed, do not fall back to the
   // legacy banner for identity — the conflict/malformed is reported below.
   if (!banner && !(modern && ("conflict" in modern || "malformed" in modern))) {
     const match = plainStderr.match(/^\s*>\s*([^·]+?)\s*·\s*([^\s]+)\s*$/m);
-    if (match) banner = { agent: match[1].trim(), model: match[2] };
+    if (match) {
+      banner = { agent: match[1].trim(), model: match[2] };
+      bannerSource = "banner";
+    }
   }
 
   // Evidence precedence: an independently observed runtime model (supplied by
@@ -371,7 +444,15 @@ export function classifySpawnResult(
           ...(observedModel ? { runtime_model: observedModel } : {}),
         }
       : {};
-  const receipt = { stdout: input.stdout, stderr: input.stderr, ...runtimeMeta };
+  const modelEvidence: ModelEvidenceSource =
+    bannerSource ?? (input.runtimeModel ? "session-db" : "none");
+  const receipt = {
+    stdout: input.stdout,
+    stderr: input.stderr,
+    ...runtimeMeta,
+    model_verified: Boolean(observedModel),
+    model_evidence: modelEvidence,
+  };
 
   // Established failures take precedence over malformed/conflicting identity
   // evidence: a nonzero exit code and empty stdout are reported before any
@@ -428,7 +509,13 @@ export function classifySpawnResult(
         `but persisted DB reported ${input.runtimeModel}`,
     };
   }
-  if (input.requestedModel !== undefined && !observedModel) {
+  // A missing banner is not, by itself, a failed run: OpenCode 1.17 dropped the
+  // banner, and a caller whose argv does not surface the INFO record (or whose
+  // CLI emits none) would otherwise fail every healthy run. Without evidence,
+  // the run is judged by exit code + output (above) and diagnostics (below,
+  // all fatal), and the receipt says `model_verified: false`. Strict callers
+  // keep the old hard failure.
+  if (input.requireModelEvidence === true && input.requestedModel !== undefined && !observedModel) {
     return {
       ...receipt,
       success: false,
@@ -450,7 +537,7 @@ export function classifySpawnResult(
     .split("\n")
     .filter((line) => /^\s*Error:/i.test(line) || NO_CREDENTIALS.test(line) || PROVIDER_DIAGNOSTIC.test(line));
   const primaryError = diagnostics.find((line) =>
-    isRuntimeDiagnostic(diagnosticAttribution(line), observedModel, input.requestedModel)
+    isRuntimeDiagnostic(diagnosticAttribution(line), observedModel)
   );
   if (primaryError) {
     return { ...receipt, success: false, error: `Fatal primary provider error: ${primaryError.trim()}` };

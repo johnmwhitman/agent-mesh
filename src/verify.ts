@@ -485,7 +485,21 @@ export function verifyMeshData(
     // `observed`; it cannot prove authentication, account ownership, provider
     // availability, billing, or attestation (design doc, "non-claims").
     if (a.requested_model !== undefined && a.status === "complete") {
-      if (a.runtime_model === undefined) {
+      const declaredUnverified =
+        a.runtime_model === undefined &&
+        Array.isArray(a.diagnostics) &&
+        a.diagnostics.some((d) => d?.severity === "warning" && d?.code === "MODEL_UNVERIFIED");
+      if (declaredUnverified) {
+        // The spawn classifier accepted a healthy run whose runtime model no
+        // source attested, and said so on the row (MODEL_UNVERIFIED). That is
+        // a disclosed gap, not a contradiction: surface it as a warning. A row
+        // missing BOTH the observation and the disclosure still errors below.
+        warning(
+          "agent.requested_model_unverified",
+          a.id,
+          `agent ${a.id} requested model ${a.requested_model} and completed, but its runtime model was never attested (MODEL_UNVERIFIED) — the selection is unconfirmed, not contradicted`
+        );
+      } else if (a.runtime_model === undefined) {
         error(
           "agent.requested_model_unobserved",
           a.id,

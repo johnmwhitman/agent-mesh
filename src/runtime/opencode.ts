@@ -47,7 +47,17 @@ export interface OpenCodeRuntimeAdapterOptions {
    * the environment; a missing/foreign/stale row fails closed.
    */
   sessionEvidence?: { dbPath: string };
+  /**
+   * Strict model binding. When true, a spawn with a requested model whose
+   * runtime model no source attested (INFO stream record, session DB, legacy
+   * banner) fails. Default false: such a run is judged by exit code, output
+   * and stderr diagnostics, and succeeds with a `MODEL_UNVERIFIED` warning.
+   */
+  requireModelEvidence?: boolean;
 }
+
+/** Warning code for a successful spawn whose requested model was never attested. */
+export const MODEL_UNVERIFIED_CODE = "MODEL_UNVERIFIED";
 
 function diagnosticsFor(result: { warning?: string; error?: string }): RuntimeDiagnostic[] {
   const diagnostics: RuntimeDiagnostic[] = [];
@@ -82,6 +92,7 @@ export class OpenCodeRuntimeAdapter implements RuntimeAdapter {
   private readonly terminationGraceMs?: number;
   private readonly providerNamespace?: string;
   private readonly sessionEvidenceDbPath?: string;
+  private readonly requireModelEvidence: boolean;
 
   constructor(options: OpenCodeRuntimeAdapterOptions = {}) {
     this.command = options.command ?? "opencode";
@@ -91,6 +102,7 @@ export class OpenCodeRuntimeAdapter implements RuntimeAdapter {
         : validateOpenCodeProviderNamespace(options.providerNamespace);
     this.providerNamespace = providerNamespace;
     this.sessionEvidenceDbPath = options.sessionEvidence?.dbPath;
+    this.requireModelEvidence = options.requireModelEvidence === true;
     this.buildArgs = options.buildArgs ?? ((spec) => buildRunArgs({
       prompt: spec.prompt,
       requestedModel: spec.requestedModel,
@@ -164,7 +176,25 @@ export class OpenCodeRuntimeAdapter implements RuntimeAdapter {
             requestedAgent: spec.requestedAgent,
             requestedModel: spec.requestedModel,
             runtimeModel: observedModel,
+            requireModelEvidence: this.requireModelEvidence,
           });
+          // A success whose requested model no runtime source attested. The
+          // receipt must say so: the caller asked for a model and nothing
+          // proves it ran. Warning, not error — exit code, output and stderr
+          // diagnostics (all fatal without evidence) already judged the run.
+          const modelUnverified =
+            classified.success && !classified.model_verified && spec.requestedModel !== undefined
+              ? [
+                  {
+                    severity: "warning" as const,
+                    code: MODEL_UNVERIFIED_CODE,
+                    message:
+                      `Runtime model unverified: requested ${spec.requestedModel}, but OpenCode emitted no ` +
+                      "runtime-model evidence (no INFO stream record, session-DB row, or banner). " +
+                      "Success was decided by exit code, output and stderr diagnostics only.",
+                  },
+                ]
+              : [];
           return {
             status: classified.success ? "success" : "failure",
             stdout: classified.stdout,
@@ -190,6 +220,7 @@ export class OpenCodeRuntimeAdapter implements RuntimeAdapter {
             // is a guard with a hole in whichever path was missed.
             diagnostics: [
               ...diagnosticsFor(classified),
+              ...modelUnverified,
               ...(classified.success && events.parsed && events.toolCalls === 0
                 ? [
                     {

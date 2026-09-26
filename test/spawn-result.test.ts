@@ -119,16 +119,25 @@ test('spawn result: requested model keeps the existing matcher semantics', () =>
   }
 })
 
-test('spawn result: requested model without a parseable banner fails closed', () => {
-  const result = classifySpawnResult({
+test('spawn result: requested model without runtime-model evidence is model-unverified (strict mode fails closed)', () => {
+  // v3: the pre-v3 contract failed this healthy run for the missing banner
+  // alone, which is every OpenCode 1.17 run whose stderr lacks the INFO record.
+  // Default now: success judged by exit/output/diagnostics, identity unproven.
+  const input = {
     exitCode: 0,
     stdout: 'answer',
     stderr: 'OpenCode started without an identity banner',
     requestedModel: 'anthropic/claude-sonnet-4',
-  })
+  }
+  const result = classifySpawnResult(input)
+  assert.equal(result.success, true, result.error)
+  assert.equal(result.runtime_model, undefined)
+  assert.equal(result.model_verified, false)
+  assert.equal(result.model_evidence, 'none')
 
-  assert.equal(result.success, false)
-  assert.equal(result.error, 'Requested model but runtime model banner is missing or unparsable')
+  const strict = classifySpawnResult({ ...input, requireModelEvidence: true })
+  assert.equal(strict.success, false)
+  assert.equal(strict.error, 'Requested model but runtime model banner is missing or unparsable')
 })
 
 test('spawn result: modern OpenCode stream log proves nested requested model and agent', () => {
@@ -171,8 +180,21 @@ test('spawn result: title-generation small=true records are not runtime evidence
     requestedModel: 'routeplane/ollama/glm-5.2',
   })
 
-  assert.equal(result.success, false)
-  assert.equal(result.error, 'Requested model but runtime model banner is missing or unparsable')
+  // The title record must not become runtime identity, even though it names
+  // the requested model: the run stays model-unverified.
+  assert.equal(result.runtime_model, undefined)
+  assert.equal(result.model_verified, false)
+  assert.equal(result.model_evidence, 'none')
+
+  const strict = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'READY',
+    stderr: 'timestamp=x level=INFO message=stream providerID=routeplane modelID=ollama/glm-5.2 session.id=ses_x small=true agent=title mode=primary',
+    requestedModel: 'routeplane/ollama/glm-5.2',
+    requireModelEvidence: true,
+  })
+  assert.equal(strict.success, false)
+  assert.equal(strict.error, 'Requested model but runtime model banner is missing or unparsable')
 })
 
 test('spawn result: conflicting modern selections must not fall back to the legacy banner', () => {
@@ -1051,6 +1073,9 @@ test('spawn result: unattributed provider-model-not-found stderr + mismatched re
   // `success: false, error: "...banner missing or unparsable"` — an
   // honest "we don't know what ran, do not retry against a guessed
   // attribution" signal. Both are non-success; the second is truthful.
+  // v3: the no-banner guard no longer pre-empts the diagnostic gate. With no
+  // observed runtime model the line cannot be proven to be a sibling's (the
+  // requested model is not evidence), so it is a fatal primary error.
   const result = classifySpawnResult({
     exitCode: 0,
     stdout: 'partial-looking answer',
@@ -1061,8 +1086,9 @@ test('spawn result: unattributed provider-model-not-found stderr + mismatched re
   assert.equal(result.success, false, result.error ?? '')
   assert.equal(
     result.error,
-    'Requested model but runtime model banner is missing or unparsable',
+    'Fatal primary provider error: Error: API 429 for xai/grok-4.5: secondary pool rate limit',
   )
+  assert.equal(result.model_verified, false)
 })
 
 test('spawn result: unattributed provider-model-not-found stderr + matching requestedModel IS fatal', () => {
@@ -1288,24 +1314,310 @@ test('spawn result v2 (d): aliased model name (requested without provider prefix
     requestedModel: 'grok-4.5',
   })
 
+  // v3: no banner guard pre-empts this any more; the diagnostic gate itself
+  // must reach the fatal branch (no observed runtime => primary).
   assert.equal(result.success, false, result.error ?? '')
+  assert.match(result.error ?? '', /fatal primary provider/i)
 })
 
 test('spawn result v2 (d, banner-present): aliased stderr under matching banner = FATAL', () => {
-  // Companion to test (d) under the banner-present path: stderr
-  // names `xai/grok-4.5`, banner says `xai/grok-4.5`. Same alias
-  // consideration but with banner as the runtime on record — the
-  // attribution gate sees the exact match and returns `true` (fatal).
+  // v3: the v2 version used `xai/grok-4.5` on both sides (an exact match,
+  // not an alias — review finding). Now a genuine alias: banner `xai/`,
+  // stderr `x-ai/` behind an openrouter gateway prefix.
   const result = classifySpawnResult({
     exitCode: 0,
     stdout: 'partial-looking answer',
     stderr: [
       '> oracle · xai/grok-4.5',
-      'Error: ProviderModelNotFoundError: xai/grok-4.5',
+      'Error: ProviderModelNotFoundError: openrouter/x-ai/grok-4.5',
     ].join('\n'),
     requestedAgent: 'oracle',
   })
 
   assert.equal(result.success, false, result.error ?? '')
   assert.match(result.error ?? '', /fatal primary provider/i)
+})
+
+// =========================================================================
+// v3 CONTRACT (post 21aae6a8 review BLOCK x2)
+// =========================================================================
+//
+// Runtime identity is established from independent evidence, never guessed
+// from stderr: the OpenCode 1.17 INFO `message=stream ... small=false
+// mode=primary` record, then the opt-in session DB, then the legacy banner.
+//
+//   - Evidence established: a diagnostic line is FATAL unless it
+//     affirmatively names a DIFFERENT provider after normalization (aliases,
+//     gateway prefixes, quotes/brackets/punctuation). Same provider with a
+//     different model is fatal, not sibling.
+//   - Evidence absent: a missing banner alone does not fail a healthy run
+//     (exit 0 + non-empty output). Every diagnostic line stays fatal and the
+//     receipt says `model_verified: false`. `requireModelEvidence` restores
+//     the old hard failure for operators who need it.
+
+// Captured 2026-09-26 from `opencode --print-logs --log-level INFO run --model
+// kilo/nvidia/nemotron-3.5-lightning:free --format json "Reply with exactly the
+// word: ok"` against opencode 1.17.13 (exit 0, cost 0). Trimmed from 1,264
+// stderr lines (1,228 were `duplicate skill name` WARNs); host paths replaced
+// with <cwd>. Every other byte is verbatim.
+const OPENCODE_117_HEALTHY_STDOUT = [
+  '{"type":"step_start","timestamp":1790432579871,"sessionID":"ses_f21e72091ffeNwZsPfvRYNNr39","part":{"id":"prt_0de1911180012l6oIrI2w2wYD4","messageID":"msg_0de18e7110012Y3pEQLTn24Bjl","sessionID":"ses_f21e72091ffeNwZsPfvRYNNr39","type":"step-start"}}',
+  '{"type":"text","timestamp":1790432592330,"sessionID":"ses_f21e72091ffeNwZsPfvRYNNr39","part":{"id":"prt_0de194173001p2Vtx6T4B31HMe","messageID":"msg_0de18e7110012Y3pEQLTn24Bjl","sessionID":"ses_f21e72091ffeNwZsPfvRYNNr39","type":"text","text":"ok","time":{"start":1790432592243,"end":1790432592249}}}',
+  '{"type":"step_finish","timestamp":1790432592330,"sessionID":"ses_f21e72091ffeNwZsPfvRYNNr39","part":{"id":"prt_0de19417f001LvjxIZyixDyjDT","reason":"stop","messageID":"msg_0de18e7110012Y3pEQLTn24Bjl","sessionID":"ses_f21e72091ffeNwZsPfvRYNNr39","type":"step-finish","tokens":{"total":124678,"input":124204,"output":0,"reasoning":530,"cache":{"write":0,"read":0}},"cost":0}}',
+].join('\n')
+const OPENCODE_117_HEALTHY_STDERR_LINES = [
+  'timestamp=2026-09-26T14:22:45.548Z level=INFO run=f2221cc0 message="creating instance" directory=<cwd>',
+  'timestamp=2026-09-26T14:22:48.207Z level=INFO run=f2221cc0 message=init count=187',
+  'timestamp=2026-09-26T14:22:49.102Z level=INFO run=f2221cc0 message=loop session.id=ses_f21e72091ffeNwZsPfvRYNNr39 step=0',
+  'timestamp=2026-09-26T14:22:49.198Z level=INFO run=f2221cc0 message=stream providerID=anthropic modelID=claude-haiku-4-5 session.id=ses_f21e72091ffeNwZsPfvRYNNr39 small=true agent=title mode=primary',
+  'timestamp=2026-09-26T14:22:49.232Z level=INFO run=f2221cc0 message="llm runtime selected" llm.runtime=ai-sdk llm.provider=anthropic llm.model=claude-haiku-4-5',
+  'timestamp=2026-09-26T14:22:49.251Z level=WARN run=f2221cc0 message="server unavailable" key=episodic-memory:episodic-memory type=local status=failed',
+  'timestamp=2026-09-26T14:22:51.364Z level=WARN run=f2221cc0 message="server unavailable" key=aws-mcp type=local status=failed',
+  'timestamp=2026-09-26T14:22:53.425Z level=INFO run=f2221cc0 message=process session.id=ses_f21e72091ffeNwZsPfvRYNNr39 messageID=msg_0de18e7110012Y3pEQLTn24Bjl',
+  'timestamp=2026-09-26T14:22:53.437Z level=INFO run=f2221cc0 message=stream providerID=kilo modelID=nvidia/nemotron-3.5-lightning:free session.id=ses_f21e72091ffeNwZsPfvRYNNr39 small=false agent="Sisyphus - ultraworker" mode=primary',
+  'timestamp=2026-09-26T14:22:53.482Z level=INFO run=f2221cc0 message="llm runtime selected" llm.runtime=ai-sdk llm.provider=kilo llm.model=nvidia/nemotron-3.5-lightning:free',
+  'timestamp=2026-09-26T14:23:12.273Z level=INFO run=f2221cc0 message=loop session.id=ses_f21e72091ffeNwZsPfvRYNNr39 step=1',
+  'timestamp=2026-09-26T14:23:12.277Z level=INFO run=f2221cc0 message="exiting loop" session.id=ses_f21e72091ffeNwZsPfvRYNNr39',
+]
+const OPENCODE_117_REQUESTED = 'kilo/nvidia/nemotron-3.5-lightning:free'
+// The adapter converts NDJSON back to prose before classifying; mirror that.
+const OPENCODE_117_TEXT = 'ok'
+
+test('v3: real opencode 1.17.13 healthy run is attributed from the INFO stream record', () => {
+  assert.match(OPENCODE_117_HEALTHY_STDOUT, /"text":"ok"/)
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: OPENCODE_117_TEXT,
+    stderr: OPENCODE_117_HEALTHY_STDERR_LINES.join('\n'),
+    requestedModel: OPENCODE_117_REQUESTED,
+  })
+
+  assert.equal(result.success, true, result.error)
+  assert.equal(result.runtime_model, 'kilo/nvidia/nemotron-3.5-lightning:free')
+  assert.equal(result.runtime_agent, 'Sisyphus - ultraworker')
+  assert.equal(result.model_verified, true)
+  assert.equal(result.model_evidence, 'runtime-log')
+})
+
+test('v3 (a): the same healthy 1.17 run with NO runtime-model evidence succeeds as model-unverified', () => {
+  // What a caller sees when neither the banner nor the INFO record reaches
+  // stderr (custom argv/wrapper without --print-logs, older CLI build, log
+  // level raised): the run is healthy, only its identity is unproven.
+  const noEvidence = OPENCODE_117_HEALTHY_STDERR_LINES
+    .filter((line) => !/message=stream /.test(line))
+    .join('\n')
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: OPENCODE_117_TEXT,
+    stderr: noEvidence,
+    requestedModel: OPENCODE_117_REQUESTED,
+  })
+
+  assert.equal(result.success, true, result.error)
+  assert.equal(result.error, undefined)
+  assert.equal(result.runtime_model, undefined)
+  assert.equal(result.model_verified, false)
+  assert.equal(result.model_evidence, 'none')
+})
+
+test('v3 (a, strict): requireModelEvidence restores the hard failure for a no-evidence run', () => {
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: OPENCODE_117_TEXT,
+    stderr: 'OpenCode started without an identity banner',
+    requestedModel: OPENCODE_117_REQUESTED,
+    requireModelEvidence: true,
+  })
+
+  assert.equal(result.success, false)
+  assert.equal(result.error, 'Requested model but runtime model banner is missing or unparsable')
+  assert.equal(result.model_verified, false)
+})
+
+test('v3 (b): a no-evidence run with a genuine error stays fatal, whatever the line names', () => {
+  const cases = [
+    'Error: Unauthorized',
+    'Error: Insufficient balance',
+    'Error: API 429 for kilo/nvidia/nemotron-3.5-lightning:free: rate limit',
+    // Names a different provider, but with no observed runtime there is
+    // nothing to compare it to: the requested model is a wish, not evidence.
+    'Error: API 429 for anthropic/claude-haiku-4-5: secondary pool limit',
+    'opencode-claude-auth: No Claude Code credentials found',
+  ]
+  for (const line of cases) {
+    const result = classifySpawnResult({
+      exitCode: 0,
+      stdout: OPENCODE_117_TEXT,
+      stderr: line,
+      requestedModel: OPENCODE_117_REQUESTED,
+    })
+    assert.equal(result.success, false, line)
+    assert.match(result.error ?? '', /fatal primary provider error/i, line)
+    assert.equal(result.model_verified, false, line)
+  }
+})
+
+function infoRecord(provider: string, model: string): string {
+  return `timestamp=x level=INFO message=stream providerID=${provider} modelID=${model} session.id=ses_x small=false agent=build mode=primary`
+}
+
+test('v3 (c): same provider, different model is primary (fatal), not sibling', () => {
+  const cases: Array<[string, string, string]> = [
+    ['anthropic', 'claude-opus-4-8', 'Error: API 429 for anthropic/claude-haiku-4-5'],
+    ['anthropic', 'claude-opus-4-8', 'Error: API 429 for claude-haiku-4-5'],
+    ['xai', 'grok-4.7', 'Error: API 429 for xai/grok-4.5'],
+    ['xai', 'grok-4.7', 'Error: API 429 for grok-4'],
+    ['routeplane', 'subs/grok', 'Error: ProviderModelNotFoundError: routeplane/subs/codex'],
+  ]
+  for (const [provider, model, line] of cases) {
+    const result = classifySpawnResult({
+      exitCode: 0,
+      stdout: 'partial answer',
+      stderr: [infoRecord(provider, model), line].join('\n'),
+    })
+    assert.equal(result.success, false, `${provider}/${model} :: ${line}`)
+    assert.match(result.error ?? '', /fatal primary provider error/i, line)
+    assert.equal(result.model_verified, true, line)
+  }
+})
+
+test('v3 (d): provider aliases and gateway prefixes normalize to the runtime on record', () => {
+  const lines = [
+    'Error: API 429 for x-ai/grok-4.7',
+    'Error: API 429 for X-AI/Grok-4.7: rate limit',
+    'Error: API 429 for openrouter/x-ai/grok-4.7',
+    'Error: API 429 for openrouter/grok-4.7',
+    'Error: ProviderModelNotFoundError: openrouter/xai/grok-4.7',
+    'Error: API 429 for grok-4.7',
+  ]
+  for (const line of lines) {
+    const result = classifySpawnResult({
+      exitCode: 0,
+      stdout: 'partial answer',
+      stderr: [infoRecord('xai', 'grok-4.7'), line].join('\n'),
+    })
+    assert.equal(result.success, false, line)
+    assert.match(result.error ?? '', /fatal primary provider error/i, line)
+  }
+  // And the reverse: an aliased runtime on record still owns a plain-id error.
+  const reverse = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'partial answer',
+    stderr: [infoRecord('openrouter', 'x-ai/grok-4.7'), 'Error: API 429 for xai/grok-4.7'].join('\n'),
+  })
+  assert.equal(reverse.success, false)
+})
+
+test('v3 (e): quoted, bracketed and punctuated ids are stripped before comparison', () => {
+  const lines = [
+    'Error: API 429 for "xai/grok-4.7"',
+    "Error: API 429 for 'xai/grok-4.7'.",
+    'Error: API 429 for (xai/grok-4.7)',
+    'Error: API 429 for xai/grok-4.7)',
+    'Error: API 429 for [xai/grok-4.7]: rate limit',
+    'Error: API 429 for `xai/grok-4.7`;',
+    'Error: ProviderModelNotFoundError: "xai/grok-4.7"',
+  ]
+  for (const line of lines) {
+    const result = classifySpawnResult({
+      exitCode: 0,
+      stdout: 'partial answer',
+      stderr: [infoRecord('xai', 'grok-4.7'), line].join('\n'),
+    })
+    assert.equal(result.success, false, line)
+    assert.match(result.error ?? '', /fatal primary provider error/i, line)
+  }
+  // Control: the same wrapping around a genuinely different provider is
+  // still parsed, so the stripping is not what makes the lines above fatal.
+  for (const line of [
+    'Error: API 429 for "anthropic/claude-haiku-4-5"',
+    'Error: API 429 for (anthropic/claude-haiku-4-5): limit',
+  ]) {
+    const result = classifySpawnResult({
+      exitCode: 0,
+      stdout: 'complete answer',
+      stderr: [infoRecord('xai', 'grok-4.7'), line].join('\n'),
+    })
+    assert.equal(result.success, true, `${line} :: ${result.error}`)
+    assert.match(result.warning ?? '', /auxiliary provider/i, line)
+  }
+  // A token that is not a model id names nothing: fatal.
+  const junk = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'partial answer',
+    stderr: [infoRecord('xai', 'grok-4.7'), 'Error: API 429 for retry'].join('\n'),
+  })
+  assert.equal(junk.success, false)
+})
+
+test('v3 (f): provider-only attribution (no model token) downgrades only a different provider', () => {
+  // NO_CREDENTIALS names Anthropic without naming any model, so this runs the
+  // provider branch, not the model branch.
+  const line = 'Error: No Claude Code credentials found'
+  assert.doesNotMatch(line, /API\s+429|ProviderModelNotFoundError|\//)
+  const cases: Array<[string, string, boolean]> = [
+    ['xai', 'grok-4.7', true],
+    ['kilo', 'nvidia/nemotron-3.5-lightning:free', true],
+    ['anthropic', 'claude-opus-4-8', false],
+    ['routeplane', 'anthropic/claude-sonnet-4.5', false],
+    ['opencode', 'claude-opus-4-8', false],
+  ]
+  for (const [provider, model, expectedSuccess] of cases) {
+    const result = classifySpawnResult({
+      exitCode: 0,
+      stdout: 'answer',
+      stderr: [infoRecord(provider, model), line].join('\n'),
+    })
+    assert.equal(result.success, expectedSuccess, `${provider}/${model}`)
+    if (expectedSuccess) assert.match(result.warning ?? '', /auxiliary provider/i)
+    else assert.match(result.error ?? '', /fatal primary provider error/i)
+  }
+})
+
+test('v3 (g): an opencode-claude-auth line with no Claude attribution stays fatal under a non-Anthropic runtime', () => {
+  for (const line of [
+    'Error: Unauthorized (opencode-claude-auth plugin)',
+    'opencode-claude-auth: Error: Request had invalid authentication credentials',
+  ]) {
+    const result = classifySpawnResult({
+      exitCode: 0,
+      stdout: 'partial answer',
+      stderr: [infoRecord('xai', 'grok-4.7'), line].join('\n'),
+    })
+    assert.equal(result.success, false, line)
+    assert.match(result.error ?? '', /fatal primary provider error/i, line)
+  }
+})
+
+test('v3 (h): a structured 1.17 ERROR record is attributed by its providerID/modelID fields', () => {
+  const primary = infoRecord('kilo', 'nvidia/nemotron-3.5-lightning:free')
+  const titleStreamError =
+    'timestamp=x level=ERROR message="stream error" providerID=anthropic modelID=claude-haiku-4-5 session.id=ses_x small=true agent=title mode=primary error.error="RateLimitError: API 429"'
+  const primaryStreamError =
+    'timestamp=x level=ERROR message="stream error" providerID=kilo modelID=nvidia/nemotron-3.5-lightning:free session.id=ses_x small=false agent=build mode=primary error.error="RateLimitError: API 429 for anthropic/claude-haiku-4-5"'
+
+  const sibling = classifySpawnResult({ exitCode: 0, stdout: 'ok', stderr: [primary, titleStreamError].join('\n') })
+  assert.equal(sibling.success, true, sibling.error)
+  assert.match(sibling.warning ?? '', /auxiliary provider/i)
+
+  // The structured fields win over free text inside error.error.
+  const own = classifySpawnResult({ exitCode: 0, stdout: 'ok', stderr: [primary, primaryStreamError].join('\n') })
+  assert.equal(own.success, false)
+  assert.match(own.error ?? '', /fatal primary provider error/i)
+})
+
+test('v3: session-DB evidence is reported as its own evidence source', () => {
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'answer',
+    stderr: '',
+    requestedModel: 'subs/codex',
+    runtimeModel: 'routeplane/subs/codex',
+  })
+  assert.equal(result.success, true, result.error)
+  assert.equal(result.model_verified, true)
+  assert.equal(result.model_evidence, 'session-db')
+
+  const banner = classifySpawnResult({ exitCode: 0, stdout: 'answer', stderr: '> build · xai/grok-4.7\n' })
+  assert.equal(banner.model_evidence, 'banner')
 })

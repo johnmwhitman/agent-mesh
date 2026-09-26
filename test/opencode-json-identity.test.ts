@@ -17,7 +17,7 @@ import { createHash } from "node:crypto";
 import { parseOpenCodeEvents } from "../src/runtime/opencode-events.js";
 import { readOpenCodeSessionEvidence } from "../src/runtime/opencode-evidence.js";
 import { classifySpawnResult } from "../src/spawn-result.js";
-import { OpenCodeRuntimeAdapter } from "../src/runtime/opencode.js";
+import { MODEL_UNVERIFIED_CODE, OpenCodeRuntimeAdapter } from "../src/runtime/opencode.js";
 import type { ExecutionSpec } from "../src/runtime/types.js";
 import { compileWindowsStaticStdout } from "./helpers/windows-native-command.js";
 
@@ -447,16 +447,25 @@ test("classification still fails closed when evidence disagrees with the request
   }
 });
 
-test("absent evidence keeps the fail-closed behaviour (no weakening)", () => {
-  const classified = classifySpawnResult({
+test("absent evidence is reported as model-unverified, never as observed (strict mode fails closed)", () => {
+  // v3: absent evidence no longer fails a healthy run by itself, but it is
+  // never upgraded either: no runtime_model, model_verified false.
+  const input = {
     exitCode: 0,
     stdout: "PONG",
     stderr: "",
     requestedModel: "z-ai/glm-5.2",
     runtimeModel: undefined,
-  });
-  assert.equal(classified.success, false);
-  assert.match(classified.error ?? "", /runtime model banner is missing or unparsable/);
+  };
+  const classified = classifySpawnResult(input);
+  assert.equal(classified.success, true, classified.error);
+  assert.equal(classified.runtime_model, undefined);
+  assert.equal(classified.model_verified, false);
+  assert.equal(classified.model_evidence, "none");
+
+  const strict = classifySpawnResult({ ...input, requireModelEvidence: true });
+  assert.equal(strict.success, false);
+  assert.match(strict.error ?? "", /runtime model banner is missing or unparsable/);
 });
 
 // ------------------------------------------------- adapter end-to-end wiring
@@ -501,8 +510,20 @@ test("adapter with the evidence knob off ignores the DB (default unchanged)", as
     const adapter = new OpenCodeRuntimeAdapter({ command });
     const handle = await adapter.start(spec());
     const result = await adapter.wait(handle);
-    assert.equal(result.status, "failure");
-    assert.match(result.error ?? "", /runtime model banner is missing or unparsable/);
+    // v3: the DB is still ignored (no evidence), so the healthy run succeeds
+    // as model-unverified and says so on the diagnostics channel.
+    assert.equal(result.status, "success", result.error);
+    assert.equal(result.identity.evidence, "none");
+    assert.equal(result.identity.model, undefined);
+    const unverified = result.diagnostics.filter((d) => d.code === MODEL_UNVERIFIED_CODE);
+    assert.equal(unverified.length, 1, JSON.stringify(result.diagnostics));
+    assert.equal(unverified[0]!.severity, "warning");
+    assert.match(unverified[0]!.message, /requested z-ai\/glm-5\.2/);
+
+    const strictAdapter = new OpenCodeRuntimeAdapter({ command, requireModelEvidence: true });
+    const strict = await strictAdapter.wait(await strictAdapter.start(spec()));
+    assert.equal(strict.status, "failure");
+    assert.match(strict.error ?? "", /runtime model banner is missing or unparsable/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -528,6 +549,7 @@ test("adapter with the evidence knob on attests the real run via the child DB", 
     assert.equal(result.stdout.trim(), "PONG");
     assert.equal(result.identity.evidence, "observed");
     assert.equal(result.identity.model, "routeplane/z-ai/glm-5.2");
+    assert.ok(!result.diagnostics.some((d) => d.code === MODEL_UNVERIFIED_CODE));
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -546,8 +568,12 @@ test("adapter with the knob on fails closed when the DB has no row for the run",
     });
     const handle = await adapter.start(spec());
     const result = await adapter.wait(handle);
-    assert.equal(result.status, "failure");
-    assert.match(result.error ?? "", /runtime model banner is missing or unparsable/);
+    // v3: stale/foreign evidence is still NOT evidence (no runtime model is
+    // attested), but its absence alone no longer fails a healthy run.
+    assert.equal(result.status, "success", result.error);
+    assert.equal(result.identity.model, undefined);
+    assert.equal(result.identity.evidence, "none");
+    assert.ok(result.diagnostics.some((d) => d.code === MODEL_UNVERIFIED_CODE), JSON.stringify(result.diagnostics));
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

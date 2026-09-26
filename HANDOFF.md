@@ -1,7 +1,7 @@
 # MeshFleet public handoff
 
 **Source version:** `0.21.5` · **MCP surface:** **40 MCP tools** (36 with the opt-in compact catalog) ·
-**current suite contract:** **1930/1930** tests collected, plus typecheck and build
+**current suite contract:** **1955/1955** tests collected, plus typecheck and build
 
 The latest completed cross-platform proof is GitHub Actions run `31315444631`
 at `e14bd8f` (9/9 jobs across Node 20/22/24 on Ubuntu, macOS, and Windows).
@@ -114,7 +114,7 @@ authorize spend. Runtime execution and advisory ranking remain separate contract
 
 ## Current audit evidence
 
-- The ledger fixture corpus contains **84 total** cases: **60 caught**, **14
+- The ledger fixture corpus contains **85 total** cases: **60 caught**, **15
   anomaly**, and 10 deliberately undetectable. `test/fixtures/corpus/README.md`
   and its generated manifest are the count authorities.
 - `test/blackbox-corpus-transcript-integrity.test.ts` independently discovers the
