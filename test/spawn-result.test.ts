@@ -1621,3 +1621,43 @@ test('v3: session-DB evidence is reported as its own evidence source', () => {
   const banner = classifySpawnResult({ exitCode: 0, stdout: 'answer', stderr: '> build · xai/grok-4.7\n' })
   assert.equal(banner.model_evidence, 'banner')
 })
+
+test('v3 (i): an incomplete or ambiguous structured record never falls back to its payload text', () => {
+  // GPT-5.6 v3 review HIGH: a structured OpenCode record whose own
+  // providerID/modelID fields are missing, duplicated or conflicting must be
+  // FATAL. Its free-text payload (`API 429 for anthropic/...`) must never be
+  // used to downgrade it.
+  const primary = infoRecord('kilo', 'nvidia/nemotron-3.5-lightning:free')
+  const payload = 'error.error="RateLimitError: API 429 for anthropic/claude-haiku-4-5"'
+  const cases: Array<[string, string]> = [
+    ['missing modelID',
+      `timestamp=x level=ERROR message="stream error" providerID=kilo session.id=ses_x small=false agent=build mode=primary ${payload}`],
+    ['missing providerID',
+      `timestamp=x level=ERROR message="stream error" modelID=nvidia/nemotron-3.5-lightning:free session.id=ses_x small=false agent=build mode=primary ${payload}`],
+    ['duplicated conflicting modelID',
+      `timestamp=x level=ERROR message="stream error" providerID=kilo modelID=nvidia/nemotron-3.5-lightning:free modelID=claude-haiku-4-5 session.id=ses_x small=false ${payload}`],
+    ['duplicated identical modelID',
+      `timestamp=x level=ERROR message="stream error" providerID=kilo modelID=nvidia/nemotron-3.5-lightning:free modelID=nvidia/nemotron-3.5-lightning:free ${payload}`],
+    ['duplicated conflicting providerID',
+      `timestamp=x level=ERROR message="stream error" providerID=kilo providerID=anthropic modelID=claude-haiku-4-5 ${payload}`],
+    ['empty modelID',
+      `timestamp=x level=ERROR message="stream error" providerID=kilo modelID="" ${payload}`],
+    ['no identity fields at all',
+      `timestamp=x level=ERROR message=process session.id=ses_x ${payload}`],
+    ['providerID matches the runtime, payload names another provider',
+      `timestamp=x level=ERROR message="stream error" providerID=kilo modelID=nvidia/nemotron-3.5-lightning:free small=false ${payload}`],
+  ]
+  for (const [name, line] of cases) {
+    assert.match(line, /anthropic\/claude-haiku-4-5/, name)
+    const result = classifySpawnResult({ exitCode: 0, stdout: 'ok', stderr: [primary, line].join('\n') })
+    assert.equal(result.success, false, `${name} :: ${result.warning}`)
+    assert.match(result.error ?? '', /fatal primary provider error/i, name)
+  }
+
+  // Control: a well-formed sibling record still downgrades, so the rule above
+  // is not simply "every structured record is fatal".
+  const sibling = `timestamp=x level=ERROR message="stream error" providerID=anthropic modelID=claude-haiku-4-5 session.id=ses_x small=true agent=title mode=primary ${payload}`
+  const control = classifySpawnResult({ exitCode: 0, stdout: 'ok', stderr: [primary, sibling].join('\n') })
+  assert.equal(control.success, true, control.error)
+  assert.match(control.warning ?? '', /auxiliary provider/i)
+})

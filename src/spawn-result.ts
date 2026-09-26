@@ -331,18 +331,31 @@ const MODEL_NOT_FOUND = new RegExp(String.raw`\bProviderModelNotFoundError:?\s*`
 
 function diagnosticAttribution(line: string): DiagnosticAttribution {
   // 1. A structured OpenCode 1.17 record (`level=ERROR message="stream error"
-  //    providerID=... modelID=...`) attributes itself. Its fields win over any
-  //    model id quoted inside its free-text error payload.
+  //    providerID=... modelID=...`) attributes itself from its OWN fields, or
+  //    not at all. Once a line is recognised as a structured record, its
+  //    free-text payload (`error.error="... API 429 for anthropic/..."`) is
+  //    never parsed for attribution: a missing, empty or duplicated
+  //    providerID/modelID makes the record unattributed, which is FATAL. A
+  //    payload may quote any model id, so falling back to it would let a
+  //    malformed primary record downgrade itself.
   const fields = parseLogfmt(line);
   const providerIDs = fields?.get("providerID");
   const modelIDs = fields?.get("modelID");
-  if (
-    providerIDs?.length === 1 &&
-    modelIDs?.length === 1 &&
-    providerIDs[0].trim() !== "" &&
-    modelIDs[0].trim() !== ""
-  ) {
-    return { model: `${providerIDs[0]}/${modelIDs[0]}` };
+  const isStructuredRecord =
+    fields !== null &&
+    (providerIDs !== undefined ||
+      modelIDs !== undefined ||
+      (fields.has("level") && fields.has("message")));
+  if (isStructuredRecord) {
+    if (
+      providerIDs?.length === 1 &&
+      modelIDs?.length === 1 &&
+      providerIDs[0].trim() !== "" &&
+      modelIDs[0].trim() !== ""
+    ) {
+      return { model: `${providerIDs[0]}/${modelIDs[0]}` };
+    }
+    return {};
   }
 
   // 2. Free-text model tokens.
