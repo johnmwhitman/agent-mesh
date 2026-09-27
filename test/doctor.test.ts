@@ -14,7 +14,10 @@ import {
   runDoctor,
   formatDoctorReport,
   doctorExitCode,
+  doctorMain,
+  DOCTOR_HELP,
   SQLITE_REBUILD_FIX,
+  SQLITE_ABI_FIX,
   type DoctorReport,
 } from '../src/doctor.js'
 import { withTempDb } from './helpers/with-temp-db.js'
@@ -68,7 +71,8 @@ test('doctor: sqlite binding failure names the diagnosis and the exact rebuild f
   assert.equal(c.status, 'fail')
   assert.ok(c.detail.includes('NODE_MODULE_VERSION 108'))
   assert.ok(c.detail.toLowerCase().includes('abi'))
-  assert.equal(c.fix, SQLITE_REBUILD_FIX)
+  assert.equal(c.fix, SQLITE_ABI_FIX)
+  assert.equal(c.fix, 'run under Node 24 (see .nvmrc) or npm rebuild better-sqlite3')
 })
 
 test('doctor: missing sqlite binding is diagnosed as a blocked/skipped install', () => {
@@ -164,7 +168,49 @@ test('doctor: an unopenable ledger fails with the underlying error', () => {
     })
     assert.equal(c.status, 'fail')
     assert.ok(c.detail.includes('file is not a database'))
-    assert.ok(c.fix)
+    assert.ok(c.fix?.includes('corrupt'))
+    assert.ok(c.fix?.includes('move'))
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('doctor: ledger open ABI mismatch gives actionable fix and does not suggest corrupt/moving database', () => {
+  const dir = tempDir()
+  const file = join(dir, 'ledger.db')
+  writeFileSync(file, 'valid db contents')
+  try {
+    const c = checkLedgerOpen(file, () => {
+      throw new Error(
+        'The module better_sqlite3.node was compiled against a different Node.js version using NODE_MODULE_VERSION 137'
+      )
+    })
+    assert.equal(c.status, 'fail')
+    assert.ok(c.detail.includes('Node ABI mismatch'))
+    assert.ok(c.detail.includes('NODE_MODULE_VERSION 137'))
+    assert.equal(c.fix, SQLITE_ABI_FIX)
+    assert.equal(c.fix, 'run under Node 24 (see .nvmrc) or npm rebuild better-sqlite3')
+    assert.ok(!c.fix?.includes('corrupt'))
+    assert.ok(!c.fix?.includes('move'))
+    assert.ok(!c.detail.includes('corrupt'))
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('doctor: ledger open missing native binding gives rebuild fix and does not suggest moving database', () => {
+  const dir = tempDir()
+  const file = join(dir, 'ledger.db')
+  writeFileSync(file, 'valid db contents')
+  try {
+    const c = checkLedgerOpen(file, () => {
+      throw new Error("Cannot find module 'better_sqlite3.node'")
+    })
+    assert.equal(c.status, 'fail')
+    assert.ok(c.detail.includes('sqlite native binding is missing'))
+    assert.equal(c.fix, SQLITE_REBUILD_FIX)
+    assert.ok(!c.fix?.includes('corrupt'))
+    assert.ok(!c.fix?.includes('move'))
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -282,4 +328,119 @@ test('doctor: the human table marks ok/warn/fail with ✔/⚠/✖ and prints fix
   assert.ok(out.includes('⚠'))
   assert.ok(out.includes('✖'))
   assert.ok(out.includes(SQLITE_REBUILD_FIX))
+})
+
+// --- doctorMain CLI handling -------------------------------------------------
+
+test('doctor: --help prints help and exits 0 without running diagnostics or accessing ledger', async () => {
+  const origExitCode = process.exitCode
+  const origStdoutWrite = process.stdout.write
+  const origStderrWrite = process.stderr.write
+  let stdout = ''
+  let stderr = ''
+  process.stdout.write = ((chunk: any) => {
+    stdout += String(chunk)
+    return true
+  }) as any
+  process.stderr.write = ((chunk: any) => {
+    stderr += String(chunk)
+    return true
+  }) as any
+
+  // A poisoned db path would fail if doctor ran diagnostics
+  const prevDb = process.env.MESHFLEET_DB_FILE
+  process.env.MESHFLEET_DB_FILE = '/nonexistent/invalid/dir/canary-should-not-be-accessed.db'
+
+  try {
+    process.exitCode = undefined
+    await doctorMain(['--help'])
+    assert.equal(process.exitCode, 0)
+    assert.ok(stdout.includes(DOCTOR_HELP))
+    assert.ok(stdout.includes('--help, -h'))
+    assert.ok(stdout.includes('--json'))
+    assert.ok(stdout.includes('--no-spawn'))
+    assert.equal(stderr, '')
+  } finally {
+    process.stdout.write = origStdoutWrite
+    process.stderr.write = origStderrWrite
+    process.exitCode = origExitCode
+    if (prevDb !== undefined) {
+      process.env.MESHFLEET_DB_FILE = prevDb
+    } else {
+      delete process.env.MESHFLEET_DB_FILE
+    }
+  }
+})
+
+test('doctor: -h prints help and exits 0 without running diagnostics or accessing ledger', async () => {
+  const origExitCode = process.exitCode
+  const origStdoutWrite = process.stdout.write
+  const origStderrWrite = process.stderr.write
+  let stdout = ''
+  let stderr = ''
+  process.stdout.write = ((chunk: any) => {
+    stdout += String(chunk)
+    return true
+  }) as any
+  process.stderr.write = ((chunk: any) => {
+    stderr += String(chunk)
+    return true
+  }) as any
+
+  const prevDb = process.env.MESHFLEET_DB_FILE
+  process.env.MESHFLEET_DB_FILE = '/nonexistent/invalid/dir/canary-should-not-be-accessed.db'
+
+  try {
+    process.exitCode = undefined
+    await doctorMain(['-h'])
+    assert.equal(process.exitCode, 0)
+    assert.ok(stdout.includes(DOCTOR_HELP))
+    assert.equal(stderr, '')
+  } finally {
+    process.stdout.write = origStdoutWrite
+    process.stderr.write = origStderrWrite
+    process.exitCode = origExitCode
+    if (prevDb !== undefined) {
+      process.env.MESHFLEET_DB_FILE = prevDb
+    } else {
+      delete process.env.MESHFLEET_DB_FILE
+    }
+  }
+})
+
+test('doctor: unknown flags exit non-zero with helpful usage error and do not touch ledger', async () => {
+  const origExitCode = process.exitCode
+  const origStdoutWrite = process.stdout.write
+  const origStderrWrite = process.stderr.write
+  let stdout = ''
+  let stderr = ''
+  process.stdout.write = ((chunk: any) => {
+    stdout += String(chunk)
+    return true
+  }) as any
+  process.stderr.write = ((chunk: any) => {
+    stderr += String(chunk)
+    return true
+  }) as any
+
+  const prevDb = process.env.MESHFLEET_DB_FILE
+  process.env.MESHFLEET_DB_FILE = '/nonexistent/invalid/dir/canary-should-not-be-accessed.db'
+
+  try {
+    process.exitCode = undefined
+    await doctorMain(['--unknown-flag'])
+    assert.equal(process.exitCode, 1)
+    assert.equal(stdout, '')
+    assert.ok(stderr.includes('error: unrecognized argument: --unknown-flag'))
+    assert.ok(stderr.includes(DOCTOR_HELP))
+  } finally {
+    process.stdout.write = origStdoutWrite
+    process.stderr.write = origStderrWrite
+    process.exitCode = origExitCode
+    if (prevDb !== undefined) {
+      process.env.MESHFLEET_DB_FILE = prevDb
+    } else {
+      delete process.env.MESHFLEET_DB_FILE
+    }
+  }
 })

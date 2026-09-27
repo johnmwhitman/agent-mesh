@@ -35,6 +35,7 @@ export interface DoctorReport {
 }
 
 export const SQLITE_REBUILD_FIX = 'npm rebuild better-sqlite3'
+export const SQLITE_ABI_FIX = 'run under Node 24 (see .nvmrc) or npm rebuild better-sqlite3'
 
 // --- helpers -----------------------------------------------------------------
 
@@ -65,7 +66,10 @@ function errMessage(e: unknown): string {
 // --- check 1: Node version ---------------------------------------------------
 
 /** Node >= 20 — the better-sqlite3 floor (and this package's engines field). */
-export function checkNodeVersion(version: string = process.version): DoctorCheck {
+export function checkNodeVersion(
+  version: string = process.version,
+  modulesAbi: string = process.versions?.modules ?? ''
+): DoctorCheck {
   const major = parseInt(version.replace(/^v/, ''), 10)
   if (Number.isNaN(major)) {
     return {
@@ -74,17 +78,18 @@ export function checkNodeVersion(version: string = process.version): DoctorCheck
       detail: `could not parse Node version "${version}" — expected >= 20`,
     }
   }
+  const abiDetail = modulesAbi ? ` (ABI ${modulesAbi})` : ''
   if (major >= 20) {
     return {
       check: 'node-version',
       status: 'ok',
-      detail: `${version} (>= 20 required by better-sqlite3)`,
+      detail: `${version}${abiDetail} (>= 20 required by better-sqlite3)`,
     }
   }
   return {
     check: 'node-version',
     status: 'fail',
-    detail: `${version} is below the Node 20 floor better-sqlite3 requires`,
+    detail: `${version}${abiDetail} is below the Node 20 floor better-sqlite3 requires`,
     fix: 'install Node >= 20 (e.g. `nvm install 20`) and reinstall meshfleet',
   }
 }
@@ -109,16 +114,19 @@ export function checkSqliteBinding(load: () => void = loadSqliteBinding): Doctor
   } catch (e) {
     const msg = errMessage(e)
     let diagnosis = 'native binding failed to load'
+    let fix = SQLITE_REBUILD_FIX
     if (/NODE_MODULE_VERSION|compiled against a different/i.test(msg)) {
       diagnosis = 'ABI mismatch — the binding was built for a different Node version'
+      fix = SQLITE_ABI_FIX
     } else if (/cannot find module/i.test(msg)) {
       diagnosis = 'native binding missing — install scripts were likely blocked or skipped'
+      fix = SQLITE_REBUILD_FIX
     }
     return {
       check: 'better-sqlite3',
       status: 'fail',
       detail: `${diagnosis}: ${msg}`,
-      fix: SQLITE_REBUILD_FIX,
+      fix,
     }
   }
 }
@@ -187,10 +195,27 @@ export function checkLedgerOpen(
       )} messages, ${n(data.receipts)} receipts`,
     }
   } catch (e) {
+    const msg = errMessage(e)
+    if (/NODE_MODULE_VERSION|compiled against a different/i.test(msg)) {
+      return {
+        check: 'ledger-open',
+        status: 'fail',
+        detail: `ledger at ${dbFile} exists but cannot be opened due to Node ABI mismatch: ${msg}`,
+        fix: SQLITE_ABI_FIX,
+      }
+    }
+    if (/cannot find module/i.test(msg)) {
+      return {
+        check: 'ledger-open',
+        status: 'fail',
+        detail: `ledger at ${dbFile} exists but cannot be opened because sqlite native binding is missing: ${msg}`,
+        fix: SQLITE_REBUILD_FIX,
+      }
+    }
     return {
       check: 'ledger-open',
       status: 'fail',
-      detail: `ledger at ${dbFile} exists but cannot be read: ${errMessage(e)}`,
+      detail: `ledger at ${dbFile} exists but cannot be read: ${msg}`,
       fix: `run \`npx -y --package=meshfleet -- agent-mesh inspect --verify\`; if corrupt, move ${dbFile} aside and restart`,
     }
   }
@@ -451,8 +476,37 @@ export function formatDoctorReport(report: DoctorReport): string {
   return lines.join('\n')
 }
 
+export const DOCTOR_HELP = `meshfleet doctor — diagnose install health
+
+Usage:
+  npx meshfleet doctor [options]
+  npx -y --package=meshfleet -- agent-mesh doctor [options]
+
+Options:
+  --json       Emit machine-readable JSON report (schema: meshfleet.doctor/v1)
+  --no-spawn   Run only synchronous checks (skip spawned MCP handshake probe)
+  --help, -h   Show this help message
+`
+
+const KNOWN_DOCTOR_FLAGS = new Set(['--json', '--no-spawn', '--help', '-h'])
+
 /** CLI entry — called from the `meshfleet doctor` and `agent-mesh doctor` dispatches. */
 export async function doctorMain(args: string[]): Promise<void> {
+  if (args.includes('--help') || args.includes('-h')) {
+    process.stdout.write(DOCTOR_HELP)
+    process.exitCode = 0
+    return
+  }
+
+  const unknown = args.filter((a) => !KNOWN_DOCTOR_FLAGS.has(a))
+  if (unknown.length > 0) {
+    process.stderr.write(
+      `error: unrecognized argument${unknown.length > 1 ? 's' : ''}: ${unknown.join(', ')}\n\n${DOCTOR_HELP}`
+    )
+    process.exitCode = 1
+    return
+  }
+
   const report = args.includes('--no-spawn') ? runDoctor() : await runDoctorFull()
   if (args.includes('--json')) {
     process.stdout.write(JSON.stringify(report, null, 2) + '\n')
