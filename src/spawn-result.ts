@@ -13,7 +13,26 @@ export interface SpawnResultInput {
    * apply unchanged.
    */
   runtimeModel?: string;
+  /**
+   * Strict mode. When true, a requested model with no runtime-model evidence
+   * from any source fails the spawn (the pre-v3 behaviour). Default false: the
+   * run is judged by exit code, output and stderr diagnostics, and the receipt
+   * carries `model_verified: false`.
+   */
+  requireModelEvidence?: boolean;
 }
+
+/**
+ * Where the observed runtime model came from, most direct first:
+ *   - `runtime-log`: OpenCode's own INFO `message=stream ... small=false
+ *     mode=primary` record (1.17+, emitted under `--print-logs`);
+ *   - `session-db`:  the opt-in OpenCode state-DB row joined by the session id
+ *     the child emitted (`runtimeModel` input);
+ *   - `banner`:      the legacy `> agent · model` line (pre-1.17 `run`);
+ *   - `none`:        no source attested a model. Never inferred from the
+ *     request, the argv or stderr diagnostics.
+ */
+export type ModelEvidenceSource = "runtime-log" | "session-db" | "banner" | "none";
 
 export interface SpawnResultClassification {
   success: boolean;
@@ -23,6 +42,9 @@ export interface SpawnResultClassification {
   warning?: string;
   runtime_agent?: string;
   runtime_model?: string;
+  /** True only when an independent source established `runtime_model`. */
+  model_verified: boolean;
+  model_evidence: ModelEvidenceSource;
 }
 
 const ANSI_ESCAPE = /\x1b\[[0-?]*[ -/]*[@-~]/g;
@@ -117,6 +139,80 @@ function parseLogfmt(line: string): Map<string, string[]> | null {
   return found ? fields : null;
 }
 
+/**
+ * Strict whole-line logfmt tokenizer. `parseLogfmt` above is a lenient SCANNER:
+ * it finds `key=value` pairs anywhere, including inside an unterminated quoted
+ * value (`error.error="... providerID=anthropic ...` with no closing quote), so
+ * a payload can smuggle fields to the top level. This tokenizer guarantees
+ * field boundaries or refuses the line:
+ *
+ *   line   = ws* (pair (ws+ pair)*)? ws*
+ *   pair   = key "=" value
+ *   key    = [A-Za-z][A-Za-z0-9_.-]*
+ *   value  = quoted | bare
+ *   quoted = '"' ( [^"\\] | "\\" any )* '"'   then whitespace or end of line
+ *   bare   = [^\s"]*                            (may be empty; no '"' allowed)
+ *
+ * An unterminated quote, a dangling escape, garbage after a closing quote, a
+ * quote inside a bare value, or any non-pair word (free text) makes the WHOLE
+ * line malformed (`null`). Pairs are returned in order so callers can reason
+ * about position.
+ */
+function parseLogfmtStrict(line: string): Array<[string, string]> | null {
+  const pairs: Array<[string, string]> = [];
+  const n = line.length;
+  const isWs = (c: string): boolean => /\s/.test(c);
+  let i = 0;
+  for (;;) {
+    while (i < n && isWs(line[i])) i += 1;
+    if (i >= n) return pairs;
+    const keyMatch = /^[A-Za-z][A-Za-z0-9_.-]*=/.exec(line.slice(i));
+    if (!keyMatch) return null;
+    const key = keyMatch[0].slice(0, -1);
+    i += keyMatch[0].length;
+    let value = "";
+    if (line[i] === '"') {
+      i += 1;
+      let closed = false;
+      while (i < n) {
+        const c = line[i];
+        if (c === "\\") {
+          if (i + 1 >= n) return null; // dangling escape
+          value += line[i + 1];
+          i += 2;
+          continue;
+        }
+        if (c === '"') {
+          closed = true;
+          i += 1;
+          break;
+        }
+        value += c;
+        i += 1;
+      }
+      if (!closed) return null; // unterminated quote
+      if (i < n && !isWs(line[i])) return null; // garbage after the closing quote
+    } else {
+      while (i < n && !isWs(line[i])) {
+        if (line[i] === '"') return null; // quote inside a bare value
+        value += line[i];
+        i += 1;
+      }
+    }
+    pairs.push([key, value]);
+  }
+}
+
+function pairsToFields(pairs: ReadonlyArray<[string, string]>): Map<string, string[]> {
+  const fields = new Map<string, string[]>();
+  for (const [key, value] of pairs) {
+    const existing = fields.get(key);
+    if (existing) existing.push(value);
+    else fields.set(key, [value]);
+  }
+  return fields;
+}
+
 // The fields that a complete authoritative primary INFO record must carry, each
 // exactly once. Missing or duplicate values in any of these make the record
 // malformed rather than ignorable.
@@ -126,7 +222,7 @@ function modernRuntimeSelection(stderr: string): ModernRuntimeResult {
   const selections: Array<{ agent: string; model: string }> = [];
   let sawMalformedPrimary = false;
   for (const line of stderr.replace(ANSI_ESCAPE, "").split("\n")) {
-    const fields = parseLogfmt(line);
+    let fields = parseLogfmt(line);
     if (!fields) continue;
     // Only lines carrying `message` are runtime-selection records.
     const messageValues = fields.get("message");
@@ -148,6 +244,16 @@ function modernRuntimeSelection(stderr: string): ModernRuntimeResult {
       fields.has("modelID") ||
       fields.has("agent");
     if (!hasRuntimeDiscriminator) continue;
+    // The lenient scanner found a candidate. Its fields are trusted only if
+    // the WHOLE line tokenizes strictly: otherwise an unterminated quoted
+    // payload could have supplied `message=stream providerID=...` itself.
+    // An untrustworthy candidate poisons identity (fail closed).
+    const strictPairs = parseLogfmtStrict(line);
+    if (strictPairs === null) {
+      sawMalformedPrimary = true;
+      continue;
+    }
+    fields = pairsToFields(strictPairs);
     // Once we identify a candidate, the `small` field is the key discriminator:
     //   - unique small=true  → auxiliary/title-generation, ignored (not primary)
     //   - unique small=false → primary record, all required fields must be
@@ -226,38 +332,204 @@ function modernRuntimeSelection(stderr: string): ModernRuntimeResult {
   return first;
 }
 
-function diagnosticAttribution(line: string): DiagnosticAttribution {
-  const apiModel = line.match(/API\s+429\s+for\s+([^\s:]+)/i)?.[1];
-  const missingModel = line.match(
-    /\bProviderModelNotFoundError:\s*([a-z0-9][\w.-]*(?:\/[a-z0-9][\w.-]*)+)\b/i
-  )?.[1];
-  const model = (apiModel ?? missingModel)?.replace(/[.,;]+$/, "").toLowerCase();
-  if (model) return { model };
+// ---------------------------------------------------------------------------
+// Model identity normalization for diagnostic attribution
+// ---------------------------------------------------------------------------
+//
+// Attribution answers ONE question: does this stderr line affirmatively belong
+// to a provider OTHER than the runtime on record? Anything short of a clear
+// "different provider" is the primary runtime's failure. So normalization only
+// ever makes two ids look MORE alike (aliases, gateway prefixes, family
+// inference all add provider identities to a set that must be DISJOINT for a
+// downgrade). It can never manufacture a sibling.
 
-  if (/opencode-claude-auth/i.test(line) || NO_CREDENTIALS.test(line)) {
-    return { provider: "anthropic" };
+/** Spelling variants of one provider namespace. Extend only with evidence. */
+const PROVIDER_ALIASES: Readonly<Record<string, string>> = {
+  "x-ai": "xai",
+  "x.ai": "xai",
+};
+
+/**
+ * Leaf-name families whose vendor is unambiguous. Used to give a bare id
+ * (`claude-haiku-4-5`, `grok-4`) a provider identity; union-ed with any
+ * explicit prefix, so it can only widen the overlap test.
+ */
+const MODEL_FAMILY_PROVIDERS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/^claude(?:-|$)/, "anthropic"],
+  [/^grok(?:-|$)/, "xai"],
+  [/^gemini(?:-|$)/, "google"],
+  [/^gpt(?:-|$)/, "openai"],
+  [/^kimi(?:-|$)/, "moonshotai"],
+  [/^minimax(?:-|$)/, "minimax"],
+  [/^glm(?:-|$)/, "z-ai"],
+  [/^deepseek(?:-|$)/, "deepseek"],
+];
+
+interface ModelIdentity {
+  /** Last path segment, lowercased (`grok-4.7`, `nemotron-3.5-lightning:free`). */
+  leaf?: string;
+  /** Every provider identity the id names or implies (gateways included). */
+  providers: Set<string>;
+}
+
+/** Strip wrapping quotes/brackets and trailing sentence punctuation, lowercase. */
+function cleanIdToken(raw: string): string {
+  return raw
+    .trim()
+    .toLowerCase()
+    .replace(/^["'`([{<]+/, "")
+    .replace(/["'`)\]}>.,;:!?]+$/, "");
+}
+
+function normalizeProvider(raw: string): string {
+  const cleaned = cleanIdToken(raw);
+  return PROVIDER_ALIASES[cleaned] ?? cleaned;
+}
+
+function modelIdentity(raw: string): ModelIdentity | undefined {
+  const segments = cleanIdToken(raw)
+    .split("/")
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0);
+  if (segments.length === 0) return undefined;
+  const leaf = segments[segments.length - 1];
+  // Every prefix segment is a provider identity: `openrouter/x-ai/grok-4.7`
+  // names the gateway (openrouter) AND the upstream (xai). Treating both as
+  // identities is the conservative choice — sharing either one is overlap.
+  const providers = new Set(segments.slice(0, -1).map(normalizeProvider));
+  for (const [family, provider] of MODEL_FAMILY_PROVIDERS) {
+    if (family.test(leaf)) providers.add(provider);
   }
+  return { leaf, providers };
+}
+
+/**
+ * A model token as it appears in free text: skip leading wrappers, then take
+ * everything up to whitespace, a closing wrapper, or a list separator. Colons
+ * are allowed inside (`kilo/x:free`); a trailing one is stripped by
+ * `cleanIdToken`.
+ */
+const MODEL_TOKEN = String.raw`["'\x60(\[{<]*([a-z0-9@][^\s"'\x60)\]}>,;]*)`;
+const API_429_MODEL = new RegExp(String.raw`API\s+429\s+for\s+` + MODEL_TOKEN, "i");
+const MODEL_NOT_FOUND = new RegExp(String.raw`\bProviderModelNotFoundError:?\s*` + MODEL_TOKEN, "i");
+
+/** Any field-shaped `key=` at line start or after whitespace, empty value included. */
+const LOGFMT_KEY_BOUNDARY = /(?:^|\s)[A-Za-z_][A-Za-z0-9_.-]*=/;
+
+function diagnosticAttribution(line: string): DiagnosticAttribution {
+  // 1. A structured OpenCode 1.17 record (`level=ERROR message="stream error"
+  //    providerID=... modelID=...`) attributes itself from its OWN fields, or
+  //    not at all. Once a line is recognised as a structured record, its
+  //    free-text payload (`error.error="... API 429 for anthropic/..."`) is
+  //    never parsed for attribution: a missing, empty or duplicated
+  //    providerID/modelID makes the record unattributed, which is FATAL. A
+  //    payload may quote any model id, so falling back to it would let a
+  //    malformed primary record downgrade itself.
+  //
+  //    WHICH lines are structured: ANY line carrying at least one logfmt
+  //    `key=` boundary (whitespace- or start-anchored key, empty value
+  //    included; see LOGFMT_KEY_BOUNDARY).
+  //    Deliberately the widest rule, not a list of OpenCode keys, because
+  //    the classification only ever REMOVES downgrades: a structured line can
+  //    downgrade solely via one complete providerID + modelID pair, while a
+  //    free-text line can downgrade via any model id it quotes. So every line
+  //    wrongly counted as structured errs toward FATAL (fail closed), and
+  //    every line wrongly counted as free text is a potential false
+  //    downgrade. An allow-list of keys (level, message, session.id,
+  //    error.*, ...) would re-open the hole for the next key OpenCode adds or
+  //    omits; this rule has no key list to fall out of date. The
+  //    human-facing diagnostics that free-text attribution exists for
+  //    (`Error: API 429 for x`, `ProviderModelNotFoundError: x`, the Claude
+  //    credential sentence) carry no `key=value` tokens and still take
+  //    path 2. URL query strings (`?a=b`) are not fields: the key must
+  //    follow whitespace or the line start.
+  //
+  //    Field BOUNDARIES must be guaranteed before any field is believed. The
+  //    lenient scanner only decides whether a line is logfmt-shaped; the
+  //    fields themselves come from the strict whole-line tokenizer. If that
+  //    refuses the line (unterminated quote, dangling escape, garbage after a
+  //    quote, free-text words), the line is malformed and unattributed: FATAL.
+  //    Identity fields must also appear exactly once and BEFORE any `error` /
+  //    `error.*` key: OpenCode writes providerID/modelID ahead of the error
+  //    payload, so an identity field after it is indistinguishable from one
+  //    the payload supplied.
+  //
+  //    The structured-line GATE is any field-shaped `key=` boundary, value or
+  //    no value (`error.error= API 429 for ...` is structured). It must not
+  //    be the lenient scanner, which needs a non-empty value and would hand
+  //    such a line to free-text attribution. The gate's key class is wider
+  //    than the strict tokenizer's (it admits a leading `_`), so any line the
+  //    gate admits but the tokenizer cannot parse is malformed: FATAL.
+  if (LOGFMT_KEY_BOUNDARY.test(line)) {
+    const pairs = parseLogfmtStrict(line);
+    if (pairs === null) return {};
+    const firstErrorKey = pairs.findIndex(([key]) => key === "error" || key.startsWith("error."));
+    const identity = (name: string): string | undefined => {
+      const positions = pairs.flatMap(([key], index) => (key === name ? [index] : []));
+      if (positions.length !== 1) return undefined;
+      if (firstErrorKey !== -1 && positions[0] > firstErrorKey) return undefined;
+      const value = pairs[positions[0]][1];
+      return value.trim() === "" ? undefined : value;
+    };
+    const providerID = identity("providerID");
+    const modelID = identity("modelID");
+    if (providerID !== undefined && modelID !== undefined) {
+      return { model: `${providerID}/${modelID}` };
+    }
+    return {};
+  }
+
+  // 2. Free-text model tokens.
+  const apiModel = line.match(API_429_MODEL)?.[1];
+  const missingModel = line.match(MODEL_NOT_FOUND)?.[1];
+  const model = apiModel ?? missingModel;
+  if (model !== undefined) return { model };
+
+  // 3. Provider-only: the Claude Code credential sentence names Anthropic
+  //    without naming a model. The bare `opencode-claude-auth` plugin tag is
+  //    NOT attribution — the plugin logs on every run, whatever the primary
+  //    provider, so its name says nothing about who failed.
+  if (NO_CREDENTIALS.test(line)) return { provider: "anthropic" };
   return {};
 }
 
+/**
+ * Is this diagnostic line the PRIMARY runtime's failure?
+ *
+ * Fail-closed. Returns false (auxiliary) only when the runtime model is
+ * established by independent evidence AND the line affirmatively names a
+ * provider set disjoint from the runtime's, after normalization. Everything
+ * else is primary:
+ *   - no observed runtime model (the requested model is a wish, not evidence);
+ *   - a line that names nothing, or names a token with no provider identity;
+ *   - the same leaf model under any prefix (`xai/grok-4.7` vs
+ *     `openrouter/grok-4.7`);
+ *   - a shared provider with a different model (`anthropic/claude-opus-4-8`
+ *     runtime vs `API 429 for claude-haiku-4-5`): account-level limits, auth
+ *     and billing are shared across a provider's models.
+ */
 function isRuntimeDiagnostic(
   attribution: DiagnosticAttribution,
   observedModel: string | undefined
 ): boolean {
   if (!observedModel) return true;
-  const runtimeModel = observedModel.toLowerCase();
-  let [runtimeProvider, runtimeModelName] = runtimeModel.includes("/")
-    ? runtimeModel.split("/", 2)
-    : [undefined, runtimeModel];
-  if (!runtimeProvider && runtimeModelName.startsWith("claude-")) {
-    runtimeProvider = "anthropic";
-  }
+  const observed = modelIdentity(observedModel);
+  if (!observed) return true;
 
-  if (attribution.model) {
-    return runtimeModelsMatch(attribution.model, runtimeModel) || attribution.model === runtimeModelName;
+  let named: ModelIdentity | undefined;
+  if (attribution.model !== undefined) {
+    named = modelIdentity(attribution.model);
+  } else if (attribution.provider !== undefined) {
+    named = { providers: new Set([normalizeProvider(attribution.provider)]) };
   }
-  if (attribution.provider) return attribution.provider === runtimeProvider;
-  return true;
+  if (!named) return true;
+
+  if (named.leaf !== undefined && named.leaf === observed.leaf) return true;
+  if (named.providers.size === 0 || observed.providers.size === 0) return true;
+  for (const provider of named.providers) {
+    if (observed.providers.has(provider)) return true;
+  }
+  return false;
 }
 
 export function classifySpawnResult(
@@ -278,14 +550,19 @@ export function classifySpawnResult(
   // mirrors the previous runtimeBanner logic but reuses the already-parsed
   // modern result instead of re-running modernRuntimeSelection.
   let banner: { agent: string; model: string } | undefined;
+  let bannerSource: "runtime-log" | "banner" | undefined;
   if (modern && !("conflict" in modern) && !("malformed" in modern)) {
     banner = modern;
+    bannerSource = "runtime-log";
   }
   // When modern evidence conflicts or is malformed, do not fall back to the
   // legacy banner for identity — the conflict/malformed is reported below.
   if (!banner && !(modern && ("conflict" in modern || "malformed" in modern))) {
     const match = plainStderr.match(/^\s*>\s*([^·]+?)\s*·\s*([^\s]+)\s*$/m);
-    if (match) banner = { agent: match[1].trim(), model: match[2] };
+    if (match) {
+      banner = { agent: match[1].trim(), model: match[2] };
+      bannerSource = "banner";
+    }
   }
 
   // Evidence precedence: an independently observed runtime model (supplied by
@@ -301,7 +578,15 @@ export function classifySpawnResult(
           ...(observedModel ? { runtime_model: observedModel } : {}),
         }
       : {};
-  const receipt = { stdout: input.stdout, stderr: input.stderr, ...runtimeMeta };
+  const modelEvidence: ModelEvidenceSource =
+    bannerSource ?? (input.runtimeModel ? "session-db" : "none");
+  const receipt = {
+    stdout: input.stdout,
+    stderr: input.stderr,
+    ...runtimeMeta,
+    model_verified: Boolean(observedModel),
+    model_evidence: modelEvidence,
+  };
 
   // Established failures take precedence over malformed/conflicting identity
   // evidence: a nonzero exit code and empty stdout are reported before any
@@ -358,7 +643,13 @@ export function classifySpawnResult(
         `but persisted DB reported ${input.runtimeModel}`,
     };
   }
-  if (input.requestedModel !== undefined && !observedModel) {
+  // A missing banner is not, by itself, a failed run: OpenCode 1.17 dropped the
+  // banner, and a caller whose argv does not surface the INFO record (or whose
+  // CLI emits none) would otherwise fail every healthy run. Without evidence,
+  // the run is judged by exit code + output (above) and diagnostics (below,
+  // all fatal), and the receipt says `model_verified: false`. Strict callers
+  // keep the old hard failure.
+  if (input.requireModelEvidence === true && input.requestedModel !== undefined && !observedModel) {
     return {
       ...receipt,
       success: false,

@@ -83,14 +83,30 @@ export function setOutboxBeforeCommitForTest(hook: (() => void) | undefined): vo
   outboxBeforeCommitForTest = hook;
 }
 
+const UNFINISHED_LIFECYCLE_ENV = "MESHFLEET_UNFINISHED_LIFECYCLE_MODE";
+const RETIRED_LIFECYCLE_ENV = "MESHFLEET_LIFECYCLE_MODE";
+
 function modeFrom(value: string | undefined): LifecycleMode {
   const mode = value ?? "legacy";
   if (mode === "legacy" || mode === "shadow" || mode === "durable") return mode;
-  throw new Error("MESHFLEET_LIFECYCLE_MODE must be legacy, shadow, or durable");
+  throw new Error("fleet lifecycle_mode must be legacy, shadow, or durable");
+}
+
+function unfinishedLifecycleMode(value: string | undefined): LifecycleMode | undefined {
+  if (value === undefined || value === "") return undefined;
+  if (value === "durable" || value === "shadow") return value;
+  throw new Error(`${UNFINISHED_LIFECYCLE_ENV} must be durable or shadow`);
 }
 
 export function defaultLifecycleMode(): LifecycleMode {
-  return modeFrom(process.env.MESHFLEET_LIFECYCLE_MODE);
+  const unfinished = unfinishedLifecycleMode(process.env[UNFINISHED_LIFECYCLE_ENV]);
+  if (unfinished) return unfinished;
+  const retired = process.env[RETIRED_LIFECYCLE_ENV];
+  if (retired === undefined || retired === "" || retired === "legacy") return "legacy";
+  throw new Error(
+    `${RETIRED_LIFECYCLE_ENV} is not a shipped switch. Spawn uses the in-memory path. ` +
+      `Set ${UNFINISHED_LIFECYCLE_ENV}=durable or shadow only for unfinished internals.`,
+  );
 }
 
 function redact(value: unknown): string {

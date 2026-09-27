@@ -268,6 +268,14 @@ const V: Vector[] = [
   { id: "agent-requested-model-unobserved", primary: "agent.requested_model_unobserved", classification: "caught",
     lie: "a complete agent row carries a persisted `requested_model` selection but its observed `runtime_model` banner is absent — the selection's claim that this agent ran under the requested model rests on no banner capture",
     ops: [{ op: "set", path: "agents|a2|requested_model", value: "opencode-go/minimax-m3" }] },
+  { id: "agent-requested-model-unverified", primary: "agent.requested_model_unverified", classification: "anomaly",
+    lie: "a complete agent row carries a `requested_model` and no observed `runtime_model`, but DISCLOSES it with a MODEL_UNVERIFIED warning — the selection is unconfirmed rather than contradicted, so it warns instead of erroring",
+    ops: [
+      { op: "set", path: "agents|a2|requested_model", value: "opencode-go/minimax-m3" },
+      { op: "set", path: "agents|a2|diagnostics", value: [
+        { severity: "warning", code: "MODEL_UNVERIFIED", message: "Runtime model unverified: requested opencode-go/minimax-m3" },
+      ] },
+    ] },
   { id: "agent-requested-model-mismatch", primary: "agent.requested_model_mismatch", classification: "caught",
     lie: "a complete agent row records a `requested_model` whose observed `runtime_model` is a different model — the selection and the captured banner contradict each other under the same runtimeModelsMatch() rule the spawn classifier uses",
     ops: [

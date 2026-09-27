@@ -36,8 +36,9 @@ recovery, not retried. Managed durable agents are excluded from PID recovery.
   newer layout instead of guessing.
 - Replay is sourced from SQLite lifecycle events, not PIDs, timers, or NDJSON.
 - Durable-mode `spawn_fleet` and `attach_agent` retain their existing MCP input
-  and output shapes. Legacy behavior remains default; shadow remains
-  legacy-authoritative. Public cancellation is still absent.
+  and output shapes, but they are unfinished internals gated by
+  `MESHFLEET_UNFINISHED_LIFECYCLE_MODE`. The shipped spawn path is the
+  in-memory coordinator. Public cancellation is still absent.
 - It is one SQLite authority, not multi-host coordination. Shared ownership,
   remote clocks, authenticated worker identity, and a networked coordinator
   remain separate work.

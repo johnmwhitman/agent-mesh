@@ -2,7 +2,7 @@
 
 > **Auditable multi-agent coordination for OpenCode.** Spawn parallel agents as independent OS processes. Route work to specialists. Let agents collaborate peer-to-peer — with witnessed receipts and quorum ratification, so you can answer: *who saw this, who approved it, prove it.* The core is MIT and free.
 
-**Website**: [meshfleet.app](https://meshfleet.app) · **Source version**: 0.21.5 · [npm](https://www.npmjs.com/package/meshfleet) · [CI](https://github.com/johnmwhitman/agent-mesh/actions)
+**Website**: [meshfleet.app](https://meshfleet.app) · **Source version**: 0.22.0 · [npm](https://www.npmjs.com/package/meshfleet) · [CI](https://github.com/johnmwhitman/agent-mesh/actions)
 
 *Maintained: current source and Git tags are visible in [the repository](https://github.com/johnmwhitman/agent-mesh); a tag is an intent to ship and [the registry](https://www.npmjs.com/package/meshfleet?activeTab=versions) is the only record of what shipped · issues answered within 48h · no download-count theater.*
 
@@ -49,7 +49,7 @@ Four specialists. Four independent processes. They hand off, ask questions, aler
 
 Each OpenCode agent accepts an optional `model` (`provider/model`) selector. When set, Meshfleet persists it as the immutable request (`Agent.requested_model`) and launches `opencode run --model <value>` for that agent; the observed runtime banner lands in `Agent.runtime_model`, and a `complete` agent whose banner is missing or contradicts the request fails closed. Omitting `model` keeps the old argv exactly. The selector is data, not shell text, and the banner is observed evidence — not authentication, billing, provider availability, or attestation.
 
-`spawn_fleet` also accepts an optional per-agent `runtime`. The default remains `opencode-cli`; non-default runtimes are available only when the operator configures them. `claude-cli` requires an absolute command, a configured version label, and an operator-admitted opaque workspace binding. The caller must repeat that binding as `workspace_binding`, and must omit OpenCode-specific `agent` and `model` selectors. `minimax-cli` is a separate explicit-only text lane, enabled by `MESHFLEET_MINIMAX_COMMAND` plus `MESHFLEET_MINIMAX_VERSION`: it accepts no model/agent selector, workspace authority, or artifact expectation; forces the configured wrapper's direct subscription route; declares its outcome through a structured final-text envelope; and is never an automatic failover target. Each wrapper owns its own authentication; Meshfleet never reads or serializes credentials and exposes no account or effective-model claim. See [the adapter contract](./docs/ADAPTER-CONTRACT.md) for exact permission and evidence limits. Local smoke tests for any account remain environment-local. The separate pure `recommend_route` advisory may opt in to a caller-evidenced near-reset tie-break, but it never polls an account, grants provider authority, or executes a paid service.
+`spawn_fleet` also accepts an optional per-agent `runtime`. The default remains `opencode-cli`; non-default runtimes are available only when the operator configures them. `claude-cli` requires an absolute command, a configured version label, and an operator-admitted opaque workspace binding. The caller must repeat that binding as `workspace_binding`, and must omit OpenCode-specific `agent` and `model` selectors. `minimax-cli` and `grok-cli` are separate explicit-only text lanes. Each requires its own absolute `MESHFLEET_<VENDOR>_COMMAND` plus configured `MESHFLEET_<VENDOR>_VERSION`; accepts no model/agent selector, workspace authority, or artifact expectation; declares its outcome through a structured final-text envelope; withholds raw diagnostics; and is never an automatic failover target. The Grok adapter additionally forces the configured wrapper's source-blind text-only boundary. Each wrapper owns its own authentication; Meshfleet passes a scrubbed environment, never reads or serializes credentials, and exposes no account, credential, effective-model, quota, or availability claim. This outbound worker adapter is separate from the offline static Grok configuration translation, which launches no runtime. See [the adapter contract](./docs/ADAPTER-CONTRACT.md) for exact permission and evidence limits. Local smoke tests for any account remain environment-local. The separate pure `recommend_route` advisory may opt in to a caller-evidenced near-reset tie-break, but it never polls an account, grants provider authority, or executes a paid service.
 
 And when an agent's action matters, Meshfleet can prove what happened. Every message writes **per-recipient receipts** (delivered, seen, acked). Decisions can go through **councils** — quorum-based ratification with required sign-offs, recorded on the same ledger. The design is a port of a bus that ran a 10+ agent fleet in production for 40 days and 18,404 messages, including quorum-ratified decisions.
 
@@ -102,30 +102,38 @@ For noncanonical development-only source-checkout usage (not the recommended rel
 
 Restart OpenCode. Spawn a fleet. [Wiring it into your client →](#wiring-it-into-your-client)
 
-### Start with the published package (0.20.0)
+### Start with the published package
 
-The npm registry currently serves `meshfleet@0.20.0`. Its no-key walkthrough is a
+The published `meshfleet` package's no-key walkthrough is a
 scripted ledger demonstration: it proves that the package and inspector run, not that
 a model-backed worker completed a real task.
 
 ```bash
-npx -y --package=meshfleet@0.20.0 -- agent-mesh demo
+npx -y --package=meshfleet -- agent-mesh demo
 ```
 
-That immutable release already prints its demonstration audit, removes the throwaway
-ledger, and then prints an old unbound inspector next step. Do not run that unbound
-form: npm resolves its package token to the unrelated reserved `agent-mesh@0.0.1`
-package. To inspect your own configured MCP ledger later, bind the package explicitly:
+That published walkthrough runs entirely against a throwaway temp ledger (nothing under
+`~/.config/opencode` is touched) and prints its demonstration audit, then a next-step
+inspector command. To inspect your own configured MCP ledger later, bind the package
+explicitly — running the `agent-mesh` bin through npx without `--package=meshfleet` resolves npm's unrelated reserved `agent-mesh@0.0.1`
+package, not this one:
 
 ```bash
-npx -y --package=meshfleet@0.20.0 -- agent-mesh inspect --verify
+npx -y --package=meshfleet -- agent-mesh inspect --verify
 ```
+
+If that (or the MCP server itself) exits with `CRASH ... unsupported newer storage
+schema version`, it found a pre-existing ledger at the default path
+(`~/.config/opencode/agent-mesh.db`) written by a newer meshfleet build than the one
+you're running — common on a dev machine that already ran OpenCode/meshfleet, not on a
+fresh install. Point at a different ledger file with `MESHFLEET_DB_FILE=/path/to/other.db`
+(same variable your MCP client config can set) and it will not touch the existing file.
 
 ### Source-only deterministic runtime
 
 The newer source checkout documented on this page includes a `local-demo` runtime —
 the current Node executable running a deterministic worker. It is **not in the
-published 0.20.0 package**. After building this source checkout, ask your MCP host to
+published package**. After building this source checkout, ask your MCP host to
 spawn with it:
 
 ```
@@ -147,7 +155,7 @@ make provider calls until you ask it to spawn a worker. Through your MCP host:
    `agents: [{ role: "explorer", prompt: "Read this repository's README and list its three main sections. Do not edit files." }]`.
    Omit `runtime` so the published default `opencode-cli` adapter is used.
 2. Pass the returned `fleet_id` to `collect_results`, then inspect the local evidence
-   with `npx -y --package=meshfleet@0.20.0 -- agent-mesh inspect --verify`.
+   with `npx -y --package=meshfleet -- agent-mesh inspect --verify`.
 3. Treat `complete` and the local consistency report as recorded claims, not proof
    that the answer or code is correct. Review the worker's result yourself.
 
@@ -310,7 +318,9 @@ evidence, authenticated provenance, or external time.
 
 ---
 
-## 40 MCP tools
+## MCP tools
+
+Default stdio `tools/list` remains the compatible **40-tool** catalog. Set `MESHFLEET_COMPACT_CATALOG=1` to advertise a 36-tool compact catalog that omits three advisory routing tools (`compile_route_candidates`, `recommend_route`, `plan_speculative_backlog`) and deprecated `verify_ledger_v2`. Within compact mode, `MESHFLEET_ROUTE_ADVISOR=1` restores the three advisory tools for a 39-tool catalog. Prefer `verify_ledger` plus `verify_ledger_v3` for new integrations.
 
 **Fleets**
 
@@ -371,7 +381,7 @@ evidence, authenticated provenance, or external time.
 
 See [docs/discussions.md](docs/discussions.md) for the full quickstart, tool reference, and terminal-state precedence.
 
-That's 40. We counted twice this time.
+Default `tools/list` remains 40 for compatibility. Set `MESHFLEET_COMPACT_CATALOG=1` for the 36-tool compact profile. In compact mode, set `MESHFLEET_ROUTE_ADVISOR=1` to restore the three advisory routing tools; `verify_ledger_v2` remains callable by exact name but is omitted from compact discovery.
 
 RoutePlane catalog discovery is a separate package library and CLI, not an MCP
 tool: it fetches RoutePlane's fixed loopback model catalog and projects
@@ -471,14 +481,14 @@ not structurally interchangeable with route-candidate observations.
 ## What the verifier catches — and what it can't
 
 "Prove it" is a claim about detection, so it ships with the evidence:
-[`test/fixtures/corpus/`](test/fixtures/corpus/README.md) is a corpus of 84 deliberately
+[`test/fixtures/corpus/`](test/fixtures/corpus/README.md) is a corpus of 85 deliberately
 falsified ledgers, each one a clean baseline plus **one declared change**. Results are
 reported in three separate buckets, never blended into a single coverage number:
 
 | Bucket | N | What it means |
 |---|---|---|
 | `caught` | 60 | An overclaim — the ledger asserts something its own records don't support. Raises an error and fails the ledger. |
-| `anomaly` | 14 | Surprising, but claims no more than the records support. Warning only, and deliberately *not* counted as caught. |
+| `anomaly` | 15 | Surprising, but claims no more than the records support. Warning only, and deliberately *not* counted as caught. |
 | `undetectable` | 10 | The unsigned local core structurally cannot see it. Produces zero findings. |
 
 **That third bucket is published on purpose.** The core polices internal coherence; it
@@ -496,7 +506,10 @@ a new check without a fixture fails the build.
 
 ### Implemented versioned evidence scope
 
-`verify_ledger_v2` is an implemented opt-in MCP verifier surface. The existing
+`verify_ledger_v2` is an implemented MCP verifier surface. It remains on the
+compatible default catalog, but is deprecated and hidden from compact
+`tools/list` when `MESHFLEET_COMPACT_CATALOG=1`; the handler remains callable
+for this release. Prefer `verify_ledger` plus `verify_ledger_v3`. The existing
 `verify_ledger`, `VerifyReport`, `VerifyFinding`, `agent-mesh inspect --verify`,
 and `meshfleet.inspect/v1` remain unchanged.
 
@@ -682,7 +695,7 @@ src/
 
 Every write goes through **one** function — `withLedger(mutator)` in `db.ts` — which runs the mutation inside a single SQLite `BEGIN IMMEDIATE` transaction. Agents are real OS processes that each boot their own agent-mesh instance on the same ledger, so writes are genuinely concurrent; SQLite (WAL + `busy_timeout`) provides cross-process write exclusion, so this codebase owns no locking protocol and lost-update is impossible by construction. (An earlier JSON read-modify-write store silently lost 57 of 120 receipts under a two-process test; the SQLite seam passes the same test 200/200.) Readers use a lock-free `readLedger()`. Pure formatters live in `inspector.ts` — easy to test, no I/O.
 
-The ledger lives at `~/.config/opencode/agent-mesh.db` (SQLite); the event log at `~/.config/opencode/agent-mesh.events.log` (NDJSON). Dump the ledger as human-readable JSON any time with `npx -y --package=meshfleet -- agent-mesh inspect --export`. On first run after upgrading from a JSON ledger, the server migrates it once (validated, with a `.migrated.<ts>` backup kept).
+The ledger lives at `~/.config/opencode/agent-mesh.db` (SQLite); the event log at `~/.config/opencode/agent-mesh.events.log` (NDJSON). Override the ledger path with `MESHFLEET_DB_FILE=/path/to/file.db` — useful for a second install, a test ledger, or when an existing file at the default path was written by a newer/incompatible build. Dump the ledger as human-readable JSON any time with `npx -y --package=meshfleet -- agent-mesh inspect --export`. On first run after upgrading from a JSON ledger, the server migrates it once (validated, with a `.migrated.<ts>` backup kept).
 
 [Architecture orientation →](AGENT-MESH-SPEC.md) · [P2P messaging spec →](SPEC-P2P.md)
 

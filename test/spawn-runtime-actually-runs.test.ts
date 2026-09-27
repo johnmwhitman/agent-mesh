@@ -114,8 +114,9 @@ function callSpawnFleet(dir: string, port: string, opts: Options): Promise<strin
     };
     if (opts.admit !== undefined) env.MESHFLEET_KIMI_WORKSPACE_BINDINGS = opts.admit;
     else delete env.MESHFLEET_KIMI_WORKSPACE_BINDINGS;
-    if (opts.lifecycleMode !== undefined) env.MESHFLEET_LIFECYCLE_MODE = opts.lifecycleMode;
-    else delete env.MESHFLEET_LIFECYCLE_MODE;
+    delete env.MESHFLEET_LIFECYCLE_MODE;
+    if (opts.lifecycleMode !== undefined) env.MESHFLEET_UNFINISHED_LIFECYCLE_MODE = opts.lifecycleMode;
+    else delete env.MESHFLEET_UNFINISHED_LIFECYCLE_MODE;
 
     const p = spawn("node", [join(repoRoot, "dist", "index.js")], {
       cwd: dir,
@@ -269,7 +270,7 @@ test("CONTROL: omitting runtime never reaches the non-default runtime", async ()
   });
 });
 
-test("durable mode refuses a per-agent runtime instead of silently downgrading it", async () => {
+test("unfinished durable path refuses a per-agent runtime instead of silently downgrading it", async () => {
   // A durable respawn rehydrates from the agent row, and the row has no runtime column. Honouring
   // the selection on the first attempt and losing it on recovery is worse than refusing: it is the
   // same "ran somewhere the caller did not ask for" defect, only harder to see.

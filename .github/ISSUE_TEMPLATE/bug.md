@@ -28,7 +28,7 @@ assignees: ''
 
 - Node version: <!-- `node --version` -->
 - OpenCode version: <!-- `opencode --version` -->
-- agent-mesh version: <!-- `npx agent-mesh inspect --metrics` -->
+- agent-mesh version: <!-- `npx -y --package=meshfleet -- agent-mesh inspect --metrics` -->
 - OS: <!-- macOS / Linux / Windows -->
 
 ## Diagnostic output
@@ -36,8 +36,8 @@ assignees: ''
 <!-- Run these and paste the output (redact any sensitive info): -->
 
 ```bash
-npx agent-mesh inspect
-npx agent-mesh inspect --metrics
+npx -y --package=meshfleet -- agent-mesh inspect
+npx -y --package=meshfleet -- agent-mesh inspect --metrics
 ```
 
 ## Relevant logs

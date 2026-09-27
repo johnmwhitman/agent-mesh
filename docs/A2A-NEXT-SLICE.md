@@ -4,8 +4,9 @@ Status: **implemented as a bounded single-host lifecycle/runtime integration**
 
 This document bounds the implemented durable lifecycle slice after the
 single-host retry, recovery, event-log, and SQLite work. The lifecycle kernel is
-wired to durable-mode spawning and attachment through one local SQLite
-authority; legacy and shadow behavior remain compatibility modes. It is not
+wired to unfinished durable-mode spawning and attachment through one local SQLite
+authority. The shipped spawn path is the in-memory coordinator; durable and
+shadow are not public compatibility modes. It is not
 evidence that the package is ready for multi-host execution; Agent Mesh remains
 single-host.
 
@@ -167,9 +168,10 @@ following against a temporary SQLite database:
 
 ## Implemented boundary
 
-`MESHFLEET_LIFECYCLE_MODE` defaults new fleets to `legacy`; `shadow` records a
-physical per-fleet mode while preserving legacy authority, and `durable` uses
-the lease-driven coordinator. Missing modes on existing fleets are legacy.
+The shipped spawn path is the in-memory coordinator. `MESHFLEET_LIFECYCLE_MODE`
+is not a public switch. Unfinished durable or shadow spawn requires
+`MESHFLEET_UNFINISHED_LIFECYCLE_MODE=durable` or `shadow`. Missing modes on
+existing fleets remain the in-memory path.
 Durable creation atomically records Fleet/Agent/inbox projections, work policy,
 the first pending attempt, lease acquisition, lifecycle events, and an SQLite
 outbox before adapter launch. A committed launch intent precedes runtime start;

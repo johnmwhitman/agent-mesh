@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { LifecycleExecutionCoordinator } from "../src/lifecycle-execution.js";
+import { defaultLifecycleMode, LifecycleExecutionCoordinator } from "../src/lifecycle-execution.js";
 import { LifecycleStore } from "../src/attempt-lifecycle.js";
 import { loadData, readEventLog, setFleetTimeout } from "../src/core.js";
 import type { ExecutionSpec, RuntimeAdapter, RuntimeHandle, RuntimeResult } from "../src/runtime/types.js";
@@ -104,6 +104,48 @@ async function waitUntil(
     await new Promise((done) => setTimeout(done, 5));
   }
 }
+
+const LIFECYCLE_ENV_KEYS = ["MESHFLEET_LIFECYCLE_MODE", "MESHFLEET_UNFINISHED_LIFECYCLE_MODE"] as const;
+
+function withLifecycleEnv(env: Record<string, string | undefined>, fn: () => void): void {
+  const previous = Object.fromEntries(LIFECYCLE_ENV_KEYS.map((key) => [key, process.env[key]]));
+  try {
+    for (const key of LIFECYCLE_ENV_KEYS) {
+      if (env[key] === undefined) delete process.env[key];
+      else process.env[key] = env[key];
+    }
+    fn();
+  } finally {
+    for (const key of LIFECYCLE_ENV_KEYS) {
+      if (previous[key] === undefined) delete process.env[key];
+      else process.env[key] = previous[key];
+    }
+  }
+}
+
+test("shipped spawn path is legacy; durable and shadow require the unfinished flag", () => {
+  withLifecycleEnv({}, () => assert.equal(defaultLifecycleMode(), "legacy"));
+  withLifecycleEnv({ MESHFLEET_LIFECYCLE_MODE: "legacy" }, () => assert.equal(defaultLifecycleMode(), "legacy"));
+  withLifecycleEnv({ MESHFLEET_UNFINISHED_LIFECYCLE_MODE: "durable" }, () => {
+    assert.equal(defaultLifecycleMode(), "durable");
+  });
+  withLifecycleEnv({ MESHFLEET_UNFINISHED_LIFECYCLE_MODE: "shadow" }, () => {
+    assert.equal(defaultLifecycleMode(), "shadow");
+  });
+  withLifecycleEnv({ MESHFLEET_LIFECYCLE_MODE: "durable" }, () => {
+    assert.throws(() => defaultLifecycleMode(), /not a shipped switch/);
+  });
+  withLifecycleEnv({ MESHFLEET_LIFECYCLE_MODE: "shadow" }, () => {
+    assert.throws(() => defaultLifecycleMode(), /not a shipped switch/);
+  });
+  withLifecycleEnv({
+    MESHFLEET_LIFECYCLE_MODE: "durable",
+    MESHFLEET_UNFINISHED_LIFECYCLE_MODE: "durable",
+  }, () => assert.equal(defaultLifecycleMode(), "durable"));
+  withLifecycleEnv({ MESHFLEET_UNFINISHED_LIFECYCLE_MODE: "legacy" }, () => {
+    assert.throws(() => defaultLifecycleMode(), /must be durable or shadow/);
+  });
+});
 
 test("durable coordinator records pending projection before launch and settles atomically", async () => {
   const temp = withTempDb();

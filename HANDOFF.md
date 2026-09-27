@@ -1,7 +1,7 @@
 # MeshFleet public handoff
 
-**Source version:** `0.21.5` · **MCP surface:** **40 MCP tools** ·
-**current suite contract:** **1917/1917** tests collected, plus typecheck and build
+**Source version:** `0.22.0` · **MCP surface:** **40 MCP tools** (36 with the opt-in compact catalog) ·
+**current suite contract:** **1960/1960** tests collected, plus typecheck and build
 
 The latest completed cross-platform proof is GitHub Actions run `31315444631`
 at `e14bd8f` (9/9 jobs across Node 20/22/24 on Ubuntu, macOS, and Windows).
@@ -26,8 +26,7 @@ MeshFleet Core is a local-first MCP coordination server. It provides fleet
 lifecycle, messaging and receipts, ratification, capability routing, health,
 discussions, templates, advisory route projection, and read-only ledger
 verification. The default worker runtime is OpenCode. A caller may select another
-operator-registered runtime per agent in legacy lifecycle mode; durable mode
-currently refuses that selector. The shipped Claude Code and direct MiniMax
+operator-registered runtime per agent. The shipped Claude Code and direct MiniMax
 adapters are fixture-verified and disabled unless configured; MiniMax is an
 explicit-only text lane with no workspace authority. Runtime and model labels are
 evidence, not account, entitlement, billing, availability, or identity proof.
@@ -71,7 +70,7 @@ only. Failover's unit-level spec and registry tests run on every platform.
 
 ## Platform-skipped tests (what does not run on Windows)
 
-The suite collects the same total everywhere, but **21 tests skip on
+The suite collects the same total everywhere, but **25 tests skip on
 `windows-2022`**, consistent across Node 20, 22, and 24. Every skip is a
 deliberate `process.platform === "win32"` (or equivalent) predicate, not flake.
 This repository's own rule is that a test that does not run is indistinguishable
@@ -81,10 +80,12 @@ silently:
 | Count | Subset | Stated reason |
 |---|---|---|
 | 3 | ledger SIGKILL/checkpoint storm recovery | POSIX signals are required |
-| 7 | local process adapter signal semantics (SIGTERM escalation, process-group termination, cancellation races) | Windows `TerminateProcess` cannot deliver a catchable SIGTERM |
+| 8 | local process adapter signal semantics (SIGTERM escalation, process-group termination, cancellation races) | Windows `TerminateProcess` cannot deliver a catchable SIGTERM |
 | 2 | Kimi adapter descendant process-group kill | Windows does not expose process-group signal semantics |
+| 1 | Grok adapter termination grace for a detached provider | POSIX process groups are required |
+| 1 | chaos durability: a worker outlives its one-shot submitter (`chaos-detached-exchange`) | orphan survival is POSIX-only (`src/runtime/process.ts` detaches workers only off win32) and the shebang fixture is not executable by `CreateProcess` |
 | 5 | **runtime failover end-to-end** (refusal → hop → receipts, plus three negative controls) | the backup-runtime leg cannot be stubbed: the Kimi adapter scrubs its child environment by design, so the `process.execPath`+`NODE_OPTIONS` stub that serves the default runtime has no channel to the Kimi child |
-| 1 | MiniMax `spawn_fleet` wiring | POSIX shell/chmod fixture; adapter behavior is covered cross-platform with `process.execPath` |
+| 2 | Grok and MiniMax `spawn_fleet` wiring | POSIX shell/chmod fixture; adapter behavior is covered cross-platform with `process.execPath` |
 | 3 | doctor checks (two unwritable-directory cases, one PATH probe) | POSIX permission semantics / platform predicate |
 
 The signal-semantics rows are structural platform differences and are expected to
@@ -115,7 +116,7 @@ authorize spend. Runtime execution and advisory ranking remain separate contract
 
 ## Current audit evidence
 
-- The ledger fixture corpus contains **84 total** cases: **60 caught**, **14
+- The ledger fixture corpus contains **85 total** cases: **60 caught**, **15
   anomaly**, and 10 deliberately undetectable. `test/fixtures/corpus/README.md`
   and its generated manifest are the count authorities.
 - `test/blackbox-corpus-transcript-integrity.test.ts` independently discovers the

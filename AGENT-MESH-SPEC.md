@@ -23,8 +23,7 @@ Agent Mesh is a local-first MCP coordination server. Compatible clients connect
 through the packaged stdio server, invoke coordination tools, and share a local
 SQLite ledger. Outbound work launches independent processes through a
 provider-neutral runtime adapter contract. OpenCode remains the default.
-Callers may choose an operator-registered runtime per agent in legacy lifecycle
-mode; durable mode refuses that selector. Kimi, Claude Code, and a direct
+Callers may choose an operator-registered runtime per agent. Kimi, Claude Code, and a direct
 text-only MiniMax lane are shipped as fixture-verified, non-default adapters
 with explicit configuration gates; MiniMax is never an automatic failover target.
 
@@ -53,12 +52,11 @@ billing.
 - The canonical A2A codec validates and fingerprints provider-neutral
   envelopes; its public evidence is offline conformance, not authenticated
   ingress.
-- The durable lifecycle kernel provides fenced leases, persisted retries,
-  recovery, cancellation, and a repairable event outbox on one SQLite
-  authority.
+- The durable lifecycle kernel remains an unfinished internal SQLite authority
+  (fenced leases, persisted retries, recovery, cancellation, repairable outbox).
+  New fleets spawn on the in-memory path; it is not a public spawn-mode switch.
 - The provider-neutral runtime adapter registry normalizes execution outcomes
-  and accepts per-agent runtime selection in legacy lifecycle mode;
-  unconfigured selections and durable-mode selection fail closed.
+  and accepts per-agent runtime selection; unconfigured selections fail closed.
 - Messages are at-least-once ledger delivery with receipt-derived acknowledgment
   projections.
 - Capabilities are self-described routing metadata.

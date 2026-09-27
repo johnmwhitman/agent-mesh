@@ -780,6 +780,27 @@ test("Task 3 V1 — a complete agent with requested_model but no runtime_model i
   assert.equal(found(report, "agent.requested_model_unobserved")[0]!.severity, "error");
 });
 
+test("Task 3 V1b — a complete agent that DISCLOSED MODEL_UNVERIFIED is a warning, not an error", () => {
+  const data = consistent();
+  data.agents.a1 = {
+    ...data.agents.a1,
+    status: "complete",
+    completed_at: 1_000,
+    requested_model: "opencode-go/minimax-m3",
+    diagnostics: [{ severity: "warning", code: "MODEL_UNVERIFIED", message: "Runtime model unverified" }],
+  };
+  const report = verifyMeshData(data);
+  assert.equal(found(report, "agent.requested_model_unobserved").length, 0, JSON.stringify(report.findings));
+  assert.equal(found(report, "agent.requested_model_unverified").length, 1, JSON.stringify(report.findings));
+  assert.equal(found(report, "agent.requested_model_unverified")[0]!.severity, "warning");
+
+  // The disclosure never excuses a contradiction: an observed mismatch still errors.
+  data.agents.a1 = { ...data.agents.a1, runtime_model: "openai/gpt-5" };
+  const mismatched = verifyMeshData(data);
+  assert.equal(found(mismatched, "agent.requested_model_unverified").length, 0);
+  assert.equal(found(mismatched, "agent.requested_model_mismatch").length, 1);
+});
+
 test("Task 3 V2 — a complete agent whose requested_model and runtime_model do not match is an error", () => {
   const data = consistent();
   data.agents.a1 = {

@@ -700,6 +700,11 @@ const CHECK_EXPLANATIONS: Record<string, CheckExplanation> = {
     benign: "an aborted run that completed through a non-standard path and never landed a parseable OpenCode runtime banner. A hand-edited ledger that injected `complete` without writing the banner produces this too",
     investigate: "agent-mesh inspect --export | jq '.agents[] | select(.requested_model != null and .status == \"complete\" and .runtime_model == null)'",
   },
+  "agent.requested_model_unverified": {
+    what: "an agent is recorded `complete` with a persisted `requested_model`, no observed `runtime_model`, and a `MODEL_UNVERIFIED` diagnostic — the spawn classifier accepted a healthy run whose runtime model no source (INFO stream record, session DB, banner) attested",
+    benign: "usually benign: OpenCode 1.17 dropped the `run` banner, so a child whose stderr lacks the INFO stream record (custom argv or wrapper without --print-logs, raised log level) cannot attest its model. Set MESHFLEET_OPENCODE_REQUIRE_MODEL_EVIDENCE=1 to fail such runs instead",
+    investigate: "agent-mesh inspect --export | jq '.agents[] | select(.requested_model != null and .status == \"complete\" and .runtime_model == null) | {id, requested_model, diagnostics}'",
+  },
   "agent.requested_model_mismatch": {
     what: "an agent is recorded `complete` with a `requested_model` whose observed `runtime_model` disagrees under the same `runtimeModelsMatch()` rule the spawn classifier uses — the selection and the observed banner contradict each other",
     benign: "almost never benign: this is the same shape the spawn classifier treats as a permanent failure (a child launched under a different model than the caller asked for). A hand-edited ledger that rewrote only one of the two fields is the most likely cause",

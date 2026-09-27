@@ -123,7 +123,7 @@ import {
 import { buildFailureDetail, projectSuccessDiagnostics } from "./spawn-attempt.js";
 import { getDefaultRuntimeAdapter, requireRuntimeAdapter, availableRuntimeIds } from "./runtime/registry.js";
 import { CHILD_MARKER_ENV, containRecordedProcess } from "./runtime/process.js";
-import type { ExecutionSpec, RuntimeAdapter, RuntimeHandle, RuntimeResult } from "./runtime/types.js";
+import type { ExecutionSpec, RuntimeAdapter, RuntimeFailureClass, RuntimeHandle, RuntimeResult } from "./runtime/types.js";
 import { decideFailover } from "./failover.js";
 import { defaultLifecycleMode, LifecycleExecutionCoordinator, repairLifecycleOutbox } from "./lifecycle-execution.js";
 import {
@@ -163,8 +163,26 @@ const AUDIT_TOOL_NAMES: ReadonlySet<string> = new Set([
   "plan_speculative_backlog",
   "recommend_route",
 ]);
+const ADVISORY_ROUTE_TOOL_NAMES: ReadonlySet<string> = new Set([
+  "compile_route_candidates",
+  "plan_speculative_backlog",
+  "recommend_route",
+]);
+const DEPRECATED_DEFAULT_CATALOG_TOOL_NAMES: ReadonlySet<string> = new Set([
+  "verify_ledger_v2",
+]);
+const compactCatalogEnabled = process.env.MESHFLEET_COMPACT_CATALOG === "1";
+const routeAdvisorCatalogEnabled = process.env.MESHFLEET_ROUTE_ADVISOR === "1";
 const toolAllowedByAccessProfile = (name: string): boolean =>
   !isAuditProfile || AUDIT_TOOL_NAMES.has(name);
+const toolAdvertised = (name: string): boolean => {
+  if (!toolAllowedByAccessProfile(name)) return false;
+  if (isAuditProfile) return true;
+  if (!compactCatalogEnabled) return true;
+  if (ADVISORY_ROUTE_TOOL_NAMES.has(name) && !routeAdvisorCatalogEnabled) return false;
+  if (DEPRECATED_DEFAULT_CATALOG_TOOL_NAMES.has(name)) return false;
+  return true;
+};
 
 const server = new Server(
   { name: "agent-mesh", version: MESH_VERSION },
@@ -383,7 +401,7 @@ function trySpawn(input: SpawnAgentInput, agentId: string, attempt: number): voi
       fleetTimeoutEnforcer.refresh(input.fleetId);
     });
   }).catch((error: unknown) => {
-    handleTransientFailure(input, agentId, attempt, "", "", error instanceof Error ? error.message : String(error));
+    handleRuntimeFailure(input, agentId, attempt, "", "", error instanceof Error ? error.message : String(error));
   });
 }
 
@@ -412,7 +430,7 @@ function settleLegacyNonTimeout(
   // `failed`. Reading it in one place keeps the rule auditable; reading it twice would
   // let the two paths drift.
   //
-  // Why not just call the existing failure branch? `handleTransientFailure` retries —
+  // Why not just call the existing failure branch? transient runtime failures retry —
   // a contract failure is the agent's FINAL word (it chose not to write an envelope, or
   // wrote one that does not parse), not a transient runtime fault. Retrying would burn
   // the budget proving the same silent outcome, exactly the overclaim release N existed
@@ -490,7 +508,7 @@ function settleLegacyNonTimeout(
     );
     return;
   }
-  handleTransientFailure(
+  handleRuntimeFailure(
     input,
     agentId,
     attempt,
@@ -500,6 +518,7 @@ function settleLegacyNonTimeout(
     result.identity.agent,
     result.identity.model,
     resultContract,
+    result.failureClass,
   );
 }
 
@@ -583,7 +602,7 @@ function selectFailoverRuntime(
   };
 }
 
-function handleTransientFailure(
+function handleRuntimeFailure(
   input: SpawnAgentInput,
   agentId: string,
   attempt: number,
@@ -595,9 +614,30 @@ function handleTransientFailure(
   // Undefined when no attempt ever ran (the spawn itself threw). Recording `absent` there would
   // blame an agent for a silence it had no chance to break.
   resultContract?: ResultContractStatus,
+  failureClass: RuntimeFailureClass = "transient",
 ): void {
   if (readLedger().agents[agentId]?.status !== "running") return;
   const failureDetail = buildFailureDetail(stderr, errorDetail);
+  if (failureClass === "deterministic") {
+    appendEvent("agent_failed_permanent", {
+      agent_id: agentId,
+      fleet_id: input.fleetId,
+      attempts: attempt,
+      last_error: failureDetail,
+      timestamp: Date.now(),
+    });
+    markAgentFinished(
+      agentId,
+      "failed",
+      stdout,
+      `Deterministic failure on attempt ${attempt}: ${failureDetail}`,
+      runtimeAgent,
+      runtimeModel,
+      undefined,
+      resultContract,
+    );
+    return;
+  }
   if (!shouldAgentRetry(attempt)) {
     appendEvent("agent_failed_permanent", {
       agent_id: agentId,
@@ -694,7 +734,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
                     "is adapter-specific (the default OpenCode runtime accepts it); `runtime` " +
                     "picks the harness itself, so agents " +
                     "in one fleet can run under different CLIs and one provider outage cannot stop " +
-                    "every agent at once. Not supported in durable lifecycle mode.",
+                    "every agent at once.",
                 },
                 workspace_binding: {
                   type: "string",
@@ -1825,7 +1865,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         openWorldHint: false,
       },
     },
-  ].filter((tool) => toolAllowedByAccessProfile(tool.name)),
+  ].filter((tool) => toolAdvertised(tool.name)),
 }));
 
 // ---------------------------------------------------------------------------
@@ -1958,9 +1998,8 @@ toolHandlers["spawn_fleet"] = async (args) => {
       const durableRuntimeAgent = specs.find((s) => s.runtime !== undefined);
       if (durableRuntimeAgent) {
         return jsonError(
-          "spawn_fleet: per-agent 'runtime' is not supported in durable lifecycle mode, because a " +
-            "durable respawn rehydrates from the agent row and the row does not persist it. Use " +
-            "legacy or shadow mode, or omit 'runtime'.",
+          "spawn_fleet: per-agent 'runtime' is not supported on the unfinished durable path, because a " +
+            "durable respawn rehydrates from the agent row and the row does not persist it. Omit 'runtime'.",
         );
       }
       try {

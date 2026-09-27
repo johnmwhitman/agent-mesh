@@ -27,20 +27,22 @@ verified boundaries:
   the same inbound server shape, but live semantic conformance for each client
   is not yet claimed.
 - Worker execution uses a provider-neutral runtime registry. OpenCode is the
-  default; Kimi, Claude Code, and direct text-only MiniMax are
-  configuration-gated fixture-verified adapters. MiniMax is explicit-only.
-  `spawn_fleet` may select a registered runtime per agent in legacy
-  lifecycle mode, while durable mode refuses that selector.
+  default; Kimi, Claude Code, direct text-only MiniMax, and source-blind
+  text-only Grok are configuration-gated fixture-verified adapters. MiniMax and
+  Grok are explicit-only and ineligible for automatic failover.
+  `spawn_fleet` may select a registered runtime per agent on the shipped
+  in-memory path. Unfinished durable spawn is not a public selector.
 - SQLite provides same-host transactional write exclusion. It is not a
   multi-host lease or ownership protocol.
 - Messages, receipts, and capabilities are local ledger records. They are not
   authenticated identity claims or runtime attestations.
 - The `meshfleet.a2a` v0.1 codec, language-neutral fixture corpus, and internal
   legacy mapping are implemented, verified, and independently reviewed.
-- The durable attempt lifecycle is integrated with `spawn_fleet` and
-  `attach_agent` only for explicitly durable, single-host fleets. It persists
-  deterministic retries, launch-intent quarantine, scheduled lease recovery, and a sequence-ordered
-  NDJSON-repair outbox without changing MCP
+- The durable attempt lifecycle kernel exists as unfinished internal SQLite
+  authority. Shipped `spawn_fleet` and `attach_agent` use the in-memory path.
+  Unfinished durable spawn, gated by `MESHFLEET_UNFINISHED_LIFECYCLE_MODE`,
+  persists deterministic retries, launch-intent quarantine, scheduled lease
+  recovery, and a sequence-ordered NDJSON-repair outbox without changing MCP
   inputs or outputs.
 - Public canonical-envelope ingress, durable duplicate persistence,
   authenticated principals, public lifecycle controls, and production
@@ -158,11 +160,12 @@ cancellation-versus-completion behavior, duplicate terminal settlement,
 transaction/event atomicity, close/reopen replay, and preservation of existing
 ledger fixtures must all pass independent review.
 
-**Status:** The SQLite lifecycle authority is integrated with durable-mode
-`spawn_fleet` and `attach_agent`, persisted retry eligibility, launch-intent quarantine, lease recovery,
-fenced settlement, compatibility projections, and a transactional event outbox.
-Legacy behavior remains the default and shadow remains legacy-authoritative. No
-multi-host coordination claim is made.
+**Status:** The SQLite lifecycle authority is implemented and tested. Shipped
+`spawn_fleet` and `attach_agent` use the in-memory path. Unfinished durable
+spawn, gated by `MESHFLEET_UNFINISHED_LIFECYCLE_MODE`, uses persisted retry
+eligibility, launch-intent quarantine, lease recovery, fenced settlement,
+compatibility projections, and a transactional event outbox. Shadow is not a
+public compatibility mode. No multi-host coordination claim is made.
 
 **Boundary:** This slice proves a durable state machine for one SQLite
 authority. It must not be called multi-host coordination.
@@ -194,10 +197,12 @@ vendor smoke test is opt-in and cannot be required for the offline suite.
 **Status:** Slice 3A implemented with a provider-neutral runtime contract,
 internal registry, OpenCode compatibility adapter, and deterministic local
 process proof. `spawn_fleet` remains OpenCode-backed by default with unchanged
-MCP output. Per-agent runtime selection is public in legacy lifecycle mode and
-refused in durable mode. Kimi and Claude Code adapters are configuration-gated
-and fixture-verified; that is not live account or availability evidence. No
-target configuration renderer ships, and remote execution remains separate.
+MCP output. Per-agent runtime selection is public on the shipped spawn path.
+Unfinished durable spawn is not a public mode switch. Kimi, Claude Code,
+MiniMax, and Grok adapters are configuration-gated and fixture-verified; that
+is not live account, credential, effective-model, quota, or availability
+evidence. No target configuration renderer ships, and remote execution remains
+separate.
 
 ## Sequencing and dependencies
 
@@ -222,10 +227,11 @@ separate human and architecture gate:
   authorization.
 - Signed messages, signed receipts, or runtime attestations.
 - Public `send_a2a`, public cancellation, and remote control APIs.
-- Direct Codex, Antigravity/Gemini, Grok, or other additional vendor adapters.
-  Kimi and Claude Code implementations already exist behind configuration and
-  fixture gates; live account execution remains separately gated. Inbound
-  client configurations are hand-authored documentation examples, not rendered.
+- Direct Codex, Antigravity/Gemini, or other additional vendor adapters.
+  Kimi, Claude Code, MiniMax, and Grok implementations already exist behind
+  configuration and fixture gates; live account execution remains separately
+  gated. Inbound client configurations are hand-authored documentation
+  examples, not rendered.
 - Production deployment, external relay activation, credentials, spend, and
   private-data or production-data egress.
 - Exactly-once external side effects. Idempotency and fencing do not provide

@@ -265,7 +265,9 @@ test("getBuildIdentity() returns the full BuildIdentityReport including the entr
 test("summary get_health payload is materially smaller than the default payload (same build state)", () => {
   withCopiedDist((ctx) => {
     const summaryBytes = JSON.stringify(callHealth(ctx, { verbosity: "summary" })).length;
-    const defaultBytes = JSON.stringify(callHealth(ctx)).length;
+    const defaultPayload = callHealth(ctx) as Record<string, unknown>;
+    const defaultBytes = JSON.stringify(defaultPayload).length;
+    const entrypointCount = (defaultPayload.build_identity as Record<string, unknown>).entrypoint_count as number;
     // The summary payload must be substantially smaller — the only field we
     // dropped is the entrypoints map. Hard lower bound: at least 10x.
     assert.ok(
@@ -273,7 +275,10 @@ test("summary get_health payload is materially smaller than the default payload 
       `summary=${summaryBytes} must be at least 10x smaller than default=${defaultBytes}`,
     );
     assert.ok(summaryBytes < 4096, `summary=${summaryBytes} must be < 4kB`);
-    assert.ok(defaultBytes > 10000, `default=${defaultBytes} must reflect the entrypoints map being present`);
+    assert.ok(
+      defaultBytes > summaryBytes + entrypointCount * 64,
+      `default=${defaultBytes} must include at least one SHA-256 hash per entrypoint`,
+    );
   });
 });
 

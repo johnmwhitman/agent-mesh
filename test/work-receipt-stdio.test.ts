@@ -27,15 +27,20 @@ test("MCP stdio parity: record_work_receipt and get_work_receipt are advertised,
   const eventLog = join(tempProject, "events.jsonl");
   const dbFile = join(tempProject, "agent-mesh.db");
   try {
+    // Windows: execFileSync does not consult PATHEXT, so a bare "npm" is ENOENT (measured on all
+    // three windows-2022 legs of CI run 36255863419), and since the CVE-2024-27980 fix Node refuses
+    // to spawn the npm.cmd shim without a shell. Same shape as the install call below and
+    // test/mcp-stdio.test.ts.
+    const isWindows = process.platform === "win32";
     const packOutput = execFileSync(
-      "npm",
+      isWindows ? "npm.cmd" : "npm",
       ["pack", "--pack-destination", packDir],
-      { cwd: repoRoot, encoding: "utf-8", timeout: 120_000 },
+      { cwd: repoRoot, encoding: "utf-8", timeout: 120_000, shell: isWindows },
     ).trim();
     const tarball = packOutput.split("\n").pop()!.trim();
     const tarballPath = join(packDir, tarball);
     assert.ok(existsSync(tarballPath), `tarball ${tarballPath} not produced`);
-    const tarballBytes = execFileSync("cat", [tarballPath], { encoding: "buffer" });
+    const tarballBytes = readFileSync(tarballPath);
     const tarballSha = createHash("sha256").update(tarballBytes).digest("hex");
 
     execFileSync(

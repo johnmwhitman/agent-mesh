@@ -44,13 +44,13 @@ descriptive prose, not a status label.
 | Generic MCP configuration | `static-config-verified` | The canonical stdio command and argv are packaged and checked | `mcp.json` |
 | Claude Code, Codex, OpenCode inbound configs | `documented` | README examples use the same packaged stdio command. The repository has no executable client-config renderer, and live client semantics are not claimed. | `README.md`, `docs/CONFIG-TRANSLATION.md` |
 | SSE inbox projection | `coupled` | Optional implementation-specific local inbox push, not general A2A HTTP | `src/sse-server.ts` |
-| Outbound worker execution | `runtime-launch-verified` | `spawn_fleet` defaults to OpenCode and may select an operator-registered runtime per agent in legacy lifecycle mode; durable mode refuses per-agent runtime selection. The optional `model` (`provider/model`) selector remains an OpenCode-specific execution input and is also accepted by `attach_agent`. | `src/index.ts`, `src/runtime/registry.ts`, `src/runtime/opencode.ts`, `test/spawn-runtime-actually-runs.test.ts` |
+| Outbound worker execution | `runtime-launch-verified` | `spawn_fleet` defaults to OpenCode and may select an operator-registered runtime per agent. The optional `model` (`provider/model`) selector remains an OpenCode-specific execution input and is also accepted by `attach_agent`. | `src/index.ts`, `src/runtime/registry.ts`, `src/runtime/opencode.ts`, `test/spawn-runtime-actually-runs.test.ts` |
 | `meshfleet.a2a` v0.1 codec and interoperability profile | `reference-conformance` | Pure provider-neutral validation and an independent offline Python witness agree with the language-neutral corpora; the mutated-corpus negative test detects a false expected outcome; public, durable, and authenticated ingress are not implemented | `docs/A2A-PROTOCOL-v0.1.md`, `reference/python/a2a_reference.py`, `test/a2a-reference-python.test.ts` |
 | Canonical ingress contract v0.1 | `fixture-verified` | Deterministic fixtures exercise the designed ordering and stable external result vocabulary; this is not a production store, policy engine, delivery path, or public tool | `docs/A2A-INGRESS-CONTRACT-v0.1.md`, `test/fixtures/a2a/ingress/v0.1/corpus.json` |
 | Offline local-admission evidence-alpha | `unverified` | One test-only raw-text operation binds caller-supplied local evidence and policy fixtures before one injected replay-oracle call. TypeScript and an independent Python witness agree over 70 mandatory cases; recipient sorting, strict corpus ingestion, mutation canaries, and seven-positive/fourteen-negative static-harness sidecar fixtures are executable. The corpus does not yet close every exhaustive profile family/cardinality/path gate, and there is no package export, MCP/CLI surface, auth provider, credential proof, replay store, persistence, delivery, runtime, network, public ingress, or remote/multi-host claim. | `docs/A2A-LOCAL-ADMISSION-PROFILE-v0.1.md`, `src/a2a/local-admission.ts`, `reference/python/a2a_local_admission_reference.py`, `test/a2a-local-admission.test.ts` |
 | Offline A2A delivery-trace profile v0.1 | `reference-conformance` | The pure TypeScript evaluator and independent stdlib-only Python witness agree over the language-neutral corpus, including event-level precedence D05-D17, while preserving canonical identity and explicit non-claims. This implements no live transport, DeliveryPort, authenticated principal, wake authority, persistence, execution, or interoperability. | `docs/A2A-DELIVERY-TRACE-PROFILE-v0.1.md`, `src/a2a/delivery-trace.ts`, `reference/python/a2a_delivery_trace_reference.py`, `test/a2a-delivery-trace-python-reference.test.ts`, `test/fixtures/a2a/delivery-trace/v0.1/corpus.json` |
-| Durable attempt lifecycle | `recovery-verified` | Durable-mode `spawn_fleet` and `attach_agent` preserve MCP shapes while using one SQLite authority for leases, deterministic retry, launch-intent quarantine, scheduled recovery, recorded-PID containment only, fenced projections, and sequence-ordered repairable event outbox | `docs/A2A-NEXT-SLICE.md`, `src/lifecycle-execution.ts`, `test/lifecycle-integration-adversarial.test.ts` |
-| Provider-neutral runtime adapters | `runtime-launch-verified` | Isolated RuntimeAdapter SPI, OpenCode adapter, deterministic local-process adapter, and per-agent runtime selection on `spawn_fleet` are verified. Kimi and Claude Code are env-gated non-default adapters; configuration and fixture evidence are not provider/account attestation. The public `model` (`provider/model`) selector remains OpenCode-specific. | `docs/ADAPTER-CONTRACT.md`, `src/runtime`, `test/runtime-adapter.test.ts`, `test/runtime-claude-adapter.test.ts`, `test/runtime-kimi-adapter.test.ts` |
+| Durable attempt lifecycle | `recovery-verified` | Internal SQLite lifecycle kernel (leases, deterministic retry, launch-intent quarantine, scheduled recovery, recorded-PID containment, fenced projections, sequence-ordered repairable event outbox) is tested. It is not a shipped spawn switch: new fleets use the in-memory path. Unfinished durable/shadow spawn is gated by `MESHFLEET_UNFINISHED_LIFECYCLE_MODE`. | `docs/A2A-NEXT-SLICE.md`, `src/lifecycle-execution.ts`, `test/lifecycle-integration-adversarial.test.ts` |
+| Provider-neutral runtime adapters | `runtime-launch-verified` | Isolated RuntimeAdapter SPI, OpenCode adapter, deterministic local-process adapter, and per-agent runtime selection on `spawn_fleet` are verified. Kimi and Claude Code are env-gated non-default adapters. MiniMax and Grok are env-gated, explicit-only, non-failover text adapters; Grok forces a source-blind text-only wrapper boundary. They accept no model, agent, workspace, or artifact authority, use scrubbed environments and structured text results, and withhold raw diagnostics. Configuration and fixture evidence are not account, credential, effective-model, quota, or availability attestation. The outbound Grok adapter is distinct from offline static Grok config translation. The public `model` (`provider/model`) selector remains OpenCode-specific. | `docs/ADAPTER-CONTRACT.md`, `src/runtime`, `test/runtime-adapter.test.ts`, `test/runtime-claude-adapter.test.ts`, `test/runtime-kimi-adapter.test.ts`, `test/runtime-minimax-adapter.test.ts`, `test/runtime-grok-adapter.test.ts` |
 | Advisory subscription-lane snapshots | `fixture-verified` | The portable v0.1 corpus and real MCP stdio contract test verify sanitized offline snapshot ranking and rejection of provider/control-plane smuggling. This remains advisory-only and does not prove provider availability, authentication, catalog access, execution, or metering. | `test/fixtures/routing/subscription-lanes/v0.1/corpus.json`, `test/recommend-route-subscription-lanes.test.ts`, `test/recommend-route-mcp.test.ts` |
 | Offline route-candidate snapshot compiler | `fixture-verified` | The pure compiler and real MCP contract deterministically project sanitized caller evidence without I/O or authority. This is not provider availability, authentication, budget freshness, execution, failover, or metering evidence. | `src/compile-route-candidates.ts`, `test/fixtures/routing/route-candidate-snapshots/v0.1/corpus.json`, `test/compile-route-candidates.test.ts`, `test/compile-route-candidates-mcp.test.ts` |
 | Raw Fleetbudget diagnostic sanitizer | `unverified` | The unreleased pure package sanitizer and bounded stdin CLI have TypeScript unit, integration, and packed-consumer evidence, but no language-neutral fixture corpus required for a stronger registered status. They lock the current unversioned raw byte shape, erase raw control/prose fields, and emit windowless diagnostic evidence; they do not invoke Fleetbudget or prove availability, exhaustion, allocation, ranking, routing, provider identity, authentication, health, locality, or execution. | `src/fleetbudget-sanitizer.ts`, `src/bin/fleetbudget-sanitize.ts`, `test/fleetbudget-sanitizer.test.ts`, `test/fleetbudget-sanitizer-cli.test.ts` |
@@ -96,11 +96,37 @@ The additive `meshfleet/recommend-route` library subpath exposes only the pure
 advisory evaluator and validators over caller-supplied sanitized evidence. It is
 not selection or execution authority.
 
-**Promise so far**: every minor release has been additive. No tool has been removed. Three
-signatures have been tightened — `send_messages` batch items, `send_message`, and
-`register_capability`, all unreleased — deliberately and documented in the narrowing notes below:
-the shapes they now refuse were violations of the contracts the schemas already claimed to
-enforce, or rows the verifier already reported as contradictions.
+**Promise so far**: every minor release has been additive. No handler has been
+deleted. The unreleased opt-in compact catalog below hides four already-shipped
+names from compact `tools/list` without changing default discovery or removing
+their handlers. Three signatures have
+been tightened — `send_messages` batch items, `send_message`, and
+`register_capability`, all unreleased — deliberately and documented in the
+narrowing notes below: the shapes they now refuse were violations of the
+contracts the schemas already claimed to enforce, or rows the verifier already
+reported as contradictions.
+
+### Additive opt-in compact stdio catalog (unreleased)
+
+Default `tools/list` remains the compatible 40-tool catalog. Set
+`MESHFLEET_COMPACT_CATALOG=1` to select a 36-tool catalog that omits
+`compile_route_candidates`, `recommend_route`, `plan_speculative_backlog`, and
+`verify_ledger_v2`. Within compact mode, set `MESHFLEET_ROUTE_ADVISOR=1` to
+restore the three advisory names for a 39-tool catalog. `route_work` remains the
+in-ledger routing tool in every non-audit profile. The audit access profile
+still advertises its four-tool catalog (`ping` plus the three advisory tools).
+
+`verify_ledger_v2` is deprecated as a second wrapper around the same verifier.
+The compact catalog keeps `verify_ledger` and `verify_ledger_v3`. The v2 MCP
+handler and `inspect --verify-v2` remain callable for this release and are
+scheduled for removal after one release. Callers that already know the v2 tool
+name still succeed; compact sessions will not see it in `tools/list`.
+
+`capabilities.tools.listChanged` remains absent. The selected catalog is fixed
+for the lifetime of one server process, so MeshFleet does not claim support for
+runtime `notifications/tools/list_changed`. `ttlMs` / `cacheScope` are not
+published on `tools/list`: the SDK has no typed fields for them, and a cache TTL
+would be wrong across those startup-selected catalogs.
 
 ### ⚠️ `send_messages` narrowing and stricter `verify_ledger` findings (unreleased)
 
@@ -498,9 +524,11 @@ provider, remote, authenticated, durable-registry, cryptographic, delivery,
 release, or activation compatibility claim.
 Codex, Claude Code, and OpenCode configuration mappings remain static evidence;
 OpenCode/local-process runtime observations remain distinct observed evidence.
-All eight target profiles, including deferred Antigravity/Gemini, Grok, and
+All eight static target profiles, including Antigravity/Gemini, Grok, and
 unknown-harness behavior, are covered only by deterministic offline translation
-evidence. The translation layer is `static-translation-verified`; deferred
-targets remain unverified for live client, provider, process, and runtime
-behavior. The 13 serialized-report ingestion-only duplicate vectors remain
-deferred until an actual ingestion API exists.
+evidence. The translation layer is `static-translation-verified`; those static
+profiles remain unverified for live client, provider, process, and runtime
+behavior. The separately registered outbound `grok-cli` text adapter does not
+promote this translation evidence or consume its mapping. The 13 serialized-
+report ingestion-only duplicate vectors remain deferred until an actual
+ingestion API exists.

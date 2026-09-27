@@ -3,6 +3,7 @@ import type { ResultContractStatus } from "../result-contract.js";
 
 export type RuntimeEvidenceLevel = "none" | "reported" | "observed" | "attested";
 export type RuntimeStatus = "success" | "failure" | "cancelled" | "timeout";
+export type RuntimeFailureClass = "transient" | "deterministic";
 export type RuntimeBindingId = string;
 
 /** How optional input bytes reach a child. `stdin` never serializes bytes into argv or env. */
@@ -92,6 +93,12 @@ export interface RuntimeDiagnostic {
 
 export interface RuntimeResult {
   status: RuntimeStatus;
+  /**
+   * Retry semantics for a failed attempt. Absent preserves the legacy transient default.
+   * `deterministic` is reserved for failures the adapter can prove will recur for the same
+   * response and contract, such as empty or malformed structured output.
+   */
+  failureClass?: RuntimeFailureClass;
   stdout: string;
   stderr: string;
   exitCode: number | null;

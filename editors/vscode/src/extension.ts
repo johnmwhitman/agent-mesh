@@ -17,7 +17,7 @@ import {
 } from "./model";
 
 function cliParts(): { cmd: string; baseArgs: string[] } {
-  const raw = vscode.workspace.getConfiguration("meshfleet").get<string>("cliCommand", "npx agent-mesh");
+  const raw = vscode.workspace.getConfiguration("meshfleet").get<string>("cliCommand", "npx -y --package=meshfleet -- agent-mesh");
   const parts = raw.split(/\s+/).filter(Boolean);
   return { cmd: parts[0] ?? "npx", baseArgs: parts.slice(1) };
 }
@@ -170,7 +170,7 @@ export function activate(context: vscode.ExtensionContext): void {
       const msg = err instanceof Error ? err.message : String(err);
       fleets.setError(msg);
       status.text = "$(shield) Meshfleet — CLI not found?";
-      status.tooltip = `${msg}\n\nSet meshfleet.cliCommand (default: npx agent-mesh; requires 'npm install meshfleet').`;
+      status.tooltip = `${msg}\n\nSet meshfleet.cliCommand (default: npx -y --package=meshfleet -- agent-mesh).`;
     }
   }
 

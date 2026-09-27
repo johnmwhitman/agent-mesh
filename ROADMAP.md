@@ -10,11 +10,11 @@ The ranked A2A strategy is canonical in
 1. **Canonical envelope and conformance** - pure v0.1 codec, fixtures, and
    internal legacy mapping are implemented. No public `send_a2a` tool, remote
    transport, or authenticated canonical ingress is shipped.
-2. **Durable lifecycle kernel** - implemented for single-host durable fleets:
-   lease-driven spawn/attach, deterministic persisted retry, scheduled recovery,
-   fencing, launch-intent quarantine, recorded-PID containment only, and a
-   sequence-ordered repairable event
-   outbox. Logical ledger schema remains v2.
+2. **Durable lifecycle kernel** - implemented internally for single-host SQLite
+   authority (leases, deterministic persisted retry, scheduled recovery, fencing,
+   launch-intent quarantine, recorded-PID containment, repairable event outbox).
+   It is not the shipped spawn switch: new fleets use the in-memory path.
+   Logical ledger schema remains v2.
 3. **Provider-neutral runtime adapters** - the runtime SPI, OpenCode default,
    deterministic local-process proof, and per-agent runtime selection are
    implemented. Kimi, Claude Code, and direct MiniMax adapters are fixture-verified,
@@ -251,8 +251,8 @@ public roadmap.
   retains the same advisory, all-false-effects boundary.
 - P1 spawn receipts and bounded public model selection: `spawn_fleet` / `attach_agent` accept an optional `model`, the request is persisted separately from the observed banner, legacy and durable retries plus Discussion wakeups preserve it, and missing or contradictory observation fails closed. Banner agreement remains observed evidence only. Capability `model` remains routing self-description.
 - A published corpus of tampered-ledger fixtures the verifier must catch —
-  [`test/fixtures/corpus/`](test/fixtures/corpus/README.md). **84 total** vectors
-  over a shared clean baseline: **60 caught**, **14 anomaly** cases, and 10
+  [`test/fixtures/corpus/`](test/fixtures/corpus/README.md). **85 total** vectors
+  over a shared clean baseline: **60 caught**, **15 anomaly** cases, and 10
   deliberately undetectable cases. The buckets remain separate; coverage over
   all 56 non-`discussion` checks is re-derived from source each run.
 - `verify --explain` — failure triage for the ledger auditor

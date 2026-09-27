@@ -160,6 +160,23 @@ export function openCodeSessionEvidenceFromEnv(
   return { dbPath };
 }
 
+/**
+ * Opt-in strict model binding (`MESHFLEET_OPENCODE_REQUIRE_MODEL_EVIDENCE=1`).
+ * When on, a requested model that no runtime source attests fails the spawn
+ * instead of succeeding with a `MODEL_UNVERIFIED` warning. Only `1`/`true`
+ * (case-insensitive) enable it; anything else is the default (off).
+ */
+export function openCodeRequireModelEvidenceFromEnv(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  const raw = resolveEnv(
+    env,
+    "MESHFLEET_OPENCODE_REQUIRE_MODEL_EVIDENCE",
+    "AGENT_MESH_OPENCODE_REQUIRE_MODEL_EVIDENCE",
+  );
+  return raw !== undefined && /^(?:1|true)$/i.test(raw.trim());
+}
+
 /** Build argv for `opencode run [--model <id>] [--agent <file>] <prompt>`. */
 export function buildRunArgs(
   input: RunArgsInput,
