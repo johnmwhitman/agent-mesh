@@ -124,3 +124,48 @@ jobs:
         run: npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  # Lists this package on registry.modelcontextprotocol.io so MCP clients can
+  # discover it. `needs: publish` means this only runs after the npm publish
+  # job above has already succeeded — the tarball is on npmjs.org before we
+  # ever touch the registry. Deliberately its own job, not a step tacked onto
+  # `publish`: a registry outage or a stale namespace grant must never be able
+  # to roll back or fail the npm publish that already happened. If this job
+  # fails, the workflow run shows red (visible to a maintainer) but the
+  # published npm package is unaffected either way — there is nothing left
+  # here that could "un-publish" it.
+  #
+  # Auth: GitHub OIDC (`mcp-publisher login github-oidc`) — no secret to
+  # provision or rotate. It resolves to the `io.github.johnmwhitman/*`
+  # namespace because that's this repo's owner, which is exactly the
+  # namespace server.json's `name` uses. See docs:
+  #   https://github.com/modelcontextprotocol/registry/blob/main/docs/modelcontextprotocol-io/github-actions.mdx
+  #   https://github.com/modelcontextprotocol/registry/blob/main/docs/modelcontextprotocol-io/authentication.mdx
+  publish-mcp-registry:
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write # OIDC — required for github-oidc registry auth
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+      - name: Verify tag matches server.json version
+        run: |
+          SRV=$(node -p "require('./server.json').version")
+          TAG="${GITHUB_REF_NAME#v}"
+          [ "$SRV" = "$TAG" ] || { echo "tag v$TAG != server.json $SRV"; exit 1; }
+      # Pinned to a specific mcp-publisher release (not "latest") so this step
+      # can't silently change behavior between releases. Bump deliberately:
+      # https://github.com/modelcontextprotocol/registry/releases
+      - name: Install mcp-publisher (pinned v1.8.1)
+        env:
+          MCP_PUBLISHER_VERSION: "1.8.1"
+        run: |
+          ARCH="$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')"
+          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/download/v${MCP_PUBLISHER_VERSION}/mcp-publisher_linux_${ARCH}.tar.gz" \
+            | tar xz mcp-publisher
+      - name: Authenticate to MCP Registry (GitHub OIDC)
+        run: ./mcp-publisher login github-oidc
+      - name: Publish server to MCP Registry
+        run: ./mcp-publisher publish
