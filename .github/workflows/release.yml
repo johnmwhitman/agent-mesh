@@ -150,21 +150,64 @@ jobs:
       id-token: write # OIDC — required for github-oidc registry auth
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
-      - name: Verify tag matches server.json version
+      # Checks all FOUR sources of truth against each other, not just tag vs.
+      # server.json: the git tag, package.json .version, server.json .version,
+      # and server.json .packages[0].version. A version bump that touches
+      # package.json and forgets server.json (or vice versa) fails here with
+      # the exact field(s) named, before mcp-publisher ever runs. The same
+      # drift is also caught earlier, at PR time, by
+      # test/mcp-registry-server-json-version-parity.test.ts (part of `npm
+      # test`, run in CI on every push) — this step additionally confirms the
+      # actual release tag agrees, which a local/PR-time test cannot see.
+      - name: Verify tag, package.json, and server.json versions all agree
         run: |
-          SRV=$(node -p "require('./server.json').version")
           TAG="${GITHUB_REF_NAME#v}"
-          [ "$SRV" = "$TAG" ] || { echo "tag v$TAG != server.json $SRV"; exit 1; }
+          PKG=$(node -p "require('./package.json').version")
+          SRV=$(node -p "require('./server.json').version")
+          SRV_PKG=$(node -p "require('./server.json').packages[0].version")
+          fail=0
+          [ "$TAG" = "$PKG" ] || { echo "VERSION MISMATCH: git tag $GITHUB_REF_NAME (-> $TAG) != package.json .version ($PKG)"; fail=1; }
+          [ "$TAG" = "$SRV" ] || { echo "VERSION MISMATCH: git tag $GITHUB_REF_NAME (-> $TAG) != server.json .version ($SRV)"; fail=1; }
+          [ "$TAG" = "$SRV_PKG" ] || { echo "VERSION MISMATCH: git tag $GITHUB_REF_NAME (-> $TAG) != server.json .packages[0].version ($SRV_PKG)"; fail=1; }
+          [ "$PKG" = "$SRV" ] || { echo "VERSION MISMATCH: package.json .version ($PKG) != server.json .version ($SRV)"; fail=1; }
+          [ "$PKG" = "$SRV_PKG" ] || { echo "VERSION MISMATCH: package.json .version ($PKG) != server.json .packages[0].version ($SRV_PKG)"; fail=1; }
+          [ "$SRV" = "$SRV_PKG" ] || { echo "VERSION MISMATCH: server.json .version ($SRV) != server.json .packages[0].version ($SRV_PKG)"; fail=1; }
+          if [ "$fail" = "1" ]; then
+            echo ""
+            echo "Refusing to publish to the MCP Registry: tag, package.json, and server.json must all agree on the version."
+            exit 1
+          fi
+          echo "OK — tag=$TAG package.json=$PKG server.json.version=$SRV server.json.packages[0].version=$SRV_PKG"
       # Pinned to a specific mcp-publisher release (not "latest") so this step
       # can't silently change behavior between releases. Bump deliberately:
       # https://github.com/modelcontextprotocol/registry/releases
-      - name: Install mcp-publisher (pinned v1.8.1)
+      #
+      # SHA-256 below is pinned per architecture from TWO independent sources
+      # cross-checked before hardcoding: (1) the v1.8.1 release's own
+      # published checksums file
+      # (https://github.com/modelcontextprotocol/registry/releases/download/v1.8.1/registry_1.8.1_checksums.txt)
+      # and (2) downloading each linux tarball directly and running
+      # `shasum -a 256` locally. Both agreed exactly; see the PR receipt for
+      # the raw commands and output. Verified with `sha256sum -c` BEFORE
+      # extraction, so a corrupted or substituted asset fails the job here —
+      # nothing from the archive runs first.
+      - name: Install mcp-publisher (pinned v1.8.1, checksum-verified)
         env:
           MCP_PUBLISHER_VERSION: "1.8.1"
         run: |
           ARCH="$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')"
-          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/download/v${MCP_PUBLISHER_VERSION}/mcp-publisher_linux_${ARCH}.tar.gz" \
-            | tar xz mcp-publisher
+          FILE="mcp-publisher_linux_${ARCH}.tar.gz"
+          case "$ARCH" in
+            amd64) SHA256="a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc" ;;
+            arm64) SHA256="8dd75a6cf6845688b5d4e46df58d3ca26d5c8d233bb0626606e1db82c5e883e4" ;;
+            *) echo "no pinned mcp-publisher checksum for arch '$ARCH' — add one from the release's checksums file before extending this workflow to this runner arch"; exit 1 ;;
+          esac
+          curl -fsSL -o "$FILE" "https://github.com/modelcontextprotocol/registry/releases/download/v${MCP_PUBLISHER_VERSION}/${FILE}"
+          echo "${SHA256}  ${FILE}" | sha256sum -c - || {
+            echo "mcp-publisher asset failed SHA-256 verification against the pinned hash — refusing to extract a possibly-tampered binary"
+            exit 1
+          }
+          tar xz -f "$FILE" mcp-publisher
       - name: Authenticate to MCP Registry (GitHub OIDC)
         run: ./mcp-publisher login github-oidc
       - name: Publish server to MCP Registry
