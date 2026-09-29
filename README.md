@@ -709,6 +709,12 @@ The ledger lives at `~/.config/opencode/agent-mesh.db` (SQLite); the event log a
 
 ---
 
+## Background
+
+Background: [Human Out of the Loop](https://book.hool.dev) is the book behind this portfolio.
+
+---
+
 ## License
 
 The core is MIT — use it, fork it, ship it in your product. No attribution beyond the license file. (A commercial assurance layer, [Meshfleet Pro](https://meshfleet.app/pro), lives in a separate repo and doesn't change what's here.)
