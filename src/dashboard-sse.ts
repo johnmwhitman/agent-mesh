@@ -80,6 +80,13 @@ export interface DashboardUpdates {
   close: () => void
 }
 
+function isEventStream(response: IncomingMessage): boolean {
+  const header = response.headers['content-type']
+  const raw = Array.isArray(header) ? header[0] : header
+  if (typeof raw !== 'string') return false
+  return raw.split(';', 1)[0]?.trim().toLowerCase() === 'text/event-stream'
+}
+
 export function startDashboardUpdates(options: DashboardUpdatesOptions): DashboardUpdates {
   let closed = false
   let pollTimer: NodeJS.Timeout | undefined
@@ -105,9 +112,11 @@ export function startDashboardUpdates(options: DashboardUpdatesOptions): Dashboa
       retryTimer = setTimeout(connect, options.interval)
     }
     activeRequest = request(url, (response: IncomingMessage) => {
-      if (response.statusCode !== 200) {
+      if (response.statusCode !== 200 || !isEventStream(response)) {
+        response.on('error', () => undefined)
         response.resume()
         unavailable()
+        activeRequest?.destroy()
         return
       }
       if (pollTimer) {
@@ -128,9 +137,11 @@ export function startDashboardUpdates(options: DashboardUpdatesOptions): Dashboa
       response.on('error', unavailable)
     })
     activeRequest.on('error', unavailable)
+    activeRequest.end()
   }
 
-  if (options.connect !== false) connect()
+  if (options.connect === false) startPolling()
+  else connect()
   return {
     close: (): void => {
       closed = true

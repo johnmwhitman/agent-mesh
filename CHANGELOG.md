@@ -4,6 +4,10 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 
 ## [Unreleased]
 
+### Fixed
+
+- **Dashboard live updates.** `agent-mesh-dashboard` built the event-stream GET and never finished it, so a listening server received nothing and the poll fallback never armed. The request is now sent. A HTTP 200 that is not `text/event-stream` (including `application/json`) is treated as unavailable, so interval polling continues instead of waiting for a frame that will not arrive. `--poll-only` refreshes on `--interval`. The dashboard header now describes the SQLite ledger and NDJSON event log it reads.
+
 ## [0.22.0] - 2026-09-26
 
 **The first npm release since 0.21.1.** Versions 0.21.2 through 0.21.5 were tagged
