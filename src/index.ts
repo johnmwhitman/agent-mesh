@@ -3102,7 +3102,10 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
   if (!handler) {
     throw new Error(`Unknown tool: ${name}`);
   }
-  return await handler(args);
+  // `arguments` is optional on the wire and tools with no required fields (get_health,
+  // subscribe_events, ...) are schema-valid without it. Handlers destructure their args, so
+  // an omitted value must arrive as an empty object, not undefined (-32603 TypeError).
+  return await handler(args ?? {});
 });
 
 // ---------------------------------------------------------------------------
