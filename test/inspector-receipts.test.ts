@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { formatReceiptTrail, formatCouncil, PROVISIONAL_NOTE } from '../src/inspector.js'
+import { formatReceiptTrail, formatCouncil, buildCouncilsJson, PROVISIONAL_NOTE } from '../src/inspector.js'
 import type { Message, Receipt, Ratification } from '../src/core.js'
 
 function msg(over: Partial<Message> = {}): Message {
@@ -67,4 +67,38 @@ test('formatCouncil: shows tally vs quorum and flags eligible non-voters', () =>
 test('PROVISIONAL_NOTE warns the surface is pre-withLedger', () => {
   assert.match(PROVISIONAL_NOTE, /Provisional/)
   assert.match(PROVISIONAL_NOTE, /withLedger/)
+})
+
+test('formatCouncil: honours seq re-casts and the voter list (same tally as the JSON path)', () => {
+  const rat: Ratification = {
+    message_id: 'prop-2',
+    proposer: 'agent-aaa',
+    fleet_id: 'fleet-1',
+    subject: 'recast?',
+    quorum: 2,
+    voters: ['agent-bbb', 'agent-ccc'],
+    required_signoffs: [],
+    opened_at: 1000,
+    silence_policy: 'abstain',
+    status: 'open',
+  }
+  const votes: Receipt[] = [
+    // bbb approved, then re-cast to decline: the decline is the effective vote.
+    { message_id: 'prop-2', agent_id: 'agent-bbb', action: 'r-ack', timestamp: 1001 },
+    { message_id: 'prop-2', agent_id: 'agent-bbb', action: 'r-decline:1', timestamp: 1002 },
+    // ccc declined, then re-cast to approve.
+    { message_id: 'prop-2', agent_id: 'agent-ccc', action: 'r-decline', timestamp: 1003 },
+    { message_id: 'prop-2', agent_id: 'agent-ccc', action: 'r-ack:1', timestamp: 1004 },
+    // An ineligible agent's approval must not count at all.
+    { message_id: 'prop-2', agent_id: 'agent-zzz', action: 'r-ack', timestamp: 1005 },
+  ]
+  const out = formatCouncil(rat, votes)
+  assert.match(out, /approvals 1\/2 needed/, 'one effective approval (ccc), not the raw r-ack count')
+  assert.equal((out.match(/✓ approve/g) ?? []).length, 1, out)
+  assert.equal((out.match(/✗ decline/g) ?? []).length, 1, out)
+  assert.doesNotMatch(out, /agent-zz/, 'a non-voter is not listed as a voter')
+  assert.doesNotMatch(out, /no vote/, 'both eligible voters have an effective vote')
+  const json = buildCouncilsJson([{ ratification: rat, votes }]).data[0]!
+  assert.deepEqual(json.approvals, ['agent-ccc'])
+  assert.deepEqual(json.declines, ['agent-bbb'])
 })
