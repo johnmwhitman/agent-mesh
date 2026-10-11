@@ -13,8 +13,9 @@
  *   npx -y --package=meshfleet -- agent-mesh-dashboard --interval 500   # custom interval in ms
  *   npx -y --package=meshfleet -- agent-mesh-dashboard --once   # one-shot, exit immediately
  *
- * Reads the same JSON ledger as the MCP server. No IPC, no daemon — just
- * follows the event stream with ledger polling as a fallback. Ctrl+C to exit.
+ * Reads the same SQLite ledger as the MCP server (via the withLedger seam)
+ * and the NDJSON event log. Follows the event stream, with ledger polling
+ * as a fallback. Ctrl+C to exit.
  */
 
 import { getRecentReceipts, listFleets, loadData, readEventLog, type Receipt } from '../core.js'
