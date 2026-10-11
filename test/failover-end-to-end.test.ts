@@ -196,3 +196,19 @@ test("NEGATIVE CONTROL: no hop to a runtime that cannot accept the spec", skipOn
     assert.deepEqual(row.runtime_attempts, ["opencode-cli"], "no hop may be recorded");
   });
 });
+
+test("a same-runtime retry records the attempt NUMBER, though runtime_attempts stays one entry", skipOnWindows, async () => {
+  // runtime_attempts dedupes a repeated last entry, so its length stops being the attempt number
+  // after the first retry. The RESULT_PATH suffix is the attempt number; readers that look for an
+  // envelope on disk (orphan reconciliation, crash-declaration recovery) need it persisted.
+  await withDir(async (dir) => {
+    const row = await runFleet(dir, "13986", { refusal: "TypeError: cannot read property of undefined\n" });
+    assert.ok(row, "the agent row must exist");
+    assert.deepEqual(row.runtime_attempts, ["opencode-cli"], "the runtime list dedupes same-runtime retries");
+    assert.equal(typeof row.spawn_attempt, "number", `spawn_attempt must be persisted: ${JSON.stringify(row)}`);
+    assert.ok(
+      (row.spawn_attempt as number) >= 2,
+      `the agent was retried, so the latest attempt number is > 1 (got ${String(row.spawn_attempt)})`,
+    );
+  });
+});

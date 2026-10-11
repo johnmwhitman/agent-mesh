@@ -47,7 +47,13 @@ function seedAgent(opts: {
   fleetId: string;
   /** A pid that's been around long enough to be reasonably checkable on the test host. */
   pid?: number;
-  /** Number to set on `runtime_attempts` — used as the attempt id for the envelope lookup. */
+  /**
+   * The attempt number of the latest spawn — the RESULT_PATH suffix the envelope lookup uses.
+   * Seeded the way `trySpawn` writes it: an explicit `spawn_attempt` counter plus a
+   * `runtime_attempts` list that DEDUPES a same-runtime retry (so it stays one entry long no
+   * matter how many retries ran). Seeding N repeated entries instead modelled a row no writer
+   * can produce and hid the lookup being wrong for every attempt after the first.
+   */
   attempts?: number;
 }): void {
   // `withLedger` mutates the same store the function under test reads.  Use it directly
@@ -67,7 +73,7 @@ function seedAgent(opts: {
         status: "running" as const,
         started_at: Date.now(),
         ...(opts.pid !== undefined ? { pid: opts.pid } : {}),
-        ...(opts.attempts !== undefined ? { runtime_attempts: new Array(opts.attempts).fill("opencode-cli") } : {}),
+        ...(opts.attempts !== undefined ? { spawn_attempt: opts.attempts, runtime_attempts: ["opencode-cli"] } : {}),
       },
     },
     messages: {},
@@ -353,6 +359,38 @@ test("race: a row whose pid came back alive between Pass-1 and Pass-3 is left al
   }
 });
 
+test("a same-runtime retry reconciles from the CURRENT attempt's envelope, not attempt 1's", () => {
+  // trySpawn records spawn_attempt = 2 but runtime_attempts stays ["opencode-cli"] (it dedupes a
+  // repeated last entry). Using runtime_attempts.length as the attempt number made this look up
+  // attempt 1, so the stale attempt-1 refusal won and the attempt-2 declaration was lost.
+  const tempDir = mkdtempSync(join(tmpdir(), "chaos-recon-retry-"));
+  try {
+    const agentId = "agent-retried";
+    const fleetId = "fleet-retried";
+    seedAgent({ agentId, fleetId, pid: 999_992, attempts: 2 });
+    writeEnvelope(agentId, 1, {
+      schema: RESULT_CONTRACT_SCHEMA,
+      outcome: "refused",
+      summary: "attempt one refused",
+      reason: "stale",
+    });
+    writeEnvelope(agentId, 2, {
+      schema: RESULT_CONTRACT_SCHEMA,
+      outcome: "done",
+      summary: "attempt two delivered",
+    });
+    const outcome = reconcileOrphanedAgentsInFleet(fleetId);
+    assert.equal(outcome.reconciled, 1);
+    const agent = loadData().agents[agentId];
+    assert.equal(agent.status, "complete");
+    assert.equal(agent.output, "attempt two delivered");
+    assert.equal(agent.result_contract, "ok");
+  } finally {
+    closeDb();
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("race: a new envelope at attempt N+1 written between Pass-1 and Pass-3 is preferred over the cached attempt N", () => {
   // A retry that landed between Pass-1 and Pass-3 wrote a fresh envelope under
   // attempt 2. Pass-3 must re-read the attempt count, find the new envelope, and use
@@ -369,13 +407,13 @@ test("race: a new envelope at attempt N+1 written between Pass-1 and Pass-3 is p
       summary: "stale refusal",
       reason: "this is the old attempt",
     });
-    // Simulate a retry landing between Pass-1 and Pass-3: bump runtime_attempts to
-    // length 2 AND write the new envelope at attempt 2.
+    // Simulate a retry landing between Pass-1 and Pass-3: bump spawn_attempt to
+    // 2 AND write the new envelope at attempt 2.
     withLedgerAndStorage((_data, db) => {
       const row = db.prepare("SELECT data FROM agents WHERE id = ?").get(agentId) as { data: string } | undefined;
       if (!row) return;
       const a = JSON.parse(row.data);
-      a.runtime_attempts = ["opencode-cli", "opencode-cli"];
+      a.spawn_attempt = 2; // what trySpawn writes for a same-runtime retry; runtime_attempts stays length 1
       db.prepare("UPDATE agents SET data = ? WHERE id = ?").run(JSON.stringify(a), agentId);
     });
     writeEnvelope(agentId, 2, {

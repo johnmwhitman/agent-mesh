@@ -24,7 +24,7 @@
  */
 import { existsSync, readFileSync, renameSync } from "node:fs";
 import { withLedger, withLedgerAndStorage } from "./db.js";
-import { appendEvent } from "./core.js";
+import { appendEvent, latestSpawnAttempt } from "./core.js";
 import { parseAgentResultEnvelope, resultPathFor } from "./result-contract.js";
 
 export interface CrashJournalRecord {
@@ -124,8 +124,8 @@ export function retireCrashJournal(path: string, now: number): string | undefine
  *   - An unparseable file records nothing — never `invalid` from a boot read, because a write
  *     torn BY THE CRASH is indistinguishable from agent fault, and recording it would assign
  *     culpability nobody observed.
- *   - The attempt id comes from the LEDGER (legacy: `runtime_attempts.length`, one entry per
- *     attempt that reached a spawn; durable: `work_items.current_attempt_id`) — never from
+ *   - The attempt id comes from the LEDGER (legacy: `spawn_attempt`, falling back to `runtime_attempts.length` on
+ *     rows that predate it; durable: `work_items.current_attempt_id`) — never from
  *     globbing the tmpdir, which could credit attempt N with attempt N-1's refusal. No attempt
  *     evidence on the row → no path → no recovery. Honest ignorance.
  *   - Never overwrites a set value; only `interrupted` rows named by the crash journal.
@@ -157,8 +157,12 @@ export function recoverCrashDeclarations(
           | { current_attempt_id?: string | null }
           | undefined;
         if (work?.current_attempt_id) candidates.push({ agentId: agent.id, attempt: work.current_attempt_id });
-      } else if (agent.runtime_attempts !== undefined && agent.runtime_attempts.length > 0) {
-        candidates.push({ agentId: agent.id, attempt: agent.runtime_attempts.length });
+      } else {
+        // The explicit attempt counter, not `runtime_attempts.length`: that list dedupes a
+        // same-runtime retry, so after attempt 2 on one runtime it still has length 1 and the
+        // lookup would read attempt 1's file. No attempt evidence at all -> no candidate.
+        const attempt = latestSpawnAttempt(agent);
+        if (attempt !== undefined) candidates.push({ agentId: agent.id, attempt });
       }
     }
   });
