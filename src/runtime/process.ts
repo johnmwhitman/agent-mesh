@@ -13,6 +13,11 @@ export interface RawProcessResult {
 export const RUNTIME_CHILD_STDIO: ["ignore", "pipe", "pipe"] = ["ignore", "pipe", "pipe"];
 export const RUNTIME_CHILD_STDIN_STDIO: ["pipe", "pipe", "pipe"] = ["pipe", "pipe", "pipe"];
 export const DEFAULT_TERMINATION_GRACE_MS = 100;
+/**
+ * How long after the child's own `exit` we wait for `close` (every stdio holder gone) before
+ * treating the run as finished. Long enough to drain output the child wrote just before exiting.
+ */
+export const DEFAULT_EXIT_DRAIN_MS = 300;
 export const DEFAULT_RUNTIME_OUTPUT_LIMIT_BYTES = 1024 * 1024;
 
 export type SpawnProcess = (
@@ -28,6 +33,8 @@ export interface ProcessLaunch {
   environment: NodeJS.ProcessEnv;
   timeoutMs: number;
   terminationGraceMs?: number;
+  /** Override for {@link DEFAULT_EXIT_DRAIN_MS}. */
+  exitDrainMs?: number;
   normalizeClose(raw: RawProcessResult): RuntimeResult;
   normalizeSpawnError(raw: RawProcessResult, error: Error): RuntimeResult;
   normalizeTimeout(raw: RawProcessResult): RuntimeResult;
@@ -180,6 +187,7 @@ export function startProcessExecution(
   let settled = false;
   let timeout: ReturnType<typeof setTimeout> | undefined;
   let terminationGrace: ReturnType<typeof setTimeout> | undefined;
+  let exitDrain: ReturnType<typeof setTimeout> | undefined;
   let terminalRequest:
     | { status: "timeout" }
     | { status: "cancelled"; reason: string }
@@ -201,6 +209,7 @@ export function startProcessExecution(
     child.stdin?.removeListener("error", onStdinError);
     child.removeListener("error", onError);
     child.removeListener("close", onClose);
+    child.removeListener("exit", onExit);
   };
   const completion = new Promise<RuntimeResult>((resolve) => {
     finish = (result) => {
@@ -208,6 +217,7 @@ export function startProcessExecution(
       settled = true;
       if (timeout !== undefined) clearTimeout(timeout);
       if (terminationGrace !== undefined) clearTimeout(terminationGrace);
+      if (exitDrain !== undefined) clearTimeout(exitDrain);
       cleanupChildListeners();
       resolve(result);
     };
@@ -280,6 +290,27 @@ export function startProcessExecution(
     processError = error;
     requestProcessTermination();
   }
+  /**
+   * `close` waits for EVERY holder of the child's stdout/stderr, not just the child. An agent that
+   * exits cleanly but leaves a pipe-inheriting background process behind (`sleep 300 &`, a dev
+   * server) would never reach `close`: the run would sit until the heartbeat watchdog or timeout
+   * failed completed work. So the leader's own `exit` starts a short drain window; if `close` has
+   * not arrived by then, the stragglers are contained (process group SIGKILL, our pipe ends
+   * destroyed) and the run settles with the leader's exit code and the output captured so far.
+   * Only for an unrequested exit: timeout / cancel / overflow already own their containment.
+   */
+  function onExit(exitCode: number | null, signal: NodeJS.Signals | null): void {
+    if (settled || terminalRequest !== undefined || processError !== undefined) return;
+    exitDrain = setTimeout(() => {
+      exitDrain = undefined;
+      if (settled || terminalRequest !== undefined) return;
+      terminate(child, "SIGKILL");
+      child?.stdout?.destroy();
+      child?.stderr?.destroy();
+      child?.stdin?.destroy();
+      settleAfterClose(exitCode, signal);
+    }, launch.exitDrainMs ?? DEFAULT_EXIT_DRAIN_MS);
+  }
   function onClose(exitCode: number | null, signal: NodeJS.Signals | null): void {
     // A POSIX process-group leader can close before a SIGTERM-resistant
     // descendant when that descendant does not inherit the leader's pipes.
@@ -329,6 +360,7 @@ export function startProcessExecution(
     child.stdin?.on("error", onStdinError);
     child.on("error", onError);
     child.on("close", onClose);
+    child.on("exit", onExit);
     if (spec.input) child.stdin?.end(spec.input.bytes);
     armTimeout(launch.timeoutMs);
   } else {

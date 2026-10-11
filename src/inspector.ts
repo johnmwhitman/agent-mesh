@@ -22,7 +22,7 @@ import {
 import type { VerifyFinding, VerifyReport } from './verify.js'
 import { buildVerifyEnvelopeV2, type VerifyEnvelopeV2 } from './verify-envelope-v2.js'
 import { buildVerifyEnvelopeV3, type VerifyEnvelopeV3 } from './verify-envelope-v3.js'
-import { computeTally, parseVoteAction } from './ratify.js'
+import { computeTally, parseVoteAction, type Tally } from './ratify.js'
 
 // ---------------------------------------------------------------------------
 // Time formatting
@@ -566,25 +566,37 @@ export function dedupeFollowRows<T extends { id: string }>(
   return fresh
 }
 
+/**
+ * Canonical tally for a council's receipts — seq-aware re-casts, the voter list, weights and
+ * silence policy all come from `computeTally`. Shared by the text and JSON renderers so the
+ * two cannot disagree; exact-action filtering (`r-ack` / `r-decline` only) ignored re-casts
+ * (`r-ack:1`) and counted receipts from agents who were never eligible voters.
+ */
+function tallyCouncil(rat: Ratification, votes: Receipt[]): Tally {
+  const receipts: Record<string, Receipt> = {}
+  for (const v of votes) receipts[`${v.message_id}:${v.agent_id}:${v.action}`] = v
+  return computeTally(
+    { fleets: {}, agents: {}, messages: {}, inboxes: {}, capabilities: {}, receipts, ratifications: {}, templates: {} },
+    rat,
+    Date.now()
+  )
+}
+
 /** Render a council (ratification) with a receipt-derived vote breakdown + integrity gaps. */
 export function formatCouncil(rat: Ratification, votes: Receipt[]): string {
-  const approvals = votes.filter((v) => v.action === 'r-ack').map((v) => v.agent_id)
-  const declines = votes.filter((v) => v.action === 'r-decline').map((v) => v.agent_id)
-  const voted = new Set([...approvals, ...declines])
+  const tally = tallyCouncil(rat, votes)
   const lines: string[] = [
     `Council: ${truncate(rat.subject, 48)}  [${rat.status}]`,
     `  proposal ${truncate(rat.message_id, 8)}  fleet ${truncate(rat.fleet_id, 8)}  by ${truncate(rat.proposer, 8)}`,
-    `  approvals ${approvals.length}/${rat.quorum} needed` +
+    `  approvals ${tally.approval_weight}/${rat.quorum} needed` +
       (rat.required_signoffs.length
         ? `  · required: ${rat.required_signoffs.map((s) => truncate(s, 8)).join(', ')}`
         : ''),
     `  deadline: ${rat.deadline ? formatTimestamp(rat.deadline) : 'none'}  · silence: ${rat.silence_policy}`,
   ]
-  for (const a of approvals) lines.push(`    ✓ approve  ${truncate(a, 8)}`)
-  for (const d of declines) lines.push(`    ✗ decline  ${truncate(d, 8)}`)
-  for (const voter of rat.voters) {
-    if (!voted.has(voter)) lines.push(`    ⚠ no vote  ${truncate(voter, 8)}`)
-  }
+  for (const a of tally.approvals) lines.push(`    ✓ approve  ${truncate(a, 8)}`)
+  for (const d of tally.declines) lines.push(`    ✗ decline  ${truncate(d, 8)}`)
+  for (const voter of tally.pending) lines.push(`    ⚠ no vote  ${truncate(voter, 8)}`)
   return lines.join('\n')
 }
 
@@ -1233,16 +1245,7 @@ export function buildCouncilsJson(
   councils: Array<{ ratification: Ratification; votes: Receipt[] }>
 ): InspectJsonEnvelope<"councils", CouncilJson[]> {
   const data = councils.map(({ ratification, votes }) => {
-    // Canonical tally (seq-aware re-casts, weights, silence policy) — never
-    // reimplement vote semantics here; exact-action filtering misreported a
-    // re-cast voter's polarity.
-    const receipts: Record<string, Receipt> = {};
-    for (const v of votes) receipts[`${v.message_id}:${v.agent_id}:${v.action}`] = v;
-    const tally = computeTally(
-      { fleets: {}, agents: {}, messages: {}, inboxes: {}, capabilities: {}, receipts, ratifications: {}, templates: {} },
-      ratification,
-      Date.now()
-    );
+    const tally = tallyCouncil(ratification, votes);
     return {
       ratification,
       approvals: tally.approvals,

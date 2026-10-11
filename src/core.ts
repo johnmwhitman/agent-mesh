@@ -55,6 +55,17 @@ export interface Agent {
    */
   runtime_attempts?: string[];
   /**
+   * The 1-indexed attempt number of this agent's most recent spawn — the exact suffix of the
+   * `RESULT_PATH` that attempt was handed (`resultPathFor(agentId, spawn_attempt)`).
+   *
+   * Why it exists beside `runtime_attempts`: that list collapses a repeated last entry, so a
+   * same-runtime retry (attempt 2 on `opencode-cli` again) does NOT lengthen it, and its length
+   * stops being the attempt number after the first retry. Readers that locate an envelope on disk
+   * (orphan reconciliation, crash-declaration recovery) must use this counter. Rows written before
+   * the field fall back to `runtime_attempts.length` via {@link latestSpawnAttempt}.
+   */
+  spawn_attempt?: number;
+  /**
    * What the agent DECLARED about its own outcome, via the result contract (`result-contract.ts`).
    *
    * Forward-only: absent on every row written before the contract existed, and never backfilled.
@@ -1119,6 +1130,18 @@ export function recoverInterruptedAgents(options?: {
 }
 
 /**
+ * The attempt number whose result file the agent's latest spawn was handed, or undefined when the
+ * row carries no attempt evidence at all. Prefers the explicit counter; rows that predate it fall
+ * back to the length of `runtime_attempts` (exact only until a same-runtime retry, which is the
+ * best the old shape can say — and the reason the counter exists).
+ */
+export function latestSpawnAttempt(agent: Agent): number | undefined {
+  if (agent.spawn_attempt !== undefined) return agent.spawn_attempt;
+  const hops = agent.runtime_attempts?.length ?? 0;
+  return hops > 0 ? hops : undefined;
+}
+
+/**
  * Reconcile the orphan after a one-shot submitter's death against any result envelope the
  * worker wrote before exiting. Rally Track A (2026-09-07, seat fable-5.1):
  *
@@ -1207,10 +1230,9 @@ export function reconcileOrphanedAgentsInFleet(fleetId: string): OrphanReconcile
     // Durable fleets own their lease; their recover() re-launches and we'd race the
     // coordinator's own settle. Skip.
     if (fleetMode === "durable") { candidates.push({ kind: "wrong-mode", agentId: agent.id }); continue; }
-    const attempts = agent.runtime_attempts?.length ?? 1;
-    // The latest attempt is what its envelope lives under. A retry that hasn't yet had its
-    // adapter recorded still reads as attempt 1.
-    const candidateAttempt = Math.max(1, attempts);
+    // The latest attempt is what its envelope lives under. A retry that hasn't yet been
+    // recorded still reads as attempt 1.
+    const candidateAttempt = Math.max(1, latestSpawnAttempt(agent) ?? 1);
     const candidatePath = resultPathFor(agent.id, candidateAttempt);
     if (existsSync(candidatePath)) {
       candidates.push({
@@ -1287,7 +1309,7 @@ export function reconcileOrphanedAgentsInFleet(fleetId: string): OrphanReconcile
         }
         continue;
       }
-      const envelope = resolved.get(c.agentId);
+      let envelope = resolved.get(c.agentId);
       if (!envelope) { unreadableEnvelope++; continue; } // unreadable; left for the operator per rule 2
       const agent = data.agents[c.agentId];
       if (!agent) continue; // race-lost; rule 1
@@ -1310,9 +1332,11 @@ export function reconcileOrphanedAgentsInFleet(fleetId: string): OrphanReconcile
       // attempt count under the lock and look for an envelope under the new attempt
       // BEFORE applying the cached one. If the new attempt's envelope exists, prefer
       // that one — it's the orchestrator's most recent observation of the worker.
-      const currentAttempts = agent.runtime_attempts?.length ?? 1;
-      const currentAttempt = Math.max(1, currentAttempts);
+      const currentAttempt = Math.max(1, latestSpawnAttempt(agent) ?? 1);
       const cachedAttempt = (c as Extract<Candidate, { kind: "envelope-with-stale-status" }>).attempt;
+      // Both are re-pointed below if the newer attempt's envelope wins: the verdict AND the path
+      // reported in the audit event must describe the file that was actually used.
+      let envelopePath = (c as Extract<Candidate, { kind: "envelope-with-stale-status" }>).envelopePath;
       if (currentAttempt !== cachedAttempt) {
         // Try the new attempt's envelope. If it parses, prefer it; if not, fall through
         // to the cached envelope (which still has its own parser check above).
@@ -1322,15 +1346,14 @@ export function reconcileOrphanedAgentsInFleet(fleetId: string): OrphanReconcile
             const newRaw = readFileSync(newPath, "utf8");
             const newParsed = parseAgentResultEnvelope(newRaw);
             if (newParsed.ok) {
-              if (newParsed.envelope.outcome === "done") {
-                resolved.set(c.agentId, { kind: "done", summary: newParsed.envelope.summary });
-              } else {
-                resolved.set(c.agentId, {
-                  kind: newParsed.envelope.outcome === "refused" ? "refused" : "blocked",
-                  summary: newParsed.envelope.summary,
-                  reason: newParsed.envelope.reason ?? "",
-                });
-              }
+              envelope = newParsed.envelope.outcome === "done"
+                ? { kind: "done", summary: newParsed.envelope.summary }
+                : {
+                    kind: newParsed.envelope.outcome === "refused" ? "refused" : "blocked",
+                    summary: newParsed.envelope.summary,
+                    reason: newParsed.envelope.reason ?? "",
+                  };
+              envelopePath = newPath;
             }
           } catch {
             // new envelope unreadable; fall through to the cached envelope
@@ -1342,7 +1365,6 @@ export function reconcileOrphanedAgentsInFleet(fleetId: string): OrphanReconcile
       // event log cannot grow into a transcript.
       const previousStatus = agent.status;
       const envelopeKind = envelope.kind;
-      const envelopePath = (c as Extract<Candidate, { kind: "envelope-with-stale-status" }>).envelopePath;
       // UNKNOWN EXIT PROVENANCE PRESERVATION. The envelope is the agent's self-declared
       // outcome; the orchestrator observed the FILE, not the runtime exit code (the
       // orchestrator died before its wait-handler could fire). To avoid implying exit-0,

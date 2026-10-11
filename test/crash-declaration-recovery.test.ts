@@ -21,11 +21,15 @@ import { withTempDb } from './helpers/with-temp-db.js'
 const envelope = (outcome: string) =>
   JSON.stringify({ schema: RESULT_CONTRACT_SCHEMA, outcome, summary: 's', reason: 'r' })
 
-/** Interrupted legacy row with N runtime attempts on record. */
+/**
+ * Interrupted legacy row whose latest spawn was attempt N, seeded the way `trySpawn` writes it:
+ * an explicit `spawn_attempt` counter and a `runtime_attempts` list that dedupes a same-runtime
+ * retry (always one entry here). N repeated entries is a row no writer can produce.
+ */
 const interrupted = (id: string, attempts: number) => ({
   id, fleet_id: `fl-${id}`, role: 'r', prompt: 'p',
   status: 'interrupted' as const, started_at: 1, completed_at: 50,
-  ...(attempts > 0 ? { runtime_attempts: Array.from({ length: attempts }, () => 'opencode-cli') } : {}),
+  ...(attempts > 0 ? { spawn_attempt: attempts, runtime_attempts: ['opencode-cli'] } : {}),
 })
 
 test('a refused envelope at the ledger-derived attempt path is recovered; done and torn files are not', () => {
@@ -81,6 +85,36 @@ test('the attempt id comes from the ledger, never a glob: an older attempt\'s re
     assert.equal(agents.noTries.result_contract, undefined, 'no attempt evidence → no path → honest ignorance')
   } finally {
     rmSync(stale, { force: true })
+    temp.cleanup()
+  }
+})
+
+test('a same-runtime retry (spawn_attempt 2, runtime_attempts length 1) recovers from the attempt-2 file', () => {
+  const temp = withTempDb({
+    fleets: {},
+    agents: {
+      retried: interrupted('retried', 2),
+      // A row written before the counter existed: one hop recorded, so attempt 1.
+      legacy: { ...interrupted('legacy', 0), runtime_attempts: ['opencode-cli'] },
+    },
+    messages: {}, inboxes: {}, capabilities: {},
+  })
+  const files = [
+    resultPathFor('retried', 1), // attempt 1 said done (stale); must not win
+    resultPathFor('retried', 2), // the attempt that was running at the crash refused
+    resultPathFor('legacy', 1),
+  ]
+  writeFileSync(files[0], envelope('done'))
+  writeFileSync(files[1], envelope('refused'))
+  writeFileSync(files[2], envelope('blocked'))
+  try {
+    const out = recoverCrashDeclarations(new Set(['retried', 'legacy']))
+    assert.equal(out.recovered, 2)
+    const agents = loadData().agents
+    assert.equal(agents.retried.result_contract, 'refused', "attempt 2's declaration is recovered, not lost")
+    assert.equal(agents.legacy.result_contract, 'blocked', 'rows without the counter fall back to runtime_attempts.length')
+  } finally {
+    for (const f of files) rmSync(f, { force: true })
     temp.cleanup()
   }
 })

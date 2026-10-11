@@ -60,6 +60,18 @@ if (mode === "timeout") {
   // Intentionally install no SIGTERM handler. Group TERM kills this leader
   // while the pipe-detached descendant survives until group SIGKILL.
   setInterval(() => {}, 1_000);
+} else if (mode === "leader-exits-clean-descendant-holds-pipes") {
+  // The agent finished and exits 0, but leaves a background process that inherited stdout/stderr
+  // (`sleep 300 &`, a dev server). The leader's `close` event can never fire on its own.
+  const descendant = spawn(process.execPath, [process.argv[1], "timeout"], {
+    env: process.env,
+    stdio: "inherit",
+  });
+  const descendantFile = process.env.MESH_DESCENDANT_PID_FILE;
+  if (descendantFile && descendant.pid) writeFileSync(descendantFile, String(descendant.pid));
+  process.stdout.write("work-complete");
+  descendant.unref();
+  process.exit(0);
 } else if (mode === "tree-term-ignore") {
   const descendant = spawn(process.execPath, [process.argv[1], "term-ignore"], {
     env: process.env,

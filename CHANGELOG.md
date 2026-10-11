@@ -6,6 +6,15 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 
 ### Fixed
 
+- **`open_ratification` with `deadline: null`.** The boundary treated null as absent but the null was stored, and `now >= null` coerced to 0, so an approve-policy council ratified instantly with zero votes (and an abstain-policy one expired instantly). Null now means no deadline.
+- **Late votes no longer count.** A vote stamped after a ratification's deadline could flip an expired ratification to ratified before the sweeper persisted `expired`. Votes after the deadline are ignored by the tally (the receipt is still appended).
+- **`ask_peer` no longer times out early on the last turn.** With `max_turns: 2` and `wake_peer`, the discussion reads `exhausted` the moment the final reply attempt is reserved, and `awaitAnswer` returned `timed_out` within milliseconds. It now keeps waiting while an attempt is live inside its own deadline.
+- **`inspect councils` text output uses the canonical tally.** It counted raw `r-ack`/`r-decline` receipts, ignoring seq re-casts and the voter list; it now shares `computeTally` with the JSON output.
+- **Tools called without `arguments`.** `get_health` and `subscribe_events` (no required fields) failed with -32603 when a client omitted `arguments`; the dispatcher now passes an empty object.
+- **`local-demo` first-use example completes.** The demo worker never wrote `$RESULT_PATH`, so `spawn_fleet ... runtime: "local-demo"` always sealed `failed` (`result_contract=absent`). It now writes a deterministic `done` envelope.
+- **A clean exit with a leftover background process settles.** Completion waited for the child's `close`, which waits for every holder of stdout/stderr, so an agent that exited 0 but left a pipe-inheriting process behind hung until the timeout/heartbeat watchdog failed (and re-ran) completed work. The child's `exit` now starts a short drain; remaining descendants are contained and the run settles with the exit code and captured output.
+- **Attempt N>1 result files are found again.** `runtime_attempts` dedupes same-runtime retries, so its length is not the attempt number, and orphan reconciliation and crash-declaration recovery read the wrong `RESULT_PATH`. Agents now persist `spawn_attempt`; old rows fall back to the list length.
+- **Orphan reconciliation prefers the newer attempt's envelope.** The envelope was captured before the Pass-3 attempt re-check, so re-reading the newer attempt's file had no effect.
 - **Dashboard live updates.** `agent-mesh-dashboard` built the event-stream GET and never finished it, so a listening server received nothing and the poll fallback never armed. The request is now sent. A HTTP 200 that is not `text/event-stream` (including `application/json`) is treated as unavailable, so interval polling continues instead of waiting for a frame that will not arrive. `--poll-only` refreshes on `--interval`. The dashboard header now describes the SQLite ledger and NDJSON event log it reads.
 
 ## [0.22.0] - 2026-09-26

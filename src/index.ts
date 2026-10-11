@@ -341,7 +341,7 @@ function trySpawn(input: SpawnAgentInput, agentId: string, attempt: number): voi
   const spec = buildExecutionSpec(input, agentId, adapter, resultPath);
   // Append BEFORE the spawn, not after it resolves. A runtime that refuses instantly is exactly
   // the case failover exists for, and a record written only on success would omit it.
-  recordRuntimeAttempt(agentId, adapter.id);
+  recordRuntimeAttempt(agentId, adapter.id, attempt);
   void adapter.start(spec).then((handle) => {
     if (readLedger().agents[agentId]?.status !== "running") {
       void adapter.cancel(handle, "agent became terminal before runtime start completed");
@@ -537,10 +537,14 @@ function settleLegacyNonTimeout(
  * An ordered list, not a counter: `["opencode-cli","kimi-cli"]` states which runtime ran first,
  * which one it hopped to, and in what order — a count would say only that something happened.
  */
-function recordRuntimeAttempt(agentId: string, runtimeId: string): void {
+function recordRuntimeAttempt(agentId: string, runtimeId: string, attempt: number): void {
   withLedger((data) => {
     const agent = data.agents[agentId];
     if (!agent) return;
+    // The attempt NUMBER is recorded unconditionally and separately from the runtime list: the
+    // list dedupes a same-runtime retry, so its length is not the number the RESULT_PATH carries.
+    // Readers that look for this attempt's envelope on disk use this counter.
+    agent.spawn_attempt = attempt;
     const attempts = agent.runtime_attempts ?? [];
     // Idempotent on the id that is already last: a re-entry must not inflate the history into
     // evidence of a hop that never happened.
@@ -2586,7 +2590,8 @@ toolHandlers["open_ratification"] = async (args) => {
         quorum: a.quorum,
         voters: a.voters,
         requiredSignoffs: a.required_signoffs,
-        deadline: a.deadline,
+        // optionalNumber accepts null as absent; normalise so "no deadline" stays no deadline.
+        deadline: a.deadline ?? undefined,
         silencePolicy: a.silence_policy,
         weights: a.weights,
       });
@@ -3101,7 +3106,10 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
   if (!handler) {
     throw new Error(`Unknown tool: ${name}`);
   }
-  return await handler(args);
+  // `arguments` is optional on the wire and tools with no required fields (get_health,
+  // subscribe_events, ...) are schema-valid without it. Handlers destructure their args, so
+  // an omitted value must arrive as an empty object, not undefined (-32603 TypeError).
+  return await handler(args ?? {});
 });
 
 // ---------------------------------------------------------------------------

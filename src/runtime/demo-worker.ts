@@ -7,10 +7,19 @@
  * model-shaped text here would be exactly the fabricated-content failure this
  * product exists to catch. It does deterministic, inspectable work: echo the
  * task, derive a trivial summary, emit one JSON object, exit 0. No network,
- * no environment reads, no timestamps (byte-determinism is a tested contract).
+ * no timestamps (byte-determinism is a tested contract).
+ *
+ * The one environment read is RESULT_PATH, the result-contract file every agentic
+ * runtime is handed. Without a declared envelope `spawn_fleet` seals the demo agent
+ * `failed` (result_contract=absent), so the worker writes the honest, deterministic
+ * `done` declaration the contract asks for. It is still only a DECLARED outcome: the
+ * summary states what the worker did (counted words), not model-backed quality.
+ *
+ * Kept plain JS-compatible (no type annotations): local-demo.ts stages this file
+ * as .mjs when no compiled copy exists.
  */
 
-export {}; // module scope on purpose: a script-scoped `prompt` collides with the DOM global in TS
+import { writeFileSync } from "node:fs";
 
 const prompt = process.argv[2];
 
@@ -33,3 +42,18 @@ const payload = {
 };
 
 process.stdout.write(`${JSON.stringify(payload)}\n`);
+
+const resultPath = process.env.RESULT_PATH;
+if (typeof resultPath === "string" && resultPath.length > 0) {
+  const envelope = {
+    schema: "mf.agent.result/v1", // RESULT_CONTRACT_SCHEMA in src/result-contract.ts (pinned by test)
+    outcome: "done",
+    summary: `local-demo worker counted ${words.length} words in the task; no AI model attached.`,
+  };
+  try {
+    writeFileSync(resultPath, `${JSON.stringify(envelope)}\n`);
+  } catch (err) {
+    process.stderr.write(`local-demo worker: could not write RESULT_PATH: ${err instanceof Error ? err.message : String(err)}\n`);
+    process.exit(1);
+  }
+}

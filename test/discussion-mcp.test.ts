@@ -907,3 +907,38 @@ test("Task 3 #12 — a runtime wait rejection follows the failed-exit path once"
     db.cleanup();
   }
 });
+
+test("awaitAnswer keeps waiting while the final reply attempt is live (max_turns 2 reads `exhausted` at reservation)", async () => {
+  const db = withTempDb();
+  try {
+    seedFleetAndAgents();
+    const fake = makeFakeSpawn();
+    _resetDiscussionStoreForTests({ spawn: fake.spawn });
+    const store = getDiscussionStore();
+
+    // max_turns 2 = root + exactly one reply: the wake reservation consumes the last turn,
+    // so the derived status is already `exhausted` while the peer is still working.
+    const opened = await store.openDiscussion(askPeerDefaults({ wake_peer: true, max_turns: 2 }));
+    assert.ok(opened.reservation, "wake must reserve the single reply attempt");
+
+    const settled = Symbol("settled");
+    const waiting = store.awaitAnswer(opened.discussion_id, opened.root_message_id);
+    const early = await Promise.race([waiting, new Promise((r) => setTimeout(() => r(settled), 300))]);
+    assert.equal(early, settled, `awaitAnswer returned ${JSON.stringify((early as { status?: string }).status)} while the peer's attempt was still live`);
+
+    await store.replyDiscussion({
+      agent_id: AGENT_B,
+      discussion_id: opened.discussion_id,
+      attempt_id: opened.reservation!.attempt_id,
+      reply_to_message_id: opened.root_message_id,
+      type: "result",
+      payload: "late but in time",
+      close: true,
+    });
+    fake.exits[0]!({ code: 0 });
+    const result = await waiting;
+    assert.equal(result.status, "answered");
+  } finally {
+    db.cleanup();
+  }
+});
