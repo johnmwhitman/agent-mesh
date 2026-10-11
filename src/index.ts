@@ -2586,7 +2586,8 @@ toolHandlers["open_ratification"] = async (args) => {
         quorum: a.quorum,
         voters: a.voters,
         requiredSignoffs: a.required_signoffs,
-        deadline: a.deadline,
+        // optionalNumber accepts null as absent; normalise so "no deadline" stays no deadline.
+        deadline: a.deadline ?? undefined,
         silencePolicy: a.silence_policy,
         weights: a.weights,
       });

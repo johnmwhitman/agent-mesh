@@ -199,7 +199,9 @@ export function openRatification(input: OpenRatificationInput): string {
       voters,
       required_signoffs: input.requiredSignoffs ?? [],
       opened_at: Date.now(),
-      ...(input.deadline !== undefined ? { deadline: input.deadline } : {}),
+      // `!= null`: a JSON `deadline: null` means "no deadline" (optionalNumber treats it as absent).
+      // Persisting the null would coerce to 0 in `now >= r.deadline` and expire instantly.
+      ...(input.deadline != null ? { deadline: input.deadline } : {}),
       silence_policy: input.silencePolicy ?? "abstain",
       status: "open",
       ...(weights ? { weights: { ...weights } } : {}),
@@ -305,7 +307,7 @@ export function computeTally(data: MeshData, r: Ratification, now: number): Tall
   const signoffsMet = r.required_signoffs.every((s) => voteByAgent.get(s) === true);
   const signoffRejected = r.required_signoffs.some((s) => voteByAgent.get(s) === false);
 
-  const deadlinePassed = r.deadline !== undefined && now >= r.deadline;
+  const deadlinePassed = typeof r.deadline === "number" && now >= r.deadline;
   const effectiveApprovalWeight =
     deadlinePassed && r.silence_policy === "approve" ? approvalWeight + pendingWeight : approvalWeight;
 
