@@ -871,7 +871,16 @@ export function createDiscussionStore(deps: DiscussionStoreDeps): DiscussionStor
           discussion: view,
         };
       }
-      if (view.status === "exhausted" || view.status === "expired") {
+      // `exhausted` is computed from turns RESERVED (root + one per reservation), so with
+      // max_turns 2 it holds the instant the final reply attempt is reserved — before the
+      // peer has answered. `expired` can likewise overlap a still-live attempt. Neither is
+      // terminal for this wait while that attempt is live and inside its own deadline; the
+      // peer's reply (-> closed/answered), the attempt's deadman, or the conversation
+      // deadline branch below ends the wait instead of returning timed_out in milliseconds.
+      const attemptStillLive = view.attempts.some(
+        (a) => (a.state === "reserved" || a.state === "started") && a.deadline > now,
+      );
+      if ((view.status === "exhausted" || view.status === "expired") && !attemptStillLive) {
         const lastAttempt = view.attempts[view.attempts.length - 1];
         const status: AskPeerStatus = lastAttempt?.state === "failed" ? "failed" : "timed_out";
         return {
