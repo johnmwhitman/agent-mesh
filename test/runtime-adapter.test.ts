@@ -492,6 +492,38 @@ test("output overflow contains a POSIX descendant group without a pipe hang", { 
   }
 });
 
+test("a clean leader exit settles even while a descendant still holds the stdio pipes", { skip: POSIX_SIGNALS_ONLY }, async () => {
+  // `close` waits for every holder of stdout/stderr. An agent that exits 0 but leaves a
+  // pipe-inheriting background process used to hang until the timeout, which then banked
+  // completed work as a timeout (and the heartbeat watchdog re-ran it).
+  const dir = mkdtempSync(join(tmpdir(), "meshfleet-exit-descendant-"));
+  const descendantPid = join(dir, "descendant.pid");
+  const adapter = new LocalProcessRuntimeAdapter({
+    command: process.execPath,
+    buildArgs: () => [FIXTURE, "leader-exits-clean-descendant-holds-pipes"],
+    terminationGraceMs: TERMINATION_GRACE_MS,
+  });
+  let handle: Awaited<ReturnType<LocalProcessRuntimeAdapter["start"]>> | undefined;
+  try {
+    const startedAt = Date.now();
+    handle = await adapter.start(spec({
+      timeoutMs: 8_000,
+      environment: { MESH_DESCENDANT_PID_FILE: descendantPid },
+    }));
+    const result = await adapter.wait(handle);
+    assert.equal(result.status, "success", `got ${result.status}: ${result.error ?? ""}`);
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.stdout, "work-complete");
+    assert.ok(Date.now() - startedAt < 6_000, "must settle shortly after the leader exits, not at the timeout");
+    // The straggler is contained, not left running holding our pipes.
+    await waitForProcessGone(Number(readFileSync(descendantPid, "utf8")));
+    await waitForProcessGroupGone(handle.pid!);
+  } finally {
+    forceFixtureCleanup(handle?.pid);
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});
+
 test("OpenCode adapter preserves observed banner identity and raw receipt output with a test double", async () => {
   const adapter = new OpenCodeRuntimeAdapter({
     command: process.execPath,
