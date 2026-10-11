@@ -1309,7 +1309,7 @@ export function reconcileOrphanedAgentsInFleet(fleetId: string): OrphanReconcile
         }
         continue;
       }
-      const envelope = resolved.get(c.agentId);
+      let envelope = resolved.get(c.agentId);
       if (!envelope) { unreadableEnvelope++; continue; } // unreadable; left for the operator per rule 2
       const agent = data.agents[c.agentId];
       if (!agent) continue; // race-lost; rule 1
@@ -1334,6 +1334,9 @@ export function reconcileOrphanedAgentsInFleet(fleetId: string): OrphanReconcile
       // that one — it's the orchestrator's most recent observation of the worker.
       const currentAttempt = Math.max(1, latestSpawnAttempt(agent) ?? 1);
       const cachedAttempt = (c as Extract<Candidate, { kind: "envelope-with-stale-status" }>).attempt;
+      // Both are re-pointed below if the newer attempt's envelope wins: the verdict AND the path
+      // reported in the audit event must describe the file that was actually used.
+      let envelopePath = (c as Extract<Candidate, { kind: "envelope-with-stale-status" }>).envelopePath;
       if (currentAttempt !== cachedAttempt) {
         // Try the new attempt's envelope. If it parses, prefer it; if not, fall through
         // to the cached envelope (which still has its own parser check above).
@@ -1343,15 +1346,14 @@ export function reconcileOrphanedAgentsInFleet(fleetId: string): OrphanReconcile
             const newRaw = readFileSync(newPath, "utf8");
             const newParsed = parseAgentResultEnvelope(newRaw);
             if (newParsed.ok) {
-              if (newParsed.envelope.outcome === "done") {
-                resolved.set(c.agentId, { kind: "done", summary: newParsed.envelope.summary });
-              } else {
-                resolved.set(c.agentId, {
-                  kind: newParsed.envelope.outcome === "refused" ? "refused" : "blocked",
-                  summary: newParsed.envelope.summary,
-                  reason: newParsed.envelope.reason ?? "",
-                });
-              }
+              envelope = newParsed.envelope.outcome === "done"
+                ? { kind: "done", summary: newParsed.envelope.summary }
+                : {
+                    kind: newParsed.envelope.outcome === "refused" ? "refused" : "blocked",
+                    summary: newParsed.envelope.summary,
+                    reason: newParsed.envelope.reason ?? "",
+                  };
+              envelopePath = newPath;
             }
           } catch {
             // new envelope unreadable; fall through to the cached envelope
@@ -1363,7 +1365,6 @@ export function reconcileOrphanedAgentsInFleet(fleetId: string): OrphanReconcile
       // event log cannot grow into a transcript.
       const previousStatus = agent.status;
       const envelopeKind = envelope.kind;
-      const envelopePath = (c as Extract<Candidate, { kind: "envelope-with-stale-status" }>).envelopePath;
       // UNKNOWN EXIT PROVENANCE PRESERVATION. The envelope is the agent's self-declared
       // outcome; the orchestrator observed the FILE, not the runtime exit code (the
       // orchestrator died before its wait-handler could fire). To avoid implying exit-0,

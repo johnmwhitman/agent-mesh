@@ -25,6 +25,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createRequire } from "node:module";
 import { closeDb, withLedgerAndStorage } from "../src/db.js";
 import {
   loadData,
@@ -429,6 +430,57 @@ test("race: a new envelope at attempt N+1 written between Pass-1 and Pass-3 is p
     assert.equal(agent.error, undefined);
     assert.equal(agent.result_contract, "ok");
   } finally {
+    closeDb();
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("race: a retry landing INSIDE the Pass-1..Pass-3 window makes the newer envelope win", () => {
+  // The existing race test bumps the attempt BEFORE the call, so Pass-1 already sees it and the
+  // Pass-3 re-check never runs. Here the bump happens after Pass-1's snapshot: the durable-mode
+  // query is the first ledger access after that snapshot, so a one-shot hook on `prepare` for it
+  // lands the retry exactly in the window. Pass-3 must then use the NEWER attempt's envelope —
+  // it used to look it up, parse it, and still apply the stale cached one.
+  const tempDir = mkdtempSync(join(tmpdir(), "chaos-recon-window-"));
+  const require = createRequire(import.meta.url);
+  const Database = require("better-sqlite3") as { prototype: { prepare: (sql: string) => unknown } };
+  const originalPrepare = Database.prototype.prepare;
+  try {
+    const agentId = "agent-window";
+    const fleetId = "fleet-window";
+    seedAgent({ agentId, fleetId, pid: 999_991, attempts: 1 });
+    writeEnvelope(agentId, 1, {
+      schema: RESULT_CONTRACT_SCHEMA,
+      outcome: "refused",
+      summary: "stale refusal",
+      reason: "this is the old attempt",
+    });
+    let fired = false;
+    Database.prototype.prepare = function (this: unknown, sql: string) {
+      const statement = originalPrepare.call(this, sql);
+      if (!fired && /SELECT lifecycle_mode FROM fleets/.test(sql)) {
+        fired = true;
+        const read = originalPrepare.call(this, "SELECT data FROM agents WHERE id = ?") as
+          { get: (id: string) => { data: string } };
+        const write = originalPrepare.call(this, "UPDATE agents SET data = ? WHERE id = ?") as
+          { run: (data: string, id: string) => unknown };
+        const a = JSON.parse(read.get(agentId).data);
+        a.spawn_attempt = 2;
+        write.run(JSON.stringify(a), agentId);
+        writeEnvelope(agentId, 2, { schema: RESULT_CONTRACT_SCHEMA, outcome: "done", summary: "fresh PONG" });
+      }
+      return statement;
+    };
+    const outcome = reconcileOrphanedAgentsInFleet(fleetId);
+    Database.prototype.prepare = originalPrepare;
+    assert.ok(fired, "the hook must have landed the retry inside the window");
+    assert.equal(outcome.reconciled, 1);
+    const agent = loadData().agents[agentId];
+    assert.equal(agent.status, "complete", "the newer attempt's done envelope must win");
+    assert.equal(agent.output, "fresh PONG");
+    assert.equal(agent.result_contract, "ok");
+  } finally {
+    Database.prototype.prepare = originalPrepare;
     closeDb();
     rmSync(tempDir, { recursive: true, force: true });
   }
