@@ -607,3 +607,122 @@ test("verifier v3 errors on duplicate_logical_key with identity_mismatch co-fire
     assert.equal(result.ok, false);
   });
 });
+
+// ----------------------------------------------------------------------
+// Temporal ordering: recorded_at vs the auditor's wall-clock. The server
+// stamps recorded_at at INSERT, so an honest row always satisfies
+// recorded_at <= now. recorded_at is NOT covered by the payload digest
+// (computeWorkReceiptPayloadSha256), so this relative-to-now invariant is
+// the only guard that can see a recorded_at that disagrees with the
+// audit's clock at all.
+// ----------------------------------------------------------------------
+
+test("verifier v3 errors on recorded_in_future (recorded wall-clock is after the auditor's now)", () => {
+  withTempLedger((ledgerPath) => {
+    const now = Math.floor(Date.now() / 1000);
+    // recorded_at one hour AFTER the auditor's now. The digest is computed
+    // with the honest completed_at so digest_mismatch cannot co-fire, and
+    // every schema field is individually valid — this row previously
+    // verified ok:true with zero findings (measured RED before the fix).
+    insertWorkReceiptRow({
+      key: workReceiptKey(WORK_RECEIPT_SOURCE, "t_recordedinfuture", 1),
+      source: WORK_RECEIPT_SOURCE,
+      task_id: "t_recordedinfuture",
+      run_id: 1,
+      assignee: "alice",
+      terminal_outcome: "completed",
+      result_contract: "ok",
+      quality_gate: "passed",
+      completed_at: now - 120,
+      evidence_json: JSON.stringify([{ kind: "git_commit", handle: "h1" }]),
+      payload_sha256: computeWorkReceiptPayloadSha256({
+        schema: WORK_RECEIPT_SCHEMA,
+        task_id: "t_recordedinfuture",
+        run_id: 1,
+        assignee: "alice",
+        terminal_outcome: "completed",
+        result_contract: "ok",
+        quality_gate: "passed",
+        completed_at: now - 120,
+        evidence: [{ kind: "git_commit", handle: "h1" }],
+        payload_sha256: "",
+      }),
+      recorded_at: now + 3600,
+    });
+    const result = verifyLedgerFile(ledgerPath);
+    const finding = result.findings.find(
+      (f) => f.check === "work_receipt.recorded_in_future",
+    );
+    assert.ok(
+      finding,
+      `expected work_receipt.recorded_in_future; got ${JSON.stringify(result.findings.map((f) => f.check))}`,
+    );
+    assert.equal(finding!.severity, "error");
+    assert.equal(result.ok, false);
+  });
+});
+
+test("verifier v3 stays silent when recorded_at <= now (equal and before are honest orderings)", () => {
+  withTempLedger((ledgerPath) => {
+    const now = Math.floor(Date.now() / 1000);
+    // Equal timestamps: the writer's same-second insert path.
+    insertWorkReceiptRow({
+      key: workReceiptKey(WORK_RECEIPT_SOURCE, "t_recordedequal", 1),
+      source: WORK_RECEIPT_SOURCE,
+      task_id: "t_recordedequal",
+      run_id: 1,
+      assignee: "alice",
+      terminal_outcome: "completed",
+      result_contract: "ok",
+      quality_gate: "passed",
+      completed_at: now - 60,
+      evidence_json: JSON.stringify([{ kind: "git_commit", handle: "h1" }]),
+      payload_sha256: computeWorkReceiptPayloadSha256({
+        schema: WORK_RECEIPT_SCHEMA,
+        task_id: "t_recordedequal",
+        run_id: 1,
+        assignee: "alice",
+        terminal_outcome: "completed",
+        result_contract: "ok",
+        quality_gate: "passed",
+        completed_at: now - 60,
+        evidence: [{ kind: "git_commit", handle: "h1" }],
+        payload_sha256: "",
+      }),
+      recorded_at: now,
+    });
+    // Far past: a normal honest row whose recorded_at is well behind now.
+    insertWorkReceiptRow({
+      key: workReceiptKey(WORK_RECEIPT_SOURCE, "t_recordedpast", 2),
+      source: WORK_RECEIPT_SOURCE,
+      task_id: "t_recordedpast",
+      run_id: 2,
+      assignee: "alice",
+      terminal_outcome: "completed",
+      result_contract: "ok",
+      quality_gate: "passed",
+      completed_at: 1_700_000_000,
+      evidence_json: JSON.stringify([{ kind: "git_commit", handle: "h1" }]),
+      payload_sha256: computeWorkReceiptPayloadSha256({
+        schema: WORK_RECEIPT_SCHEMA,
+        task_id: "t_recordedpast",
+        run_id: 2,
+        assignee: "alice",
+        terminal_outcome: "completed",
+        result_contract: "ok",
+        quality_gate: "passed",
+        completed_at: 1_700_000_000,
+        evidence: [{ kind: "git_commit", handle: "h1" }],
+        payload_sha256: "",
+      }),
+      recorded_at: 1_700_000_001,
+    });
+    const result = verifyLedgerFile(ledgerPath);
+    assert.equal(
+      result.findings.filter((f) => f.check === "work_receipt.recorded_in_future").length,
+      0,
+      `no recorded_in_future expected on honest orderings; got ${JSON.stringify(result.findings)}`,
+    );
+    assert.equal(result.ok, true);
+  });
+});

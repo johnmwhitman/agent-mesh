@@ -215,6 +215,46 @@ export function verifyMeshData(
         );
       }
     }
+    // Temporal ordering the schema validator deliberately does not own, and
+    // the digest cannot see: `recorded_at` is the server's wall-clock at
+    // INSERT, so an honestly produced row always satisfies
+    // `recorded_at <= now`. A row claiming to have been recorded AFTER
+    // the auditor's "now" asserts that the server wrote down a stamp
+    // from the future — reachable from a hand-edit (rewriting recorded_at
+    // forward to mask a replay), from a writer clock that has drifted
+    // PAST the server's, or from an auditor whose clock is BEHIND the
+    // writer's; all three are forms of "the recorded wall-clock does not
+    // match the audit's wall-clock". The schema validator only requires
+    // `recorded_at > 0` (a positive integer) and `payload_sha256` does
+    // not cover `recorded_at` (computeWorkReceiptPayloadSha256 omits it
+    // by design — recorded_at is server-side metadata, not a payload
+    // field the writer owns), so editing `recorded_at` forward passes
+    // the digest recompute and every other guard. This relative-to-now
+    // invariant is therefore the ONLY guard in the repo that can see a
+    // recorded_at that disagrees with the audit's clock at all.
+    //
+    // `now` is the auditor's wall-clock, taken from the function
+    // parameter (passed as unix seconds by the verifyLedger / verifyLedgerFile
+    // entry points and as unix milliseconds by the synthetic test path).
+    // We divide by 1000 so the comparison lands on the same seconds
+    // scale the row uses. Gated on `validation.ok` so the new finding
+    // never fires on a row already reported broken (the schema check
+    // already surfaces a positive-integer validation error if either
+    // timestamp is malformed).
+    //
+    // Error, per the file's precedent for cross-row temporal
+    // contradictions (`receipt.before_message` errors on writer-supplied
+    // timestamps that disagree with sibling rows; cycle-887's
+    // `work_receipt.completed_after_recorded` errors on within-row
+    // temporal impossibilities — this is the relative-to-now sibling).
+    const nowSeconds = Math.floor(now / 1000);
+    if (validation.ok && wr.recorded_at > nowSeconds) {
+      error(
+        "work_receipt.recorded_in_future",
+        rowKey,
+        `work_receipts row for ${wr.task_id} run ${wr.run_id} is recorded_at=${wr.recorded_at} but the auditor's clock is now=${nowSeconds} (${wr.recorded_at - nowSeconds}s ahead) — the server stamps recorded_at at INSERT and an honestly produced row is always at or before the audit's wall-clock; a recorded_in_future row is a hand-edit (forward-rewriting recorded_at to mask a replay), a writer clock drifted past the auditor's, or an auditor clock behind the writer's`,
+      );
+    }
   }
 
   const receipts = data.receipts ?? {};

@@ -370,6 +370,45 @@ export const WORK_RECEIPT_FIXTURES: readonly WorkReceiptFixture[] = [
       });
     },
   },
+  {
+    check: "work_receipt.recorded_in_future",
+    description:
+      "recorded_at is AFTER the auditor's wall-clock — the server stamps recorded_at at INSERT and an honestly produced row is always at or before the audit's wall-clock; a future stamp is a hand-edit (forward-rewriting recorded_at to mask a replay), a writer clock that has drifted past the auditor's, or an auditor clock behind the writer's",
+    plant(ledgerPath) {
+      // Plant with a valid KEY, a contract-clean schema, and a digest that
+      // is CONSISTENT with the planted (lying) recorded_at — so neither
+      // malformed_key nor invalid_persisted_schema nor digest_mismatch
+      // co-fires and the recorded_in_future check is the unique named
+      // error. recorded_at = now + 3600 has no honest producer: the
+      // server stamps recorded_at at INSERT on the auditor's wall-clock
+      // (or the server's, which the auditor's audit reflects); a row
+      // recorded an hour AFTER the audit's "now" asserts the server
+      // wrote down a stamp from the future, which is impossible without
+      // hand-editing recorded_at forward or running the audit on a host
+      // whose clock is behind the writer's.
+      //
+      // recorded_at is computed dynamically at plant time (the auditor's
+      // clock advances between fixture authoring and fixture execution),
+      // so the planted row is always one hour ahead of whatever `now` is
+      // when the fixture runs.
+      const planted = basePayload({ task_id: "t_recordedinfuture" });
+      const futureRecordedAt = Math.floor(Date.now() / 1000) + 3600;
+      rawInsert({
+        key: workReceiptKey(WORK_RECEIPT_SOURCE, planted.task_id, planted.run_id),
+        source: WORK_RECEIPT_SOURCE,
+        task_id: planted.task_id,
+        run_id: planted.run_id,
+        assignee: planted.assignee,
+        terminal_outcome: planted.terminal_outcome,
+        result_contract: planted.result_contract,
+        quality_gate: planted.quality_gate,
+        completed_at: planted.completed_at,
+        evidence_json: JSON.stringify(planted.evidence),
+        payload_sha256: canonicalDigest(planted),
+        recorded_at: futureRecordedAt,
+      });
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------------
