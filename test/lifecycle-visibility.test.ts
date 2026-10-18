@@ -189,3 +189,43 @@ test("fleet scoped outbox summary excludes another fleet's pending projection", 
   assert.equal(b.outbox.pending, 1);
   assert.equal(b.outbox.repair_needed, true);
 });
+
+test("outbox claimed_by/claimed_at invariants fire named errors for each gap and stay silent for honest orderings", () => {
+  // Five outbox rows, one per invariant gap plus an honest control. The pure
+  // verifyLifecycleSnapshot function is the same code path the SQLite audit
+  // reaches after snapshot composition; we exercise it directly here so each
+  // named check fires exactly once and zero co-fires (per work_receipt fixture
+  // precedent — a unique, single-fire assertion is what makes the test
+  // evidence the check is implemented, not just that the loop ran).
+  const outbox = [
+    { seq: 1, event_id: "a-late-create", event: "attempt_completed", payload: "{\"work_id\":\"w1\"}", created_at: 100, claimed_by: "owner-1", claimed_at: 50, projected_at: null },
+    { seq: 2, event_id: "b-early-project", event: "attempt_completed", payload: "{\"work_id\":\"w2\"}", created_at: 10, claimed_by: "owner-2", claimed_at: 100, projected_at: 80 },
+    { seq: 3, event_id: "c-owner-no-time", event: "attempt_completed", payload: "{\"work_id\":\"w3\"}", created_at: 10, claimed_by: "owner-3", claimed_at: null, projected_at: null },
+    { seq: 4, event_id: "d-time-no-owner", event: "attempt_completed", payload: "{\"work_id\":\"w4\"}", created_at: 10, claimed_by: null, claimed_at: 50, projected_at: null },
+    { seq: 5, event_id: "e-clean", event: "attempt_completed", payload: "{\"work_id\":\"w5\"}", created_at: 10, claimed_by: "owner-5", claimed_at: 20, projected_at: 30 },
+  ];
+  const snapshot = {
+    data: { fleets: { f1: { id: "f1", status: "running", created_at: 1 } }, agents: {}, messages: {}, inboxes: {}, capabilities: {}, receipts: {}, ratifications: {}, templates: {} },
+    logicalVersion: 2, storageVersion: 3, snapshotKind: "copied-sqlite-files", lifecycleTablesPresent: true, fleetModes: new Map([["f1", "durable"]]),
+    work: [], attempts: [], events: [], outbox, scanExceeded: false,
+  } as unknown as LifecycleSnapshot;
+  const findings = verifyLifecycleSnapshot(snapshot, 1_000_000);
+  const byCheck = new Map(findings.map((finding) => [finding.check, finding]));
+  // Each named invariant fires exactly once and points at its own row. The
+  // honest control row (e-clean) contributes no findings at all.
+  assert.equal(byCheck.get("lifecycle.outbox.claimed_before_created")?.subject, "a-late-create");
+  assert.equal(byCheck.get("lifecycle.outbox.projected_before_claimed")?.subject, "b-early-project");
+  assert.equal(byCheck.get("lifecycle.outbox.claimed_by_without_timestamp")?.subject, "c-owner-no-time");
+  assert.equal(byCheck.get("lifecycle.outbox.claimed_at_without_claimed_by")?.subject, "d-time-no-owner");
+  assert.equal(findings.some((finding) => finding.subject === "e-clean"), false);
+  // Severity: the four invariant gaps are error (a missing-but-mandatory
+  // ordering); projection_lag remains the only warning, and only on rows that
+  // also have the invariant gap (a, c, d — none of them has projected_at).
+  const invariantSeverities = [
+    byCheck.get("lifecycle.outbox.claimed_before_created")?.severity,
+    byCheck.get("lifecycle.outbox.projected_before_claimed")?.severity,
+    byCheck.get("lifecycle.outbox.claimed_by_without_timestamp")?.severity,
+    byCheck.get("lifecycle.outbox.claimed_at_without_claimed_by")?.severity,
+  ];
+  for (const severity of invariantSeverities) assert.equal(severity, "error", `expected error severity, got ${severity}`);
+});

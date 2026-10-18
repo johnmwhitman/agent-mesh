@@ -1169,6 +1169,33 @@ const CHECK_EXPLANATIONS: Record<string, CheckExplanation> = {
     benign: "a single evidence entry with a non-SHA-256 digest that the caller intentionally omits (kind without digest) is allowed by the schema; only the populated-with-bad-bytes case fails. Rows planted by hand before the contract shipped may also have older evidence kinds",
     investigate: "agent-mesh inspect --export | jq '.work_receipts[] | select(.evidence | type == \"string\") | .key'",
   },
+  // -------------------------------------------------------------------------
+  // Lifecycle outbox invariants on the claimed/projected timestamps. The
+  // SQLite-backed audit pipeline (verifyLedgerFile → verifyLifecycleSnapshot)
+  // emits these; the JSON corpus does not cover them because lifecycle lives
+  // on the storage-version 3 path that JSON ledgers cannot express. Every
+  // emit site here corresponds to a named check fired in
+  // src/lifecycle-visibility.ts:240-251.
+  "lifecycle.outbox.claimed_before_created": {
+    what: "an outbox row is recorded with a claim timestamp BEFORE its own created_at — claim time cannot precede the row's existence, so this is a hand-edit, a writer clock drifted into the past, or a row imported from a ledger whose clock differed",
+    benign: "rarely benign: the writers set created_at when they insert and claimed_at only on a subsequent claim, so a real claim is always at-or-after created_at. A clock-skewed writer or a partial SQLite copy are the only honest paths",
+    investigate: "agent-mesh inspect --lifecycle <fleet> --json | jq '.data.issues[] | select(.check == \"lifecycle.outbox.claimed_before_created\")'",
+  },
+  "lifecycle.outbox.projected_before_claimed": {
+    what: "an outbox row's projected_at precedes its own claimed_at — projection is what happens after a claim completes, so a projection earlier than the claim is a hand-edit or a reordering of two columns by an import",
+    benign: "rarely benign: writers set claimed_at when they take ownership and projected_at when they finish, so a real ordering is always claimed_at <= projected_at. The reverse is only reachable through editing",
+    investigate: "agent-mesh inspect --lifecycle <fleet> --json | jq '.data.issues[] | select(.check == \"lifecycle.outbox.projected_before_claimed\")'",
+  },
+  "lifecycle.outbox.claimed_by_without_timestamp": {
+    what: "an outbox row names a claim owner but no claim timestamp — the two columns are written together, so a present owner with a missing time is a half-applied claim that landed claimed_by without ever setting claimed_at",
+    benign: "rarely benign: the writers insert both columns in the same statement. A partial import that kept one column and dropped the other, or a hand-edit, is the only honest path",
+    investigate: "agent-mesh inspect --lifecycle <fleet> --json | jq '.data.issues[] | select(.check == \"lifecycle.outbox.claimed_by_without_timestamp\")'",
+  },
+  "lifecycle.outbox.claimed_at_without_claimed_by": {
+    what: "an outbox row carries a claim timestamp but no claim owner — the inverse of the previous finding; a present time with a missing owner means the writer stamped the completion of a claim whose identity it never recorded",
+    benign: "rarely benign: the inverse of the named-by-without-time precedent. A clock-only path that wrote claimed_at without ever naming a claimed_by is not a write path this build ships, so the row was edited or imported",
+    investigate: "agent-mesh inspect --lifecycle <fleet> --json | jq '.data.issues[] | select(.check == \"lifecycle.outbox.claimed_at_without_claimed_by\")'",
+  },
 };
 
 /**
