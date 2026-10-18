@@ -1169,6 +1169,26 @@ const CHECK_EXPLANATIONS: Record<string, CheckExplanation> = {
     benign: "a single evidence entry with a non-SHA-256 digest that the caller intentionally omits (kind without digest) is allowed by the schema; only the populated-with-bad-bytes case fails. Rows planted by hand before the contract shipped may also have older evidence kinds",
     investigate: "agent-mesh inspect --export | jq '.work_receipts[] | select(.evidence | type == \"string\") | .key'",
   },
+  // -------------------------------------------------------------------------
+  // Lifecycle outbox cross-table integrity (cycle-893 audit-blind-spot lens
+  // #5). The lifecycle_event_outbox table is a PROJECTION of attempt_events:
+  // the writer appends to events first, then to outbox, in the same
+  // transaction (lifecycle-execution.ts:109 + 144). A row whose event_id is
+  // not present in attempt_events therefore asserts a projection of an event
+  // this ledger has never recorded — the write path has no honest producer
+  // for that shape and the four sibling outbox checks (`sequence`,
+  // `payload`, `projected_before_created`, `projection_lag`) all examine the
+  // row in isolation, so a fabricated or replayed-only-outbox row passed
+  // silently under the existing audit. Bespoke entry required for any
+  // future wire-up of lifecycle --explain, parallel to the cycle-890
+  // claimed/projected invariants (which live in the same outbox loop and
+  // share this same SQLite-path scope).
+  // -------------------------------------------------------------------------
+  "lifecycle.outbox.orphan_event": {
+    what: "an outbox row references an event_id that is not present in the attempt_events table — the outbox is a projection of attempt_events, so every outbox row must reference a real event id, and a row that does not is either a hand-edit, a tool that bypassed the writer, or a partial replay",
+    benign: "rarely benign: the writer appends to events and outbox in the same transaction, so a real outbox row always has a matching event. A schema that dropped the foreign key on this table (it is not declared in the v3 schema) is the only path that produces one without external malice",
+    investigate: "agent-mesh inspect --lifecycle <fleet> --json | jq '.data.issues[] | select(.check == \"lifecycle.outbox.orphan_event\")'",
+  },
 };
 
 /**

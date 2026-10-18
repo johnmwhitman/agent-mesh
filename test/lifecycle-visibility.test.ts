@@ -73,7 +73,7 @@ test("lifecycle verifier emits stable namespaced tamper findings", () => {
     "lifecycle.mode.invalid", "lifecycle.work.orphan_fleet", "lifecycle.work.non_durable_fleet", "lifecycle.work.current_attempt", "lifecycle.work.state", "lifecycle.work.timestamp_order",
     "lifecycle.attempt.orphan_work", "lifecycle.attempt.state", "lifecycle.attempt.epoch", "lifecycle.attempt.number", "lifecycle.attempt.lease_state", "lifecycle.attempt.launch_state", "lifecycle.attempt.expired_lease", "lifecycle.attempt.launch_quarantine_pending",
     "lifecycle.event.sequence", "lifecycle.event.reference", "lifecycle.event.payload", "lifecycle.replay.unreplayable", "lifecycle.replay.state_mismatch", "lifecycle.projection.missing_work", "lifecycle.projection.agent_state", "lifecycle.projection.retry_count",
-    "lifecycle.outbox.sequence", "lifecycle.outbox.payload", "lifecycle.outbox.projected_before_created", "lifecycle.outbox.projection_lag",
+    "lifecycle.outbox.sequence", "lifecycle.outbox.payload", "lifecycle.outbox.projected_before_created", "lifecycle.outbox.projection_lag", "lifecycle.outbox.orphan_event",
   ]) assert.ok(checks.has(check), check);
   const missingAuthority = { ...snapshot, lifecycleTablesPresent: false, work: [], attempts: [], events: [], outbox: [] };
   assert.ok(verifyLifecycleSnapshot(missingAuthority, now).some((finding) => finding.check === "lifecycle.schema.missing_authority"));
@@ -172,6 +172,31 @@ test("lifecycle snapshot stops at the collective scan ceiling plus one row", () 
     assert.equal(snapshot.work.length, 3);
     assert.deepEqual(verifyLifecycleSnapshot(snapshot, 1).map((finding) => finding.check), ["lifecycle.verify.scan_limit"]);
   } finally { temp.cleanup(); }
+});
+
+test("lifecycle.outbox.orphan_event fires on cross-table fabrication, stays silent on honest rows", () => {
+  // cycle-893 audit-blind-spot lens #5: an outbox row whose event_id is not in
+  // attempt_events. The writer appends to events first, then to outbox, in the
+  // same transaction (lifecycle-execution.ts:109 + 144), so a fabricated or
+  // replayed-only-outbox row has no honest producer. The honest-row control
+  // must stay silent; the planted orphan must error.
+  const work = { work_id: "w", fleet_id: "f", agent_id: null, status: "pending", current_attempt_id: "a", owner_epoch: 1, created_at: 1, updated_at: 1, terminal_at: null };
+  const attempt = { attempt_id: "a", work_id: "w", owner_id: "owner", owner_epoch: 1, status: "running", lease_until: 100, attempt_number: 1, eligible_at: 1, created_at: 1, updated_at: 1, terminal_at: null, result_json: null, error_json: null, launch_intent_at: null, launch_registered_at: null };
+  const event = { seq: 1, event_id: "honest-event", work_id: "w", attempt_id: "a", kind: "attempt_created", occurred_at: 1, payload: JSON.stringify({ work, attempt }) };
+  const honest = { seq: 1, event_id: "honest-event", payload: JSON.stringify({ work, attempt }), created_at: 1, projected_at: 1 };
+  const orphan = { seq: 2, event_id: "phantom-event-not-in-events-table", payload: "{}", created_at: 1, projected_at: 1 };
+  const snapshot = {
+    data: { fleets: { f: { id: "f", status: "running", created_at: 1 } }, agents: {}, messages: {}, inboxes: {}, capabilities: {}, receipts: {}, ratifications: {}, templates: {} },
+    logicalVersion: 2, storageVersion: 3, snapshotKind: "copied-sqlite-files", lifecycleTablesPresent: true,
+    fleetModes: new Map([["f", "durable"]]),
+    work: [work], attempts: [attempt], events: [event], outbox: [honest, orphan], scanExceeded: false,
+  } as unknown as LifecycleSnapshot;
+  const findings = verifyLifecycleSnapshot(snapshot, 1);
+  const orphanEventFindings = findings.filter((finding) => finding.check === "lifecycle.outbox.orphan_event");
+  assert.equal(orphanEventFindings.filter((finding) => finding.subject === "honest-event").length, 0, "honest outbox row whose event_id IS in events must stay silent on orphan_event");
+  assert.equal(orphanEventFindings.length, 1, "exactly one orphan_event finding expected from the planted orphan");
+  assert.equal(orphanEventFindings[0]?.subject, "phantom-event-not-in-events-table");
+  assert.equal(orphanEventFindings[0]?.severity, "error");
 });
 
 test("fleet scoped outbox summary excludes another fleet's pending projection", () => {
