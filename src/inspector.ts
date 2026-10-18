@@ -1169,6 +1169,11 @@ const CHECK_EXPLANATIONS: Record<string, CheckExplanation> = {
     benign: "a single evidence entry with a non-SHA-256 digest that the caller intentionally omits (kind without digest) is allowed by the schema; only the populated-with-bad-bytes case fails. Rows planted by hand before the contract shipped may also have older evidence kinds",
     investigate: "agent-mesh inspect --export | jq '.work_receipts[] | select(.evidence | type == \"string\") | .key'",
   },
+  "work_receipt.recorded_in_future": {
+    what: "a work_receipts row's recorded_at is AFTER the auditor's current wall-clock — the server stamps recorded_at at INSERT and an honestly produced row is always at or before the audit's wall-clock; a future stamp is a hand-edit (forward-rewriting recorded_at to mask a replay), a writer clock that has drifted past the auditor's, or an auditor clock that is behind the writer's",
+    benign: "an auditor whose machine clock runs behind the writer's (or the server that wrote the row) will see every honestly produced row as recorded_in_future, sized by the skew. To rule skew in or out, run the same audit on a host whose clock is synchronized to the writer's. recorded_at is deliberately not covered by the payload digest, so this relative-to-now invariant is the only check that can see a recorded_at that disagrees with the audit's clock at all",
+    investigate: "agent-mesh inspect --export | jq '.work_receipts[] | select(.recorded_at > (now | floor)) | {key, recorded_at, completed_at}'",
+  },
 };
 
 /**
