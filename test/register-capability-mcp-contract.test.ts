@@ -1,106 +1,16 @@
 /**
- * register_capability MCP stdio contract — driven over real MCP stdio with the
- * tool's PUBLISHED field names.
+ * Contract tests for register_capability over MCP stdio.
  *
- * Why this test exists: rotating-lens #1 (GOAL-PROMPT.md L123-126;
- * ROADMAP-90D.md:20 Capability routing, advisory). `register_capability` is the
- * upstream WRITE surface every other capability-routing tool reads from — the
- * table `route_work` / `recommend_route` / `compile_route_candidates` /
- * `plan_speculative_backlog` / `record_routing_outcome` all consume. The
- * capability-routing group has only `recommend_route` (ep17 link 3) and
- * `compile_route_candidates` (ep17 link 4) stdio-pinned; `register_capability`,
- * `route_work` (DONE as t_f225b88e), `plan_speculative_backlog` (DONE as
- * t_4f0e6b65), `record_routing_outcome` (DONE as t_1da1685c) are the rest.
+ * register_capability writes the capability entries consumed by route_work,
+ * recommend_route, compile_route_candidates, plan_speculative_backlog, and
+ * record_routing_outcome. Its published schema, annotations, and responses
+ * must agree with the behavior available to MCP clients.
  *
- * Freshness: a `test/register-capability-mcp-contract.test.ts` is ABSENT from
- * the primary tree (git ls-files = none; working tree = none). The 2026-09-09
- * `feat/register-capability-mcp-contract` (345e9ee), its 2026-09-12 refresh
- * (4e96363), and the 2026-09-15 closed-input pin (603aec7) all exist only in
- * git history / side branches — every one of them is absent from the primary
- * tree. This card is the fresh single-tool pin.
- *
- * THE WRITE/MUTATION BOUNDARY (HANDOFF.md:111-114 vs the contrast in test 3):
- * `register_capability` is NOT a pure advisory projection. It mutates the
- * capability ledger (`data.capabilities[agentId] = {...}`, src/core.ts:1488-1497).
- * The advertised annotation set is therefore required to claim readOnlyHint:
- * false — advertising readOnlyHint:true would be a published lie. The test
- * pins the WRITE side directly: a successful call increments
- * `get_health.capabilities` from 0 to 1 (the observable the router consumes),
- * while the same call leaves `events`, `messages`, `fleets`, and `agents`
- * unchanged (no event log append — `registerCapability` does not call
- * `appendEvent`, src/core.ts:1423-1505). Contrast `recommend_route` (ep17 link
- * 3): must leave the ledger empty AND advertise readOnlyHint:true — different
- * tool, different boundary, both pinned here against `register_capability`.
- *
- * What is pinned (each invariant independently falsifiable, none redundant
- * with the other stdio contract files on HEAD):
- *
- *   1. advertised inputSchema VERBATIM — the full closed object: 5 properties
- *      exactly {agent_id, fleet_id, role, skills, model, context_window}
- *      (declared order: agent_id, fleet_id, role, skills, model, context_window);
- *      each id/role string carries `minLength: 1`; skills is array of string;
- *      model and context_window have NO `minLength` (they are optional);
- *      required exactly [agent_id, fleet_id, role, skills]; NO
- *      `additionalProperties` key (the schema is open on extras — see test 6
- *      for what that means in practice). Plus the four annotations by value
- *      and the EXACT description text.
- *   2. declared annotation ORDER against source — MEASURED: the SDK NORMALIZES
- *      the annotation key order on the wire to
- *      [readOnlyHint, destructiveHint, idempotentHint, openWorldHint], so the
- *      DECLARED order is pinned against the source, where it is meaningful
- *      (readOnlyHint:false must be the WRITE side's signature).
- *   3. WRITE/MUTATION boundary — a successful call returns
- *      `{ok:true, agent_id, fleet_id}` AND increments `get_health.capabilities`
- *      from 0 to 1 (the row register_capability really wrote). NO event log
- *      append (events count stays 0; events_log_bytes stays 0 — the tool does
- *      not call `appendEvent`). NO fleet/agent/message side effects. Contrast
- *      `recommend_route` (must leave ledger unchanged AND advertise
- *      readOnlyHint:true).
- *   4. refuse/wrong-type surface as MEASURED — the handler ONLY validates the two
- * optional fields (model: optionalNonBlankString, context_window: optionalNumber)
- * at the tool boundary; the four required fields are validated INSIDE
- * `_registerCapability` (src/core.ts:1423-1505) and any thrown Error becomes a
- * jsonError envelope at the handler. DEFECT NOTE: the card hypothesized
- * `requireString` / `requireFiniteInteger` / `requireStringArray` at the
- * handler, but MEASURED the handler calls ONLY `optionalNonBlankString` and
- * `optionalNumber` — every refusal message for the four required fields comes
- * from `_registerCapability`'s literal "register_capability: <field> is
- * required and must be ... (got <value>)" strings, NOT from
- * `requireString`/`requireStringArray`. The card hypothesis is wrong, not the
- * source.
- *   5. STRICT required + minLength enforcement — omitted `skills` (or any of
- *      the four required) returns a require-missing error, NOT a silent
- *      default; empty-string agent_id / fleet_id / role strings are refused
- *      at the validator, not silently accepted (the schema's `minLength: 1`
- *      and the validator's `isUsableAgentId` are the contract); the UNUSABLE
- *      id set {"", "null", "undefined", whitespace-only} is also refused.
- *      MEASURED: an empty `skills:[]` array IS accepted (the validator's
- *      `Array.isArray && every(typeof === "string")` is vacuously true for
- *      `[]`, and the schema has no `minItems`), so that case is NOT pinned as
- *      a refusal.
- *   6. DEFECT-DOCUMENTED phantom keys — the schema declares NO
- *      `additionalProperties:false`, and the handler's `firstError` check only
- *      covers `model` and `context_window`. So a phantom key at the top level
- *      is ACCEPTED and reaches the ledger untouched — pinned as measured
- *      (contrast `recommend_route`'s strict mode). The schema is honest about
- *      this by being silent, but a drift that adds `additionalProperties:
- *      false` without an enforcement path would be a real defect; this test
- *      pins the current tolerance.
- *   7. source-string pin — the advertised block at src/index.ts:919-937
- *      (the four-annotation literal `{ idempotentHint: true, readOnlyHint:
- *      false, destructiveHint: false, openWorldHint: false }` in DECLARED
- *      order, with the next tool `route_work` as the unique anchor) + the
- *      handler at src/index.ts:2383-2424 (the only handler-level validators
- *      are `optionalNonBlankString("register_capability", "model", model)`
- *      and `optionalNumber("register_capability", "context_window",
- *      context_window)`, then a try/catch around `registerCapability(...)`
- *      that maps any thrown Error to `jsonError(err.message)`).
- *
- * The SDK enforces neither `required` nor `type`; `toolHandlers` is typed
- * `(args: any)` (GOAL-PROMPT.md L123-126). Validation is the handler/validator's
- * job, which is exactly what tests 4–6 witness.
- *
- * No HANDOFF.md bump (focused-only, per the lane's cycle-4x precedent).
+ * These tests pin the published field names, success and error envelopes,
+ * input validation, current handling of additional keys, and handler wiring.
+ * A successful fresh registration writes one capability entry without
+ * changing event, message, agent, or fleet counts or appending an event.
+ * The readOnlyHint:false annotation preserves this mutation boundary.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
