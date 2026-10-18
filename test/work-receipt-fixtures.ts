@@ -370,6 +370,35 @@ export const WORK_RECEIPT_FIXTURES: readonly WorkReceiptFixture[] = [
       });
     },
   },
+  {
+    check: "work_receipt.completed_after_recorded",
+    description:
+      "completed_at is AFTER the server's recorded_at — a completion timestamped later than the insert that recorded it (hand-edit, or a writer clock drifted past the server's); recorded_at is not covered by the payload digest, so this ordering invariant is the only guard that can see it",
+    plant(ledgerPath) {
+      // Plant with a valid KEY, a contract-clean schema, and a digest that
+      // is CONSISTENT with the planted (lying) completed_at — so neither
+      // malformed_key nor invalid_persisted_schema nor digest_mismatch
+      // co-fires and the temporal ordering check is the unique named
+      // error. completed_at = recorded_at + 3600 has no honest producer:
+      // the writer stamps completed_at BEFORE the insert and the server
+      // stamps recorded_at at the insert, on the same insert path.
+      const planted = basePayload({ task_id: "t_completesafterrecord" });
+      rawInsert({
+        key: workReceiptKey(WORK_RECEIPT_SOURCE, planted.task_id, planted.run_id),
+        source: WORK_RECEIPT_SOURCE,
+        task_id: planted.task_id,
+        run_id: planted.run_id,
+        assignee: planted.assignee,
+        terminal_outcome: planted.terminal_outcome,
+        result_contract: planted.result_contract,
+        quality_gate: planted.quality_gate,
+        completed_at: BASE_RECORDED_AT + 3600,
+        evidence_json: JSON.stringify(planted.evidence),
+        payload_sha256: canonicalDigest({ ...planted, completed_at: BASE_RECORDED_AT + 3600 }),
+        recorded_at: BASE_RECORDED_AT,
+      });
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------------

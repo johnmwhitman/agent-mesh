@@ -607,3 +607,85 @@ test("verifier v3 errors on duplicate_logical_key with identity_mismatch co-fire
     assert.equal(result.ok, false);
   });
 });
+
+// -----------------------------------------------------------------------
+// Temporal ordering: completed_at vs recorded_at. The server stamps
+// recorded_at when it inserts the already-complete row, so an honest row
+// always satisfies completed_at <= recorded_at. recorded_at is NOT covered
+// by the payload digest (computeWorkReceiptPayloadSha256), so this ordering
+// invariant is the only guard that can see a tampered or clock-drifted
+// recorded_at at all.
+// -----------------------------------------------------------------------
+
+function insertRowWithTimestamps(
+  ledgerPath: string,
+  taskId: string,
+  runId: number,
+  completedAt: number,
+  recordedAt: number,
+): void {
+  const payload: WorkReceiptInput = {
+    schema: WORK_RECEIPT_SCHEMA,
+    task_id: taskId,
+    run_id: runId,
+    assignee: "alice",
+    terminal_outcome: "completed",
+    result_contract: "ok",
+    quality_gate: "passed",
+    completed_at: completedAt,
+    evidence: [{ kind: "git_commit", handle: "h1" }],
+    payload_sha256: "",
+  };
+  insertWorkReceiptRow({
+    key: workReceiptKey(WORK_RECEIPT_SOURCE, taskId, runId),
+    source: WORK_RECEIPT_SOURCE,
+    task_id: taskId,
+    run_id: runId,
+    assignee: payload.assignee,
+    terminal_outcome: payload.terminal_outcome,
+    result_contract: payload.result_contract,
+    quality_gate: payload.quality_gate,
+    completed_at: completedAt,
+    evidence_json: JSON.stringify(payload.evidence),
+    payload_sha256: computeWorkReceiptPayloadSha256(payload),
+    recorded_at: recordedAt,
+  });
+}
+
+test("verifier v3 errors on completed_after_recorded (completion after its own recording is a temporal impossibility)", () => {
+  withTempLedger((ledgerPath) => {
+    const recordedAt = 1_700_000_001;
+    // completed_at one hour AFTER recorded_at. The digest is computed WITH
+    // the lying completed_at so digest_mismatch cannot co-fire, and every
+    // schema field is individually valid — this row previously verified
+    // ok:true with zero findings (measured RED before the fix).
+    insertRowWithTimestamps(ledgerPath, "t_completesafterrecord", 1, recordedAt + 3600, recordedAt);
+    const result = verifyLedgerFile(ledgerPath);
+    const finding = result.findings.find(
+      (f) => f.check === "work_receipt.completed_after_recorded",
+    );
+    assert.ok(
+      finding,
+      `expected work_receipt.completed_after_recorded; got ${JSON.stringify(result.findings.map((f) => f.check))}`,
+    );
+    assert.equal(finding!.severity, "error");
+    assert.equal(result.ok, false);
+  });
+});
+
+test("verifier v3 stays silent when completed_at <= recorded_at (equal and before are honest orderings)", () => {
+  withTempLedger((ledgerPath) => {
+    const recordedAt = 1_700_000_001;
+    // Equal timestamps: the writer's same-second insert path.
+    insertRowWithTimestamps(ledgerPath, "t_orderingequal", 1, recordedAt, recordedAt);
+    // Before: the common case (work completed, then recorded).
+    insertRowWithTimestamps(ledgerPath, "t_orderingbefore", 2, recordedAt - 60, recordedAt);
+    const result = verifyLedgerFile(ledgerPath);
+    assert.equal(
+      result.findings.filter((f) => f.check === "work_receipt.completed_after_recorded").length,
+      0,
+      `no completed_after_recorded expected on honest orderings; got ${JSON.stringify(result.findings)}`,
+    );
+    assert.equal(result.ok, true);
+  });
+});

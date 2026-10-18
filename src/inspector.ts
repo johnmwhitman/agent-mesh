@@ -1169,6 +1169,11 @@ const CHECK_EXPLANATIONS: Record<string, CheckExplanation> = {
     benign: "a single evidence entry with a non-SHA-256 digest that the caller intentionally omits (kind without digest) is allowed by the schema; only the populated-with-bad-bytes case fails. Rows planted by hand before the contract shipped may also have older evidence kinds",
     investigate: "agent-mesh inspect --export | jq '.work_receipts[] | select(.evidence | type == \"string\") | .key'",
   },
+  "work_receipt.completed_after_recorded": {
+    what: "a work_receipts row is completed_at AFTER its own recorded_at — the server stamps recorded_at when it inserts the already-complete row, so a completion later than its own recording is a temporal impossibility (a hand-edit, or a writer clock drifted past the server's)",
+    benign: "a caller whose machine clock runs ahead of the server's can stamp completed_at past the insert-time recorded_at by the size of the skew; a genuine hand-edit produces the same shape. recorded_at is deliberately not covered by the payload digest, so this ordering invariant is the only check that can see a tampered recorded_at at all",
+    investigate: "agent-mesh inspect --export | jq '.work_receipts[] | select(.completed_at > .recorded_at) | {key, completed_at, recorded_at}'",
+  },
 };
 
 /**

@@ -215,6 +215,33 @@ export function verifyMeshData(
         );
       }
     }
+    // Temporal ordering the schema validator deliberately does not own, and
+    // the digest cannot see: `recorded_at` is the server's wall-clock
+    // INSERT time and `completed_at` is stamped by the writer BEFORE the
+    // insert, so an honestly produced row always satisfies
+    // `completed_at <= recorded_at`. A row claiming completion AFTER its own
+    // recording asserts that the server wrote down a completion before the
+    // work it records had happened — reachable from a hand-edit or from a
+    // caller clock that has drifted PAST the server's, and invisible to
+    // every other guard: `payload_sha256` covers `completed_at` but NOT
+    // `recorded_at` (computeWorkReceiptPayloadSha256), so editing
+    // `recorded_at` backward passes the digest recompute, and both fields
+    // are individually valid positive integers to the schema check. This
+    // ordering invariant is therefore the ONLY guard in the repo that can
+    // see a tampered or drifted `recorded_at` at all.
+    //
+    // Error, per the file's precedent for cross-row temporal contradictions
+    // (`receipt.before_message` compares a writer-supplied timestamp against
+    // another row's clock and errors). Gated on the row passing the schema
+    // contract above so the new finding never fires on a row already
+    // reported broken.
+    if (validation.ok && wr.completed_at > wr.recorded_at) {
+      error(
+        "work_receipt.completed_after_recorded",
+        rowKey,
+        `work_receipts row for ${wr.task_id} run ${wr.run_id} is completed_at=${wr.completed_at} but recorded_at=${wr.recorded_at} — the server stamps recorded_at when it inserts the already-complete row, so a completion AFTER its own recording is a temporal impossibility (a hand-edit, or a writer clock drifted past the server's)`,
+      );
+    }
   }
 
   const receipts = data.receipts ?? {};
