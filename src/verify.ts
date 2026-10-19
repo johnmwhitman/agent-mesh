@@ -629,6 +629,43 @@ export function verifyMeshData(
         `capability row "${key}" places agent ${effectiveId} in fleet ${JSON.stringify(c.fleet_id)}, but that agent's own row says fleet ${JSON.stringify(capAgent.fleet_id)} — this ledger holds both fleets and both rows, and they disagree about where the work happened`
       );
     }
+
+    // `registered_at` is server-side metadata: `_registerCapability` writes it
+    // from `Date.now()` at the moment of registration (core.ts) and no digest
+    // covers it. That leaves the field free to be hand-edited to claim a row
+    // was registered later than the audit is willing to vouch for — exactly
+    // the same blind spot `work_receipt.recorded_in_future` closes for the
+    // work-receipt stream, applied here to the capability stream. A
+    // `registered_at` in the future means the row's own "when" disagrees with
+    // every other row this ledger holds; nothing else in this loop compares
+    // the field to anything, so the silence IS the defect.
+    //
+    // Error, not warning, matching `work_receipt.recorded_in_future` and the
+    // precedent that a timestamp this ledger says it cannot have written yet
+    // cannot be reconciled by rewriting neighbours — the row is its own
+    // witness. Same gating discipline as the agent timestamp checks above:
+    // finite `registered_at`, validated against the audit's `now` only — a
+    // missing or non-finite `registered_at` is an existing surface (the type
+    // declares it `number`, but a hand-edit can clear it) and is left to the
+    // field's own writer; this check is the one that names the tampering.
+    //
+    // Measured before it was written, exactly as cycle-892 measured
+    // `work_receipt.recorded_in_future`: a planted capability row with
+    // `registered_at = now + 3600`, every other field individually valid and
+    // honest, the agent row real and present, the digest consistent — pre-fix
+    // verifier returns `ok: true` with zero findings. After the fix, the same
+    // row produces exactly one `capability.registered_in_future` error
+    // pointing at the planted row, and the honest control row (registered_at
+    // equal to now, or earlier) stays silent. No corpus fixture is named here:
+    // the corpus is work-receipt-shaped and would not exercise this surface
+    // without a capability-shaped fixture; the regression test is the receipt.
+    if (typeof c.registered_at === "number" && Number.isFinite(c.registered_at) && c.registered_at > now) {
+      error(
+        "capability.registered_in_future",
+        key,
+        `capability row "${key}" is registered at ${c.registered_at}, after the audit's now ${now} — the ledger says this row was written in the future`
+      );
+    }
   }
 
   // --- inboxes owned by nobody -------------------------------------------------

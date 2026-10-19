@@ -1004,6 +1004,12 @@ const CHECK_EXPLANATIONS: Record<string, CheckExplanation> = {
     investigate:
       "agent-mesh inspect --export | jq '.capabilities | to_entries | map(select(.value.fleet_id != null)) | map({cap: .key, cap_fleet: .value.fleet_id})' and compare each against .agents[<agent_id>].fleet_id",
   },
+  "capability.registered_in_future": {
+    what: "a capability row claims it was registered at a timestamp after the audit's now — the ledger says this row was written in the future",
+    benign: "almost never honest; a clock skew on the machine that wrote the row, or a hand-edit that set registered_at ahead of the audit's wall clock",
+    investigate:
+      "agent-mesh inspect --export | jq '.capabilities | to_entries | map(select(.value.registered_at > <unix-now>))'",
+  },
   "inbox.unknown_agent": {
     what: "messages are queued for an agent this ledger never registered — nothing will ever collect them",
     benign: "a cross-attached fleet whose agent rows have not synced yet; otherwise it is a mistyped recipient in a send_message call",

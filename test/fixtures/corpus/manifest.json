@@ -433,6 +433,35 @@
       ]
     },
     {
+      "id": "capability-registered-in-future",
+      "primary": "capability.registered_in_future",
+      "classification": "caught",
+      "lie": "a capability claims it was registered at a timestamp after the audit's now — the ledger says this row was written in the future",
+      "ops": [
+        {
+          "op": "set",
+          "path": "capabilities|a2",
+          "value": {
+            "agent_id": "a2",
+            "fleet_id": "f1",
+            "role": "x",
+            "skills": [
+              "y"
+            ],
+            "registered_at": 1800000003600
+          }
+        }
+      ],
+      "expected_ok": false,
+      "expected_findings": [
+        {
+          "severity": "error",
+          "check": "capability.registered_in_future",
+          "subject": "a2"
+        }
+      ]
+    },
+    {
       "id": "capability-unroutable",
       "primary": "capability.unroutable",
       "classification": "caught",
