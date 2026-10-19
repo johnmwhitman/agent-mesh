@@ -727,6 +727,14 @@ export function verifyMeshData(
       error("receipt.invalid_timestamp", key, `receipt ${key} has a missing or non-finite timestamp`);
       continue;
     }
+    if (r.timestamp > now) {
+      error(
+        "receipt.in_future",
+        key,
+        `receipt ${key} is timestamped ${r.timestamp}, after the audit's now (${now}) — server-side-metadata tampering invisible to every other guard, parallel to work_receipt.recorded_in_future / capability.registered_in_future / ratification.opened_in_future / ratification.resolved_in_future`,
+      );
+      continue;
+    }
     if (r.timestamp < msg.timestamp) {
       error("receipt.before_message", key, `receipt ${key} is timestamped ${r.timestamp}, before its message (${msg.timestamp})`);
       continue;
