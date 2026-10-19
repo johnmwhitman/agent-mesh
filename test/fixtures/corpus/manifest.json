@@ -1023,6 +1023,105 @@
       ]
     },
     {
+      "id": "ratification-opened-in-future",
+      "primary": "ratification.opened_in_future",
+      "classification": "caught",
+      "lie": "the council is recorded as opened 86_400s after audit-now, in a moment this ledger could not have reached",
+      "ops": [
+        {
+          "op": "set",
+          "path": "ratifications|m2|opened_at",
+          "value": 1800086400000
+        }
+      ],
+      "expected_ok": false,
+      "expected_findings": [
+        {
+          "severity": "error",
+          "check": "ratification.opened_in_future",
+          "subject": "m2"
+        },
+        {
+          "severity": "error",
+          "check": "ratification.resolved_before_opened",
+          "subject": "m2"
+        }
+      ]
+    },
+    {
+      "id": "ratification-resolved-in-future",
+      "primary": "ratification.resolved_in_future",
+      "classification": "caught",
+      "lie": "the council is recorded as decided 86_400s after audit-now, in a moment this ledger could not have reached",
+      "ops": [
+        {
+          "op": "set",
+          "path": "ratifications|m2|resolved_at",
+          "value": 1800086400000
+        }
+      ],
+      "expected_ok": false,
+      "expected_findings": [
+        {
+          "severity": "error",
+          "check": "ratification.resolved_in_future",
+          "subject": "m2"
+        }
+      ]
+    },
+    {
+      "id": "ratification-resolved-before-opened",
+      "primary": "ratification.resolved_before_opened",
+      "classification": "caught",
+      "lie": "the council is recorded as decided before its own opened_at — a within-row contradiction the audit can see without any side-effect",
+      "ops": [
+        {
+          "op": "set",
+          "path": "ratifications|m2|opened_at",
+          "value": 1700086400200
+        },
+        {
+          "op": "set",
+          "path": "ratifications|m2|resolved_at",
+          "value": 1699913600200
+        }
+      ],
+      "expected_ok": false,
+      "expected_findings": [
+        {
+          "severity": "error",
+          "check": "ratification.resolved_before_opened",
+          "subject": "m2"
+        },
+        {
+          "severity": "warning",
+          "check": "ratification.status_mismatch",
+          "subject": "m2"
+        }
+      ]
+    },
+    {
+      "id": "ratification-opened-invalid-timestamp",
+      "primary": "ratification.invalid_timestamp",
+      "classification": "caught",
+      "lie": "the council's opened_at is not a finite number, so the temporal lattice for this council cannot be ordered",
+      "ops": [
+        {
+          "op": "set",
+          "path": "ratifications|m2|opened_at",
+          "value": null
+        }
+      ],
+      "expected_ok": false,
+      "expected_findings": [
+        {
+          "severity": "error",
+          "check": "ratification.invalid_timestamp",
+          "subject": "m2"
+        }
+      ]
+    },
+    {
       "id": "fleet-unreconciled-status",
       "primary": "fleet.unreconciled_status",
       "classification": "anomaly",

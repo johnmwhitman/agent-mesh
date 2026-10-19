@@ -912,6 +912,75 @@ export function verifyMeshData(
     if (uniqueVoters.length !== r.voters.length) {
       error("ratification.duplicate_voters", r.message_id, `ratification ${r.message_id} lists a voter more than once — the tally counts each occurrence, so one agent could satisfy the quorum alone`);
     }
+    // Ratification temporal invariants — `opened_at` and `resolved_at` are
+    // server-side metadata written by `openRatification` / `resolveRatification`
+    // / `sweepRatifications` from Date.now() at write time, and are NOT covered
+    // by any ratification payload digest (the ratification's own digest only
+    // seals the proposal it points at, via the message digest). A row whose
+    // `opened_at` is in the future claims the council was opened at a moment
+    // the ledger says it cannot have reached; a row whose `resolved_at` is
+    // before its own `opened_at` claims the council was decided before it
+    // opened; a row whose `resolved_at` is in the future claims a decision
+    // for a meeting that has not happened yet. The verifier is the only path
+    // outside the write-side that can see these — the open/resolve/sweep
+    // paths all set the timestamps from `now`, so each of these is by
+    // construction a tamper-shape, and the audit must surface them as such.
+    //
+    // Three sibling invariants, deliberately NONE of which compare against
+    // `r.voters` or `data.receipts` — the malformed-quorum / orphan-vote /
+    // status-mismatch paths already cover behaviour-side defects, and
+    // grafting temporal facts onto them would re-fire on legitimate control
+    // rows. Severity error: these are pure contradictions within a single
+    // row (resolved_before_opened) or single-row-against-time (the two
+    // `*_in_future` shapes), the same precedent as
+    // `work_receipt.recorded_in_future` and `capability.registered_in_future`
+    // — a timestamp this ledger says it cannot have written yet cannot be
+    // reconciled by rewriting neighbours, the row is its own witness.
+    //
+    // Deliberately BEFORE the orphan-proposal `continue` below (parallel to
+    // `fleet.invalid_timestamp` on line 218 — temporal facts are independent
+    // of the proposal message and an orphan ratification can still carry one).
+    // Boundary case: `opened_at == now` and `resolved_at == now` stay silent
+    // (strictly greater than `now` fires), so a freshly-written ratification
+    // is not flagged at the moment of its own write. Also deliberate: a
+    // resolved ratification with `resolved_at == opened_at` stays silent —
+    // `resolveRatification` writes both from `now` and a sub-millisecond
+    // different is the legitimate single-decision case the sweep would have
+    // produced for itself.
+    if (!Number.isFinite(r.opened_at)) {
+      error(
+        "ratification.invalid_timestamp",
+        r.message_id,
+        `ratification ${r.message_id} has a missing or non-finite opened_at — the temporal lattice for this council cannot be ordered`
+      );
+    } else if (r.opened_at > now) {
+      error(
+        "ratification.opened_in_future",
+        r.message_id,
+        `ratification ${r.message_id} records opened_at ${r.opened_at}, in the future relative to now ${now} — this ledger could not have opened the council at a moment it had not reached`
+      );
+    }
+    if (r.resolved_at !== undefined) {
+      if (!Number.isFinite(r.resolved_at)) {
+        error(
+          "ratification.invalid_timestamp",
+          r.message_id,
+          `ratification ${r.message_id} has a present but non-finite resolved_at — the decision timestamp cannot be ordered`
+        );
+      } else if (r.resolved_at > now) {
+        error(
+          "ratification.resolved_in_future",
+          r.message_id,
+          `ratification ${r.message_id} records resolved_at ${r.resolved_at}, in the future relative to now ${now} — this ledger could not have decided the council at a moment it had not reached`
+        );
+      } else if (Number.isFinite(r.opened_at) && r.resolved_at < r.opened_at) {
+        error(
+          "ratification.resolved_before_opened",
+          r.message_id,
+          `ratification ${r.message_id} records resolved_at ${r.resolved_at} before its own opened_at ${r.opened_at} — a council decided before it opened is its own contradiction`
+        );
+      }
+    }
     if (!data.messages[r.message_id]) {
       error("ratification.orphan_proposal", r.message_id, `ratification references proposal message ${r.message_id}, which this ledger does not hold`);
       continue;
