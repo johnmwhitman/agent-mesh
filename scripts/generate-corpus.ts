@@ -211,6 +211,31 @@ const V: Vector[] = [
   { id: "ratification-vote-recast", primary: "ratification.vote_recast", classification: "anomaly",
     lie: "a voter changed its position after the fact (legitimate under the recast protocol, but worth seeing)",
     ops: [{ op: "set", path: "receipts|m2:a2:r-decline:1", value: { message_id: "m2", agent_id: "a2", action: "r-decline:1", timestamp: T0 + 315 } }] },
+  // Ratification temporal invariants (cycle-895) — `opened_at` and
+  // `resolved_at` are server-side metadata NOT covered by the ratification
+  // payload digest, so the verifier is the only path that can see tampering.
+  // Three sibling invariants: opened_in_future / resolved_in_future are
+  // relative-to-now impossibilities; resolved_before_opened is a within-row
+  // impossibility; invalid_timestamp catches non-finite values. Same family
+  // as work_receipt.recorded_in_future (cycle-892) and
+  // capability.registered_in_future (cycle-894), applied to the council
+  // stream — all three plus the invalid_timestamp catch are required for
+  // full coverage of server-side-metadata tampering on ratification rows.
+  { id: "ratification-opened-in-future", primary: "ratification.opened_in_future", classification: "caught",
+    lie: "the council is recorded as opened 86_400s after audit-now, in a moment this ledger could not have reached",
+    ops: [{ op: "set", path: "ratifications|m2|opened_at", value: NOW + 86_400_000 }] },
+  { id: "ratification-resolved-in-future", primary: "ratification.resolved_in_future", classification: "caught",
+    lie: "the council is recorded as decided 86_400s after audit-now, in a moment this ledger could not have reached",
+    ops: [{ op: "set", path: "ratifications|m2|resolved_at", value: NOW + 86_400_000 }] },
+  { id: "ratification-resolved-before-opened", primary: "ratification.resolved_before_opened", classification: "caught",
+    lie: "the council is recorded as decided before its own opened_at — a within-row contradiction the audit can see without any side-effect",
+    ops: [
+      { op: "set", path: "ratifications|m2|opened_at", value: T0 + 200 + 86_400_000 },
+      { op: "set", path: "ratifications|m2|resolved_at", value: T0 + 200 - 86_400_000 },
+    ] },
+  { id: "ratification-opened-invalid-timestamp", primary: "ratification.invalid_timestamp", classification: "caught",
+    lie: "the council's opened_at is not a finite number, so the temporal lattice for this council cannot be ordered",
+    ops: [{ op: "set", path: "ratifications|m2|opened_at", value: null }] },
   { id: "fleet-unreconciled-status", primary: "fleet.unreconciled_status", classification: "anomaly",
     lie: "the fleet still projects RUNNING though every one of its agents has terminated — a stale projection, not a forged one",
     ops: [{ op: "set", path: "fleets|f1|status", value: "running" }, { op: "delete", path: "fleets|f1|completed_at" }] },

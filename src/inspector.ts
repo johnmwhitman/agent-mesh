@@ -1129,6 +1129,36 @@ const CHECK_EXPLANATIONS: Record<string, CheckExplanation> = {
     benign: "a post-resolution re-cast landing in the same millisecond as resolved_at",
     investigate: "agent-mesh inspect --councils",
   },
+  // Ratification temporal invariants (cycle-895) — `opened_at` and
+  // `resolved_at` are server-side metadata NOT covered by the ratification
+  // payload digest, so the verifier is the only path that can see tampering
+  // on those fields. Three sibling invariants per row — opened_in_future /
+  // resolved_in_future are relative-to-now impossibilities (the council claims
+  // a moment the ledger could not have reached), resolved_before_opened is
+  // a within-row impossibility (the council decided before it opened), and
+  // invalid_timestamp catches non-finite values that the temporal lattice
+  // cannot order at all. Same family as work_receipt.recorded_in_future and
+  // capability.registered_in_future.
+  "ratification.opened_in_future": {
+    what: "a council is recorded as opened at a moment the audit believes is in the future — its opened_at claims a reach this ledger could not have made at write time",
+    benign: "none — open/resolve/sweep all set opened_at from Date.now() and the audit compares against audit-now, so an opened_at strictly greater than audit-now is by construction unwriteable",
+    investigate: "agent-mesh inspect --councils",
+  },
+  "ratification.resolved_in_future": {
+    what: "a council is recorded as decided at a moment the audit believes is in the future — its resolved_at claims a reach this ledger could not have made at write time",
+    benign: "none — the resolve/sweep paths set resolved_at from Date.now() and the audit compares against audit-now, so a resolved_at strictly greater than audit-now is by construction unwriteable",
+    investigate: "agent-mesh inspect --councils",
+  },
+  "ratification.resolved_before_opened": {
+    what: "a council's resolved_at is before its own opened_at — a within-row contradiction, decided-before-opened, the audit can see directly",
+    benign: "none — resolveRatification writes resolved_at from Date.now() after the ratification was open, so a resolved_at strictly less than opened_at is by construction unwriteable",
+    investigate: "agent-mesh inspect --councils",
+  },
+  "ratification.invalid_timestamp": {
+    what: "a ratification row has a missing or non-finite opened_at / resolved_at — the temporal lattice for this council cannot be ordered",
+    benign: "a hand-edited or partially-corrupted export that dropped the field",
+    investigate: "agent-mesh inspect --councils",
+  },
   // ---------------------------------------------------------------------
   // Work receipts — first-class rows in the `work_receipts` collection,
   // NOT P2P receipts. The v3 verifier re-derives these from each row's own
