@@ -218,3 +218,51 @@ test('an EMPTY inbox for an unknown agent is not flagged', () => {
   const r = verifyMeshData(d, 1000)
   assert.ok(!r.findings.some((f) => f.check === 'inbox.unknown_agent'))
 })
+
+// --- capability.registered_in_future -----------------------------------------
+// `registered_at` is server-side metadata written by `_registerCapability` from
+// `Date.now()` (core.ts). No digest covers it. Pre-fix, a planted row with
+// `registered_at = now + 3600` verified ok:true with zero findings — the audit
+// was silent on what is plainly a forged timestamp. Same family as
+// `work_receipt.recorded_in_future` (cycle-892), applied here to the
+// capability stream; both must exist for full coverage of "when was this
+// row written" tampering on server-side-metadata fields.
+
+test('a capability with registered_at in the future is an ERROR', () => {
+  const d = base()
+  d.fleets['f1'] = { id: 'f1', status: 'running', created_at: 1 }
+  d.agents['a'] = { id: 'a', fleet_id: 'f1', role: 'r', prompt: 'p', status: 'running', started_at: 1 }
+  // honest control row: registered_at == now (the latest the audit will vouch for)
+  d.capabilities['a'] = { agent_id: 'a', fleet_id: 'f1', role: 'r', skills: ['s'], registered_at: 1000 }
+  // planted row: registered_at one hour ahead of the audit's now
+  d.capabilities['m'] = { agent_id: 'm', fleet_id: 'f1', role: 'r', skills: ['s'], registered_at: 1000 + 3600 }
+  d.agents['m'] = { id: 'm', fleet_id: 'f1', role: 'r', prompt: 'p', status: 'running', started_at: 1 }
+  const r = verifyMeshData(d, 1000)
+  assert.equal(r.ok, false, 'a future-registered capability must break the audit')
+  assert.ok(
+    r.findings.some((f) => f.check === 'capability.registered_in_future' && f.severity === 'error' && f.subject === 'm'),
+    `expected capability.registered_in_future pointing at m, got ${JSON.stringify(r.findings)}`
+  )
+  // honest control row stays silent on this check
+  assert.ok(
+    !r.findings.some((f) => f.check === 'capability.registered_in_future' && f.subject === 'a'),
+    'the honest row must not be flagged'
+  )
+})
+
+test('a capability with registered_at == now stays silent on registered_in_future', () => {
+  // Boundary case: a row registered at exactly the audit's "now" is not in the
+  // future. Strictly greater than now fires the check; equal-to or less-than
+  // stays silent. Mirrors the `work_receipt.recorded_in_future` boundary in
+  // cycle-892.
+  const d = base()
+  d.fleets['f1'] = { id: 'f1', status: 'running', created_at: 1 }
+  d.agents['a'] = { id: 'a', fleet_id: 'f1', role: 'r', prompt: 'p', status: 'running', started_at: 1 }
+  d.capabilities['a'] = { agent_id: 'a', fleet_id: 'f1', role: 'r', skills: ['s'], registered_at: 1000 }
+  const r = verifyMeshData(d, 1000)
+  assert.equal(r.ok, true)
+  assert.ok(
+    !r.findings.some((f) => f.check === 'capability.registered_in_future'),
+    'registered_at == now is not in the future and must stay silent'
+  )
+})
