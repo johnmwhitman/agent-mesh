@@ -65,14 +65,14 @@ test("lifecycle verifier emits stable namespaced tamper findings", () => {
       { attempt_id: "b", work_id: "w", owner_id: "owner", owner_epoch: 1, status: "running", lease_until: 1, attempt_number: 1, eligible_at: 1, created_at: 1, updated_at: 1, terminal_at: null, launch_intent_at: 1, launch_registered_at: null },
       { attempt_id: "c", work_id: "w", owner_id: null, owner_epoch: 0, status: "pending", lease_until: 1, attempt_number: 3, eligible_at: 1, created_at: 1, updated_at: 1, terminal_at: null, launch_intent_at: 1, launch_registered_at: 0 },
     ],
-    events: [{ seq: 2, event_id: "event", work_id: "w", attempt_id: "missing", kind: "bad", occurred_at: -1, payload: "{}" }],
+    events: [{ seq: 2, event_id: "event", work_id: "w", attempt_id: "missing", kind: "bad", occurred_at: -1, payload: "{}" }, { seq: 3, event_id: "ev-future", work_id: "w", attempt_id: "b", kind: "attempt_created", occurred_at: 999_999, payload: JSON.stringify({ work: { work_id: "w", status: "running", current_attempt_id: "b", owner_epoch: 1 }, attempt: { attempt_id: "b", status: "running", owner_epoch: 1, terminal_at: null, result_absent: true, error_absent: true } }) }],
     outbox: [{ seq: 2, event_id: "out", payload: "not-json", created_at: 10, projected_at: 1 }, { seq: 3, event_id: "lag", payload: "{}", created_at: 0, projected_at: null }], scanExceeded: false,
   } as unknown as LifecycleSnapshot;
   const checks = new Set(verifyLifecycleSnapshot(snapshot, now).map((finding) => finding.check));
   for (const check of [
     "lifecycle.mode.invalid", "lifecycle.work.orphan_fleet", "lifecycle.work.non_durable_fleet", "lifecycle.work.current_attempt", "lifecycle.work.state", "lifecycle.work.timestamp_order",
     "lifecycle.attempt.orphan_work", "lifecycle.attempt.state", "lifecycle.attempt.epoch", "lifecycle.attempt.number", "lifecycle.attempt.lease_state", "lifecycle.attempt.launch_state", "lifecycle.attempt.expired_lease", "lifecycle.attempt.launch_quarantine_pending",
-    "lifecycle.event.sequence", "lifecycle.event.reference", "lifecycle.event.payload", "lifecycle.replay.unreplayable", "lifecycle.replay.state_mismatch", "lifecycle.projection.missing_work", "lifecycle.projection.agent_state", "lifecycle.projection.retry_count",
+    "lifecycle.event.sequence", "lifecycle.event.reference", "lifecycle.event.payload", "lifecycle.event.occurred_in_future", "lifecycle.replay.unreplayable", "lifecycle.replay.state_mismatch", "lifecycle.projection.missing_work", "lifecycle.projection.agent_state", "lifecycle.projection.retry_count",
     "lifecycle.outbox.sequence", "lifecycle.outbox.payload", "lifecycle.outbox.projected_before_created", "lifecycle.outbox.projection_lag",
   ]) assert.ok(checks.has(check), check);
   const missingAuthority = { ...snapshot, lifecycleTablesPresent: false, work: [], attempts: [], events: [], outbox: [] };
@@ -188,4 +188,40 @@ test("fleet scoped outbox summary excludes another fleet's pending projection", 
   assert.equal(a.outbox.repair_needed, false);
   assert.equal(b.outbox.pending, 1);
   assert.equal(b.outbox.repair_needed, true);
+});
+
+test("lifecycle.event.occurred_in_future fires on projected-future tampered rows, stays silent on honest past rows", () => {
+  // cycle-897 audit-blind-spot lens: an events table row whose `occurred_at`
+  // is strictly in the future of audit-relative `now`. The events table is a
+  // hash-less append log: each row carries a JSON snapshot of work + attempt
+  // at append time, and nothing in the schema or the projector binds that
+  // snapshot to a hash of the row itself. The projector writes `occurred_at`
+  // from `now` at `appendEventOnce` time (lifecycle-execution.ts), so any
+  // strictly-positive delta to `now` has no honest producer — same shape as
+  // work_receipt.recorded_in_future (cycle-892 PR 216 unmerged), but on a
+  // DIFFERENT surface (lifecycle events, where occurred_at carries no
+  // payload_sha256 cover either). Boundary contract: strictly-greater fires
+  // (echoing receipt.in_future strict-greater precedent, cycle-896); a row
+  // whose occurred_at equals `now` is silent, the same shape an honest
+  // append-on-the-millisecond produces.
+  const now = 100_000;
+  const work = { work_id: "w", fleet_id: "f", agent_id: null, status: "pending", current_attempt_id: "a", owner_epoch: 1, created_at: 1, updated_at: 1, terminal_at: null };
+  const attempt = { attempt_id: "a", work_id: "w", owner_id: "owner", owner_epoch: 1, status: "running", lease_until: now + 60_000, attempt_number: 1, eligible_at: 1, created_at: 1, updated_at: 1, terminal_at: null, result_json: null, error_json: null, launch_intent_at: null, launch_registered_at: null };
+  const honestEvent = { seq: 1, event_id: "ev-honest", work_id: "w", attempt_id: "a", kind: "attempt_created", occurred_at: now - 1_000, payload: JSON.stringify({ work, attempt }) };
+  const exactNow = { seq: 2, event_id: "ev-exact-now", work_id: "w", attempt_id: "a", kind: "attempt_created", occurred_at: now, payload: JSON.stringify({ work, attempt }) };
+  const planted = { seq: 3, event_id: "ev-planted-future", work_id: "w", attempt_id: "a", kind: "attempt_created", occurred_at: now + 3_600_000, payload: JSON.stringify({ work, attempt }) };
+  const snapshot = {
+    data: { fleets: { f: { id: "f", status: "running", created_at: 1 } }, agents: {}, messages: {}, inboxes: {}, capabilities: {}, receipts: {}, ratifications: {}, templates: {} },
+    logicalVersion: 2, storageVersion: 3, snapshotKind: "copied-sqlite-files", lifecycleTablesPresent: true, fleetModes: new Map([["f", "durable"]]),
+    work: [work], attempts: [attempt], events: [honestEvent, exactNow, planted], outbox: [], scanExceeded: false,
+  } as unknown as LifecycleSnapshot;
+  const findings = verifyLifecycleSnapshot(snapshot, now);
+  const futureFindings = findings.filter((finding) => finding.check === "lifecycle.event.occurred_in_future");
+  const plantedFindings = futureFindings.filter((finding) => finding.subject === "ev-planted-future");
+  const honestFindings = futureFindings.filter((finding) => finding.subject === "ev-honest");
+  const exactNowFindings = futureFindings.filter((finding) => finding.subject === "ev-exact-now");
+  assert.equal(plantedFindings.length, 1, "exactly one occurred_in_future finding expected from the planted future row");
+  assert.equal(plantedFindings[0]?.severity, "error", "planted future must fire at error severity per cycle-895 / cycle-896 siblings");
+  assert.equal(honestFindings.length, 0, "honest past row must stay silent on occurred_in_future");
+  assert.equal(exactNowFindings.length, 0, "boundary equal-to-now row must stay silent on occurred_in_future (strict-greater contract, parallel to receipt.in_future)");
 });

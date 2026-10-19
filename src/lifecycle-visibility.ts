@@ -210,6 +210,32 @@ export function verifyLifecycleSnapshot(snapshot: LifecycleSnapshot, now: number
     if (!workById.has(String(event.work_id)) || (event.attempt_id != null && !attemptsById.has(String(event.attempt_id))) || !EVENT_KINDS.has(String(event.kind))) issue(findings, mode, "lifecycle.event.reference", String(event.event_id), "event references missing work/attempt or has an invalid kind");
     const body = payload(event);
     if (!body || !body.work || !body.attempt || String((body.work as Row).work_id) !== String(event.work_id) || String((body.attempt as Row).attempt_id) !== String(event.attempt_id) || !validTimestamp(event.occurred_at)) issue(findings, mode, "lifecycle.event.payload", String(event.event_id), "event payload is invalid or does not identify its row");
+    // Cycle-897 audit-blind-spot lens: server-side metadata omission on
+    // `occurred_at`. The events table is a hash-less append log: each row
+    // carries a JSON snapshot of the work + attempt at append time, but
+    // nothing in the schema or the projector binds that snapshot to a hash
+    // of the row itself, so a hand-edited `.db` row mutating `occurred_at`
+    // forward in time is invisible to every sibling guard.
+    // `lifecycle.event.payload` only checks that `occurred_at` is a finite
+    // non-negative integer — same incomplete predicate as work_receipt's
+    // pre-fix `recorded_at` (cycle-887 / cycle-892 PR 216 unmerged), and
+    // the ratification stream's pre-fix temporal guards (cycle-895 PR 219
+    // unmerged). The projector writes `occurred_at` from `now` at
+    // `appendEventOnce` time (lifecycle-execution.ts projectPending +
+    // outboxAppend), so any strictly-positive delta to `now` has no honest
+    // producer. Fired at error severity to mirror the ratified siblings
+    // (work_receipt.recorded_in_future / capability.registered_in_future /
+    // ratification.opened_in_future / resolved_in_future / receipt.in_future):
+    // an event whose occurred_at is in the future asserts a fact about
+    // when work happened that the ledger's own records do not support.
+    // Placement: AFTER `lifecycle.event.payload` (so a missing/invalid
+    // payload still fires the sibling payload check at its own severity)
+    // and BEFORE the next iteration — every event in the snapshot must
+    // see this check independently, identical to how the outbox loop's
+    // orphan_event guard (cycle-893) sits across every outbox row.
+    if (validTimestamp(event.occurred_at) && Number(event.occurred_at) > now) {
+      issue(findings, mode, "lifecycle.event.occurred_in_future", String(event.event_id), `event ${String(event.event_id)} records occurred_at=${String(event.occurred_at)}, beyond audit-relative now=${now} — the projector sets occurred_at at append time, so a strictly-future value has no honest producer and is structurally unproducible`);
+    }
   }
   for (const work of snapshot.work) {
     const mode = fleetForWork(work); const related = snapshot.events.filter((event) => String(event.work_id) === String(work.work_id));
