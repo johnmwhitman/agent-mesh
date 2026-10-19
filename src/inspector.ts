@@ -1049,6 +1049,11 @@ const CHECK_EXPLANATIONS: Record<string, CheckExplanation> = {
     benign: "clock skew between machines that shared or merged a ledger",
     investigate: "agent-mesh inspect --export | jq '{receipts, messages}'",
   },
+  "receipt.in_future": {
+    what: "a receipt carries a server-side timestamp after the audit's now — invisible to receipt.invalid_timestamp (non-finite only), receipt.before_message (past-impossibility only), and receipt.key_mismatch (idempotency only); same blind-spot class as work_receipt.recorded_in_future, capability.registered_in_future, and ratification.opened_in_future/resolved_in_future",
+    benign: "a clock-forward edit between merges, or an export taken at one wall-clock and audited at another",
+    investigate: "agent-mesh inspect --export | jq '.receipts'",
+  },
   "message.ack_flag_mismatch": {
     what: "a message's acknowledged flag disagrees with a recompute from its 'ack' receipts",
     benign: "a write from before the withLedger seam missed the derived-flag recompute",
