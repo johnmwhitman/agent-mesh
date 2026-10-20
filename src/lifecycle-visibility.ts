@@ -238,8 +238,16 @@ export function verifyLifecycleSnapshot(snapshot: LifecycleSnapshot, now: number
     if (!Number.isInteger(row.seq) || Number(row.seq) !== outExpected++ || outIds.has(String(row.event_id))) issue(findings, diagnosticMode, "lifecycle.outbox.sequence", String(row.event_id), "outbox sequence is not contiguous or event id is duplicated");
     outIds.add(String(row.event_id));
     try { json(row.payload, "outbox payload"); } catch { issue(findings, diagnosticMode, "lifecycle.outbox.payload", String(row.event_id), "outbox payload is invalid JSON"); }
-    if (!validTimestamp(row.created_at) || (row.projected_at != null && (!validTimestamp(row.projected_at) || Number(row.projected_at) < Number(row.created_at)))) issue(findings, diagnosticMode, "lifecycle.outbox.projected_before_created", String(row.event_id), "outbox projection timestamp precedes creation");
-    if (row.projected_at == null && validTimestamp(row.created_at) && now - Number(row.created_at) > OUTBOX_LAG_MS) issue(findings, diagnosticMode, "lifecycle.outbox.projection_lag", String(row.event_id), "outbox row remains unprojected beyond the lag threshold", true);
+    const createdAtValid = validTimestamp(row.created_at);
+    const projectedAt = row.projected_at == null ? null : Number(row.projected_at);
+    const claimedAt = row.claimed_at == null ? null : Number(row.claimed_at);
+    const claimedBy = row.claimed_by == null ? null : String(row.claimed_by);
+    if (!createdAtValid || (projectedAt != null && (!validTimestamp(projectedAt) || projectedAt < Number(row.created_at)))) issue(findings, diagnosticMode, "lifecycle.outbox.projected_before_created", String(row.event_id), "outbox projection timestamp precedes creation");
+    if (claimedAt != null && createdAtValid && claimedAt < Number(row.created_at)) issue(findings, diagnosticMode, "lifecycle.outbox.claimed_before_created", String(row.event_id), "outbox claim timestamp precedes creation");
+    if (projectedAt != null && claimedAt != null && projectedAt < claimedAt) issue(findings, diagnosticMode, "lifecycle.outbox.projected_before_claimed", String(row.event_id), "outbox projection timestamp precedes claim timestamp");
+    if (claimedBy != null && claimedAt == null) issue(findings, diagnosticMode, "lifecycle.outbox.claimed_by_without_timestamp", String(row.event_id), "outbox claim owner is set without a claim timestamp");
+    if (claimedBy == null && claimedAt != null) issue(findings, diagnosticMode, "lifecycle.outbox.claimed_at_without_claimed_by", String(row.event_id), "outbox claim timestamp is set without a claim owner");
+    if (row.projected_at == null && createdAtValid && now - Number(row.created_at) > OUTBOX_LAG_MS) issue(findings, diagnosticMode, "lifecycle.outbox.projection_lag", String(row.event_id), "outbox row remains unprojected beyond the lag threshold", true);
   }
   return findings;
 }
