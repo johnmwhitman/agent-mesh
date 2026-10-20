@@ -1169,6 +1169,31 @@ const CHECK_EXPLANATIONS: Record<string, CheckExplanation> = {
     benign: "a single evidence entry with a non-SHA-256 digest that the caller intentionally omits (kind without digest) is allowed by the schema; only the populated-with-bad-bytes case fails. Rows planted by hand before the contract shipped may also have older evidence kinds",
     investigate: "agent-mesh inspect --export | jq '.work_receipts[] | select(.evidence | type == \"string\") | .key'",
   },
+  // -------------------------------------------------------------------------
+  // Lifecycle event occurred_at temporal guard (cycle-897 audit-blind-spot
+  // lens). The events table is a hash-less append log: each row carries a
+  // JSON snapshot of the work + attempt at append time, but nothing in the
+  // schema or the projector binds that snapshot to a hash of the row
+  // itself. The projector writes `occurred_at` from `now` at
+  // appendEventOnce time (lifecycle-execution.ts projectPending +
+  // outboxAppend), so any strictly-positive delta to audit-relative `now`
+  // has no honest producer and is structurally unproducible. Bespoke
+  // entry required for any future wire-up of lifecycle --explain; the
+  // pre-fix `lifecycle.event.payload` only checks that occurred_at is a
+  // finite non-negative integer, the same incomplete predicate as the
+  // work_receipt / ratification temporal families (cycle-887 / cycle-892
+  // PR 216 unmerged for work_receipt.recorded_in_future; cycle-895
+  // PR 219 unmerged for ratification.opened_in_future /
+  // resolved_in_future / resolved_before_opened). Boundary: strictly-
+  // greater, parallel to the receipt.in_future strict-greater contract
+  // (cycle-896); an honest append-on-the-millisecond whose occurred_at
+  // equals `now` is silent.
+  // -------------------------------------------------------------------------
+  "lifecycle.event.occurred_in_future": {
+    what: "a lifecycle event records an `occurred_at` strictly beyond audit-relative now — the projector writes that field from `now` at append time, so a future value has no honest producer and the row was either hand-edited after the fact or written through a non-conforming seam",
+    benign: "a clock-skew millisecond anomaly that lands within one ms of `now` will still satisfy the strict-greater contract; an honest append reading `now` AT the audit's own boundary is silent",
+    investigate: "agent-mesh inspect --lifecycle <fleet_id> --json | jq '.data.issues | map(select(.check == \"lifecycle.event.occurred_in_future\"))'",
+  },
 };
 
 /**
