@@ -233,10 +233,27 @@ export function verifyLifecycleSnapshot(snapshot: LifecycleSnapshot, now: number
       }
     }
   }
+  // The outbox table is a PROJECTION of the events table: every row the writer
+  // appends to `lifecycle_event_outbox` was appended to `attempt_events` first,
+  // in the same transaction (lifecycle-execution.ts:109 + 144). A row whose
+  // event_id is not present in the events table therefore asserts a projection
+  // of an event that this ledger has never recorded — the write path has no
+  // honest producer for that shape, and the four sibling outbox checks
+  // (`sequence`, `payload` JSON-validity, `projected_before_created`, and the
+  // `projection_lag` warning) all examine the row in isolation, so a fabricated
+  // or replayed-only-outbox row passed silently under the existing audit.
+  //
+  // Gated by the events Set already built in the loop above, so a cross-row
+  // reference check costs one membership lookup per outbox row with no extra
+  // pass. Error, not warning: the events/outbox relationship is the
+  // outbox's own invariant — every row written was derived from a real
+  // event in the same transaction — and the sibling `sequence` /
+  // `projected_before_created` checks are errors under the same reasoning.
   const outIds = new Set<string>(); let outExpected = 1;
   for (const row of [...snapshot.outbox].sort((a, b) => Number(a.seq) - Number(b.seq))) {
     if (!Number.isInteger(row.seq) || Number(row.seq) !== outExpected++ || outIds.has(String(row.event_id))) issue(findings, diagnosticMode, "lifecycle.outbox.sequence", String(row.event_id), "outbox sequence is not contiguous or event id is duplicated");
     outIds.add(String(row.event_id));
+    if (!ids.has(String(row.event_id))) issue(findings, diagnosticMode, "lifecycle.outbox.orphan_event", String(row.event_id), `outbox row references event_id ${JSON.stringify(String(row.event_id))} which is not present in the events table — the outbox is a projection of attempt_events, so every outbox row must reference a real event (cycle-893 audit-blind-spot: cross-table integrity check)`);
     try { json(row.payload, "outbox payload"); } catch { issue(findings, diagnosticMode, "lifecycle.outbox.payload", String(row.event_id), "outbox payload is invalid JSON"); }
     if (!validTimestamp(row.created_at) || (row.projected_at != null && (!validTimestamp(row.projected_at) || Number(row.projected_at) < Number(row.created_at)))) issue(findings, diagnosticMode, "lifecycle.outbox.projected_before_created", String(row.event_id), "outbox projection timestamp precedes creation");
     if (row.projected_at == null && validTimestamp(row.created_at) && now - Number(row.created_at) > OUTBOX_LAG_MS) issue(findings, diagnosticMode, "lifecycle.outbox.projection_lag", String(row.event_id), "outbox row remains unprojected beyond the lag threshold", true);
