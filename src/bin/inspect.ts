@@ -447,15 +447,15 @@ function runFollow(args: string[]): void {
   // signature of a latent race rather than a regression.
   let stopped = false
   let timer: NodeJS.Timeout | undefined
-  const stop = (): void => {
+  const stop = (exitCode: 0 | 1): void => {
     if (stopped) return
     stopped = true
     if (timer !== undefined) clearInterval(timer)
     closeFollowDb()
-    process.exit(0)
+    process.exit(exitCode)
   }
-  process.on('SIGINT', stop)
-  process.on('SIGTERM', stop)
+  process.on('SIGINT', () => stop(0))
+  process.on('SIGTERM', () => stop(0))
 
   process.stdout.write(
     `ledger: ${dbFile}  · poll ${intervalMs}ms  · ctrl-c to stop\n` +
@@ -472,8 +472,7 @@ function runFollow(args: string[]): void {
       // crash with a raw stack trace — report and stop, same spirit as
       // `agent-mesh dashboard`'s per-tick catch.
       process.stderr.write(`follow: ${err instanceof Error ? err.message : String(err)}\n`)
-      stop()
-      process.exitCode = 1
+      stop(1)
       return
     }
     if (rows.length === 0) return

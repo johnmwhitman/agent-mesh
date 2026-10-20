@@ -273,3 +273,43 @@ test("inspect --follow: a genuinely missing ledger file is a hard error (exit 2)
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+
+test("inspect --follow: polling failure exits with status 1", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "meshfleet-follow-poll-error-"));
+  const dbFile = join(dir, "ledger.db");
+  let child: PipedChild | undefined;
+  try {
+    setDbPath(dbFile);
+    readLedger();
+    closeDb();
+
+    child = spawnFollow(dbFile);
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (b) => (stdout += b.toString()));
+    child.stderr.on("data", (b) => (stderr += b.toString()));
+    await waitFor(() => stdout, (out) => /watching/i.test(out), 5_000);
+
+    // The child has opened its dedicated read-only connection. Remove only
+    // this synthetic ledger's table so its next real poll fails after startup.
+    // Subscribe before mutation: the error must not race the exit listener.
+    const exited = waitExit(child, 5_000);
+    const raw = new Database(dbFile);
+    try {
+      raw.exec("DROP TABLE messages");
+    } finally {
+      raw.close();
+    }
+
+    const res = await exited;
+    await waitFor(() => stderr, (out) => /follow:.*not a meshfleet ledger/i.test(out), 5_000);
+    assert.equal(res.code, 1, `polling errors must not report success; stderr:\n${stderr}`);
+    assert.equal(res.signal, null, "polling failure must exit through cleanup, not a signal");
+    assert.doesNotMatch(stderr, /at Object\.|at runFollow/, "expected the concise polling diagnosis, not a stack trace");
+  } finally {
+    if (child && child.exitCode === null && !child.killed) child.kill("SIGKILL");
+    setDbPath(null);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
