@@ -669,7 +669,7 @@ export function classifySpawnResult(
   }
   const diagnostics = plainStderr
     .split("\n")
-    .filter((line) => /^\s*Error:/i.test(line) || NO_CREDENTIALS.test(line) || PROVIDER_DIAGNOSTIC.test(line));
+    .filter((line) => /^\s*Error:/i.test(line) || NO_CREDENTIALS.test(line) || PROVIDER_DIAGNOSTIC.test(line) || /\blevel=ERROR\b/.test(line));
   const primaryError = diagnostics.find((line) =>
     isRuntimeDiagnostic(diagnosticAttribution(line), observedModel)
   );
