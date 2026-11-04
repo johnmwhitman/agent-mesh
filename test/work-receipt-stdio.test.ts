@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -42,6 +42,16 @@ test("MCP stdio parity: record_work_receipt and get_work_receipt are advertised,
     assert.ok(existsSync(tarballPath), `tarball ${tarballPath} not produced`);
     const tarballBytes = readFileSync(tarballPath);
     const tarballSha = createHash("sha256").update(tarballBytes).digest("hex");
+
+    const sqliteVersion: unknown = JSON.parse(
+      readFileSync(join(repoRoot, "node_modules", "better-sqlite3", "package.json"), "utf8"),
+    ).version;
+    assert.equal(typeof sqliteVersion, "string");
+    assert.match(sqliteVersion as string, /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/);
+    writeFileSync(join(tempProject, "package.json"), JSON.stringify({
+      private: true,
+      allowScripts: { [`better-sqlite3@${sqliteVersion}`]: true },
+    }));
 
     execFileSync(
       process.platform === "win32" ? "npm.cmd" : "npm",

@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
+import { npmPackFilename } from "./helpers/npm-pack-json.js";
 import * as publicRouteApi from "../src/recommend-route.js";
 import {
   assertRecommendRoutePreference,
@@ -135,9 +136,7 @@ test("packed recommend-route consumer imports, evaluates, and rejects without MC
       shell: IS_WINDOWS,
     });
     assert.equal(pack.status, 0, pack.stderr || pack.stdout);
-    const packed = JSON.parse(pack.stdout) as Array<{ filename: string }>;
-    assert.equal(packed.length, 1);
-    const tarball = join(temp, packed[0]!.filename);
+    const tarball = join(temp, npmPackFilename(pack.stdout, "meshfleet"));
     assert.equal(existsSync(tarball), true);
 
     const consumer = join(temp, "consumer");
