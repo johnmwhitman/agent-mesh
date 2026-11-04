@@ -1788,3 +1788,37 @@ test('v3 (l): an empty-valued key= boundary still makes the line structured (nev
     assert.match(control.warning ?? '', /auxiliary provider/i)
   }
 })
+
+test('v3 (m): only a top-level unquoted ERROR level is a diagnostic', () => {
+  const falsePositiveLines = [
+    'timestamp=x level=INFO message="configured level=ERROR"',
+    'timestamp=x level=INFO logger.level=ERROR message=healthy',
+    'timestamp=x level=INFO message=configured-level=ERROR',
+  ]
+
+  for (const line of falsePositiveLines) {
+    const result = classifySpawnResult({ exitCode: 0, stdout: 'complete answer', stderr: line })
+    assert.equal(result.success, true, `${line} :: ${result.error}`)
+    assert.equal(result.error, undefined, line)
+  }
+
+  const primary = infoRecord('kilo', 'nvidia/nemotron-3.5-lightning:free')
+  const ownError = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'partial answer',
+    stderr: [
+      primary,
+      'timestamp=x level=ERROR message="stream error" providerID=kilo modelID=nvidia/nemotron-3.5-lightning:free',
+    ].join('\n'),
+  })
+  assert.equal(ownError.success, false)
+  assert.match(ownError.error ?? '', /fatal primary provider error/i)
+
+  const nonzero = classifySpawnResult({
+    exitCode: 2,
+    stdout: 'partial answer',
+    stderr: falsePositiveLines[0],
+  })
+  assert.equal(nonzero.success, false)
+  assert.match(nonzero.error ?? '', /exit code 2/i)
+})
