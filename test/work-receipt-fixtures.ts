@@ -189,6 +189,16 @@ export const WORK_RECEIPT_FIXTURES: readonly WorkReceiptFixture[] = [
     },
   },
   {
+    check: "work_receipt.recorded_in_future", severity: "warning",
+    description: "recording exceeds the audit clock by an hour, in unix seconds",
+    plant() {
+      const p = basePayload();
+      rawInsert({ ...p, key: workReceiptKey(WORK_RECEIPT_SOURCE, p.task_id, p.run_id),
+        source: WORK_RECEIPT_SOURCE, evidence_json: JSON.stringify(p.evidence),
+        payload_sha256: canonicalDigest(p), recorded_at: Math.floor(Date.now() / 1000) + 3600 });
+    },
+  },
+  {
     check: "work_receipt.digest_mismatch",
     description: "stored payload_sha256 disagrees with the canonical digest recomputed from the row's fields",
     plant(ledgerPath) {

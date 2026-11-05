@@ -662,6 +662,11 @@ interface CheckExplanation {
 }
 
 const CHECK_EXPLANATIONS: Record<string, CheckExplanation> = {
+  "work_receipt.recorded_in_future": {
+    what: "recording is over five minutes ahead of the auditor (unix seconds)",
+    benign: "writer/auditor clock skew; this warning alone does not establish tampering",
+    investigate: "compare recorded_at with the writer and auditor clocks",
+  },
   "lifecycle.outbox.claimed_by_without_timestamp": {
     what: "an outbox claim names an owner without a claim timestamp",
     benign: "unclaimed rows leave both fields null; a partial claim may come from an older writer",

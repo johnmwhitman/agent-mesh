@@ -222,6 +222,10 @@ export function verifyMeshData(
       warning("work_receipt.completed_after_recorded", rowKey,
         "completion is over five minutes after recording; check caller/server clock skew or edited metadata");
     }
+    if (validation.ok && exceedsClockSkew(wr.recorded_at, Math.floor(now / 1000), 1000)) {
+      warning("work_receipt.recorded_in_future", rowKey,
+        "recording is over five minutes ahead of the auditor; check writer/auditor clock skew or edited metadata");
+    }
   }
 
   const receipts = data.receipts ?? {};
