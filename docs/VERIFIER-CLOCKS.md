@@ -26,3 +26,8 @@ Work receipt completion is caller supplied; recording is server supplied.
 Neither comparison across those clocks nor a comparison to the auditor's
 clock is proof that a row was forged. Inspect clock history and provenance
 before deciding whether metadata needs repair.
+
+Outbox IDs are not foreign keys into `attempt_events`. The execution bridge
+queues NDJSON projection events with independent UUIDs (including fleet events).
+Requiring a matching attempt-event ID would reject healthy writer output. No
+`lifecycle.outbox.orphan_event` check is defined.
