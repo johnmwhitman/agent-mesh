@@ -70,9 +70,9 @@ only. Failover's unit-level spec and registry tests run on every platform.
 
 ## Platform-skipped tests (what does not run on Windows)
 
-The suite collects the same total everywhere, but **25 tests skip on
-`windows-2022`**, consistent across Node 20, 22, and 24. Every skip is a
-deliberate `process.platform === "win32"` (or equivalent) predicate, not flake.
+The suite collects the same total everywhere. **26 tests have fixed skips on
+`windows-2022`** by `process.platform === "win32"` (or equivalent) predicate;
+this current-source count awaits fresh cross-platform measurement.
 This repository's own rule is that a test that does not run is indistinguishable
 from a test that passes, so the subset is published rather than tolerated
 silently:
@@ -86,7 +86,11 @@ silently:
 | 1 | chaos durability: a worker outlives its one-shot submitter (`chaos-detached-exchange`) | orphan survival is POSIX-only (`src/runtime/process.ts` detaches workers only off win32) and the shebang fixture is not executable by `CreateProcess` |
 | 5 | **runtime failover end-to-end** (refusal → hop → receipts, plus three negative controls) | the backup-runtime leg cannot be stubbed: the Kimi adapter scrubs its child environment by design, so the `process.execPath`+`NODE_OPTIONS` stub that serves the default runtime has no channel to the Kimi child |
 | 2 | Grok and MiniMax `spawn_fleet` wiring | POSIX shell/chmod fixture; adapter behavior is covered cross-platform with `process.execPath` |
-| 3 | doctor checks (two unwritable-directory cases, one PATH probe) | POSIX permission semantics / platform predicate |
+| 4 | doctor checks (unwritable ledger directory, event-log directory and existing event-log file; one PATH probe) | POSIX permission semantics / platform predicate |
+
+The doctor event-log symlink test can additionally skip on platforms where symlink
+creation is unsupported or not permitted; that conditional skip is not included in
+the fixed Windows count. Permission tests also skip when running as root.
 
 The signal-semantics rows are structural platform differences and are expected to
 remain skipped. The capability-contradiction tests formerly in this table now run
