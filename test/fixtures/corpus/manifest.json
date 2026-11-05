@@ -3,6 +3,79 @@
   "baseline": "baseline.json",
   "vectors": [
     {
+      "id": "ratification-opened-in-future",
+      "primary": "ratification.opened_in_future",
+      "classification": "anomaly",
+      "lie": "opening is an hour beyond the auditor; both council dates move together to isolate audit clock skew",
+      "ops": [
+        {
+          "op": "set",
+          "path": "ratifications|m2|opened_at",
+          "value": 1800003600000
+        },
+        {
+          "op": "set",
+          "path": "ratifications|m2|resolved_at",
+          "value": 1800003600001
+        }
+      ],
+      "expected_ok": true,
+      "expected_findings": [
+        {
+          "severity": "warning",
+          "check": "ratification.opened_in_future",
+          "subject": "m2"
+        },
+        {
+          "severity": "warning",
+          "check": "ratification.resolved_in_future",
+          "subject": "m2"
+        }
+      ]
+    },
+    {
+      "id": "ratification-resolved-in-future",
+      "primary": "ratification.resolved_in_future",
+      "classification": "anomaly",
+      "lie": "resolution is an hour beyond the auditor; this is a time diagnostic, not a provenance verdict",
+      "ops": [
+        {
+          "op": "set",
+          "path": "ratifications|m2|resolved_at",
+          "value": 1800003600000
+        }
+      ],
+      "expected_ok": true,
+      "expected_findings": [
+        {
+          "severity": "warning",
+          "check": "ratification.resolved_in_future",
+          "subject": "m2"
+        }
+      ]
+    },
+    {
+      "id": "ratification-resolved-before-opened",
+      "primary": "ratification.resolved_before_opened",
+      "classification": "anomaly",
+      "lie": "opening follows the recorded resolution by an hour, beyond the clock allowance",
+      "ops": [
+        {
+          "op": "set",
+          "path": "ratifications|m2|opened_at",
+          "value": 1700003600320
+        }
+      ],
+      "expected_ok": true,
+      "expected_findings": [
+        {
+          "severity": "warning",
+          "check": "ratification.resolved_before_opened",
+          "subject": "m2"
+        }
+      ]
+    },
+    {
       "id": "capability-registered-in-future",
       "primary": "capability.registered_in_future",
       "classification": "anomaly",

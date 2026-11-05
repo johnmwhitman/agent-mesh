@@ -874,6 +874,14 @@ export function verifyMeshData(
 
   // --- ratifications ---------------------------------------------------------
   for (const [ratKey, r] of Object.entries(ratifications)) {
+    // Independent diagnostics: a future resolution may also precede opening.
+    // Wall-clock ordering is not an authenticity proof, even within one row.
+    if (exceedsClockSkew(r.opened_at, now)) warning("ratification.opened_in_future", ratKey,
+      "opening is over five minutes ahead of the auditor; check clock skew or edited metadata");
+    if (exceedsClockSkew(r.resolved_at, now)) warning("ratification.resolved_in_future", ratKey,
+      "resolution is over five minutes ahead of the auditor; check clock skew or edited metadata");
+    if (exceedsClockSkew(r.opened_at, r.resolved_at)) warning("ratification.resolved_before_opened", ratKey,
+      "resolution precedes opening by over five minutes; check wall-clock rollback or edited metadata");
     // Ratifications are keyed by proposal id on the write path. Receipts and
     // capabilities already refuse a key that disagrees with its body; this map
     // did not, and its own orphan check reads the BODY's message_id — so a

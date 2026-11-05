@@ -85,6 +85,15 @@ function applyOps(data: any, ops: Op[]): void {
 }
 
 const V: Vector[] = [
+  { id: "ratification-opened-in-future", primary: "ratification.opened_in_future", classification: "anomaly",
+    lie: "opening is an hour beyond the auditor; both council dates move together to isolate audit clock skew",
+    ops: [{ op: "set", path: "ratifications|m2|opened_at", value: NOW + 3_600_000 }, { op: "set", path: "ratifications|m2|resolved_at", value: NOW + 3_600_001 }] },
+  { id: "ratification-resolved-in-future", primary: "ratification.resolved_in_future", classification: "anomaly",
+    lie: "resolution is an hour beyond the auditor; this is a time diagnostic, not a provenance verdict",
+    ops: [{ op: "set", path: "ratifications|m2|resolved_at", value: NOW + 3_600_000 }] },
+  { id: "ratification-resolved-before-opened", primary: "ratification.resolved_before_opened", classification: "anomaly",
+    lie: "opening follows the recorded resolution by an hour, beyond the clock allowance",
+    ops: [{ op: "set", path: "ratifications|m2|opened_at", value: T0 + 3_600_320 }] },
   { id: "capability-registered-in-future", primary: "capability.registered_in_future", classification: "anomaly",
     lie: "registration is an hour beyond the auditor; clock skew and edited metadata are both possible",
     ops: [{ op: "set", path: "capabilities|a2", value: { agent_id: "a2", fleet_id: "f1", role: "reviewer", skills: ["review"], registered_at: NOW + 3_600_000 } }] },

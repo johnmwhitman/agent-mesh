@@ -17,6 +17,9 @@ its severity. A warning leaves `ok: true` when there are no other errors.
 | `work_receipt.completed_after_recorded` | completed_at minus recorded_at > 300 seconds | warning |
 | `work_receipt.recorded_in_future` | recorded_at minus floor(audit now / 1000) > 300 seconds | warning |
 | `capability.registered_in_future` | registered_at minus audit now > 300,000 ms | warning |
+| `ratification.opened_in_future` | opened_at minus audit now > 300,000 ms | warning |
+| `ratification.resolved_in_future` | resolved_at minus audit now > 300,000 ms | warning |
+| `ratification.resolved_before_opened` | opened_at minus resolved_at > 300,000 ms | warning |
 | `lifecycle.outbox.claimed_before_created` | created_at minus claimed_at > 300,000 ms | warning |
 | `lifecycle.outbox.projected_before_claimed` | claimed_at minus projected_at > 300,000 ms | warning |
 | `lifecycle.outbox.claimed_by_without_timestamp` | owner set, timestamp absent | error (warning in shadow mode) |

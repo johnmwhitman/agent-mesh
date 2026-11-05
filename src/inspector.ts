@@ -662,6 +662,21 @@ interface CheckExplanation {
 }
 
 const CHECK_EXPLANATIONS: Record<string, CheckExplanation> = {
+  "ratification.opened_in_future": {
+    what: "council opening is over five minutes ahead of the auditor",
+    benign: "writer/auditor clock skew; this warning alone does not establish tampering",
+    investigate: "compare opened_at with writer and auditor clocks",
+  },
+  "ratification.resolved_in_future": {
+    what: "council resolution is over five minutes ahead of the auditor",
+    benign: "writer/auditor clock skew; this warning alone does not establish tampering",
+    investigate: "compare resolved_at with writer and auditor clocks",
+  },
+  "ratification.resolved_before_opened": {
+    what: "council resolution precedes opening by over five minutes",
+    benign: "a backward wall-clock adjustment; this warning alone does not establish tampering",
+    investigate: "compare opened_at and resolved_at with clock adjustment history",
+  },
   "capability.registered_in_future": {
     what: "capability registration is over five minutes ahead of the auditor",
     benign: "writer/auditor clock skew; this warning alone does not establish tampering",
