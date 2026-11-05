@@ -662,6 +662,11 @@ interface CheckExplanation {
 }
 
 const CHECK_EXPLANATIONS: Record<string, CheckExplanation> = {
+  "lifecycle.event.occurred_in_future": {
+    what: "lifecycle occurrence time is over five minutes ahead of the auditor",
+    benign: "writer/auditor clock skew; this warning alone does not establish tampering",
+    investigate: "compare attempt_events occurred_at with writer and auditor clock history",
+  },
   "receipt.in_future": {
     what: "receipt time is over five minutes ahead of the auditor",
     benign: "writer/auditor clock skew; the warning retains otherwise valid acknowledgement evidence",

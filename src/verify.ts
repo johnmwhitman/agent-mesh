@@ -168,7 +168,7 @@ function derivedAcknowledged(msg: Message, validatedAckReceipts: ReadonlySet<str
   return messageRecipients(msg).every((r) => validatedAckReceipts.has(`${msg.id}:${r}:ack`));
 }
 
-/** Verify a MeshData snapshot. Pure and read-only; `now` only affects deadline-dependent tally recomputation. */
+/** Verify a MeshData snapshot. Pure and read-only; `now` anchors tallying and metadata clock diagnostics. */
 export function verifyMeshData(
   data: MeshData,
   now: number = Date.now(),

@@ -208,6 +208,7 @@ export function verifyLifecycleSnapshot(snapshot: LifecycleSnapshot, now: number
     const mode = workById.get(String(event.work_id)) ? fleetForWork(workById.get(String(event.work_id))!) : diagnosticMode;
     if (!Number.isInteger(event.seq) || Number(event.seq) !== expected++ || ids.has(String(event.event_id))) issue(findings, mode, "lifecycle.event.sequence", String(event.event_id), "event sequence is not globally contiguous or event id is duplicated");
     ids.add(String(event.event_id));
+    if (validTimestamp(event.occurred_at) && exceedsClockSkew(event.occurred_at, now)) issue(findings, mode, "lifecycle.event.occurred_in_future", String(event.event_id), "event occurrence is over five minutes ahead of the auditor; check clock skew or edited metadata", true);
     if (!workById.has(String(event.work_id)) || (event.attempt_id != null && !attemptsById.has(String(event.attempt_id))) || !EVENT_KINDS.has(String(event.kind))) issue(findings, mode, "lifecycle.event.reference", String(event.event_id), "event references missing work/attempt or has an invalid kind");
     const body = payload(event);
     if (!body || !body.work || !body.attempt || String((body.work as Row).work_id) !== String(event.work_id) || String((body.attempt as Row).attempt_id) !== String(event.attempt_id) || !validTimestamp(event.occurred_at)) issue(findings, mode, "lifecycle.event.payload", String(event.event_id), "event payload is invalid or does not identify its row");
