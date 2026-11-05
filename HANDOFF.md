@@ -1,7 +1,7 @@
 # MeshFleet public handoff
 
 **Source version:** `0.22.0` · **MCP surface:** **40 MCP tools** (36 with the opt-in compact catalog) ·
-**current suite contract:** **2022/2022** tests collected, plus typecheck and build
+**current suite contract:** **2024/2024** tests collected, plus typecheck and build
 
 The latest completed cross-platform proof is GitHub Actions run `31315444631`
 at `e14bd8f` (9/9 jobs across Node 20/22/24 on Ubuntu, macOS, and Windows).
@@ -88,8 +88,8 @@ silently:
 | 2 | Grok and MiniMax `spawn_fleet` wiring | POSIX shell/chmod fixture; adapter behavior is covered cross-platform with `process.execPath` |
 | 4 | doctor checks (unwritable ledger directory, event-log directory and existing event-log file; one PATH probe) | POSIX permission semantics / platform predicate |
 
-The doctor event-log symlink test can additionally skip on platforms where symlink
-creation is unsupported or not permitted; that conditional skip is not included in
+The doctor event-log symlink tests can additionally skip on platforms where symlink
+creation is unsupported or not permitted; those conditional skips are not included in
 the fixed Windows count. Permission tests also skip when running as root.
 
 The signal-semantics rows are structural platform differences and are expected to

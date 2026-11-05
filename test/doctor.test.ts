@@ -231,6 +231,52 @@ test('doctor: event-log path in a writable directory is ok', () => {
   }
 })
 
+test('doctor: a regular file cannot be the parent or ancestor of an event log', () => {
+  const dir = tempDir()
+  const parent = join(dir, 'not-a-directory')
+  writeFileSync(parent, 'unchanged\n')
+  try {
+    for (const file of [join(parent, 'events.log'), join(parent, 'nested', 'events.log')]) {
+      const c = checkEventLog(file)
+      assert.equal(c.status, 'fail')
+      assert.ok(c.detail.includes(parent))
+      assert.match(c.detail, /file.*directory/i)
+      assert.match(c.fix ?? '', /directory/i)
+      assert.equal(existsSync(file), false)
+    }
+    assert.equal(readFileSync(parent, 'utf8'), 'unchanged\n')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('doctor: a directory symlink remains usable as an event-log parent', (t) => {
+  const dir = tempDir()
+  const target = join(dir, 'target')
+  const link = join(dir, 'link')
+  mkdirSync(target)
+  try {
+    try {
+      symlinkSync(target, link, 'dir')
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code
+      if (code === 'EPERM' || code === 'EACCES' || code === 'ENOSYS' || code === 'ENOTSUP' || code === 'EOPNOTSUPP') {
+        t.skip(`symlink creation unsupported or not permitted: ${code}`)
+        return
+      }
+      throw e
+    }
+    const file = join(link, 'events.log')
+    const c = checkEventLog(file)
+    assert.equal(c.status, 'ok')
+    assert.match(c.detail, /created on first event/i)
+    assert.equal(existsSync(file), false)
+    assert.deepEqual(readdirSync(target), [])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('doctor: a directory used as the event-log file fails with a file-path remedy', () => {
   const dir = tempDir()
   const logDir = join(dir, 'events')

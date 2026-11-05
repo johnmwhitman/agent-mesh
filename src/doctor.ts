@@ -259,6 +259,23 @@ export function checkEventLog(logFile: string = resolveEventLogFile()): DoctorCh
     }
   }
   const ancestor = nearestExistingDir(dirname(logFile))
+  try {
+    if (statSync(ancestor).isFile()) {
+      return {
+        check: 'event-log',
+        status: 'fail',
+        detail: `cannot create event log ${logFile}: ancestor ${ancestor} is a file, not a directory`,
+        fix: 'choose an event-log file path under a directory',
+      }
+    }
+  } catch {
+    return {
+      check: 'event-log',
+      status: 'fail',
+      detail: `cannot inspect event-log ancestor ${ancestor}`,
+      fix: 'check the path and access to it, or choose another event-log file path',
+    }
+  }
   if (isWritable(ancestor)) {
     return {
       check: 'event-log',
