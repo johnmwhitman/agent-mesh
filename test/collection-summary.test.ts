@@ -113,6 +113,91 @@ test("failed agent without a valid reported result remains lost", () => {
   assert.ok(s.warning);
 });
 
+const blankOutputCases = [
+  { name: "omitted", fields: {} },
+  { name: "empty", fields: { output: "" } },
+  { name: "whitespace-only", fields: { output: " \t\n " } },
+];
+const noArtifactCases = [
+  { name: "absent", fields: {} },
+  { name: "empty", fields: { artifacts: [] } },
+];
+
+for (const output of blankOutputCases) {
+  for (const artifacts of noArtifactCases) {
+    test(`failed ok contract with ${output.name} output and ${artifacts.name} artifacts is lost`, () => {
+      const s = summarizeCollection([{
+        role: "silent-failure", status: "failed", result_contract: "ok",
+        ...output.fields, ...artifacts.fields,
+      }]);
+      assert.deepEqual(s, {
+        total: 1, delivered: 0, lost: 1, still_running: 0,
+        lost_agents: [{ role: "silent-failure", status: "failed", meaning: "ran and failed; see its error" }],
+        degraded_agents: [],
+        warning: "1 of 1 agents produced no result: silent-failure (failed). " +
+          "Work assigned to them was NOT done. An agent killed by a crash reports nothing, and its " +
+          'silence is indistinguishable from "not finished yet" — so this collection is INCOMPLETE, ' +
+          "not merely smaller. Re-dispatch the lost roles explicitly before treating the fleet as done.",
+      });
+      assert.equal(s.delivered + s.lost + s.still_running, s.total);
+    });
+  }
+
+  test(`failed ok contract with ${output.name} output and a declared artifact is delivered but degraded`, () => {
+    const s = summarizeCollection([{
+      role: "artifact-only", status: "failed", result_contract: "ok",
+      ...output.fields, artifacts: ["report.md"], error: "worker exited after reporting",
+    }]);
+    assert.equal(s.warning, undefined);
+    assert.deepEqual(s, {
+      total: 1, delivered: 1, lost: 0, still_running: 0, lost_agents: [],
+      degraded_agents: [{
+        role: "artifact-only", status: "failed", result_contract: "ok",
+        error: "worker exited after reporting",
+      }],
+    });
+    assert.equal(s.delivered + s.lost + s.still_running, s.total);
+  });
+}
+
+for (const artifacts of noArtifactCases) {
+  test(`failed ok contract with nonblank output and ${artifacts.name} artifacts is delivered but degraded`, () => {
+    const s = summarizeCollection([{
+      role: "reported", status: "failed", result_contract: "ok",
+      output: " \n declared work \t ", ...artifacts.fields,
+    }]);
+    assert.equal(s.warning, undefined);
+    assert.deepEqual(s, {
+      total: 1, delivered: 1, lost: 0, still_running: 0, lost_agents: [],
+      degraded_agents: [{ role: "reported", status: "failed", result_contract: "ok" }],
+    });
+    assert.equal(s.delivered + s.lost + s.still_running, s.total);
+  });
+}
+
+test("silent failed ok contracts preserve the tally alongside unrelated statuses", () => {
+  const s = summarizeCollection([
+    { role: "silent-failure", status: "failed", result_contract: "ok" },
+    { role: "artifact-only", status: "failed", result_contract: "ok", artifacts: ["report.md"] },
+    { role: "invalid-contract", status: "failed", result_contract: "absent", output: "partial work" },
+    { role: "interrupted", status: "interrupted", result_contract: "ok", output: "partial work" },
+    { role: "cancelled", status: "cancelled", result_contract: "ok", artifacts: ["report.md"] },
+    { role: "pending", status: "pending", result_contract: "ok" },
+    { role: "running", status: "running", result_contract: "ok" },
+    { role: "spawning", status: "spawning", result_contract: "ok" },
+    { role: "complete", status: "complete" },
+    { role: "future", status: "some-future-status" },
+  ]);
+  assert.equal(s.total, 10);
+  assert.equal(s.delivered, 3);
+  assert.equal(s.lost, 4);
+  assert.equal(s.still_running, 3);
+  assert.equal(s.delivered + s.lost + s.still_running, s.total);
+  assert.deepEqual(s.lost_agents.map((a) => a.role), ["silent-failure", "invalid-contract", "interrupted", "cancelled"]);
+  assert.deepEqual(s.degraded_agents, [{ role: "artifact-only", status: "failed", result_contract: "ok" }]);
+  assert.match(s.warning!, /4 of 10 agents produced no result: silent-failure \(failed\)/);
+});
+
 test("an empty fleet is not an alarm", () => {
   const s = summarizeCollection([]);
   assert.deepEqual(
