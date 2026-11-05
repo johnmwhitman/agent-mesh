@@ -85,6 +85,9 @@ function applyOps(data: any, ops: Op[]): void {
 }
 
 const V: Vector[] = [
+  { id: "capability-registered-in-future", primary: "capability.registered_in_future", classification: "anomaly",
+    lie: "registration is an hour beyond the auditor; clock skew and edited metadata are both possible",
+    ops: [{ op: "set", path: "capabilities|a2", value: { agent_id: "a2", fleet_id: "f1", role: "reviewer", skills: ["review"], registered_at: NOW + 3_600_000 } }] },
   // ===================== CAUGHT: overclaims (error, ok:false) =====================
   { id: "agent-invalid-started-at", primary: "agent.invalid_timestamp", classification: "caught",
     lie: "an agent start time is present but not a finite number, so its lifecycle ordering cannot be audited",

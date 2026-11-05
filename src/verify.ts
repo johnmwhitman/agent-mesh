@@ -548,6 +548,10 @@ export function verifyMeshData(
 
   // --- capabilities ----------------------------------------------------------
   for (const [key, c] of Object.entries(data.capabilities)) {
+    if (exceedsClockSkew(c.registered_at, now)) {
+      warning("capability.registered_in_future", key,
+        "registration is over five minutes ahead of the auditor; check writer/auditor clock skew or edited metadata");
+    }
     // A capability with no usable agent id is an ERROR, not a surprise: the row
     // asserts that some agent can do something while naming no agent, so nothing
     // can act on it and routing must skip it entirely. Reported specifically

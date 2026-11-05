@@ -3,6 +3,35 @@
   "baseline": "baseline.json",
   "vectors": [
     {
+      "id": "capability-registered-in-future",
+      "primary": "capability.registered_in_future",
+      "classification": "anomaly",
+      "lie": "registration is an hour beyond the auditor; clock skew and edited metadata are both possible",
+      "ops": [
+        {
+          "op": "set",
+          "path": "capabilities|a2",
+          "value": {
+            "agent_id": "a2",
+            "fleet_id": "f1",
+            "role": "reviewer",
+            "skills": [
+              "review"
+            ],
+            "registered_at": 1800003600000
+          }
+        }
+      ],
+      "expected_ok": true,
+      "expected_findings": [
+        {
+          "severity": "warning",
+          "check": "capability.registered_in_future",
+          "subject": "a2"
+        }
+      ]
+    },
+    {
       "id": "agent-invalid-started-at",
       "primary": "agent.invalid_timestamp",
       "classification": "caught",
