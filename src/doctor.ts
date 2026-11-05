@@ -254,10 +254,20 @@ export function checkEventLog(logFile: string = resolveEventLogFile()): DoctorCh
       }
     }
     if (isWritable(logFile)) {
+      try {
+        accessSync(logFile, constants.R_OK)
+      } catch {
+        return {
+          check: 'event-log',
+          status: 'fail',
+          detail: `event log ${logFile} exists but is not readable`,
+          fix: `fix read permissions on ${logFile}, or choose a readable event-log file`,
+        }
+      }
       return {
         check: 'event-log',
         status: 'ok',
-        detail: `event log at ${logFile} (writable)`,
+        detail: `event log at ${logFile} (readable, writable)`,
       }
     }
     return {

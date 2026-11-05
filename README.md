@@ -697,7 +697,7 @@ Every write goes through **one** function — `withLedger(mutator)` in `db.ts` �
 
 The ledger lives at `~/.config/opencode/agent-mesh.db` (SQLite); the event log at `~/.config/opencode/agent-mesh.events.log` (NDJSON). Override the ledger path with `MESHFLEET_DB_FILE=/path/to/file.db` — useful for a second install, a test ledger, or when an existing file at the default path was written by a newer/incompatible build. Dump the ledger as human-readable JSON any time with `npx -y --package=meshfleet -- agent-mesh inspect --export`. On first run after upgrading from a JSON ledger, the server migrates it once (validated, with a `.migrated.<ts>` backup kept).
 
-The supported event log is a stored, rereadable regular NDJSON file; a symlink to a regular file or a missing file at a valid creatable path is supported. FIFOs, character and block devices, and sockets are unsupported. Doctor's check is advisory, based on current metadata, and cannot guarantee a later append will succeed.
+The supported event log is a stored, rereadable regular NDJSON file; a symlink to a regular file or a missing file at a valid creatable path is supported. FIFOs, character and block devices, and sockets are unsupported. For an existing file, doctor's OK includes read and write checks using the checking process's normal filesystem access-check credentials. These checks are advisory at the time of diagnosis: they do not guarantee future access, access by another identity, race freedom, content validity, or all ancestor/search permissions.
 
 [Architecture orientation →](AGENT-MESH-SPEC.md) · [P2P messaging spec →](SPEC-P2P.md)
 

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync as namedStatSync, symlinkSync, writeFileSync } from 'node:fs'
+import { accessSync as namedAccessSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync as namedStatSync, symlinkSync, writeFileSync } from 'node:fs'
 import { createRequire, syncBuiltinESMExports } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -429,6 +429,107 @@ test('doctor: unsupported event-log kinds fail using controlled metadata', { con
       errors.push({ stage: 'diagnostic formatting', kind: currentKind, error: e })
     }
     throw new AggregateError(errors.map(({ error }) => error), `controlled event-log metadata fixture failed:\n${detail}`)
+  }
+})
+
+test('doctor: an existing event log must be readable as well as writable', { concurrency: false }, (t) => {
+  const errors: { stage: string; error: unknown }[] = []
+  let stage = 'fixture setup'
+  let fixtureDir: string | undefined
+  try {
+    const mutableFs = createRequire(import.meta.url)('node:fs') as typeof import('node:fs')
+    const originalAccess = mutableFs.accessSync
+    assert.equal(namedAccessSync, originalAccess)
+    const { R_OK, W_OK } = mutableFs.constants
+    assert.equal(typeof R_OK, 'number')
+    assert.equal(typeof W_OK, 'number')
+    assert.ok(Number.isInteger(R_OK) && R_OK > 0)
+    assert.ok(Number.isInteger(W_OK) && W_OK > 0)
+    assert.equal(R_OK & W_OK, 0)
+
+    const dir = tempDir()
+    fixtureDir = dir
+    const file = join(dir, 'events.log')
+    assert.equal(existsSync(file), false)
+    writeFileSync(file, '')
+    const before = namedStatSync(file)
+    assert.equal(before.isFile(), true)
+    const inventory = readdirSync(dir)
+    originalAccess(file, R_OK)
+    originalAccess(file, W_OK)
+    assert.equal(checkEventLog(file).status, 'ok')
+
+    let readCalls = 0
+    let successfulWrites = 0
+    try {
+      stage = 'mock installation'
+      const replacement = ((...args: unknown[]) => {
+        if (args[0] === file && typeof args[1] === 'number' && (args[1] & R_OK) !== 0) {
+          readCalls++
+          throw Object.assign(new Error('controlled read-access denial'), { code: 'EACCES' })
+        }
+        const result = Reflect.apply(originalAccess, mutableFs, args)
+        if (args[0] === file && args[1] === W_OK) successfulWrites++
+        return result
+      }) as typeof mutableFs.accessSync
+      t.mock.method(mutableFs, 'accessSync', replacement)
+      assert.notEqual(mutableFs.accessSync, originalAccess)
+      stage = 'binding synchronization'
+      syncBuiltinESMExports()
+      assert.equal(namedAccessSync, mutableFs.accessSync)
+      stage = 'doctor and hook assertions'
+      readCalls = 0
+      successfulWrites = 0
+      const result = checkEventLog(file)
+      assert.ok(readCalls > 0, 'doctor did not request read access')
+      assert.ok(successfulWrites > 0, 'doctor did not successfully delegate write access')
+      assert.equal(result.status, 'fail')
+      assert.ok(result.detail.includes(file))
+      assert.match(result.detail, /not readable/i)
+      assert.match(result.fix ?? '', /read/i)
+    } catch (e) {
+      errors.push({ stage, error: e })
+    } finally {
+      try { t.mock.restoreAll() } catch (e) { errors.push({ stage: 'restoration', error: e }) }
+      try { syncBuiltinESMExports() } catch (e) { errors.push({ stage: 'resynchronization', error: e }) }
+      try {
+        assert.equal(mutableFs.accessSync, originalAccess)
+        assert.equal(namedAccessSync, originalAccess)
+      } catch (e) { errors.push({ stage: 'restored binding identity', error: e }) }
+    }
+
+    if (errors.length === 0) {
+      stage = 'ordinary postcontrol'
+      originalAccess(file, R_OK)
+      originalAccess(file, W_OK)
+      assert.equal(checkEventLog(file).status, 'ok')
+      const after = namedStatSync(file)
+      assert.equal(after.isFile(), true)
+      assert.equal(after.mode, before.mode)
+      assert.equal(after.size, before.size)
+      assert.equal(after.mtimeMs, before.mtimeMs)
+      assert.equal(after.ino, before.ino)
+      assert.deepEqual(readdirSync(dir), inventory)
+    }
+  } catch (e) {
+    errors.push({ stage, error: e })
+  } finally {
+    if (fixtureDir !== undefined) {
+      try { rmSync(fixtureDir, { recursive: true, force: true }) } catch (e) {
+        errors.push({ stage: 'fixture cleanup', error: e })
+      }
+    }
+  }
+  if (errors.length) {
+    let detail = 'diagnostic formatting failed'
+    try {
+      detail = errors.map(({ stage, error }) =>
+        `${stage}: ${inspect(error, { depth: 6, maxArrayLength: 20, maxStringLength: 1024, customInspect: false, getters: false, colors: false }).slice(0, 2500)}`
+      ).join('\n')
+    } catch (e) {
+      errors.push({ stage: 'diagnostic formatting', error: e })
+    }
+    throw new AggregateError(errors.map(({ error }) => error), `controlled event-log access fixture failed:\n${detail}`)
   }
 })
 
