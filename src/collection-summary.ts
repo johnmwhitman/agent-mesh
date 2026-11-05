@@ -95,7 +95,7 @@ export function summarizeCollection(agents: readonly CollectableAgent[]): Collec
     const reportedAfterFailure =
       status === 'failed' &&
       result_contract === 'ok' &&
-      (agent.output?.trim() !== '' || (agent.artifacts?.length ?? 0) > 0)
+      ((agent.output?.trim() ?? '') !== '' || (agent.artifacts?.length ?? 0) > 0)
     if (reportedAfterFailure) {
       degraded_agents.push({
         role: agent.role ?? '(unnamed)',
