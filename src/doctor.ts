@@ -12,7 +12,7 @@
  */
 
 import { spawn } from 'node:child_process'
-import { accessSync, constants, existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { accessSync, constants, existsSync, mkdtempSync, rmSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -226,6 +226,24 @@ export function checkLedgerOpen(
 /** The NDJSON event log must be appendable (silent event loss otherwise). */
 export function checkEventLog(logFile: string = resolveEventLogFile()): DoctorCheck {
   if (existsSync(logFile)) {
+    try {
+      // Follow symlinks so a link to a directory gets the same diagnosis.
+      if (statSync(logFile).isDirectory()) {
+        return {
+          check: 'event-log',
+          status: 'fail',
+          detail: `event log ${logFile} is a directory`,
+          fix: 'choose a file path for the event log',
+        }
+      }
+    } catch {
+      return {
+        check: 'event-log',
+        status: 'fail',
+        detail: `cannot inspect event log ${logFile}`,
+        fix: 'check the path and access to it, or choose another event-log file path',
+      }
+    }
     if (isWritable(logFile)) {
       return {
         check: 'event-log',

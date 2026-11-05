@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -221,8 +221,90 @@ test('doctor: ledger open missing native binding gives rebuild fix and does not 
 test('doctor: event-log path in a writable directory is ok', () => {
   const dir = tempDir()
   try {
-    assert.equal(checkEventLog(join(dir, 'events.log')).status, 'ok')
+    const file = join(dir, 'events.log')
+    const c = checkEventLog(file)
+    assert.equal(c.status, 'ok')
+    assert.match(c.detail, /created on first event/i)
+    assert.equal(existsSync(file), false)
   } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('doctor: a directory used as the event-log file fails with a file-path remedy', () => {
+  const dir = tempDir()
+  const logDir = join(dir, 'events')
+  mkdirSync(logDir)
+  try {
+    const c = checkEventLog(logDir)
+    assert.equal(c.status, 'fail')
+    assert.ok(c.detail.includes(logDir))
+    assert.match(c.detail, /directory/i)
+    assert.match(c.fix ?? '', /file path/i)
+    assert.deepEqual(readdirSync(logDir), [])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('doctor: an existing writable event-log file stays unchanged', () => {
+  const dir = tempDir()
+  const file = join(dir, 'events.log')
+  writeFileSync(file, 'existing event\n')
+  try {
+    assert.equal(checkEventLog(file).status, 'ok')
+    assert.equal(readFileSync(file, 'utf8'), 'existing event\n')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('doctor: event-log symlinks follow their file or directory target', (t) => {
+  const dir = tempDir()
+  const file = join(dir, 'events.log')
+  const logDir = join(dir, 'events-dir')
+  const fileLink = join(dir, 'file-link')
+  const dirLink = join(dir, 'dir-link')
+  writeFileSync(file, 'existing event\n')
+  mkdirSync(logDir)
+  try {
+    try {
+      symlinkSync(file, fileLink, 'file')
+      symlinkSync(logDir, dirLink, 'dir')
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code
+      if (code === 'EPERM' || code === 'EACCES' || code === 'ENOSYS' || code === 'ENOTSUP' || code === 'EOPNOTSUPP') {
+        t.skip(`symlink creation unsupported or not permitted: ${code}`)
+        return
+      }
+      throw e
+    }
+    assert.equal(checkEventLog(fileLink).status, 'ok')
+    const c = checkEventLog(dirLink)
+    assert.equal(c.status, 'fail')
+    assert.ok(c.detail.includes(dirLink))
+    assert.match(c.detail, /directory/i)
+    assert.match(c.fix ?? '', /file path/i)
+    assert.equal(readFileSync(file, 'utf8'), 'existing event\n')
+    assert.deepEqual(readdirSync(logDir), [])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('doctor: an unwritable existing event-log file fails', { skip: isRoot || process.platform === 'win32' }, () => {
+  const dir = tempDir()
+  const file = join(dir, 'events.log')
+  writeFileSync(file, 'existing event\n')
+  chmodSync(file, 0o444)
+  try {
+    const c = checkEventLog(file)
+    assert.equal(c.status, 'fail')
+    assert.ok(c.detail.includes(file))
+    assert.match(c.fix ?? '', /permissions/i)
+    assert.equal(readFileSync(file, 'utf8'), 'existing event\n')
+  } finally {
+    chmodSync(file, 0o644)
     rmSync(dir, { recursive: true, force: true })
   }
 })
@@ -233,7 +315,12 @@ test('doctor: unwritable event-log directory fails', { skip: isRoot || process.p
   mkdirSync(locked)
   chmodSync(locked, 0o555)
   try {
-    assert.equal(checkEventLog(join(locked, 'events.log')).status, 'fail')
+    const file = join(locked, 'events.log')
+    const c = checkEventLog(file)
+    assert.equal(c.status, 'fail')
+    assert.ok(c.detail.includes(locked))
+    assert.match(c.fix ?? '', /permissions/i)
+    assert.equal(existsSync(file), false)
   } finally {
     chmodSync(locked, 0o755)
     rmSync(dir, { recursive: true, force: true })
