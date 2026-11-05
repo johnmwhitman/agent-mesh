@@ -662,6 +662,11 @@ interface CheckExplanation {
 }
 
 const CHECK_EXPLANATIONS: Record<string, CheckExplanation> = {
+  "receipt.in_future": {
+    what: "receipt time is over five minutes ahead of the auditor",
+    benign: "writer/auditor clock skew; the warning retains otherwise valid acknowledgement evidence",
+    investigate: "compare receipt timestamp with writer and auditor clock history",
+  },
   "ratification.opened_in_future": {
     what: "council opening is over five minutes ahead of the auditor",
     benign: "writer/auditor clock skew; this warning alone does not establish tampering",

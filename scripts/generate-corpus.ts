@@ -85,6 +85,9 @@ function applyOps(data: any, ops: Op[]): void {
 }
 
 const V: Vector[] = [
+  { id: "receipt-in-future", primary: "receipt.in_future", classification: "anomaly",
+    lie: "delivery receipt is an hour beyond the auditor; valid acknowledgement evidence is retained",
+    ops: [{ op: "set", path: "receipts|m1:a2:ack|timestamp", value: NOW + 3_600_000 }] },
   { id: "ratification-opened-in-future", primary: "ratification.opened_in_future", classification: "anomaly",
     lie: "opening is an hour beyond the auditor; both council dates move together to isolate audit clock skew",
     ops: [{ op: "set", path: "ratifications|m2|opened_at", value: NOW + 3_600_000 }, { op: "set", path: "ratifications|m2|resolved_at", value: NOW + 3_600_001 }] },

@@ -682,6 +682,11 @@ export function verifyMeshData(
   // --- receipts ---------------------------------------------------------------
   const validatedAckReceipts = new Set<string>();
   for (const [key, r] of Object.entries(receipts)) {
+    // A clock warning must not discard otherwise valid ACK/tally evidence.
+    if (exceedsClockSkew(r.timestamp, now)) {
+      warning("receipt.in_future", key,
+        "receipt is over five minutes ahead of the auditor; check writer/auditor clock skew or edited metadata");
+    }
     // Checked BEFORE the key comparison, because that comparison cannot see this
     // defect: it rebuilds the key with the same template, so a row written with
     // an undefined agent_id produces `<msg>:undefined:ack` on BOTH sides, the

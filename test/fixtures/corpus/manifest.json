@@ -3,6 +3,27 @@
   "baseline": "baseline.json",
   "vectors": [
     {
+      "id": "receipt-in-future",
+      "primary": "receipt.in_future",
+      "classification": "anomaly",
+      "lie": "delivery receipt is an hour beyond the auditor; valid acknowledgement evidence is retained",
+      "ops": [
+        {
+          "op": "set",
+          "path": "receipts|m1:a2:ack|timestamp",
+          "value": 1800003600000
+        }
+      ],
+      "expected_ok": true,
+      "expected_findings": [
+        {
+          "severity": "warning",
+          "check": "receipt.in_future",
+          "subject": "m1:a2:ack"
+        }
+      ]
+    },
+    {
       "id": "ratification-opened-in-future",
       "primary": "ratification.opened_in_future",
       "classification": "anomaly",
