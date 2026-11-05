@@ -9,6 +9,7 @@ import { tmpdir } from "os";
 import { type MeshData } from "./core.js";
 import { resolveDbFile } from "./db.js";
 import type { VerifyFinding } from "./verify.js";
+import { exceedsClockSkew } from "./verify-time.js";
 
 export const LIFECYCLE_JSON_SCHEMA = "meshfleet.lifecycle/v1";
 export const LIFECYCLE_SCAN_LIMIT = 200_000;
@@ -238,6 +239,15 @@ export function verifyLifecycleSnapshot(snapshot: LifecycleSnapshot, now: number
     if (!Number.isInteger(row.seq) || Number(row.seq) !== outExpected++ || outIds.has(String(row.event_id))) issue(findings, diagnosticMode, "lifecycle.outbox.sequence", String(row.event_id), "outbox sequence is not contiguous or event id is duplicated");
     outIds.add(String(row.event_id));
     try { json(row.payload, "outbox payload"); } catch { issue(findings, diagnosticMode, "lifecycle.outbox.payload", String(row.event_id), "outbox payload is invalid JSON"); }
+    // Older/current projectors may leave BOTH claim fields null, even after
+    // projection. Validate a populated claim without inventing a claim requirement.
+    const hasOwner = row.claimed_by != null;
+    const hasTime = row.claimed_at != null;
+    if (hasOwner && !hasTime) issue(findings, diagnosticMode, "lifecycle.outbox.claimed_by_without_timestamp", String(row.event_id), "outbox claim owner has no timestamp");
+    if (!hasOwner && hasTime) issue(findings, diagnosticMode, "lifecycle.outbox.claimed_at_without_claimed_by", String(row.event_id), "outbox claim timestamp has no owner");
+    if ((hasOwner && (typeof row.claimed_by !== "string" || row.claimed_by.trim() === "")) || (hasTime && (!validTimestamp(row.claimed_at) || !Number.isInteger(row.claimed_at)))) issue(findings, diagnosticMode, "lifecycle.outbox.invalid_claim", String(row.event_id), "outbox claim must name a nonblank owner and a nonnegative integer timestamp");
+    if (validTimestamp(row.created_at) && validTimestamp(row.claimed_at) && exceedsClockSkew(row.created_at, row.claimed_at)) issue(findings, diagnosticMode, "lifecycle.outbox.claimed_before_created", String(row.event_id), "outbox claim precedes creation by over five minutes; check clock history or edited metadata", true);
+    if (validTimestamp(row.projected_at) && validTimestamp(row.claimed_at) && exceedsClockSkew(row.claimed_at, row.projected_at)) issue(findings, diagnosticMode, "lifecycle.outbox.projected_before_claimed", String(row.event_id), "outbox projection precedes claim by over five minutes; check clock history or edited metadata", true);
     if (!validTimestamp(row.created_at) || (row.projected_at != null && (!validTimestamp(row.projected_at) || Number(row.projected_at) < Number(row.created_at)))) issue(findings, diagnosticMode, "lifecycle.outbox.projected_before_created", String(row.event_id), "outbox projection timestamp precedes creation");
     if (row.projected_at == null && validTimestamp(row.created_at) && now - Number(row.created_at) > OUTBOX_LAG_MS) issue(findings, diagnosticMode, "lifecycle.outbox.projection_lag", String(row.event_id), "outbox row remains unprojected beyond the lag threshold", true);
   }

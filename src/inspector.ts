@@ -662,6 +662,31 @@ interface CheckExplanation {
 }
 
 const CHECK_EXPLANATIONS: Record<string, CheckExplanation> = {
+  "lifecycle.outbox.claimed_by_without_timestamp": {
+    what: "an outbox claim names an owner without a claim timestamp",
+    benign: "unclaimed rows leave both fields null; a partial claim may come from an older writer",
+    investigate: "inspect lifecycle_event_outbox claimed_by and claimed_at together",
+  },
+  "lifecycle.outbox.claimed_at_without_claimed_by": {
+    what: "an outbox claim has a timestamp without an owner",
+    benign: "unclaimed rows leave both fields null; a partial claim may come from an older writer",
+    investigate: "inspect lifecycle_event_outbox claimed_by and claimed_at together",
+  },
+  "lifecycle.outbox.invalid_claim": {
+    what: "a populated outbox claim has a blank owner or an invalid timestamp",
+    benign: "a nonconforming older writer may have used a different claim representation",
+    investigate: "inspect the raw claim fields and the writer version",
+  },
+  "lifecycle.outbox.claimed_before_created": {
+    what: "an outbox claim precedes creation by over five minutes",
+    benign: "wall-clock rollback or different writer clocks; the finding is a warning",
+    investigate: "compare created_at and claimed_at with clock history",
+  },
+  "lifecycle.outbox.projected_before_claimed": {
+    what: "an outbox projection precedes its claim by over five minutes",
+    benign: "wall-clock rollback or different writer clocks; the finding is a warning",
+    investigate: "compare claimed_at and projected_at with clock history",
+  },
   "work_receipt.completed_after_recorded": {
     what: "completion is over five minutes after the server's recording time (unix seconds)",
     benign: "caller/server clock skew or a backward wall-clock adjustment; this warning does not establish tampering",
