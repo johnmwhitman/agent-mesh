@@ -1822,3 +1822,36 @@ test('v3 (m): only a top-level unquoted ERROR level is a diagnostic', () => {
   assert.equal(nonzero.success, false)
   assert.match(nonzero.error ?? '', /exit code 2/i)
 })
+
+test('v3 (m): a keyword-free ERROR record with an unterminated quoted tail is fatal', () => {
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'partial answer',
+    stderr: 'level=ERROR error.error="unterminated',
+  })
+
+  assert.equal(result.success, false)
+  assert.match(result.error ?? '', /fatal primary provider error/i)
+})
+
+test('v3 (m): a keyword-free ERROR record with garbage after a quoted tail is fatal', () => {
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'partial answer',
+    stderr: 'level=ERROR error.error="bad request"trailing',
+  })
+
+  assert.equal(result.success, false)
+  assert.match(result.error ?? '', /fatal primary provider error/i)
+})
+
+test('v3 (m): an unterminated quoted INFO payload containing level=ERROR is not a diagnostic', () => {
+  const result = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'complete answer',
+    stderr: 'level=INFO message="unterminated level=ERROR',
+  })
+
+  assert.equal(result.success, true, result.error)
+  assert.equal(result.error, undefined)
+})
