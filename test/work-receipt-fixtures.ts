@@ -7,14 +7,14 @@
  * work_receipt.* checks have a planted negative fixture: each entry names the
  * exact check id and a `plant(ledgerPath)` function that, when invoked, plants
  * a row on the supplied SQLite ledger such that verifyLedgerFile fires that
- * check as a `severity: "error"` finding.
+ * check at its authored severity (default error).
  *
  * corpus.test.ts asserts two properties against this table:
  *   (a) the set of `work_receipt.*` checks the verifier emits equals the set
  *       of keys here (a new check without a fixture trips the gate; a fixture
  *       for a check the verifier no longer emits also trips the gate);
  *   (b) every fixture, executed against a fresh ledger, raises its named
- *       check at error severity (a fixture that does not actually fire the
+ *       check at its authored severity (default error) (a fixture that does not actually fire the
  *       check it claims to pin trips the gate — comments cannot pass).
  *
  * This file is test-only infrastructure; it owns no product logic. The shared
@@ -40,12 +40,14 @@ import {
 
 /**
  * A planted negative fixture. The function writes ONE row to the supplied
- * ledger such that verifyLedgerFile will report `check` at error severity.
+ * ledger such that verifyLedgerFile will report `check` at its authored severity (default error).
  * The fixture should plant exactly the minimum row shape needed to fire that
  * one class — sharing clean field defaults so each fixture isolates one
  * invariant.
  */
 export interface WorkReceiptFixture {
+  /** Authored severity; existing structural fixtures remain errors by default. */
+  severity?: "error" | "warning";
   /** The exact verifier check id the fixture must fire (e.g. "work_receipt.malformed_key"). */
   check: string;
   /** Human-readable reason this row violates the contract. */
@@ -152,6 +154,16 @@ function canonicalDigest(payload: WorkReceiptInput): string {
 // ---------------------------------------------------------------------------
 
 export const WORK_RECEIPT_FIXTURES: readonly WorkReceiptFixture[] = [
+  {
+    check: "work_receipt.completed_after_recorded", severity: "warning",
+    description: "completion exceeds recording by an hour, beyond the clock allowance",
+    plant() {
+      const p = basePayload();
+      rawInsert({ ...p, key: workReceiptKey(WORK_RECEIPT_SOURCE, p.task_id, p.run_id),
+        source: WORK_RECEIPT_SOURCE, evidence_json: JSON.stringify(p.evidence),
+        payload_sha256: canonicalDigest(p), recorded_at: p.completed_at - 3600 });
+    },
+  },
   {
     check: "work_receipt.malformed_key",
     description:
@@ -378,8 +390,8 @@ export const WORK_RECEIPT_FIXTURES: readonly WorkReceiptFixture[] = [
 
 /**
  * Run a single fixture against a fresh ledger and return the resulting
- * findings. Throws if the fixture's check does not appear at error severity,
- * or if any OTHER error-severity finding co-fires (the fixture must isolate
+ * findings. Throws if the fixture's check does not appear at its authored severity (default error),
+ * or if any OTHER work-receipt finding co-fires (the fixture must isolate
  * one violation — the corpus's minimality invariant, applied to the SQL
  * table). Used by corpus.test.ts.
  */
@@ -389,15 +401,15 @@ export function runFixture(fixture: WorkReceiptFixture): { check: string; severi
     ledgerPath = withTempLedgerPath();
     fixture.plant(ledgerPath);
     const report = verifyLedgerFile(ledgerPath);
-    const errors = report.findings.filter((f) => f.severity === "error");
-    const fired = errors.filter((f) => f.check === fixture.check);
+    const findings = report.findings;
+    const fired = findings.filter((f) => f.check === fixture.check && f.severity === (fixture.severity ?? "error"));
     if (fired.length === 0) {
       const all = report.findings.map((f) => `${f.severity}:${f.check}`).join(", ");
       throw new Error(
         `fixture for ${fixture.check} did not raise its named check; verifier produced: ${all}`,
       );
     }
-    // Other work_receipt.* errors are tolerated only when the fixture
+    // Other work_receipt.* findings are tolerated only when the fixture
     // named them in `coFiresWith`. The contract is: a fixture plants a
     // minimal row shape that trips one invariant; if its row ALSO
     // breaks a second invariant the table has a fixture for, the
@@ -406,15 +418,15 @@ export function runFixture(fixture: WorkReceiptFixture): { check: string; severi
     // (check ∪ coFiresWith) is a drift — the fixture broke an
     // invariant it didn't claim to test.
     const allowed = new Set<string>([fixture.check, ...(fixture.coFiresWith ?? [])]);
-    const otherWr = errors.filter(
+    const otherWr = findings.filter(
       (f) => f.check.startsWith("work_receipt.") && !allowed.has(f.check),
     );
     if (otherWr.length > 0) {
       throw new Error(
-        `fixture for ${fixture.check} co-fired additional work_receipt errors: ${otherWr.map((f) => f.check).join(", ")}`,
+        `fixture for ${fixture.check} co-fired additional work_receipt findings: ${otherWr.map((f) => f.check).join(", ")}`,
       );
     }
-    return errors.map((f) => ({ check: f.check, severity: f.severity }));
+    return findings.map((f) => ({ check: f.check, severity: f.severity }));
   } finally {
     cleanupTempLedger();
     if (ledgerPath) {

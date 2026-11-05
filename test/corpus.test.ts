@@ -338,7 +338,7 @@ test("work_receipt fixture table matches the verifier's emitted inventory exactl
 });
 
 /**
- * Each fixture must actually fire its named check at error severity against
+ * Each fixture must actually fire its named check at its authored severity (default error) against
  * a fresh SQLite ledger. This is the executable counterpart to the inventory
  * test above: an entry can match by name only if its plant function
  * demonstrably produces the finding it claims to pin.
@@ -348,7 +348,7 @@ for (const fixture of WORK_RECEIPT_FIXTURES) {
     const errors = runFixture(fixture);
     const fired = errors.find((f) => f.check === fixture.check);
     assert.ok(fired, `${fixture.check}: fixture did not raise its named check; produced ${errors.map((e) => e.check).join(",")}`);
-    assert.equal(fired.severity, "error");
+    assert.equal(fired.severity, fixture.severity ?? "error");
   });
 }
 

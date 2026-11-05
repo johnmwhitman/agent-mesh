@@ -37,6 +37,7 @@ import {
 } from "./work-receipt.js";
 import { readLifecycleSnapshot, readLifecycleSnapshotFile, verifyLifecycleSnapshot } from "./lifecycle-visibility.js";
 import { runtimeModelsMatch } from "./spawn-result.js";
+import { exceedsClockSkew } from "./verify-time.js";
 import Database from "better-sqlite3";
 import { copyFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -214,6 +215,12 @@ export function verifyMeshData(
           `work_receipts row fails the persisted-schema contract: ${reason}`,
         );
       }
+    }
+    // Completion is caller-supplied, recording is server time (both seconds).
+    // Their clocks can differ: diagnose large reversals without claiming tampering.
+    if (validation.ok && exceedsClockSkew(wr.completed_at, wr.recorded_at, 1000)) {
+      warning("work_receipt.completed_after_recorded", rowKey,
+        "completion is over five minutes after recording; check caller/server clock skew or edited metadata");
     }
   }
 

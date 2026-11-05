@@ -662,6 +662,11 @@ interface CheckExplanation {
 }
 
 const CHECK_EXPLANATIONS: Record<string, CheckExplanation> = {
+  "work_receipt.completed_after_recorded": {
+    what: "completion is over five minutes after the server's recording time (unix seconds)",
+    benign: "caller/server clock skew or a backward wall-clock adjustment; this warning does not establish tampering",
+    investigate: "compare work_receipts completed_at and recorded_at with the writer's clock history",
+  },
   "fleet.sealed_with_live_agents": {
     what: "a fleet is sealed as complete/failed while at least one of its own agents is still running or pending — the fleet's final word claims work its agents say never finished",
     benign: "nothing benign produces this. Unlike an unreconciled fleet, which understates in the reader's favour, a sealed fleet overstates: no write path in this build seals a fleet while an agent is live, so the row was either hand-edited or written by a build whose completion lattice was broken. An abandoned fleet with a live agent is NOT this finding — attach_agent reopens abandoned fleets on purpose",
