@@ -322,8 +322,8 @@ test('doctor: unsupported event-log kinds fail using controlled metadata', { con
     const ordinary = originalStat(file)
     assert.equal(ordinary.isFile(), true)
 
-    const { S_IFMT, S_IFIFO, S_IFCHR, S_IFBLK, S_IFSOCK } = mutableFs.constants
-    for (const value of [S_IFMT, S_IFIFO, S_IFCHR, S_IFBLK, S_IFSOCK]) {
+    const { S_IFMT, S_IFREG, S_IFDIR, S_IFLNK, S_IFIFO, S_IFCHR, S_IFBLK, S_IFSOCK } = mutableFs.constants
+    for (const value of [S_IFMT, S_IFREG, S_IFDIR, S_IFLNK, S_IFIFO, S_IFCHR, S_IFBLK, S_IFSOCK]) {
       assert.equal(typeof value, 'number')
       assert.notEqual(value, 0)
     }
@@ -341,9 +341,20 @@ test('doctor: unsupported event-log kinds fail using controlled metadata', { con
         assert.equal(namedStatSync, originalStat)
         const synthetic = Object.create(ordinary) as typeof ordinary
         Object.defineProperty(synthetic, 'mode', { value: (ordinary.mode & ~S_IFMT) | kind.mode })
+        const isKind = (mode: number): boolean => (synthetic.mode & S_IFMT) === mode
+        Object.assign(synthetic, {
+          isFile: () => isKind(S_IFREG),
+          isDirectory: () => isKind(S_IFDIR),
+          isSymbolicLink: () => isKind(S_IFLNK),
+          isFIFO: () => isKind(S_IFIFO),
+          isCharacterDevice: () => isKind(S_IFCHR),
+          isBlockDevice: () => isKind(S_IFBLK),
+          isSocket: () => isKind(S_IFSOCK),
+        })
         assert.equal(synthetic.mode & S_IFMT, kind.mode)
         assert.equal(synthetic.isFile(), false)
         assert.equal(synthetic.isDirectory(), false)
+        assert.equal(synthetic.isSymbolicLink(), false)
         for (const other of cases) {
           assert.equal(synthetic[other.predicate](), other.name === kind.name)
         }
