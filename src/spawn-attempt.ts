@@ -28,7 +28,9 @@ export function redactDiagnosticMessage(message: string): string {
     .replace(/-----BEGIN [^-]*PRIVATE KEY-----[\s\S]*?(?:-----END [^-]*PRIVATE KEY-----|$)/gi, "[redacted private key]")
     .replace(/(\bauthorization\s*[:=]\s*(?:basic|bearer)\s+)[^\s,;]+/gi, "$1[redacted]")
     .replace(/(\b(?:basic|bearer)\s+)[^\s,;]+/gi, "$1[redacted]")
-    .replace(/(["']?(?:(?:[A-Z0-9]+[_-])*(?:API[_-]?KEY|ACCESS[_-]?KEY|TOKEN|PASSWORD|PASSWD|SECRET|PRIVATE[_-]?KEY))["']?\s*[:=]\s*)(["'])(.*?)\2/gi, "$1$2[redacted]$2")
+    // Consume escaped quotes and newlines as value bytes. An unclosed quote
+    // masks the rest of the message, including a possible trailing backslash.
+    .replace(/(["']?(?:(?:[A-Z0-9]+[_-])*(?:API[_-]?KEY|ACCESS[_-]?KEY|TOKEN|PASSWORD|PASSWD|SECRET|PRIVATE[_-]?KEY))["']?\s*[:=]\s*)(["'])(?:\\[\s\S]|(?!\2)[^\\])*(?:\2|\\?$)/gi, "$1$2[redacted]$2")
     .replace(/(["']?(?:(?:[A-Z0-9]+[_-])*(?:API[_-]?KEY|ACCESS[_-]?KEY|TOKEN|PASSWORD|PASSWD|SECRET|PRIVATE[_-]?KEY))["']?\s*[:=]\s*["']?)[^"'\s,;}\]]+/gi, "$1[redacted]")
     .replace(/\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-(?:(?:proj|or-v1|ant)-)?[A-Za-z0-9_-]{16,}|(?:xai-|pplx-)[A-Za-z0-9]{20,}|(?:gsk_|hf_|r8_)[A-Za-z0-9]{20,}|AIza[0-9A-Za-z_-]{35}|AKIA[0-9A-Z]{16}|xox[bap]-[A-Za-z0-9-]{10,}|eyJhbGciOi[A-Za-z0-9_.-]{40,})\b/g, "[redacted]")
     .replace(/\s+/g, " ")

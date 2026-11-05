@@ -133,3 +133,37 @@ test("only the three string error fields enter event detail", () => {
   assert.equal(parsed.runtimeError, true);
   assert.equal(parsed.runtimeErrorDetail, "APIError: refused");
 });
+
+test("a tool turn cannot hide a later refusal", async () => {
+  for (const exitCode of [0, 1]) {
+    const result = await execute([text, { type: "tool_use", part: { tool: "read" } }, refusal, done], exitCode);
+    assert.equal(result.trace?.toolCalls, 1);
+    assert.equal(result.status, "failure");
+    assert.deepEqual(decide(result), { hop: true, to: "kimi-cli" });
+  }
+});
+
+test("an error-only stream retains refusal detail despite empty prose", async () => {
+  const result = await execute([refusal]);
+  assert.equal(result.status, "failure");
+  assert.match(result.error ?? "", /API 429 for fixture\/model/);
+  assert.deepEqual(decide(result), { hop: true, to: "kimi-cli" });
+});
+
+test("the error-detail budget applies to the whole stream", async () => {
+  const result = await execute([text,
+    { type: "error", error: { message: "FIRST " + "a".repeat(1_400) } },
+    { type: "error", error: { message: "SECOND " + "b".repeat(1_400) } }, done]);
+  const prefix = "OpenCode emitted a runtime error event: ";
+  assert.equal(result.status, "failure");
+  assert.ok(result.error?.startsWith(prefix));
+  assert.equal(result.error?.length, prefix.length + 2_000);
+  assert.match(result.error ?? "", /FIRST .*SECOND /);
+});
+
+test("an actual pinned execution still fails on a runtime error", async () => {
+  const result = await execute([text, refusal, done], 0, "", "fixture/model");
+  assert.equal(result.status, "failure");
+  assert.match(result.error ?? "", /API 429 for fixture\/model/);
+  assert.deepEqual(decide(result, { requestedModel: "fixture/model" }), { hop: false, reason: "model_is_pinned" });
+});

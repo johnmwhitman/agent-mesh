@@ -6,6 +6,7 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 
 ### Fixed
 
+- **Quoted credentials stay redacted across newlines and escaped quotes.** Runtime error diagnostics consume the full quoted value, or the rest of an unterminated value, before normalization and truncation so persisted failure fields cannot expose its tail.
 - **OpenCode JSON runtime errors fail the run and preserve failover detail.** A top-level error event vetoes completion even after earlier successful steps. Its bounded, redacted name and messages accompany exit-code or stderr failures, so provider refusals still reach the existing failover gates.
 - **`open_ratification` with `deadline: null`.** The boundary treated null as absent but the null was stored, and `now >= null` coerced to 0, so an approve-policy council ratified instantly with zero votes (and an abstain-policy one expired instantly). Null now means no deadline.
 - **Late votes no longer count.** A vote stamped after a ratification's deadline could flip an expired ratification to ratified before the sweeper persisted `expired`. Votes after the deadline are ignored by the tally (the receipt is still appended).
