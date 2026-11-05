@@ -1,11 +1,13 @@
 # MeshFleet public handoff
 
 **Source version:** `0.22.0` · **MCP surface:** **40 MCP tools** (36 with the opt-in compact catalog) ·
-**current suite contract:** **2042/2042** tests collected, plus typecheck and build
+**expected suite collection:** **2050/2050** tests (full-run confirmation pending), plus typecheck and build
 
-Candidate count: the prior published 2026 plus 16 added tests. A complete run
-must confirm 2021 outside the restricted lane sandbox; the lane's full attempt
-was interrupted after loopback-bind and offline consumer-install failures.
+Candidate count: the prior published 2026 plus 16 first-round and 8 revision
+tests. A complete run must confirm 2050 outside the restricted lane sandbox;
+the first-round full attempt was interrupted after loopback-bind and offline
+consumer-install failures. The revision ran only focused files, build, and
+typecheck; this is an expected collection count, not a full-suite pass claim.
 
 The latest completed cross-platform proof is GitHub Actions run `31315444631`
 at `e14bd8f` (9/9 jobs across Node 20/22/24 on Ubuntu, macOS, and Windows).
