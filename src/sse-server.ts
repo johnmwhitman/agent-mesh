@@ -69,7 +69,7 @@ export interface SseServerOptions {
 
 export function ssePort(): number {
   const v = Number(process.env.MESHFLEET_SSE_PORT);
-  return Number.isFinite(v) && v > 0 ? v : DEFAULT_PORT;
+  return Number.isInteger(v) && v >= 1 && v <= 65_535 ? v : DEFAULT_PORT;
 }
 
 export function sseHost(): string {
