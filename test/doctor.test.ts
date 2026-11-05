@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync as namedStatSync, symlinkSync, writeFileSync } from 'node:fs'
+import { createRequire, syncBuiltinESMExports } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -303,6 +304,89 @@ test('doctor: an existing writable event-log file stays unchanged', () => {
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
+})
+
+test('doctor: unsupported event-log kinds fail using controlled metadata', { concurrency: false }, (t) => {
+  const mutableFs = createRequire(import.meta.url)('node:fs') as typeof import('node:fs')
+  const originalStat = mutableFs.statSync
+  const dir = tempDir()
+  const file = join(dir, 'events.log')
+  const errors: unknown[] = []
+  try {
+    assert.equal(namedStatSync, originalStat)
+    assert.equal(existsSync(file), false)
+    const initialInventory = readdirSync(dir)
+    writeFileSync(file, 'ordinary fixture\n')
+    const inventory = readdirSync(dir)
+    assert.equal(inventory.length, initialInventory.length + 1)
+    const ordinary = originalStat(file)
+    assert.equal(ordinary.isFile(), true)
+
+    const { S_IFMT, S_IFIFO, S_IFCHR, S_IFBLK, S_IFSOCK } = mutableFs.constants
+    for (const value of [S_IFMT, S_IFIFO, S_IFCHR, S_IFBLK, S_IFSOCK]) {
+      assert.equal(typeof value, 'number')
+      assert.notEqual(value, 0)
+    }
+    const cases = [
+      { name: 'FIFO', mode: S_IFIFO, predicate: 'isFIFO' },
+      { name: 'character device', mode: S_IFCHR, predicate: 'isCharacterDevice' },
+      { name: 'block device', mode: S_IFBLK, predicate: 'isBlockDevice' },
+      { name: 'socket', mode: S_IFSOCK, predicate: 'isSocket' },
+    ] as const
+
+    for (const kind of cases) {
+      const caseErrors: unknown[] = []
+      try {
+        assert.equal(mutableFs.statSync, originalStat)
+        assert.equal(namedStatSync, originalStat)
+        const synthetic = Object.create(ordinary) as typeof ordinary
+        Object.defineProperty(synthetic, 'mode', { value: (ordinary.mode & ~S_IFMT) | kind.mode })
+        assert.equal(synthetic.mode & S_IFMT, kind.mode)
+        assert.equal(synthetic.isFile(), false)
+        assert.equal(synthetic.isDirectory(), false)
+        for (const other of cases) {
+          assert.equal(synthetic[other.predicate](), other.name === kind.name)
+        }
+        let targetCalls = 0
+        const replacement = ((...args: unknown[]) => {
+          if (args.length === 1 && args[0] === file) {
+            targetCalls++
+            return synthetic
+          }
+          return Reflect.apply(originalStat, mutableFs, args)
+        }) as typeof mutableFs.statSync
+        t.mock.method(mutableFs, 'statSync', replacement)
+        assert.notEqual(mutableFs.statSync, originalStat)
+        syncBuiltinESMExports()
+        assert.equal(namedStatSync, mutableFs.statSync)
+        targetCalls = 0
+        const result = checkEventLog(file)
+        assert.ok(targetCalls > 0, `${kind.name} metadata hook did not fire`)
+        assert.equal(result.status, 'fail')
+        assert.ok(result.detail.includes(file))
+        assert.match(result.fix ?? '', /regular file path/i)
+      } catch (e) {
+        caseErrors.push(e)
+      } finally {
+        try { t.mock.restoreAll() } catch (e) { caseErrors.push(e) }
+        try { syncBuiltinESMExports() } catch (e) { caseErrors.push(e) }
+        try {
+          assert.equal(mutableFs.statSync, originalStat)
+          assert.equal(namedStatSync, originalStat)
+        } catch (e) { caseErrors.push(e) }
+      }
+      if (caseErrors.length) throw new AggregateError(caseErrors, `${kind.name} fixture failed`)
+      assert.equal(namedStatSync(file).isFile(), true)
+      assert.equal(checkEventLog(file).status, 'ok')
+      assert.equal(readFileSync(file, 'utf8'), 'ordinary fixture\n')
+      assert.deepEqual(readdirSync(dir), inventory)
+    }
+  } catch (e) {
+    errors.push(e)
+  } finally {
+    try { rmSync(dir, { recursive: true, force: true }) } catch (e) { errors.push(e) }
+  }
+  if (errors.length) throw new AggregateError(errors, 'controlled event-log metadata fixture failed')
 })
 
 test('doctor: event-log symlinks follow their file or directory target', (t) => {

@@ -228,12 +228,21 @@ export function checkEventLog(logFile: string = resolveEventLogFile()): DoctorCh
   if (existsSync(logFile)) {
     try {
       // Follow symlinks so a link to a directory gets the same diagnosis.
-      if (statSync(logFile).isDirectory()) {
+      const metadata = statSync(logFile)
+      if (metadata.isDirectory()) {
         return {
           check: 'event-log',
           status: 'fail',
           detail: `event log ${logFile} is a directory`,
           fix: 'choose a file path for the event log',
+        }
+      }
+      if (!metadata.isFile()) {
+        return {
+          check: 'event-log',
+          status: 'fail',
+          detail: `event log ${logFile} is not a regular file`,
+          fix: 'choose a regular file path for the event log',
         }
       }
     } catch {
