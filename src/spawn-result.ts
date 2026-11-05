@@ -203,6 +203,19 @@ function parseLogfmtStrict(line: string): Array<[string, string]> | null {
   }
 }
 
+// Read only unambiguous top-level pairs. A malformed later payload must not
+// hide a level already seen, and text inside a quoted value is never a field.
+function hasErrorLevel(line: string): boolean {
+  let rest = line.trimStart();
+  while (rest) {
+    const pair = /^([A-Za-z][A-Za-z0-9_.-]*)=("(?:[^"\\]|\\.)*"|[^\s"]*)(?=\s|$)/.exec(rest);
+    if (!pair) return false;
+    if (pair[1] === "level" && pair[2] === "ERROR") return true;
+    rest = rest.slice(pair[0].length).trimStart();
+  }
+  return false;
+}
+
 function pairsToFields(pairs: ReadonlyArray<[string, string]>): Map<string, string[]> {
   const fields = new Map<string, string[]>();
   for (const [key, value] of pairs) {
@@ -669,7 +682,7 @@ export function classifySpawnResult(
   }
   const diagnostics = plainStderr
     .split("\n")
-    .filter((line) => /^\s*Error:/i.test(line) || NO_CREDENTIALS.test(line) || PROVIDER_DIAGNOSTIC.test(line));
+    .filter((line) => /^\s*Error:/i.test(line) || NO_CREDENTIALS.test(line) || PROVIDER_DIAGNOSTIC.test(line) || hasErrorLevel(line));
   const primaryError = diagnostics.find((line) =>
     isRuntimeDiagnostic(diagnosticAttribution(line), observedModel)
   );

@@ -14,6 +14,7 @@ import { dirname, join } from "node:path";
 import { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
+import { npmPackFilename } from "./helpers/npm-pack-json.js";
 
 import { FleetBudgetSanitizerError } from "../src/fleetbudget-sanitizer.js";
 import { readBoundedFleetBudgetInput } from "../src/bin/fleetbudget-sanitize.js";
@@ -191,6 +192,7 @@ test("CLI distinguishes valid-argv sanitizer failures with exit 1 and redacted J
     '{"error":{"code":"invalid_input","path":"input.collection_finished_at_ms"}}\n',
   );
 
+  // placeholder fixture
   const secret = "AKIA-SECRET-PROMPT";
   const invalidReport = runCli(
     VALID_ARGS,
@@ -319,9 +321,7 @@ test("packed tarball installs in a clean consumer and executes its installed std
       },
     );
     assert.equal(pack.status, 0, pack.stderr || pack.stdout);
-    const packed = JSON.parse(pack.stdout) as Array<{ filename: string }>;
-    assert.equal(packed.length, 1);
-    const tarball = join(temp, packed[0]!.filename);
+    const tarball = join(temp, npmPackFilename(pack.stdout, "meshfleet"));
     assert.equal(existsSync(tarball), true);
 
     const consumer = join(temp, "consumer");

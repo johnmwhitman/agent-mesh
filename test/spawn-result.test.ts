@@ -1771,12 +1771,11 @@ test('v3 (l): an empty-valued key= boundary still makes the line structured (nev
     assert.equal(result.success, false, `${line} :: ${result.warning}`)
     assert.match(result.error ?? '', /fatal primary provider error/i, line)
   }
-  // The bare `level=ERROR error.error=` record (no diagnostic keyword) is not
-  // a diagnostic line at all (pre-existing keyword-discovery scope); pinned so
-  // a change there is a deliberate decision, not a side effect.
+  // The bare `level=ERROR error.error=` record (no diagnostic keyword) is still
+  // surfaced as an error to prevent silent failures (regression test for issue #201).
   const noKeyword = classifySpawnResult({ exitCode: 0, stdout: 'ok', stderr: [primary, 'level=ERROR error.error='].join('\n') })
-  assert.equal(noKeyword.success, true)
-  assert.equal(noKeyword.warning, undefined)
+  assert.equal(noKeyword.success, false)
+  assert.match(noKeyword.error ?? '', /Fatal primary provider error: level=ERROR error.error=/)
 
   // Controls: a plain-text sibling line (no key= tokens) and a well-formed
   // sibling record still downgrade.
@@ -1788,4 +1787,38 @@ test('v3 (l): an empty-valued key= boundary still makes the line structured (nev
     assert.equal(control.success, true, `${line} :: ${control.error}`)
     assert.match(control.warning ?? '', /auxiliary provider/i)
   }
+})
+
+test('v3 (m): only a top-level unquoted ERROR level is a diagnostic', () => {
+  const falsePositiveLines = [
+    'timestamp=x level=INFO message="configured level=ERROR"',
+    'timestamp=x level=INFO logger.level=ERROR message=healthy',
+    'timestamp=x level=INFO message=configured-level=ERROR',
+  ]
+
+  for (const line of falsePositiveLines) {
+    const result = classifySpawnResult({ exitCode: 0, stdout: 'complete answer', stderr: line })
+    assert.equal(result.success, true, `${line} :: ${result.error}`)
+    assert.equal(result.error, undefined, line)
+  }
+
+  const primary = infoRecord('kilo', 'nvidia/nemotron-3.5-lightning:free')
+  const ownError = classifySpawnResult({
+    exitCode: 0,
+    stdout: 'partial answer',
+    stderr: [
+      primary,
+      'timestamp=x level=ERROR message="stream error" providerID=kilo modelID=nvidia/nemotron-3.5-lightning:free',
+    ].join('\n'),
+  })
+  assert.equal(ownError.success, false)
+  assert.match(ownError.error ?? '', /fatal primary provider error/i)
+
+  const nonzero = classifySpawnResult({
+    exitCode: 2,
+    stdout: 'partial answer',
+    stderr: falsePositiveLines[0],
+  })
+  assert.equal(nonzero.success, false)
+  assert.match(nonzero.error ?? '', /exit code 2/i)
 })
