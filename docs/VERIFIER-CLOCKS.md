@@ -27,6 +27,15 @@ its severity. A warning leaves `ok: true` when there are no other errors.
 | `lifecycle.outbox.claimed_by_without_timestamp` | owner set, timestamp absent | error (warning in shadow mode) |
 | `lifecycle.outbox.claimed_at_without_claimed_by` | timestamp set, owner absent | error (warning in shadow mode) |
 | `lifecycle.outbox.invalid_claim` | populated owner blank/not text, or timestamp not a nonnegative integer | error (warning in shadow mode) |
+| `lifecycle.event.creation_timestamp_mismatch` | initial attempt_created occurred_at differs from either payload creation timestamp | error (warning in shadow mode) |
+
+The initial `createWork` writer samples one `now` for `occurred_at`,
+`payload.work.created_at`, and `payload.attempt.created_at`. Where all three
+are valid timestamps, disagreement is a structural copy inconsistency, even
+by one millisecond. No clock-skew tolerance applies to copies of one value.
+This check does not cover later events or retries, and it does not require
+creation fields absent from legacy payloads. It is independent of the
+warning-only five-minute policy for comparisons between clocks.
 
 Outbox severity follows the known fleet named by the row's top-level
 `payload.fleet_id`, including in mixed shadow/durable ledgers. If that scope

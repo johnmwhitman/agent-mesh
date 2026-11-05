@@ -212,6 +212,12 @@ export function verifyLifecycleSnapshot(snapshot: LifecycleSnapshot, now: number
     if (!workById.has(String(event.work_id)) || (event.attempt_id != null && !attemptsById.has(String(event.attempt_id))) || !EVENT_KINDS.has(String(event.kind))) issue(findings, mode, "lifecycle.event.reference", String(event.event_id), "event references missing work/attempt or has an invalid kind");
     const body = payload(event);
     if (!body || !body.work || !body.attempt || String((body.work as Row).work_id) !== String(event.work_id) || String((body.attempt as Row).attempt_id) !== String(event.attempt_id) || !validTimestamp(event.occurred_at)) issue(findings, mode, "lifecycle.event.payload", String(event.event_id), "event payload is invalid or does not identify its row");
+    // createWork captures one clock sample for all three copies. Compare only
+    // that initial path, with both creation fields present; legacy payloads and
+    // later transitions/retries do not establish this same-sample invariant.
+    const workCreated = (body?.work as Row | undefined)?.created_at;
+    const attemptCreated = (body?.attempt as Row | undefined)?.created_at;
+    if (event.kind === "attempt_created" && validTimestamp(event.occurred_at) && validTimestamp(workCreated) && validTimestamp(attemptCreated) && (event.occurred_at !== workCreated || event.occurred_at !== attemptCreated)) issue(findings, mode, "lifecycle.event.creation_timestamp_mismatch", String(event.event_id), "initial event and payload creation timestamps disagree despite sharing one writer clock sample");
   }
   for (const work of snapshot.work) {
     const mode = fleetForWork(work); const related = snapshot.events.filter((event) => String(event.work_id) === String(work.work_id));

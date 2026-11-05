@@ -662,6 +662,11 @@ interface CheckExplanation {
 }
 
 const CHECK_EXPLANATIONS: Record<string, CheckExplanation> = {
+  "lifecycle.event.creation_timestamp_mismatch": {
+    what: "an initial attempt_created event disagrees with its payload's work or attempt creation time",
+    benign: "host clock skew cannot separate copies of one captured value; an older or nonconforming writer may have encoded them differently",
+    investigate: "compare attempt_events occurred_at with payload.work.created_at and payload.attempt.created_at, and identify the writer version",
+  },
   "lifecycle.event.occurred_in_future": {
     what: "lifecycle occurrence time is over five minutes ahead of the auditor",
     benign: "writer/auditor clock skew; this warning alone does not establish tampering",
