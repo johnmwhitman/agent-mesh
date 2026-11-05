@@ -33,10 +33,14 @@
  * shape degrades to exactly the guard we have now — never to a *weaker* one.
  */
 
+import { redactDiagnosticMessage } from "../spawn-attempt.js";
+
 /** A single structural observation about how a runtime turn actually went. */
 export interface OpenCodeTrace {
   /** A top-level runtime error event, never an error quoted in assistant text. */
   runtimeError?: true
+  /** Selected error fields only, redacted and bounded across the stream. */
+  runtimeErrorDetail?: string
   /**
    * False when the stream could not be read as the expected NDJSON. Callers
    * MUST treat every other field as unknown when this is false — absent
@@ -103,6 +107,7 @@ export function parseOpenCodeEvents(stdout: string): OpenCodeTrace {
   let finishReason: string | undefined
   let recognised = 0
   let runtimeError: true | undefined
+  let runtimeErrorDetail = ''
   let sessionId: string | undefined
   let sessionConflict = false
 
@@ -138,6 +143,19 @@ export function parseOpenCodeEvents(stdout: string): OpenCodeTrace {
 
     if (type === 'error') {
       runtimeError = true
+      const error = (event as { error?: unknown }).error
+      if (typeof error === 'object' && error !== null) {
+        const { name, message, data } = error as { name?: unknown; message?: unknown; data?: unknown }
+        const dataMessage = typeof data === 'object' && data !== null
+          ? (data as { message?: unknown }).message
+          : undefined
+        const detail = redactDiagnosticMessage(
+          [name, message, dataMessage].filter((value): value is string => typeof value === 'string').join(': '),
+        )
+        // Match the existing public-diagnostic budget. Redact BEFORE slicing
+        // so a truncated credential cannot escape the shared redactor.
+        if (detail) runtimeErrorDetail = [runtimeErrorDetail, detail].filter(Boolean).join('; ').slice(0, 2_000)
+      }
       continue
     }
     if (type === 'text') {
@@ -165,6 +183,7 @@ export function parseOpenCodeEvents(stdout: string): OpenCodeTrace {
   return {
     parsed: true,
     ...(runtimeError ? { runtimeError } : {}),
+    ...(runtimeErrorDetail ? { runtimeErrorDetail } : {}),
     text: chunks.join(''),
     toolCalls,
     toolNames,

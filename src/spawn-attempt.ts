@@ -21,7 +21,7 @@ export function buildFailureDetail(stderr: string, summary: string): string {
   return `${raw}\n${explanation}`;
 }
 
-function redactDiagnosticMessage(message: string): string {
+export function redactDiagnosticMessage(message: string): string {
   return message
     .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
     .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "")

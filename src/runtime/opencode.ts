@@ -180,9 +180,11 @@ export class OpenCodeRuntimeAdapter implements RuntimeAdapter {
           });
           // JSON-mode runtime failures travel on stdout, separately from the
           // stderr logfmt diagnostics. Earlier text/steps cannot erase them.
-          if (classified.success && events.runtimeError) {
+          if (events.runtimeError) {
             classified.success = false;
-            classified.error = "OpenCode emitted a runtime error event";
+            const eventError = "OpenCode emitted a runtime error event" +
+              (events.runtimeErrorDetail ? `: ${events.runtimeErrorDetail}` : "");
+            classified.error = classified.error ? `${classified.error}; ${eventError}` : eventError;
           }
           // A success whose requested model no runtime source attested. The
           // receipt must say so: the caller asked for a model and nothing
