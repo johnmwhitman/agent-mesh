@@ -28,6 +28,13 @@ its severity. A warning leaves `ok: true` when there are no other errors.
 | `lifecycle.outbox.claimed_at_without_claimed_by` | timestamp set, owner absent | error (warning in shadow mode) |
 | `lifecycle.outbox.invalid_claim` | populated owner blank/not text, or timestamp not a nonnegative integer | error (warning in shadow mode) |
 
+Outbox severity follows the known fleet named by the row's top-level
+`payload.fleet_id`, including in mixed shadow/durable ledgers. If that scope
+is absent, malformed, or unknown, retain the base ledger-wide fallback:
+durable if any fleet is durable, otherwise shadow if any fleet is shadow,
+otherwise legacy. This does not introduce stronger treatment for old unscoped
+rows. Clock diagnostics remain warnings in every mode.
+
 Work receipt completion is caller supplied; recording is server supplied.
 Neither comparison across those clocks nor a comparison to the auditor's
 clock is proof that a row was forged. Inspect clock history and provenance
