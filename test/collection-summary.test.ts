@@ -148,6 +148,7 @@ for (const output of blankOutputCases) {
       role: "artifact-only", status: "failed", result_contract: "ok",
       ...output.fields, artifacts: ["report.md"], error: "worker exited after reporting",
     }]);
+    assert.equal(s.warning, undefined);
     assert.deepEqual(s, {
       total: 1, delivered: 1, lost: 0, still_running: 0, lost_agents: [],
       degraded_agents: [{
@@ -155,7 +156,6 @@ for (const output of blankOutputCases) {
         error: "worker exited after reporting",
       }],
     });
-    assert.equal(s.warning, undefined);
     assert.equal(s.delivered + s.lost + s.still_running, s.total);
   });
 }
@@ -166,11 +166,11 @@ for (const artifacts of noArtifactCases) {
       role: "reported", status: "failed", result_contract: "ok",
       output: " \n declared work \t ", ...artifacts.fields,
     }]);
+    assert.equal(s.warning, undefined);
     assert.deepEqual(s, {
       total: 1, delivered: 1, lost: 0, still_running: 0, lost_agents: [],
       degraded_agents: [{ role: "reported", status: "failed", result_contract: "ok" }],
     });
-    assert.equal(s.warning, undefined);
     assert.equal(s.delivered + s.lost + s.still_running, s.total);
   });
 }
