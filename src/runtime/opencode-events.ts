@@ -35,6 +35,8 @@
 
 /** A single structural observation about how a runtime turn actually went. */
 export interface OpenCodeTrace {
+  /** A top-level runtime error event, never an error quoted in assistant text. */
+  runtimeError?: true
   /**
    * False when the stream could not be read as the expected NDJSON. Callers
    * MUST treat every other field as unknown when this is false — absent
@@ -100,6 +102,7 @@ export function parseOpenCodeEvents(stdout: string): OpenCodeTrace {
   let steps = 0
   let finishReason: string | undefined
   let recognised = 0
+  let runtimeError: true | undefined
   let sessionId: string | undefined
   let sessionConflict = false
 
@@ -133,6 +136,10 @@ export function parseOpenCodeEvents(stdout: string): OpenCodeTrace {
     observeSessionId((event as { sessionID?: unknown }).sessionID)
     observeSessionId((part as { sessionID?: unknown } | undefined)?.sessionID)
 
+    if (type === 'error') {
+      runtimeError = true
+      continue
+    }
     if (type === 'text') {
       const text = partText(part)
       if (text !== undefined) chunks.push(text)
@@ -157,6 +164,7 @@ export function parseOpenCodeEvents(stdout: string): OpenCodeTrace {
   if (recognised === 0) return empty
   return {
     parsed: true,
+    ...(runtimeError ? { runtimeError } : {}),
     text: chunks.join(''),
     toolCalls,
     toolNames,
