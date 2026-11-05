@@ -4,6 +4,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSyn
 import { createRequire, syncBuiltinESMExports } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { inspect } from 'node:util'
 
 import {
   checkNodeVersion,
@@ -307,12 +308,16 @@ test('doctor: an existing writable event-log file stays unchanged', () => {
 })
 
 test('doctor: unsupported event-log kinds fail using controlled metadata', { concurrency: false }, (t) => {
-  const mutableFs = createRequire(import.meta.url)('node:fs') as typeof import('node:fs')
-  const originalStat = mutableFs.statSync
-  const dir = tempDir()
-  const file = join(dir, 'events.log')
-  const errors: unknown[] = []
+  const errors: { stage: string; kind: string; error: unknown }[] = []
+  let stage = 'fixture setup'
+  let currentKind = 'setup'
+  let fixtureDir: string | undefined
   try {
+    const mutableFs = createRequire(import.meta.url)('node:fs') as typeof import('node:fs')
+    const originalStat = mutableFs.statSync
+    const dir = tempDir()
+    fixtureDir = dir
+    const file = join(dir, 'events.log')
     assert.equal(namedStatSync, originalStat)
     assert.equal(existsSync(file), false)
     const initialInventory = readdirSync(dir)
@@ -322,10 +327,16 @@ test('doctor: unsupported event-log kinds fail using controlled metadata', { con
     const ordinary = originalStat(file)
     assert.equal(ordinary.isFile(), true)
 
-    const { S_IFMT, S_IFREG, S_IFDIR, S_IFLNK, S_IFIFO, S_IFCHR, S_IFBLK, S_IFSOCK } = mutableFs.constants
-    for (const value of [S_IFMT, S_IFREG, S_IFDIR, S_IFLNK, S_IFIFO, S_IFCHR, S_IFBLK, S_IFSOCK]) {
-      assert.equal(typeof value, 'number')
+    // Fixture-only type encodings, independent of host filesystem constants.
+    const S_IFMT = 0o170000
+    const [S_IFREG, S_IFDIR, S_IFLNK, S_IFIFO, S_IFCHR, S_IFBLK, S_IFSOCK] =
+      [0o100000, 0o040000, 0o120000, 0o010000, 0o020000, 0o060000, 0o140000]
+    const kinds = [S_IFREG, S_IFDIR, S_IFLNK, S_IFIFO, S_IFCHR, S_IFBLK, S_IFSOCK]
+    assert.notEqual(S_IFMT, 0)
+    assert.equal(new Set(kinds).size, kinds.length)
+    for (const value of kinds) {
       assert.notEqual(value, 0)
+      assert.equal(value & S_IFMT, value)
     }
     const cases = [
       { name: 'FIFO', mode: S_IFIFO, predicate: 'isFIFO' },
@@ -335,8 +346,10 @@ test('doctor: unsupported event-log kinds fail using controlled metadata', { con
     ] as const
 
     for (const kind of cases) {
-      const caseErrors: unknown[] = []
+      currentKind = kind.name
+      const beforeCase = errors.length
       try {
+        stage = 'synthetic metadata setup'
         assert.equal(mutableFs.statSync, originalStat)
         assert.equal(namedStatSync, originalStat)
         const synthetic = Object.create(ordinary) as typeof ordinary
@@ -352,6 +365,7 @@ test('doctor: unsupported event-log kinds fail using controlled metadata', { con
           isSocket: () => isKind(S_IFSOCK),
         })
         assert.equal(synthetic.mode & S_IFMT, kind.mode)
+        assert.equal(synthetic.mode & ~S_IFMT, ordinary.mode & ~S_IFMT)
         assert.equal(synthetic.isFile(), false)
         assert.equal(synthetic.isDirectory(), false)
         assert.equal(synthetic.isSymbolicLink(), false)
@@ -366,38 +380,56 @@ test('doctor: unsupported event-log kinds fail using controlled metadata', { con
           }
           return Reflect.apply(originalStat, mutableFs, args)
         }) as typeof mutableFs.statSync
+        stage = 'mock installation'
         t.mock.method(mutableFs, 'statSync', replacement)
         assert.notEqual(mutableFs.statSync, originalStat)
+        stage = 'binding synchronization'
         syncBuiltinESMExports()
         assert.equal(namedStatSync, mutableFs.statSync)
         targetCalls = 0
+        stage = 'doctor and hook assertion'
         const result = checkEventLog(file)
         assert.ok(targetCalls > 0, `${kind.name} metadata hook did not fire`)
         assert.equal(result.status, 'fail')
         assert.ok(result.detail.includes(file))
         assert.match(result.fix ?? '', /regular file path/i)
       } catch (e) {
-        caseErrors.push(e)
+        errors.push({ stage, kind: currentKind, error: e })
       } finally {
-        try { t.mock.restoreAll() } catch (e) { caseErrors.push(e) }
-        try { syncBuiltinESMExports() } catch (e) { caseErrors.push(e) }
+        try { t.mock.restoreAll() } catch (e) { errors.push({ stage: 'restoration', kind: currentKind, error: e }) }
+        try { syncBuiltinESMExports() } catch (e) { errors.push({ stage: 'resynchronization', kind: currentKind, error: e }) }
         try {
           assert.equal(mutableFs.statSync, originalStat)
           assert.equal(namedStatSync, originalStat)
-        } catch (e) { caseErrors.push(e) }
+        } catch (e) { errors.push({ stage: 'restored binding identity', kind: currentKind, error: e }) }
       }
-      if (caseErrors.length) throw new AggregateError(caseErrors, `${kind.name} fixture failed`)
+      if (errors.length !== beforeCase) break
+      stage = 'ordinary postcontrol'
       assert.equal(namedStatSync(file).isFile(), true)
       assert.equal(checkEventLog(file).status, 'ok')
       assert.equal(readFileSync(file, 'utf8'), 'ordinary fixture\n')
       assert.deepEqual(readdirSync(dir), inventory)
     }
   } catch (e) {
-    errors.push(e)
+    errors.push({ stage, kind: currentKind, error: e })
   } finally {
-    try { rmSync(dir, { recursive: true, force: true }) } catch (e) { errors.push(e) }
+    if (fixtureDir !== undefined) {
+      try { rmSync(fixtureDir, { recursive: true, force: true }) } catch (e) {
+        errors.push({ stage: 'fixture cleanup', kind: currentKind, error: e })
+      }
+    }
   }
-  if (errors.length) throw new AggregateError(errors, 'controlled event-log metadata fixture failed')
+  if (errors.length) {
+    let detail = 'diagnostic formatting failed'
+    try {
+      detail = errors.map(({ stage, kind, error }) =>
+        `${stage} [${kind}]: ${inspect(error, { depth: 6, maxArrayLength: 20, maxStringLength: 1024, customInspect: false, getters: false, colors: false }).slice(0, 2500)}`
+      ).join('\n')
+    } catch (e) {
+      errors.push({ stage: 'diagnostic formatting', kind: currentKind, error: e })
+    }
+    throw new AggregateError(errors.map(({ error }) => error), `controlled event-log metadata fixture failed:\n${detail}`)
+  }
 })
 
 test('doctor: event-log symlinks follow their file or directory target', (t) => {
