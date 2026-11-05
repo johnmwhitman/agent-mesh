@@ -165,8 +165,23 @@ test("dashboard --poll-only refreshes on the interval", async () => {
   child.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString(); });
 
   try {
-    const deadline = Date.now() + 2000;
-    while (Date.now() < deadline && stamps.length < 3) {
+    // Startup budget: the child pays node boot + tsx compile before its first
+    // frame. Under full-suite parallel load that alone has exceeded the old
+    // flat 2s deadline (measured 2026-10-18 at ffdf6ee: `not ok 407`, 0 frames
+    // in 2000ms; unloaded time-to-first-frame is ~350-460ms). The guarded
+    // contract is interval refresh PACING, not boot time, so the first frame
+    // gets a generous startup budget; once it lands, the remaining frames must
+    // arrive interval-paced (>=3 frames, span >= interval below — unchanged).
+    const startupDeadline = Date.now() + 10000;
+    while (Date.now() < startupDeadline && stamps.length < 1) {
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    }
+    assert.ok(
+      stamps.length >= 1,
+      `expected --poll-only to emit its first frame (startup budget exhausted), saw 0 frame(s); stderr=${stderr}`,
+    );
+    const pacedDeadline = Date.now() + 2500;
+    while (Date.now() < pacedDeadline && stamps.length < 3) {
       await new Promise((resolve) => setTimeout(resolve, 40));
     }
     assert.ok(
