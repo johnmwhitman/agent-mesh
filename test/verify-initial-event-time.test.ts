@@ -15,6 +15,10 @@ test("real initial writer copies one timestamp, including zero, and stays clean 
       const body = JSON.parse(String(event.payload));
       assert.equal(event.occurred_at, body.work.created_at);
       assert.equal(event.occurred_at, body.attempt.created_at);
+      for (const field of ["work", "attempt"]) {
+        assert.equal(typeof body[field].result_absent, "boolean");
+        assert.equal(typeof body[field].error_absent, "boolean");
+      }
       console.log("real writer initial time copies", [event.occurred_at, body.work.created_at, body.attempt.created_at]);
     }
     assert.deepEqual(audit(file, now - 300_000), []);
@@ -63,15 +67,59 @@ test("a one millisecond edit to any initial timestamp copy is an error independe
   });
 });
 
-test("legacy initial payloads missing creation fields do not gain a new finding", () => {
+test("legacy initial payloads without writer-shape markers or creation fields stay silent", () => {
   withHealthyLedger((file, now) => {
     const original = readLifecycleSnapshot(file).events[0]!;
-    for (const missing of [["work"], ["attempt"], ["work", "attempt"]]) {
+    for (const missing of [["work", "attempt"]]) {
       const body = JSON.parse(String(original.payload));
-      for (const field of missing) delete body[field].created_at;
+      for (const field of missing) {
+        delete body[field].created_at;
+        delete body[field].result_absent;
+        delete body[field].error_absent;
+      }
       withStorageTransaction((db) => db.prepare("UPDATE attempt_events SET occurred_at = ?, payload = ? WHERE event_id = ?")
         .run(Number(original.occurred_at) + 1, JSON.stringify(body), original.event_id));
       assert.deepEqual(audit(file, now), []);
     }
+  });
+});
+
+test("F2: damaged current-writer creation fields cannot hide an initial timestamp edit", () => {
+  withHealthyLedger((file, now) => {
+    const original = readLifecycleSnapshot(file).events[0]!;
+    for (const field of ["work", "attempt"]) {
+      for (const invalid of [undefined, null, "invalid", -1, {}, []]) {
+        const body = JSON.parse(String(original.payload));
+        if (invalid === undefined) delete body[field].created_at;
+        else body[field].created_at = invalid;
+        withStorageTransaction((db) => db.prepare("UPDATE attempt_events SET occurred_at = ?, payload = ? WHERE event_id = ?")
+          .run(Number(original.occurred_at) + 1, JSON.stringify(body), original.event_id));
+        const report = verifyLedgerFile(file, now);
+        console.log("F2 malformed copy", { field, invalid, findings: report.findings });
+        expectDiagnostic(report.findings, CHECK, "error");
+        assert.equal(report.ok, false);
+      }
+    }
+  });
+});
+
+test("F2: writer markers require both creation dates even when both are deleted", () => {
+  withHealthyLedger((file, now) => {
+    const original = readLifecycleSnapshot(file).events[0]!;
+    const body = JSON.parse(String(original.payload));
+    for (const field of ["work", "attempt"]) delete body[field].created_at;
+    withStorageTransaction((db) => db.prepare("UPDATE attempt_events SET payload = ? WHERE event_id = ?")
+      .run(JSON.stringify(body), original.event_id));
+    expectDiagnostic(audit(file, now), CHECK, "error");
+  });
+});
+
+test("M09: epoch-zero initial copies still detect a one millisecond occurrence edit", () => {
+  withHealthyLedger((file, now) => {
+    const state = new LifecycleStore({ now: () => 0 }).createWork({ workId: "zero-mutant", fleetId: "durable" });
+    assert.deepEqual(audit(file, now), []);
+    withStorageTransaction((db) => db.prepare("UPDATE attempt_events SET occurred_at = 1 WHERE event_id = ?")
+      .run(state.events[0]!.event_id));
+    expectDiagnostic(audit(file, now), CHECK, "error");
   });
 });
