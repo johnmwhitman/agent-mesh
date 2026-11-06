@@ -149,17 +149,19 @@ function legacyDiagnosticMasks(input: string): { text: string; positions: number
 }
 
 export function redactDiagnosticMessage(message: string): string {
-  // Bound work before any regex/scanner. Drop the cut lexical token so a
-  // truncated standalone credential cannot evade its token-length matcher.
-  // Unterminated quoted values and PEM blocks below mask their remaining tail.
-  let end = Math.min(message.length, 8_192);
-  if (end < message.length) {
-    while (end > 0 && !/\s/.test(message[end - 1])) end -= 1;
-  }
-  const input = message.slice(0, end);
-  const normalized = input
+  // Strip ANSI and controls from the full message before choosing the cut:
+  // stripping them later can join a credential prefix to its discarded tail.
+  const stripped = message
     .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
     .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "");
+  // Bound credential masking work. Drop the cut lexical token so a truncated
+  // standalone credential cannot evade its token-length matcher.
+  // Unterminated quoted values and PEM blocks below mask their remaining tail.
+  let end = Math.min(stripped.length, 8_192);
+  if (end < stripped.length) {
+    while (end > 0 && !/\s/.test(stripped[end - 1])) end -= 1;
+  }
+  const normalized = stripped.slice(0, end);
   const legacy = legacyDiagnosticMasks(normalized);
   const hidden = new Uint8Array(normalized.length);
   redactAssignments(normalized, (start, end) => hidden.fill(1, start, end));
