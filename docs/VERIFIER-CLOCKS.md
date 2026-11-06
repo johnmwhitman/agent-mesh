@@ -38,7 +38,7 @@ Deleting or invalidating a copy cannot disable the check. Epoch zero is valid.
 Disagreement is a structural copy inconsistency, even by one millisecond;
 no clock-skew tolerance applies to copies of one value.
 
-Legacy payloads without both creation properties and without all four
+Legacy payloads with neither creation property and none of the four
 outcome-presence properties remain exempt. This is a payload-shape discriminator,
 not an authenticated writer version; storage version cannot establish event
 vintage after migration. Removing every identifying property is indistinguishable
