@@ -6,6 +6,7 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 
 ### Fixed
 
+- **Runtime diagnostic redaction retains the baseline's credential masks.** Legacy masking runs first; later passes can only mask surviving text, using original quote boundaries to retain safe refusal detail. Synthetic regression cases cover scheme-valued sensitive fields, quoted and escaped credentials, and all five failure/success diagnostic sinks.
 - **Authorization redaction preserves following credential assignments.** Basic/Bearer values and assignments share a bounded scan, so a following key is still masked. Colons inside credentials and newlines after the scheme no longer expose credential tails in failure fields or successful-agent diagnostics.
 - **Bounded runtime-error redaction covers JSON authorization and escaped JSON.** Diagnostic processing scans at most 8,192 input characters and masks complete quoted values, including multi-token authorization values and nested JSON strings. Closed Bearer/Basic credentials retain following refusal text for the existing failover gates.
 - **Quoted credentials stay redacted across newlines and escaped quotes.** Runtime error diagnostics consume the full quoted value, or the rest of an unterminated value, before normalization and truncation so persisted failure fields cannot expose its tail.
