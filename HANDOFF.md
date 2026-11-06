@@ -1,7 +1,7 @@
 # MeshFleet public handoff
 
 **Source version:** `0.22.0` · **MCP surface:** **40 MCP tools** (36 with the opt-in compact catalog) ·
-**expected suite collection:** **2391/2391** tests (measured by hosted CI run 42203317471 on Node 20, 22 and 24), plus typecheck and build
+**expected suite collection:** **2403/2403** tests (2391 measured by hosted CI run 42203317471 on Node 20, 22 and 24, plus 12 `fleet_status` summary tests collected locally on Node 24; awaits fresh CI), plus typecheck and build
 
 Candidate count: the prior published 2026 plus 16 first-round, 8 second-round,
 7 third-round, 10 fourth-round, and 6 fourth-round continuation tests. A complete run must confirm 2073 outside the restricted lane sandbox;
@@ -159,8 +159,10 @@ authorize spend. Runtime execution and advisory ranking remain separate contract
 
 - Keep documentation and contract guards tied to source paths and generated
   evidence, not session history.
-- Add compact status output only as an opt-in projection; preserve current output
-  bytes by default.
+- Compact status output, opt-in only, current bytes preserved by default: the MCP
+  slice is shipped (`fleet_status` `verbosity: "summary"`). The `agent-mesh inspect
+  --compact` CLI projection remains open; the unlanded `feat/compact-status-land-20260820`
+  branch is a starting point, not a merge candidate (it predates current main).
 - Public authenticated A2A ingress, remote transport, and production multi-host
   coordination are out of scope for this project (scope ruling, 2026-08-02 —
   `docs/A2A-PROGRAM.md`). Additional vendor runtimes remain separate reviewed

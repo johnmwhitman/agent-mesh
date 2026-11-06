@@ -329,7 +329,7 @@ Default stdio `tools/list` remains the compatible **40-tool** catalog. Set `MESH
 | `spawn_fleet` | Spawn N parallel agents as independent OS processes; each agent may select a registered `runtime` plus its required opaque `workspace_binding`, or use the default OpenCode runtime and optional `model` (`provider/model`) selector |
 | `spawn_from_template` | Spawn a fleet from a saved template |
 | `save_fleet_template` / `list_fleet_templates` | Reusable, versioned fleet configs |
-| `list_fleets` / `fleet_status` | All fleets, or one fleet's full state |
+| `list_fleets` / `fleet_status` | All fleets, or one fleet's full state. `fleet_status` accepts an optional `verbosity`: `"full"` (default, unchanged) or `"summary"` (agent `prompt`, `output`, `error` and `diagnostics` omitted and listed in `omitted_agent_fields`, for polling loops) |
 | `collect_results` | Gather every agent's final output in one call |
 | `set_fleet_timeout` | Per-fleet timeout override (in ms) |
 | `attach_agent` | Dynamically attach a premade agent to a running fleet; the agent may set the same optional `model` (`provider/model`) selector |

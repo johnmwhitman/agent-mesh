@@ -4,6 +4,10 @@ All notable changes to Agent Mesh are documented here. The format is based on [K
 
 ## [Unreleased]
 
+### Added
+
+- **Opt-in summary verbosity for `fleet_status`.** `fleet_status` accepts an optional `verbosity`: `"full"` (default) returns `{ fleet, agents }` byte-identical to prior releases; `"summary"` returns the same fleet row and each agent row without `prompt`, `output`, `error` and `diagnostics`, and names those fields in `omitted_agent_fields` so an absent `error` is not read as "no error". Every other field is copied unchanged; nothing is truncated or inferred. An unknown verbosity is refused. Every `Agent` field carries an explicit keep/omit disposition, so a new field cannot reach or leave the summary without a decision. This is a response-size projection for pollers, not a change to what the server reads or records.
+
 ### Fixed
 
 - **Diagnostic truncation uses normalized credential boundaries.** ANSI and control characters are stripped before the input cut, which discards the entire cut lexical token so a visible credential prefix cannot escape masking in failure fields or successful-agent diagnostics.

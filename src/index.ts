@@ -53,6 +53,7 @@ import {
 import { defaultDbFile, readLedger, resolveDbFile, withLedger } from "./db.js";
 import { migrateJsonToSqlite } from "./migrate.js";
 import { checkRateLimit, getHealth, getBuildIdentity, ping, type HealthVerbosity } from "./health.js";
+import { FLEET_STATUS_VERBOSITIES, projectFleetStatus, type FleetStatusVerbosity } from "./fleet-status.js";
 import {
   saveFleetTemplate as saveFleetTemplateFn,
   listFleetTemplates as listFleetTemplatesFn,
@@ -769,10 +770,19 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     },
     {
       name: "fleet_status",
-      description: "Check fleet and agent status.",
+      description:
+        "Check fleet and agent status. Pass verbosity=\"summary\" for a smaller polling payload (agent prompt, output, error and diagnostics omitted); default \"full\" is unchanged.",
       inputSchema: {
         type: "object",
-        properties: { fleet_id: { type: "string" } },
+        properties: {
+          fleet_id: { type: "string" },
+          verbosity: {
+            type: "string",
+            enum: ["full", "summary"],
+            description:
+              "\"full\" (default) returns { fleet, agents } with every agent row complete, byte-identical to prior versions. \"summary\" returns the same fleet row and each agent row without prompt, output, error and diagnostics, and lists those names in omitted_agent_fields. Every other field is copied unchanged. Use \"full\" or collect_results to read the omitted text.",
+          },
+        },
         required: ["fleet_id"],
       },
       annotations: { readOnlyHint: true, idempotentHint: true, destructiveHint: false, openWorldHint: false },
@@ -2078,12 +2088,26 @@ toolHandlers["fleet_status"] = async (args) => {
     // A contract violation must be NAMED, not shrugged into a lookup miss.
     const invalidFleetStatus = requireString("fleet_status", "fleet_id", fleet_id);
     if (invalidFleetStatus) return jsonError(invalidFleetStatus);
+    // Optional `verbosity`, same contract as get_health: default "full" keeps the prior
+    // response bytes, and an unknown value is refused rather than falling back to a payload
+    // the caller did not ask for.
+    const { verbosity } = args as { verbosity?: unknown };
+    const invalidVerbosity = requireEnum(
+      "fleet_status",
+      "verbosity",
+      verbosity,
+      FLEET_STATUS_VERBOSITIES,
+      { optional: true },
+    );
+    if (invalidVerbosity) return jsonError(invalidVerbosity);
     const data = readLedger();
     const fleet = data.fleets[fleet_id];
     const agents = Object.values(data.agents).filter(
       (a) => a.fleet_id === fleet_id
     );
-    return jsonResult({ fleet, agents });
+    return jsonResult(
+      projectFleetStatus(fleet, agents, (verbosity ?? "full") as FleetStatusVerbosity),
+    );
 };
 
 toolHandlers["list_fleets"] = async (args) => {
