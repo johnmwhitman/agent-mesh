@@ -6,6 +6,7 @@ import { createFleet, registerAgentInLedger } from "../src/core.js";
 import { withStorageTransaction } from "../src/db.js";
 import { LifecycleExecutionCoordinator } from "../src/lifecycle-execution.js";
 import { readLifecycleSnapshot } from "../src/lifecycle-visibility.js";
+import { LifecycleStore } from "../src/attempt-lifecycle.js";
 import { verifyLedgerFile } from "../src/verify.js";
 import type { RuntimeAdapter } from "../src/runtime/types.js";
 import { withTempDb } from "./helpers/with-temp-db.js";
@@ -59,6 +60,18 @@ for (const kind of kinds) for (const shadowTiming of ["existing", "fresh"]) {
       withStorageTransaction((db) => db.prepare("UPDATE lifecycle_event_outbox SET payload = ? WHERE event_id = ?")
         .run(JSON.stringify(body), row.event_id));
       check();
+      if (kind === "agent_launch_intended" || kind === "agent_spawned") {
+        const unreferenced = Object.fromEntries(Object.entries(body).filter(([key]) => !["agent_id", "attempt_id"].includes(key)));
+        withStorageTransaction((db) => db.prepare("UPDATE lifecycle_event_outbox SET payload = ? WHERE event_id = ?")
+          .run(JSON.stringify(unreferenced), row.event_id));
+        check();
+        registerAgentInLedger({ id: "shadow-worker", fleet_id: "shadow", role: "worker", prompt: "fixture", status: "pending" });
+        const shadowWork = new LifecycleStore().createWork({ workId: "shadow-work", fleetId: "shadow", agentId: "shadow-worker" });
+        const rewritten = { ...body, agent_id: "shadow-worker", attempt_id: shadowWork.work.current_attempt_id };
+        withStorageTransaction((db) => db.prepare("UPDATE lifecycle_event_outbox SET payload = ? WHERE event_id = ?")
+          .run(JSON.stringify(rewritten), row.event_id));
+        check();
+      }
     } finally { coordinator.stop(); temp.cleanup(); }
   });
 }
