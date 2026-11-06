@@ -266,9 +266,10 @@ export function verifyLifecycleSnapshot(snapshot: LifecycleSnapshot, now: number
     return modes.get(fleetId)!;
   };
   for (const row of [...snapshot.outbox].sort((a, b) => Number(a.seq) - Number(b.seq))) {
-    // Use a claimed fleet only when available references corroborate it.
-    // Unresolved/conflicting scopes keep the base ledger-wide severity.
-    const outboxMode = outboxModeFor(row);
+    // Payload scope is evidence under inspection, not permission to weaken
+    // the base ledger-wide rule. Legacy and durable both produce errors;
+    // only a shadow floor can be raised by a corroborated stricter scope.
+    const outboxMode = diagnosticMode === "shadow" ? outboxModeFor(row) : diagnosticMode;
     if (!Number.isInteger(row.seq) || Number(row.seq) !== outExpected++ || outIds.has(String(row.event_id))) issue(findings, outboxMode, "lifecycle.outbox.sequence", String(row.event_id), "outbox sequence is not contiguous or event id is duplicated");
     outIds.add(String(row.event_id));
     try { json(row.payload, "outbox payload"); } catch { issue(findings, outboxMode, "lifecycle.outbox.payload", String(row.event_id), "outbox payload is invalid JSON"); }

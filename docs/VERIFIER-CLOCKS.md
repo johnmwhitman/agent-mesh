@@ -47,18 +47,23 @@ This check does not cover later events or retries. It is independent of the
 warning-only five-minute policy for comparisons between clocks, which remains
 Fable's decision.
 
-Outbox severity follows the known fleet named by the row's top-level
-`payload.fleet_id` only when supplied agent, work, attempt and event references
-resolve to that fleet. Attempts resolve through their work; events also reconcile
-their attempt/work relationship, and work's populated agent reference must agree.
+Outbox structural severity never falls below the base ledger-wide rule:
+errors if any fleet is durable, warnings if no fleet is durable but a shadow
+fleet exists, otherwise errors (legacy mode). A payload's claimed fleet cannot
+lower that floor, including fleet-only coordinator events. Thus an honestly
+shadow-scoped incomplete claim in a mixed durable/shadow ledger is an error;
+any softer treatment requires a separate policy decision by Fable.
+
+Scope can raise a shadow-only floor to errors when the row's top-level
+`payload.fleet_id` names a known legacy fleet and supplied agent, work, attempt
+and event references resolve to that fleet. Attempts resolve through their work;
+events also reconcile their attempt/work relationship, and work's populated
+agent reference must agree.
 The outbox's own ID is not a reference: its independent UUID namespace is never
 required to match (or differ from) an attempt-event ID.
-Fleet-only coordinator events can still select their own mode in mixed ledgers.
 If scope is absent, malformed, unknown, conflicting, or cannot be corroborated
-because a supplied reference is unresolved, retain the base ledger-wide fallback:
-durable if any fleet is durable, otherwise shadow if any fleet is shadow,
-otherwise legacy. This does not introduce stronger treatment for old unscoped
-rows. This resolution selects severity only; it adds no standalone missing-reference
+because a supplied reference is unresolved, retain the base ledger-wide floor.
+This resolution selects severity only; it adds no standalone missing-reference
 finding. Clock diagnostics remain warnings in every mode.
 
 Work receipt completion is caller supplied; recording is server supplied.

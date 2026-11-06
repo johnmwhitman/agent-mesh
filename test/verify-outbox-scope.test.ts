@@ -12,7 +12,7 @@ import { setImmediate as nextTurn } from "node:timers/promises";
 import { LifecycleExecutionCoordinator } from "../src/lifecycle-execution.js";
 import type { RuntimeAdapter } from "../src/runtime/types.js";
 
-test("outbox claims retain their own fleet severity when a durable fleet is added", () => {
+test("outbox claims retain the ledger severity floor when a durable fleet is added", () => {
   const temp = withTempDb();
   try {
     createFleet("shadow");
@@ -21,21 +21,21 @@ test("outbox claims retain their own fleet severity when a durable fleet is adde
       db.prepare("INSERT INTO lifecycle_event_outbox (event_id, event, payload, created_at, claimed_by) VALUES ('out', 'fleet_created', ?, ?, 'owner')")
         .run(JSON.stringify({ fleet_id: "shadow" }), Date.now());
     });
-    const check = () => {
+    const check = (durable: boolean) => {
       const report = verifyLedgerFile(temp.dbFile);
-      assert.equal(report.ok, true, JSON.stringify(report.findings));
+      assert.equal(report.ok, !durable, JSON.stringify(report.findings));
       assert.deepEqual(report.findings.map(({ check, severity }) => ({ check, severity })), [
-        { check: "lifecycle.outbox.claimed_by_without_timestamp", severity: "warning" },
+        { check: "lifecycle.outbox.claimed_by_without_timestamp", severity: durable ? "error" : "warning" },
       ]);
       const cli = spawnSync(process.execPath, ["--import", "tsx", "src/bin/inspect.ts", "--verify", "--json"], {
         env: { ...process.env, MESHFLEET_DB_FILE: temp.dbFile }, encoding: "utf8",
       });
-      assert.equal(cli.status, 0, cli.stderr + cli.stdout);
+      assert.equal(cli.status, durable ? 1 : 0, cli.stderr + cli.stdout);
     };
-    check();
+    check(false);
     createFleet("unrelated");
     withStorageTransaction((db) => db.prepare("UPDATE fleets SET lifecycle_mode = 'durable' WHERE id = 'unrelated'").run());
-    check();
+    check(true);
   } finally { temp.cleanup(); }
 });
 
@@ -76,14 +76,14 @@ test("F1: a fleet payload edit cannot downgrade errors tied to another fleet", (
         .run(event.event_id, now, now - 1);
     });
     const collision = verifyLedgerFile(file, now);
-    assert.equal(collision.ok, true);
+    assert.equal(collision.ok, false);
     assert.deepEqual(collision.findings.map(({ check, severity }) => ({ check, severity })), [
-      { check: "lifecycle.outbox.projected_before_created", severity: "warning" },
+      { check: "lifecycle.outbox.projected_before_created", severity: "error" },
     ]);
   });
 });
 
-test("F1: agreeing shadow references keep warnings; unresolved references retain the base fallback", () => {
+test("F1: agreeing and unresolved shadow references retain the base severity floor", () => {
   withHealthyLedger((file, now) => {
     createFleet("shadow");
     new LifecycleStore({ now: () => now }).createWork({ workId: "sw", fleetId: "shadow" });
@@ -102,9 +102,8 @@ test("F1: agreeing shadow references keep warnings; unresolved references retain
       });
       const report = verifyLedgerFile(file, now);
       const finding = report.findings.find((row) => row.check === "lifecycle.outbox.claimed_by_without_timestamp")!;
-      const agreeing = "work_id" in reference;
-      assert.equal(finding.severity, agreeing ? "warning" : "error");
-      assert.equal(report.ok, agreeing);
+      assert.equal(finding.severity, "error");
+      assert.equal(report.ok, false);
     }
   });
 });
@@ -164,7 +163,7 @@ test("outbox scope selects durable and legacy authority while unscoped rows keep
     const findings = verifyLedgerFile(temp.dbFile).findings;
     assert.deepEqual(findings.map(({ subject, check, severity }) => ({ subject, check, severity })), [
       ...["shadow", "durable", "legacy", "missing", "unscoped"].map((subject) => ({
-        subject, check: "lifecycle.outbox.claimed_at_without_claimed_by", severity: subject === "shadow" ? "warning" : "error",
+        subject, check: "lifecycle.outbox.claimed_at_without_claimed_by", severity: "error",
       })),
     ]);
   } finally { temp.cleanup(); }
