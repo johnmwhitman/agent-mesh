@@ -24,3 +24,13 @@ test("M02: fractional claim timestamps are invalid", () => {
     assert.equal(findings.length, 1);
   });
 });
+
+test("M10: projected rows still require a timestamp for a populated claim owner", () => {
+  withHealthyLedger((file, now) => {
+    withStorageTransaction((db) => db.prepare("INSERT INTO lifecycle_event_outbox (event_id, event, payload, created_at, projected_at, claimed_by) VALUES ('out', 'fleet_created', '{\"fleet_id\":\"durable\"}', ?, ?, 'owner')")
+      .run(now, now));
+    const findings = audit(file, now);
+    expectDiagnostic(findings, "lifecycle.outbox.claimed_by_without_timestamp", "error");
+    assert.equal(findings.length, 1);
+  });
+});
