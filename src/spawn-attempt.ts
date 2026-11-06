@@ -21,17 +21,76 @@ export function buildFailureDetail(stderr: string, summary: string): string {
   return `${raw}\n${explanation}`;
 }
 
+// Scan each identifier and credential value once. In particular, do not retry
+// a variable-length key-prefix pattern at every byte of a long ordinary word.
+function redactAssignments(message: string): string {
+  const keys = /\b[A-Z0-9_][A-Z0-9_-]*/gi;
+  const sensitiveKey = /(?:API[_-]?KEY|ACCESS[_-]?KEY|TOKEN|PASSWORD|PASSWD|SECRET|PRIVATE[_-]?KEY|AUTHORIZATION)$/i;
+  const chunks: string[] = [];
+  let copied = 0;
+  let match: RegExpExecArray | null;
+  while ((match = keys.exec(message)) !== null) {
+    if (!sensitiveKey.test(match[0])) continue;
+    let i = keys.lastIndex;
+    // A JSON key can be quoted inside one or more JSON-encoded strings.
+    while (message[i] === "\\") i += 1;
+    if (message[i] === '"' || message[i] === "'") i += 1;
+    while (/\s/.test(message[i] ?? "")) i += 1;
+    if (message[i] !== ":" && message[i] !== "=") continue;
+    i += 1;
+    while (/\s/.test(message[i] ?? "")) i += 1;
+    const valueStart = i;
+    while (message[i] === "\\") i += 1;
+    const depth = i - valueStart;
+    const quote = message[i];
+    let replacement = "[redacted]";
+    if (quote === '"' || quote === "'") {
+      const delimiter = message.slice(valueStart, ++i);
+      // At escape depth d, a closing quote has d (mod 2*(d+1))
+      // preceding backslashes. Other quotes belong to the credential value.
+      for (; i < message.length; i += 1) {
+        if (message[i] !== quote) continue;
+        let slashStart = i;
+        while (slashStart > valueStart && message[slashStart - 1] === "\\") slashStart -= 1;
+        if ((i - slashStart) % (2 * (depth + 1)) === depth) { i += 1; break; }
+      }
+      // An unterminated value consumes the remainder, including newlines.
+      replacement = delimiter + replacement + delimiter;
+    } else {
+      i = valueStart;
+      if (/(?:^|[_-])AUTHORIZATION$/i.test(match[0])) {
+        const scheme = /^(?:basic|bearer)[ \t]+/i.exec(message.slice(i));
+        if (scheme) { replacement = scheme[0] + replacement; i += scheme[0].length; }
+        while (i < message.length && !/["'\\\r\n,;:}]/.test(message[i])) i += 1;
+      } else {
+        while (i < message.length && !/["'\s,;}\]]/.test(message[i])) i += 1;
+      }
+    }
+    chunks.push(message.slice(copied, valueStart), replacement);
+    copied = i;
+    keys.lastIndex = i;
+  }
+  chunks.push(message.slice(copied));
+  return chunks.join("");
+}
+
 export function redactDiagnosticMessage(message: string): string {
-  return message
+  // Bound work before any regex/scanner. Drop the cut lexical token so a
+  // truncated standalone credential cannot evade its token-length matcher.
+  // Unterminated quoted values and PEM blocks below mask their remaining tail.
+  let end = Math.min(message.length, 8_192);
+  if (end < message.length) {
+    while (end > 0 && !/\s/.test(message[end - 1])) end -= 1;
+  }
+  const input = message.slice(0, end);
+  const normalized = input
     .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
     .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "")
-    .replace(/-----BEGIN [^-]*PRIVATE KEY-----[\s\S]*?(?:-----END [^-]*PRIVATE KEY-----|$)/gi, "[redacted private key]")
-    .replace(/(\bauthorization\s*[:=]\s*(?:basic|bearer)\s+)[^\s,;]+/gi, "$1[redacted]")
-    .replace(/(\b(?:basic|bearer)\s+)[^\s,;]+/gi, "$1[redacted]")
-    // Consume escaped quotes and newlines as value bytes. An unclosed quote
-    // masks the rest of the message, including a possible trailing backslash.
-    .replace(/(["']?(?:(?:[A-Z0-9]+[_-])*(?:API[_-]?KEY|ACCESS[_-]?KEY|TOKEN|PASSWORD|PASSWD|SECRET|PRIVATE[_-]?KEY))["']?\s*[:=]\s*)(["'])(?:\\[\s\S]|(?!\2)[^\\])*(?:\2|\\?$)/gi, "$1$2[redacted]$2")
-    .replace(/(["']?(?:(?:[A-Z0-9]+[_-])*(?:API[_-]?KEY|ACCESS[_-]?KEY|TOKEN|PASSWORD|PASSWD|SECRET|PRIVATE[_-]?KEY))["']?\s*[:=]\s*["']?)[^"'\s,;}\]]+/gi, "$1[redacted]")
+    .replace(/-----BEGIN [A-Z0-9 ]{0,64}PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z0-9 ]{0,64}PRIVATE KEY-----|$)/gi, "[redacted private key]")
+    // Keep quote/escape delimiters intact for the assignment scanner. Mask
+    // every token in a bare auth value, bounded by punctuation or a line end.
+    .replace(/(\b(?:basic|bearer)[ \t]+)[^"'\\\r\n,;:}\]]+/gi, "$1[redacted]");
+  return redactAssignments(normalized)
     .replace(/\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-(?:(?:proj|or-v1|ant)-)?[A-Za-z0-9_-]{16,}|(?:xai-|pplx-)[A-Za-z0-9]{20,}|(?:gsk_|hf_|r8_)[A-Za-z0-9]{20,}|AIza[0-9A-Za-z_-]{35}|AKIA[0-9A-Z]{16}|xox[bap]-[A-Za-z0-9-]{10,}|eyJhbGciOi[A-Za-z0-9_.-]{40,})\b/g, "[redacted]")
     .replace(/\s+/g, " ")
     .trim();
