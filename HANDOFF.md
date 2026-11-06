@@ -1,10 +1,10 @@
 # MeshFleet public handoff
 
 **Source version:** `0.22.0` · **MCP surface:** **40 MCP tools** (36 with the opt-in compact catalog) ·
-**expected suite collection:** **2057/2057** tests (full-run confirmation pending), plus typecheck and build
+**expected suite collection:** **2067/2067** tests (full-run confirmation pending), plus typecheck and build
 
 Candidate count: the prior published 2026 plus 16 first-round, 8 second-round,
-and 7 third-round tests. A complete run must confirm 2057 outside the restricted lane sandbox;
+7 third-round, and 10 fourth-round tests. A complete run must confirm 2067 outside the restricted lane sandbox;
 the first-round full attempt was interrupted after loopback-bind and offline
 consumer-install failures. The revision ran only focused files, build, and
 typecheck; this is an expected collection count, not a full-suite pass claim.
