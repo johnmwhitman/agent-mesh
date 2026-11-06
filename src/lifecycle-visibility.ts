@@ -150,6 +150,7 @@ export function verifyLifecycleSnapshot(snapshot: LifecycleSnapshot, now: number
   if (!authoritative && snapshot.work.length + snapshot.attempts.length + snapshot.events.length + snapshot.outbox.length === 0) return findings;
   const workById = new Map(snapshot.work.map((row) => [String(row.work_id), row]));
   const attemptsById = new Map(snapshot.attempts.map((row) => [String(row.attempt_id), row]));
+  const eventsById = new Map(snapshot.events.map((row) => [String(row.event_id), row]));
   const attemptsByWork = new Map<string, Row[]>();
   for (const attempt of snapshot.attempts) { const list = attemptsByWork.get(String(attempt.work_id)) ?? []; list.push(attempt); attemptsByWork.set(String(attempt.work_id), list); }
   const fleetForWork = (row: Row): LifecycleMode => modes.get(String(row.fleet_id)) ?? "legacy";
@@ -242,11 +243,30 @@ export function verifyLifecycleSnapshot(snapshot: LifecycleSnapshot, now: number
     }
   }
   const outIds = new Set<string>(); let outExpected = 1;
+  const outboxModeFor = (row: Row): LifecycleMode => {
+    const body = payload(row);
+    const fleetId = body?.fleet_id;
+    if (typeof fleetId !== "string" || !modes.has(fleetId)) return diagnosticMode;
+    const workAgrees = (work: Row | undefined): boolean => work !== undefined && work.fleet_id === fleetId
+      && (work.agent_id == null || snapshot.data.agents[String(work.agent_id)]?.fleet_id === fleetId);
+    const attemptAgrees = (attempt: Row | undefined): boolean => attempt !== undefined && workAgrees(workById.get(String(attempt.work_id)));
+    const eventAgrees = (event: Row | undefined): boolean => event !== undefined && workAgrees(workById.get(String(event.work_id)))
+      && (event.attempt_id == null || (attemptAgrees(attemptsById.get(String(event.attempt_id))) && attemptsById.get(String(event.attempt_id))?.work_id === event.work_id));
+    const references: Array<[string, (id: string) => boolean]> = [
+      ["agent_id", (id) => snapshot.data.agents[id]?.fleet_id === fleetId],
+      ["work_id", (id) => workAgrees(workById.get(id))],
+      ["attempt_id", (id) => attemptAgrees(attemptsById.get(id))],
+      ["event_id", (id) => eventAgrees(eventsById.get(id))],
+    ];
+    for (const [key, agrees] of references) {
+      if (Object.hasOwn(body!, key) && (typeof body![key] !== "string" || !agrees(body![key] as string))) return diagnosticMode;
+    }
+    return modes.get(fleetId)!;
+  };
   for (const row of [...snapshot.outbox].sort((a, b) => Number(a.seq) - Number(b.seq))) {
-    // Coordinator payloads name their fleet. Unscoped/unknown legacy payloads
-    // retain the base diagnostic fallback rather than gaining new authority.
-    const fleetId = payload(row)?.fleet_id;
-    const outboxMode = typeof fleetId === "string" ? modes.get(fleetId) ?? diagnosticMode : diagnosticMode;
+    // Use a claimed fleet only when available references corroborate it.
+    // Unresolved/conflicting scopes keep the base ledger-wide severity.
+    const outboxMode = outboxModeFor(row);
     if (!Number.isInteger(row.seq) || Number(row.seq) !== outExpected++ || outIds.has(String(row.event_id))) issue(findings, outboxMode, "lifecycle.outbox.sequence", String(row.event_id), "outbox sequence is not contiguous or event id is duplicated");
     outIds.add(String(row.event_id));
     try { json(row.payload, "outbox payload"); } catch { issue(findings, outboxMode, "lifecycle.outbox.payload", String(row.event_id), "outbox payload is invalid JSON"); }
