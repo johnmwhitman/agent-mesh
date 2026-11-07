@@ -560,7 +560,8 @@ test("MCP: ten caller-id refusals keep their exact bytes for an id of at most 20
 
 // The spawn classifier stores "Requested agent <agent> ..." and "Requested model <model> ..." as
 // the agent error, which fleet_status returns in full. The caller's agent and model are capped
-// the same way as the caller-id refusals above; the runtime-reported half is not a caller value.
+// the same way as the caller-id refusals above. The runtime half is runtime-reported (it may echo a
+// transformed caller value: trim / logfmt unescape) and is not capped; neither is agent_file in the row.
 test("spawn result: a requested agent or model in a mismatch error is capped at 200 code units plus an ellipsis", () => {
   const banner = "> build · anthropic/claude-sonnet-4\n";
   const agentError = (requestedAgent: string): string | undefined =>
@@ -579,6 +580,13 @@ test("spawn result: a requested agent or model in a mismatch error is capped at 
   const straddle = "a".repeat(GOT_ECHO_MAX_CHARS - 1) + "\u{1F600}" + "b";
   assert.equal(agentError(straddle), agentMessage("a".repeat(GOT_ECHO_MAX_CHARS - 1) + "…"));
   assert.equal(modelError(straddle), modelMessage("a".repeat(GOT_ECHO_MAX_CHARS - 1) + "…"));
+  // With BOTH set, each message echoes its own caller value: the agent error names the agent,
+  // never the model, and a matching agent lets the model mismatch report the capped model.
+  const both = (requestedAgent: string, requestedModel: string): string | undefined =>
+    classifySpawnResult({ exitCode: 0, stdout: "answer", stderr: banner, requestedAgent, requestedModel }).error;
+  assert.equal(both("A".repeat(1_000_000), "openai/gpt-5"), agentMessage("A".repeat(GOT_ECHO_MAX_CHARS) + "…"));
+  assert.equal(both("oracle", "M".repeat(1_000_000)), agentMessage("oracle"));
+  assert.equal(both("build", "M".repeat(1_000_000)), modelMessage("M".repeat(GOT_ECHO_MAX_CHARS) + "…"));
   // A value of at most the cap keeps the exact prior bytes, with no JSON rendering.
   for (const v of ["oracle", "openai/gpt-5", "q".repeat(GOT_ECHO_MAX_CHARS), "a\\b\"cé\u{1F600}", "x".repeat(GOT_ECHO_MAX_CHARS - 2) + "\u{1F600}"]) {
     assert.ok(v.length <= GOT_ECHO_MAX_CHARS);
