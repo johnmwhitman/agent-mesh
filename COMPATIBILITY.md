@@ -128,6 +128,14 @@ runtime `notifications/tools/list_changed`. `ttlMs` / `cacheScope` are not
 published on `tools/list`: the SDK has no typed fields for them, and a cache TTL
 would be wrong across those startup-selected catalogs.
 
+### ⚠️ `fleet_status` refuses an unrecognized `verbosity` (unreleased)
+
+`fleet_status` previously ignored every argument except `fleet_id`. It now accepts an optional
+`verbosity` of `"full"` (default) or `"summary"`, so a previously ignored value such as
+`verbosity: "compact"` (or `"SUMMARY"`, `""`, a number or a boolean) now returns an `isError`
+refusal instead of the full response. `verbosity: null` and an absent `verbosity` are still served
+as `"full"`, byte-identical to earlier releases.
+
 ### ⚠️ `send_messages` narrowing and stricter `verify_ledger` findings (unreleased)
 
 `send_messages` always advertised five required string fields per item and a closed `type` enum,

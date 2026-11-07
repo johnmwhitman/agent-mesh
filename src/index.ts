@@ -780,7 +780,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
             type: "string",
             enum: ["full", "summary"],
             description:
-              "\"full\" (default) returns { fleet, agents } with every agent row complete, byte-identical to prior versions. \"summary\" returns the same fleet row and each agent row without prompt, output, error and diagnostics, and lists those names in omitted_agent_fields. Every other field is copied unchanged. Use \"full\" or collect_results to read the omitted text.",
+              "\"full\" (default) returns { fleet, agents } with every agent row complete, byte-identical to prior versions. \"summary\" returns the fleet row and each agent row reduced to their declared fields, without prompt, output, error and diagnostics, and lists those names in omitted_agent_fields. Every other declared field is copied unchanged. Use \"full\" or collect_results to read the omitted text.",
           },
         },
         required: ["fleet_id"],

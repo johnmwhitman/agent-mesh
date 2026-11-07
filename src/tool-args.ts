@@ -28,7 +28,25 @@ export function firstError(...errors: (string | null)[]): string | null {
   return null;
 }
 
-const got = (v: unknown): string => `${JSON.stringify(v)} (${v === null ? "null" : typeof v})`;
+/**
+ * How much of a rejected value a refusal echoes back. A refusal names what it received so the
+ * caller can see the mistake, but it should not mirror an arbitrarily large payload (a pasted
+ * transcript in a wrong-typed field) back into the response. Longer renderings are cut and end
+ * with an ellipsis; the type suffix is always present.
+ */
+export const GOT_ECHO_MAX_CHARS = 200;
+
+const got = (v: unknown): string => {
+  let shown = String(JSON.stringify(v));
+  if (shown.length > GOT_ECHO_MAX_CHARS) {
+    let cut = shown.slice(0, GOT_ECHO_MAX_CHARS);
+    // Do not leave half of a surrogate pair at the cut.
+    const last = cut.charCodeAt(cut.length - 1);
+    if (last >= 0xd800 && last <= 0xdbff) cut = cut.slice(0, -1);
+    shown = `${cut}…`;
+  }
+  return `${shown} (${v === null ? "null" : typeof v})`;
+};
 
 /** A required, non-blank string. Blank-safe: "   " names nothing. */
 export function requireString(tool: string, field: string, v: unknown): string | null {
