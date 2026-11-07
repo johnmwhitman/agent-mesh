@@ -117,11 +117,19 @@ function pickKept(row: object, kept: ReadonlySet<string>): Record<string, unknow
 
 /**
  * Reduce the fleet row to its summary fields. Key order follows the stored row; undeclared keys
- * are dropped. A missing fleet stays `undefined`, so an unknown fleet still serializes without a
- * `fleet` member.
+ * are dropped.
+ *
+ * Only a plain object row is projected. Anything else passes through unchanged, so summary
+ * serializes it exactly as full does:
+ *   - `undefined` (unknown fleet) stays absent from the response;
+ *   - a function, which is what the handler's plain-`{}` lookup returns for an id naming an
+ *     inherited `Object.prototype` member (`constructor`, `toString`, ...), is dropped by
+ *     `JSON.stringify` just as in full, so summary never invents a `fleet` member;
+ *   - a stored row whose data is `null`, an array, a string or a number is returned as stored
+ *     rather than rewritten to `{}` (or, for `null`, throwing).
  */
 export function summarizeFleet(fleet: Fleet | undefined): FleetSummary | undefined {
-  if (fleet === undefined) return undefined;
+  if (fleet === null || typeof fleet !== "object" || Array.isArray(fleet)) return fleet;
   return pickKept(fleet, KEPT_FLEET_FIELDS) as FleetSummary;
 }
 

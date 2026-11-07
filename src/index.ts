@@ -120,6 +120,7 @@ import {
   optionalNumber,
   requireStringArray,
   requireEnum,
+  echoRejected,
 } from "./tool-args.js";
 import { buildFailureDetail, projectSuccessDiagnostics } from "./spawn-attempt.js";
 import { getDefaultRuntimeAdapter, requireRuntimeAdapter, availableRuntimeIds } from "./runtime/registry.js";
@@ -2565,7 +2566,7 @@ toolHandlers["get_work_receipt"] = async (args) => {
     if (!result.ok) {
       if (result.reason === "not_found") {
         return jsonError(
-          `get_work_receipt: no work receipt for source=${JSON.stringify(source)} task_id=${JSON.stringify(taskId)} run_id=${JSON.stringify(runIdRaw)}`,
+          `get_work_receipt: no work receipt for source=${echoRejected(source)} task_id=${echoRejected(taskId)} run_id=${echoRejected(runIdRaw)}`,
         );
       }
       return jsonError(`get_work_receipt: ${result.reason}`);
@@ -2639,7 +2640,7 @@ toolHandlers["cast_vote"] = async (args) => {
     if (bad) return jsonError(bad);
     if (typeof approve !== "boolean") {
       return jsonError(
-        `cast_vote: 'approve' is required and must be a boolean, not ${JSON.stringify(approve)} ` +
+        `cast_vote: 'approve' is required and must be a boolean, not ${echoRejected(approve)} ` +
           `(${typeof approve}). Refusing to guess a vote — a truthiness reading would record ` +
           `"false" as an APPROVAL and an omitted value as a DECLINE.`
       );

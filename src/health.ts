@@ -30,6 +30,7 @@ import { basename, dirname, join } from 'node:path'
 import { loadData, resolveEventLogFile } from './core.js'
 import { resolveDbFile } from './db.js'
 import { workReceiptCount } from './work-receipt.js'
+import { echoRejected } from './tool-args.js'
 
 // ---------------------------------------------------------------------------
 // Process startup time (for uptime)
@@ -215,7 +216,7 @@ function resolveVerbosity(opts: GetHealthOptions | undefined): HealthVerbosity {
   if (v === undefined) return 'full'
   if (v === 'summary' || v === 'full') return v
   throw new Error(
-    `getHealth: 'verbosity' must be one of "summary" | "full" when provided, got ${JSON.stringify(v)} ` +
+    `getHealth: 'verbosity' must be one of "summary" | "full" when provided, got ${echoRejected(v)} ` +
       `(${typeof v}). Refusing to default — a misspelled value would silently cross the wire.`
   )
 }

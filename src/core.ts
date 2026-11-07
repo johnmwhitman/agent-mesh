@@ -8,6 +8,7 @@ import { getBudgetAdjustment } from "./budget-awareness.js";
 import { expandKeywordsWithSynonyms } from "./synonyms.js";
 import { getSkillTaxonomy, scoreSkillsAgainstKeywords } from "./skill-taxonomy.js";
 import { resolveEnv } from "./env.js";
+import { echoRejected } from "./tool-args.js";
 import { withLedger, withLedgerAndStorage, readLedger } from "./db.js";
 import { mapLegacyMessage, projectLegacyMessage } from "./a2a/legacy-map.js";
 import { A2A_MESSAGE_TYPES, type A2AMessageType } from "./a2a/types.js";
@@ -1722,13 +1723,13 @@ export function _registerCapability(data: MeshData, input: CapabilityInput): voi
   // defensive decoration.
   if (!isUsableAgentId(input?.agentId)) {
     throw new Error(
-      `register_capability: agentId is required and must be a usable non-empty string (got ${JSON.stringify(input?.agentId)}). ` +
+      `register_capability: agentId is required and must be a usable non-empty string (got ${echoRejected(input?.agentId)}). ` +
         `Note the MCP wire field is 'agent_id'; it must be mapped to 'agentId'.`
     );
   }
   if (typeof input.fleetId !== "string" || input.fleetId.trim().length === 0) {
     throw new Error(
-      `register_capability: fleetId is required and must be a non-empty string (got ${JSON.stringify(input.fleetId)}). ` +
+      `register_capability: fleetId is required and must be a non-empty string (got ${echoRejected(input.fleetId)}). ` +
         `Note the MCP wire field is 'fleet_id'; it must be mapped to 'fleetId'.`
     );
   }
@@ -1737,12 +1738,12 @@ export function _registerCapability(data: MeshData, input: CapabilityInput): voi
   // write instead, using the same shape check routing applies.
   if (typeof input.role !== "string" || input.role.trim().length === 0) {
     throw new Error(
-      `register_capability: role is required and must be a non-empty string (got ${JSON.stringify(input.role)})`
+      `register_capability: role is required and must be a non-empty string (got ${echoRejected(input.role)})`
     );
   }
   if (!Array.isArray(input.skills) || !input.skills.every((sk) => typeof sk === "string")) {
     throw new Error(
-      `register_capability: skills is required and must be an array of strings (got ${JSON.stringify(input.skills)})`
+      `register_capability: skills is required and must be an array of strings (got ${echoRejected(input.skills)})`
     );
   }
   // A capability may not place an agent in a fleet its own row contradicts.
@@ -1777,9 +1778,9 @@ export function _registerCapability(data: MeshData, input: CapabilityInput): voi
   ) {
     throw new Error(
       `register_capability: agent ${input.agentId} is registered in fleet ${JSON.stringify(namedAgent.fleet_id)}, ` +
-        `but this capability names fleet ${JSON.stringify(input.fleetId)} — this ledger holds both, so the two rows ` +
+        `but this capability names fleet ${echoRejected(input.fleetId)} — this ledger holds both, so the two rows ` +
         `would disagree about where the work happened. Pass the agent's own fleet id, or register the capability ` +
-        `under an agent that belongs to ${JSON.stringify(input.fleetId)}.`
+        `under an agent that belongs to ${echoRejected(input.fleetId)}.`
     );
   }
   data.capabilities[input.agentId] = {

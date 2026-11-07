@@ -31,22 +31,42 @@ export function firstError(...errors: (string | null)[]): string | null {
 /**
  * How much of a rejected value a refusal echoes back. A refusal names what it received so the
  * caller can see the mistake, but it should not mirror an arbitrarily large payload (a pasted
- * transcript in a wrong-typed field) back into the response. Longer renderings are cut and end
- * with an ellipsis; the type suffix is always present.
+ * transcript in a wrong-typed field) back into the response.
+ *
+ * The unit is UTF-16 code units of the value's `JSON.stringify` rendering (JavaScript string
+ * length), not bytes, code points or characters of the raw value.
  */
 export const GOT_ECHO_MAX_CHARS = 200;
 
-const got = (v: unknown): string => {
-  let shown = String(JSON.stringify(v));
-  if (shown.length > GOT_ECHO_MAX_CHARS) {
-    let cut = shown.slice(0, GOT_ECHO_MAX_CHARS);
-    // Do not leave half of a surrogate pair at the cut.
-    const last = cut.charCodeAt(cut.length - 1);
-    if (last >= 0xd800 && last <= 0xdbff) cut = cut.slice(0, -1);
-    shown = `${cut}…`;
+/**
+ * The renderer argument refusals use to echo a rejected value: its `JSON.stringify`
+ * rendering, cut to at most {@link GOT_ECHO_MAX_CHARS} UTF-16 code units plus `…` when longer.
+ * The cut lands on a token boundary of the rendering: never inside a JSON escape (`\"`, `\\`,
+ * `\n`, `\u00e9`, ...) and never between the two halves of a surrogate pair, so the echoed text
+ * is well-formed UTF-16 and contains no partial escape. `undefined` (and other values
+ * `JSON.stringify` cannot render) echo as `undefined`, as before.
+ */
+export function echoRejected(v: unknown): string {
+  const shown = String(JSON.stringify(v));
+  if (shown.length <= GOT_ECHO_MAX_CHARS) return shown;
+  let end = 0;
+  for (let p = 0; p < shown.length; ) {
+    const c = shown.charCodeAt(p);
+    let len = 1;
+    if (c === 0x5c /* backslash: always starts an escape in JSON output */) {
+      len = shown[p + 1] === "u" ? 6 : 2;
+    } else if (c >= 0xd800 && c <= 0xdbff) {
+      const n = shown.charCodeAt(p + 1);
+      if (n >= 0xdc00 && n <= 0xdfff) len = 2;
+    }
+    if (p + len > GOT_ECHO_MAX_CHARS) break;
+    p += len;
+    end = p;
   }
-  return `${shown} (${v === null ? "null" : typeof v})`;
-};
+  return `${shown.slice(0, end)}…`;
+}
+
+const got = (v: unknown): string => `${echoRejected(v)} (${v === null ? "null" : typeof v})`;
 
 /** A required, non-blank string. Blank-safe: "   " names nothing. */
 export function requireString(tool: string, field: string, v: unknown): string | null {
@@ -186,7 +206,7 @@ export function requireStringArray(
   }
   if (typeof v === "string") {
     return (
-      `${tool}: '${field}' must be an ARRAY of strings, got the bare string ${JSON.stringify(v)}. ` +
+      `${tool}: '${field}' must be an ARRAY of strings, got the bare string ${echoRejected(v)}. ` +
       `A string would be iterated character by character.`
     );
   }

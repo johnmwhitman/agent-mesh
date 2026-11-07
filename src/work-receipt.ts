@@ -53,6 +53,7 @@ import {
   withWorkReceiptInsert,
 } from "./db.js";
 import { appendEvent } from "./core.js";
+import { echoRejected } from "./tool-args.js";
 
 /**
  * Schema marker for the canonical payload. Bumping this is a wire-incompatible
@@ -312,42 +313,42 @@ export function validateWorkReceipt(
 
   if (obj.schema !== WORK_RECEIPT_SCHEMA) {
     reasons.push(
-      `schema must be the literal "${WORK_RECEIPT_SCHEMA}", got ${JSON.stringify(obj.schema)}`,
+      `schema must be the literal "${WORK_RECEIPT_SCHEMA}", got ${echoRejected(obj.schema)}`,
     );
   }
   if (typeof obj.task_id !== "string" || !TASK_ID_GRAMMAR.test(obj.task_id)) {
     reasons.push(
-      `task_id must match /${TASK_ID_GRAMMAR.source}/, got ${JSON.stringify(obj.task_id)}`,
+      `task_id must match /${TASK_ID_GRAMMAR.source}/, got ${echoRejected(obj.task_id)}`,
     );
   }
   if (!Number.isInteger(obj.run_id) || (obj.run_id as number) <= 0) {
     reasons.push(
-      `run_id must be a positive integer, got ${JSON.stringify(obj.run_id)}`,
+      `run_id must be a positive integer, got ${echoRejected(obj.run_id)}`,
     );
   }
   if (typeof obj.assignee !== "string" || obj.assignee.trim() === "") {
     reasons.push(
-      `assignee must be a non-empty string, got ${JSON.stringify(obj.assignee)}`,
+      `assignee must be a non-empty string, got ${echoRejected(obj.assignee)}`,
     );
   }
   if (!isOneOf(obj.terminal_outcome, TERMINAL_OUTCOMES)) {
     reasons.push(
-      `terminal_outcome must be one of ${TERMINAL_OUTCOMES.join("|")}, got ${JSON.stringify(obj.terminal_outcome)}`,
+      `terminal_outcome must be one of ${TERMINAL_OUTCOMES.join("|")}, got ${echoRejected(obj.terminal_outcome)}`,
     );
   }
   if (!isOneOf(obj.result_contract, RESULT_CONTRACT_STATUSES)) {
     reasons.push(
-      `result_contract must be one of ${RESULT_CONTRACT_STATUSES.join("|")}, got ${JSON.stringify(obj.result_contract)}`,
+      `result_contract must be one of ${RESULT_CONTRACT_STATUSES.join("|")}, got ${echoRejected(obj.result_contract)}`,
     );
   }
   if (!isOneOf(obj.quality_gate, QUALITY_GATE_STATUSES)) {
     reasons.push(
-      `quality_gate must be one of ${QUALITY_GATE_STATUSES.join("|")}, got ${JSON.stringify(obj.quality_gate)}`,
+      `quality_gate must be one of ${QUALITY_GATE_STATUSES.join("|")}, got ${echoRejected(obj.quality_gate)}`,
     );
   }
   if (!Number.isInteger(obj.completed_at) || (obj.completed_at as number) <= 0) {
     reasons.push(
-      `completed_at must be a positive integer (unix seconds), got ${JSON.stringify(obj.completed_at)}`,
+      `completed_at must be a positive integer (unix seconds), got ${echoRejected(obj.completed_at)}`,
     );
   }
   if (!Array.isArray(obj.evidence)) {
@@ -355,7 +356,7 @@ export function validateWorkReceipt(
   }
   if (typeof obj.payload_sha256 !== "string" || !HEX_SHA256.test(obj.payload_sha256)) {
     reasons.push(
-      `payload_sha256 must be a 64-char hex SHA-256 digest, got ${JSON.stringify(obj.payload_sha256)}`,
+      `payload_sha256 must be a 64-char hex SHA-256 digest, got ${echoRejected(obj.payload_sha256)}`,
     );
   }
 
@@ -373,14 +374,14 @@ export function validateWorkReceipt(
   // Quality gate passed → result_contract must be ok. (The strict numerator.)
   if (quality === "passed" && contract !== "ok") {
     reasons.push(
-      `quality_gate=passed requires result_contract=ok, got result_contract=${JSON.stringify(contract)}`,
+      `quality_gate=passed requires result_contract=ok, got result_contract=${echoRejected(contract)}`,
     );
   }
   // completed → ok OR artifact_missing (a completed agent that lost an artifact is not refused).
   // Anything else is impossible.
   if (terminal === "completed" && !["ok", "artifact_missing"].includes(contract)) {
     reasons.push(
-      `terminal_outcome=completed requires result_contract in {ok, artifact_missing}, got ${JSON.stringify(contract)}`,
+      `terminal_outcome=completed requires result_contract in {ok, artifact_missing}, got ${echoRejected(contract)}`,
     );
   }
   // terminal_outcome=refused|failed → result_contract=ok is impossible (a refused run is not ok).
@@ -439,7 +440,7 @@ export function validateEvidenceArray(
     const obj = entry as Record<string, unknown>;
     if (!isOneOf(obj.kind, EVIDENCE_KINDS)) {
       reasons.push(
-        `evidence[${index}].kind must be one of ${EVIDENCE_KINDS.join("|")}, got ${JSON.stringify(obj.kind)}`,
+        `evidence[${index}].kind must be one of ${EVIDENCE_KINDS.join("|")}, got ${echoRejected(obj.kind)}`,
       );
       return;
     }
@@ -449,7 +450,7 @@ export function validateEvidenceArray(
     }
     if (obj.digest !== undefined && (typeof obj.digest !== "string" || !HEX_SHA256.test(obj.digest))) {
       reasons.push(
-        `evidence[${index}].digest must be a 64-char hex SHA-256 string when present, got ${JSON.stringify(obj.digest)}`,
+        `evidence[${index}].digest must be a 64-char hex SHA-256 string when present, got ${echoRejected(obj.digest)}`,
       );
       return;
     }

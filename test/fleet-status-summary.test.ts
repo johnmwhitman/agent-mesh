@@ -31,7 +31,8 @@ import {
   summarizeAgent,
   summarizeFleet,
 } from "../src/fleet-status.js";
-import { GOT_ECHO_MAX_CHARS, requireEnum } from "../src/tool-args.js";
+import { GOT_ECHO_MAX_CHARS, echoRejected, requireEnum, requireStringArray } from "../src/tool-args.js";
+import { validateWorkReceipt } from "../src/work-receipt.js";
 import { withTempDb } from "./helpers/with-temp-db.js";
 
 const repoRoot = join(fileURLToPath(new URL(".", import.meta.url)), "..");
@@ -185,6 +186,68 @@ test("a refusal echoes at most GOT_ECHO_MAX_CHARS of the rejected value, with an
   assert.equal(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(cut), false, "lone high surrogate in refusal");
 });
 
+test("summary: an id naming an inherited Object member is still an unknown fleet (no fleet member)", () => {
+  // The handler looks fleets up in a plain {} dict, so these ids resolve to Object.prototype members.
+  const fleets: Record<string, unknown> = {};
+  for (const id of ["constructor", "toString", "hasOwnProperty", "valueOf", "isPrototypeOf", "__defineGetter__"]) {
+    const inherited = fleets[id] as Fleet | undefined;
+    const full = JSON.stringify(projectFleetStatus(inherited, [], "full"));
+    const summary = JSON.stringify(projectFleetStatus(inherited, [], "summary"));
+    assert.equal(full, '{"agents":[]}', `${id}: full`);
+    assert.equal(summary, '{"agents":[],"omitted_agent_fields":["prompt","output","error","diagnostics"]}', `${id}: summary invented a fleet`);
+  }
+});
+
+test("summary: a non-object stored fleet row is returned as stored, never rewritten or thrown on", () => {
+  for (const raw of ["null", "[1,2,3]", '"a string row"', "5", "true"]) {
+    const row = JSON.parse(raw) as Fleet;
+    let summary: ReturnType<typeof projectFleetStatus> | undefined;
+    assert.doesNotThrow(() => { summary = projectFleetStatus(row, [], "summary"); }, `${raw}: summary threw`);
+    assert.equal(JSON.stringify(summary!.fleet), JSON.stringify(projectFleetStatus(row, [], "full").fleet), `${raw}: summary rewrote the row`);
+    assert.equal(JSON.stringify(summary!.fleet), raw);
+  }
+});
+
+test("echo cap: the cut never splits a JSON escape and stays well-formed", () => {
+  const escaped: unknown[] = [
+    '"'.repeat(300), // \" escapes
+    "\\".repeat(300), // \\ escapes
+    "\u0001".repeat(100), // \u0001 six-unit escapes
+    "a".repeat(198) + "\uD83Dzz", // lone surrogate renders as a \ud83d escape straddling the cut
+    "a".repeat(197) + "\u{1F600}xx",
+    "\u{1F600}".repeat(999),
+    "a".repeat(196) + "\n" + "b".repeat(20),
+  ];
+  for (const v of escaped) {
+    const shown = echoRejected(v);
+    assert.ok(shown.endsWith("…"), "long value must be cut");
+    const body = shown.slice(0, -1);
+    assert.ok(body.length <= GOT_ECHO_MAX_CHARS, `echo is ${body.length} code units`);
+    assert.ok((shown as unknown as { isWellFormed(): boolean }).isWellFormed(), "ill-formed UTF-16");
+    // A cut on a token boundary of a JSON string rendering closes into valid JSON.
+    assert.doesNotThrow(() => JSON.parse(body + '"'), `partial escape at the cut: ${JSON.stringify(body.slice(-8))}`);
+    assert.ok(JSON.stringify(v).startsWith(body), "the echo is a prefix of the rendering");
+  }
+  // Non-string renderings are cut on the same boundary rules and keep the type suffix.
+  for (const v of [{ k: "v".repeat(400) }, Array.from({ length: 300 }, (_, i) => i)]) {
+    assert.match(requireEnum("t", "f", v, ["a"])!, /… \(object\)\. /);
+  }
+  assert.equal(echoRejected(undefined), "undefined");
+  assert.equal(echoRejected("short"), '"short"');
+});
+
+test("echo cap: the other refusal sites use the same capped renderer", () => {
+  const big = "Z".repeat(50_000);
+  const bare = requireStringArray("open_ratification", "voters", big, { optional: true })!;
+  assert.ok(bare.includes(`got the bare string ${echoRejected(big)}. `), bare.slice(0, 300));
+  assert.ok(bare.length < 600, `requireStringArray bare-string refusal is ${bare.length} chars`);
+  const wr = validateWorkReceipt({ schema: big, task_id: big, assignee: 7, terminal_outcome: big, result_contract: big, quality_gate: big, payload_sha256: big, evidence: [{ kind: big, handle: "h" }] });
+  assert.equal(wr.ok, false);
+  const reasons = (wr as { reasons: string[] }).reasons;
+  assert.ok(reasons.length > 0);
+  for (const r of reasons) assert.ok(r.length < 600, `work-receipt reason is ${r.length} chars: ${r.slice(0, 120)}`);
+});
+
 test("an unknown fleet serializes the same way at both verbosities apart from the omission list", () => {
   assert.equal(JSON.stringify(projectFleetStatus(undefined, [])), '{"agents":[]}');
   assert.equal(
@@ -295,6 +358,37 @@ test("MCP: an undeclared key on the stored fleet row is absent from summary and 
     delete expected.legacy_notes;
     assert.equal(JSON.stringify(s.fleet), JSON.stringify(expected), "summary fleet = stored fleet minus undeclared keys");
   }, foreignFleet);
+});
+
+test("MCP: summary for an id naming an inherited Object member reports no fleet, as base did", async () => {
+  await withSeededServer(async (client) => {
+    for (const fleet_id of ["constructor", "toString", "__defineGetter__"]) {
+      const full = textOf(await client.callTool({ name: "fleet_status", arguments: { fleet_id } }));
+      const summary = textOf(await client.callTool({ name: "fleet_status", arguments: { fleet_id, verbosity: "summary" } }));
+      assert.equal(full, '{"agents":[]}', fleet_id);
+      assert.equal(summary, '{"agents":[],"omitted_agent_fields":["prompt","output","error","diagnostics"]}', fleet_id);
+    }
+  });
+});
+
+test("MCP: refusals on several tools echo a capped rejected value", async () => {
+  const big = "Z".repeat(50_000);
+  await withSeededServer(async (client) => {
+    const calls: Array<[string, Record<string, unknown>]> = [
+      ["fleet_status", { fleet_id: FLEET.id, verbosity: big }],
+      ["open_ratification", { proposer: "p", fleet_id: FLEET.id, subject: "s", quorum: 1, voters: big }],
+      ["cast_vote", { agent_id: "a", message_id: "m", approve: big }],
+      ["record_work_receipt", { schema: big, task_id: big, assignee: big }],
+      ["register_capability", { agent_id: "a", fleet_id: "f", role: "r", skills: big }],
+      ["get_work_receipt", { source: "hermes", task_id: big, run_id: 1 }],
+    ];
+    for (const [name, args] of calls) {
+      const res = (await client.callTool({ name, arguments: args })) as { isError?: boolean };
+      const text = textOf(res);
+      assert.equal(res.isError, true, `${name} should refuse`);
+      assert.ok(text.length < 2_000, `${name} refusal is ${text.length} chars`);
+    }
+  });
 });
 
 test("MCP: tools/list advertises the optional verbosity enum and keeps fleet_id required", async () => {
