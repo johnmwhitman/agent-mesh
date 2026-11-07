@@ -234,6 +234,22 @@ test("echo cap: the cut never splits a JSON escape and stays well-formed", () =>
     const v = "a".repeat(GOT_ECHO_MAX_CHARS - 2) + edge + "b";
     assert.equal(echoRejected(v), '"' + "a".repeat(GOT_ECHO_MAX_CHARS - 2) + "…", `U+${edge.codePointAt(0)!.toString(16)}`);
   }
+  // Exact cut for each two-unit escape at units 197-198 of the rendering: unit 199 still fits.
+  for (const ch of ["\n", "\t", "\r", "\b", "\f", '"', "\\"]) {
+    const v = "a".repeat(GOT_ECHO_MAX_CHARS - 4) + ch + "b".repeat(20);
+    assert.equal(echoRejected(v), JSON.stringify(v).slice(0, GOT_ECHO_MAX_CHARS) + "…", JSON.stringify(ch));
+  }
+  // A six-unit \u0001 at units 194-199 ends exactly at the cap and is kept; at 195-200 it
+  // straddles the cap and is dropped whole.
+  const v6 = "a".repeat(GOT_ECHO_MAX_CHARS - 7) + "\u0001" + "b".repeat(20);
+  assert.equal(echoRejected(v6), JSON.stringify(v6).slice(0, GOT_ECHO_MAX_CHARS) + "…");
+  const v7 = "a".repeat(GOT_ECHO_MAX_CHARS - 6) + "\u0001" + "b".repeat(20);
+  assert.equal(echoRejected(v7), '"' + "a".repeat(GOT_ECHO_MAX_CHARS - 6) + "…");
+  // JSON.stringify leaves U+2028, U+2029 and U+007F unescaped, so each is one unit at 199.
+  for (const ch of ["\u2028", "\u2029", "\u007f"]) {
+    const v = "a".repeat(GOT_ECHO_MAX_CHARS - 2) + ch + "b";
+    assert.equal(echoRejected(v), '"' + "a".repeat(GOT_ECHO_MAX_CHARS - 2) + ch + "…", `json ${JSON.stringify(ch)}`);
+  }
   // Non-string renderings are cut on the same boundary rules and keep the type suffix.
   for (const v of [{ k: "v".repeat(400) }, Array.from({ length: 300 }, (_, i) => i)]) {
     assert.match(requireEnum("t", "f", v, ["a"])!, /… \(object\)\. /);
@@ -486,6 +502,20 @@ test("raw echo: a value of at most the cap is unchanged; a longer one is cut on 
   for (const edge of ["\u{10FC00}", "\u{103FF}"]) {
     const v = "a".repeat(GOT_ECHO_MAX_CHARS - 1) + edge + "b";
     assert.equal(echoRejectedRaw(v), "a".repeat(GOT_ECHO_MAX_CHARS - 1) + "…", `U+${edge.codePointAt(0)!.toString(16)}`);
+  }
+  // A unit at 199 that does not start a valid pair is one unit and is kept: a high surrogate
+  // before another high one or before U+E000 (just above the low range), a low surrogate after
+  // U+D7FF (just below the high range), a low surrogate first, and a high surrogate before an
+  // ordinary character. A range test one unit too wide, or a pair assumed after any high
+  // surrogate, pairs it and drops it.
+  for (const s of ["\uD800\uDBFF", "\uDBFF\uE000", "\uD7FF\uDC00", "\uDC00\uDFFF", "\uDBFFb"]) {
+    const v = "a".repeat(GOT_ECHO_MAX_CHARS - 1) + s + "b";
+    assert.equal(echoRejectedRaw(v), "a".repeat(GOT_ECHO_MAX_CHARS - 1) + s[0] + "…", JSON.stringify(s));
+  }
+  // Characters that are escaped or special in JSON are one ordinary unit in a raw value.
+  for (const ch of ["\u2028", "\u2029", "\t", "\u0001", "\u007f"]) {
+    const v = "a".repeat(GOT_ECHO_MAX_CHARS - 1) + ch + "b";
+    assert.equal(echoRejectedRaw(v), "a".repeat(GOT_ECHO_MAX_CHARS - 1) + ch + "…", `raw ${JSON.stringify(ch)}`);
   }
   for (const v of ["\u{1F600}".repeat(999), "x" + "\u{1F600}".repeat(999), "e\u0301".repeat(300), "\u{1F469}\u200D\u{1F4BB}".repeat(100)]) {
     const shown = echoRejectedRaw(v);
