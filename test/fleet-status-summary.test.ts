@@ -588,7 +588,9 @@ test("spawn result: a requested agent or model in a mismatch error is capped at 
   assert.equal(both("oracle", "M".repeat(1_000_000)), agentMessage("oracle"));
   assert.equal(both("build", "M".repeat(1_000_000)), modelMessage("M".repeat(GOT_ECHO_MAX_CHARS) + "…"));
   // A value of at most the cap keeps the exact prior bytes, with no JSON rendering.
-  for (const v of ["oracle", "openai/gpt-5", "q".repeat(GOT_ECHO_MAX_CHARS), "a\\b\"cé\u{1F600}", "x".repeat(GOT_ECHO_MAX_CHARS - 2) + "\u{1F600}"]) {
+  for (const v of ["oracle", "openai/gpt-5", "q".repeat(GOT_ECHO_MAX_CHARS), "a\\b\"cé\u{1F600}", "x".repeat(GOT_ECHO_MAX_CHARS - 2) + "\u{1F600}",
+    // Whitespace and normalization form survive byte for byte: no trim, no NFC. "e\u0301" is NFD.
+    " build", "build\n", "e\u0301"]) {
     assert.ok(v.length <= GOT_ECHO_MAX_CHARS);
     assert.equal(agentError(v), agentMessage(v), `agent ${JSON.stringify(v)}`);
     assert.equal(modelError(v), modelMessage(v), `model ${JSON.stringify(v)}`);
