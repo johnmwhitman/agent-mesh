@@ -31,7 +31,7 @@ import {
   summarizeAgent,
   summarizeFleet,
 } from "../src/fleet-status.js";
-import { GOT_ECHO_MAX_CHARS, echoRejected, requireEnum, requireStringArray } from "../src/tool-args.js";
+import { GOT_ECHO_MAX_CHARS, echoRejected, echoRejectedRaw, requireEnum, requireStringArray } from "../src/tool-args.js";
 import { validateWorkReceipt } from "../src/work-receipt.js";
 import { withTempDb } from "./helpers/with-temp-db.js";
 
@@ -380,13 +380,127 @@ test("MCP: refusals on several tools echo a capped rejected value", async () => 
       ["cast_vote", { agent_id: "a", message_id: "m", approve: big }],
       ["record_work_receipt", { schema: big, task_id: big, assignee: big }],
       ["register_capability", { agent_id: "a", fleet_id: "f", role: "r", skills: big }],
-      ["get_work_receipt", { source: "hermes", task_id: big, run_id: 1 }],
+      // A valid source and a grammar-valid task_id, so the call reaches the not-found message,
+      // which echoes task_id. (source "hermes" stopped at the short unknown-source reason.)
+      ["get_work_receipt", { source: "hermes-kanban", task_id: "t_" + big, run_id: 1 }],
+      ["get_work_receipt", { source: big, task_id: "t_x", run_id: 1 }],
     ];
     for (const [name, args] of calls) {
       const res = (await client.callTool({ name, arguments: args })) as { isError?: boolean };
       const text = textOf(res);
       assert.equal(res.isError, true, `${name} should refuse`);
       assert.ok(text.length < 2_000, `${name} refusal is ${text.length} chars`);
+    }
+    const notFound = (JSON.parse(textOf(await client.callTool({
+      name: "get_work_receipt",
+      arguments: { source: "hermes-kanban", task_id: "t_" + big, run_id: 1 },
+    }))) as { error: string }).error;
+    assert.ok(
+      notFound.startsWith(`get_work_receipt: no work receipt for source="hermes-kanban" task_id="t_ZZZ`),
+      `get_work_receipt did not reach the not-found echo: ${notFound.slice(0, 120)}`,
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Caller-id refusals that interpolate the id raw (no JSON rendering). Each must cap a 1 MB id
+// and keep the exact prior bytes for an id of 200 UTF-16 code units or fewer.
+// ---------------------------------------------------------------------------------------------
+
+const RUNTIME_TAIL = ". A runtime is available only once registered, and some require configuration.";
+
+/** One entry per refusal site: the call for a given id, and the exact message it must produce. */
+const CALLER_ID_SITES: Array<{
+  site: string;
+  call: (id: string) => [string, Record<string, unknown>];
+  message: (id: string) => string;
+}> = [
+  { site: "set_fleet_timeout.fleet_id", call: (id) => ["set_fleet_timeout", { fleet_id: id, timeout_ms: 1_000 }], message: (id) => `Fleet ${id} not found` },
+  { site: "attach_agent.fleet_id", call: (id) => ["attach_agent", { fleet_id: id, role: "r", prompt: "p" }], message: (id) => `Fleet ${id} not found` },
+  { site: "receipt.message_id", call: (id) => ["receipt", { agent_id: "a", message_id: id, action: "read" }], message: (id) => `No such message: ${id}` },
+  { site: "cast_vote.message_id", call: (id) => ["cast_vote", { agent_id: "a", message_id: id, approve: true }], message: (id) => `No such ratification: ${id}` },
+  { site: "tally_ratification.message_id", call: (id) => ["tally_ratification", { message_id: id }], message: (id) => `No such ratification: ${id}` },
+  {
+    site: "open_ratification.fleet_id",
+    call: (id) => ["open_ratification", { proposer: "p", fleet_id: id, subject: "s", quorum: 1 }],
+    message: (id) => `Broadcast in fleet ${id} has no recipients (no other agents registered)`,
+  },
+  { site: "subscribe_inbox.agent_id", call: (id) => ["subscribe_inbox", { agent_id: id }], message: (id) => `Agent "${id}" not found` },
+  { site: "spawn_from_template.name", call: (id) => ["spawn_from_template", { name: id }], message: (id) => `Template "${id}" not found` },
+  {
+    site: "spawn_fleet.agents[].runtime",
+    call: (id) => ["spawn_fleet", { agents: [{ role: "r", prompt: "p", runtime: id }] }],
+    // The Available list depends on the registered runtimes; the test pins everything around it.
+    message: (id) => `spawn_fleet: unknown runtime '${id}'. Available: `,
+  },
+  {
+    site: "get_work_receipt.source",
+    call: (id) => ["get_work_receipt", { source: id, task_id: "t_x", run_id: 1 }],
+    message: (id) => `get_work_receipt: unknown source "${id}"; MeshFleet only records source=hermes-kanban`,
+  },
+];
+
+async function refusalOf(client: Client, [name, args]: [string, Record<string, unknown>]): Promise<string> {
+  const res = (await client.callTool({ name, arguments: args })) as { isError?: boolean };
+  assert.equal(res.isError, true, `${name} should refuse`);
+  return (JSON.parse(textOf(res)) as { error: string }).error;
+}
+
+function assertSiteMessage(site: string, got: string, expected: string): void {
+  if (site === "spawn_fleet.agents[].runtime") {
+    assert.ok(got.startsWith(expected), `${site}: ${got.slice(0, 300)}`);
+    assert.ok(got.endsWith(RUNTIME_TAIL), `${site}: ${got.slice(-200)}`);
+    assert.equal(got.includes("Q".repeat(GOT_ECHO_MAX_CHARS + 1)), false, `${site}: the id reached the Available list`);
+  } else {
+    assert.equal(got, expected, site);
+  }
+}
+
+test("raw echo: a value of at most the cap is unchanged; a longer one is cut on a code-point boundary", () => {
+  for (const n of [0, 1, 199, GOT_ECHO_MAX_CHARS]) assert.equal(echoRejectedRaw("r".repeat(n)), "r".repeat(n));
+  assert.equal(echoRejectedRaw("r".repeat(GOT_ECHO_MAX_CHARS + 1)), "r".repeat(GOT_ECHO_MAX_CHARS) + "…");
+  assert.equal(echoRejectedRaw("Q".repeat(1_000_000)), "Q".repeat(GOT_ECHO_MAX_CHARS) + "…");
+  // A backslash is an ordinary character in a raw value, not the start of an escape.
+  assert.equal(echoRejectedRaw("\\".repeat(300)), "\\".repeat(GOT_ECHO_MAX_CHARS) + "…");
+  // A surrogate pair straddling the cap is dropped whole, never halved.
+  const straddle = "a".repeat(GOT_ECHO_MAX_CHARS - 1) + "\u{1F600}" + "b";
+  assert.equal(echoRejectedRaw(straddle), "a".repeat(GOT_ECHO_MAX_CHARS - 1) + "…");
+  const fits = "a".repeat(GOT_ECHO_MAX_CHARS - 2) + "\u{1F600}" + "b";
+  assert.equal(echoRejectedRaw(fits), "a".repeat(GOT_ECHO_MAX_CHARS - 2) + "\u{1F600}…");
+  for (const v of ["\u{1F600}".repeat(999), "x" + "\u{1F600}".repeat(999), "e\u0301".repeat(300), "\u{1F469}\u200D\u{1F4BB}".repeat(100)]) {
+    const shown = echoRejectedRaw(v);
+    assert.ok(shown.endsWith("…"));
+    assert.ok(shown.length - 1 <= GOT_ECHO_MAX_CHARS, `echo is ${shown.length - 1} code units`);
+    assert.ok((shown as unknown as { isWellFormed(): boolean }).isWellFormed(), "the cut created a lone surrogate");
+    assert.ok(v.startsWith(shown.slice(0, -1)), "the echo is a prefix of the value");
+  }
+  // A lone surrogate the caller sent is echoed as sent, not repaired or dropped.
+  assert.equal(echoRejectedRaw("id\uD83D"), "id\uD83D");
+  // Non-string values echo their String form, exactly as template interpolation did.
+  for (const v of [5, true, null, undefined, ["a", "b"], { k: 1 }]) assert.equal(echoRejectedRaw(v), `${v}`);
+  assert.equal(echoRejectedRaw(["Q".repeat(1_000)]), "Q".repeat(GOT_ECHO_MAX_CHARS) + "…");
+});
+
+test("MCP: ten caller-id refusals cap a 1 MB id at 200 code units plus an ellipsis", async () => {
+  const big = "Q".repeat(1_000_000);
+  const capped = "Q".repeat(GOT_ECHO_MAX_CHARS) + "…";
+  await withSeededServer(async (client) => {
+    for (const { site, call, message } of CALLER_ID_SITES) {
+      const got = await refusalOf(client, call(big));
+      assert.ok(got.length < 2_000, `${site} refusal is ${got.length} chars`);
+      assertSiteMessage(site, got, message(capped));
+    }
+  });
+});
+
+test("MCP: ten caller-id refusals keep their exact bytes for an id of at most 200 code units", async () => {
+  const ids = ["nope", "q".repeat(GOT_ECHO_MAX_CHARS), "a\\b\"c\u00e9\u{1F600}", "x".repeat(GOT_ECHO_MAX_CHARS - 2) + "\u{1F600}"];
+  await withSeededServer(async (client) => {
+    for (const { site, call, message } of CALLER_ID_SITES) {
+      for (const id of ids) {
+        assert.ok(id.length <= GOT_ECHO_MAX_CHARS);
+        assertSiteMessage(site, await refusalOf(client, call(id)), message(id));
+      }
     }
   });
 });

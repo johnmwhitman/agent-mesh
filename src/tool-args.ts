@@ -45,15 +45,39 @@ export const GOT_ECHO_MAX_CHARS = 200;
  * `\n`, `\u00e9`, ...) and never between the two halves of a surrogate pair, so the echoed text
  * is well-formed UTF-16 and contains no partial escape. `undefined` (and other values
  * `JSON.stringify` cannot render) echo as `undefined`, as before.
+ *
+ * The cut is per code unit and surrogate pair, not per user-perceived character: it can
+ * separate a base character from a following combining mark, or split a ZWJ emoji sequence
+ * or a flag between its code points. The echo then shows fewer marks or a shorter sequence
+ * than the caller sent, but it is still well-formed UTF-16, because every code point it keeps
+ * is whole.
  */
 export function echoRejected(v: unknown): string {
-  const shown = String(JSON.stringify(v));
+  return cutEcho(String(JSON.stringify(v)), true);
+}
+
+/**
+ * {@link echoRejected} for refusals that interpolate a caller value as-is, without JSON
+ * rendering (`Fleet <id> not found`, `No such ratification: <id>`). The value's `String`
+ * form is echoed unchanged when it is at most {@link GOT_ECHO_MAX_CHARS} UTF-16 code units,
+ * so those messages keep their bytes; a longer one is cut to at most that many units plus
+ * `…`. The cut never separates the two halves of a surrogate pair, so it never creates a
+ * lone surrogate; a lone surrogate the caller sent is echoed as sent. The same caveat about
+ * combining marks and ZWJ sequences applies. There are no escapes to protect in a raw value:
+ * a backslash is an ordinary character here.
+ */
+export function echoRejectedRaw(v: unknown): string {
+  return cutEcho(String(v), false);
+}
+
+/** Cut `shown` at the last token boundary at or before GOT_ECHO_MAX_CHARS units. */
+function cutEcho(shown: string, jsonEscapes: boolean): string {
   if (shown.length <= GOT_ECHO_MAX_CHARS) return shown;
   let end = 0;
   for (let p = 0; p < shown.length; ) {
     const c = shown.charCodeAt(p);
     let len = 1;
-    if (c === 0x5c /* backslash: always starts an escape in JSON output */) {
+    if (jsonEscapes && c === 0x5c /* backslash: always starts an escape in JSON output */) {
       len = shown[p + 1] === "u" ? 6 : 2;
     } else if (c >= 0xd800 && c <= 0xdbff) {
       const n = shown.charCodeAt(p + 1);
