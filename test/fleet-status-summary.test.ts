@@ -228,6 +228,12 @@ test("echo cap: the cut never splits a JSON escape and stays well-formed", () =>
     assert.doesNotThrow(() => JSON.parse(body + '"'), `partial escape at the cut: ${JSON.stringify(body.slice(-8))}`);
     assert.ok(JSON.stringify(v).startsWith(body), "the echo is a prefix of the rendering");
   }
+  // A pair at code unit 199 of the rendering (after the opening quote) is dropped whole at the
+  // top of each surrogate range: U+10FC00 is DBFF DC00 and U+103FF is D800 DFFF.
+  for (const edge of ["\u{10FC00}", "\u{103FF}"]) {
+    const v = "a".repeat(GOT_ECHO_MAX_CHARS - 2) + edge + "b";
+    assert.equal(echoRejected(v), '"' + "a".repeat(GOT_ECHO_MAX_CHARS - 2) + "…", `U+${edge.codePointAt(0)!.toString(16)}`);
+  }
   // Non-string renderings are cut on the same boundary rules and keep the type suffix.
   for (const v of [{ k: "v".repeat(400) }, Array.from({ length: 300 }, (_, i) => i)]) {
     assert.match(requireEnum("t", "f", v, ["a"])!, /… \(object\)\. /);
@@ -474,6 +480,13 @@ test("raw echo: a value of at most the cap is unchanged; a longer one is cut on 
   assert.equal(echoRejectedRaw(straddle), "a".repeat(GOT_ECHO_MAX_CHARS - 1) + "…");
   const fits = "a".repeat(GOT_ECHO_MAX_CHARS - 2) + "\u{1F600}" + "b";
   assert.equal(echoRejectedRaw(fits), "a".repeat(GOT_ECHO_MAX_CHARS - 2) + "\u{1F600}…");
+  // The same straddle at the top of each surrogate range: U+10FC00 is the pair DBFF DC00 (the
+  // last high surrogate) and U+103FF is D800 DFFF (the last low one). A range test that stops
+  // one unit short keeps a lone half at code unit 199.
+  for (const edge of ["\u{10FC00}", "\u{103FF}"]) {
+    const v = "a".repeat(GOT_ECHO_MAX_CHARS - 1) + edge + "b";
+    assert.equal(echoRejectedRaw(v), "a".repeat(GOT_ECHO_MAX_CHARS - 1) + "…", `U+${edge.codePointAt(0)!.toString(16)}`);
+  }
   for (const v of ["\u{1F600}".repeat(999), "x" + "\u{1F600}".repeat(999), "e\u0301".repeat(300), "\u{1F469}\u200D\u{1F4BB}".repeat(100)]) {
     const shown = echoRejectedRaw(v);
     assert.ok(shown.endsWith("…"));
