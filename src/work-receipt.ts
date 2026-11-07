@@ -53,7 +53,7 @@ import {
   withWorkReceiptInsert,
 } from "./db.js";
 import { appendEvent } from "./core.js";
-import { echoRejected } from "./tool-args.js";
+import { echoRejected, echoRejectedRaw } from "./tool-args.js";
 
 /**
  * Schema marker for the canonical payload. Bumping this is a wire-incompatible
@@ -753,7 +753,7 @@ export function getWorkReceipt(
   if (source !== WORK_RECEIPT_SOURCE) {
     return {
       ok: false,
-      reason: `unknown source "${source}"; MeshFleet only records source=${WORK_RECEIPT_SOURCE}`,
+      reason: `unknown source "${echoRejectedRaw(source)}"; MeshFleet only records source=${WORK_RECEIPT_SOURCE}`,
     };
   }
   if (!TASK_ID_GRAMMAR.test(taskId)) {

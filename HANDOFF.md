@@ -1,7 +1,7 @@
 # MeshFleet public handoff
 
 **Source version:** `0.22.0` · **MCP surface:** **40 MCP tools** (36 with the opt-in compact catalog) ·
-**expected suite collection:** **2413/2413** tests (2391 measured by hosted CI run 42203317471 on Node 20, 22 and 24, plus 22 `fleet_status` summary tests collected locally on Node 24; awaits fresh CI), plus typecheck and build
+**expected suite collection:** **2416/2416** tests (2413 measured on `9164c10` by hosted CI run 42344098433 on Node 20, 22 and 24, plus 3 caller-id echo tests added after it, 25 in `test/fleet-status-summary.test.ts`; awaits fresh CI), plus typecheck and build
 
 Candidate count: the prior published 2026 plus 16 first-round, 8 second-round,
 7 third-round, 10 fourth-round, and 6 fourth-round continuation tests. A complete run must confirm 2073 outside the restricted lane sandbox;

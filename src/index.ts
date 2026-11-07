@@ -121,6 +121,7 @@ import {
   requireStringArray,
   requireEnum,
   echoRejected,
+  echoRejectedRaw,
 } from "./tool-args.js";
 import { buildFailureDetail, projectSuccessDiagnostics } from "./spawn-attempt.js";
 import { getDefaultRuntimeAdapter, requireRuntimeAdapter, availableRuntimeIds } from "./runtime/registry.js";
@@ -1949,7 +1950,7 @@ toolHandlers["spawn_fleet"] = async (args) => {
     );
     if (badRuntimeAgent) {
       return jsonError(
-        `spawn_fleet: unknown runtime '${badRuntimeAgent.runtime}'. Available: ` +
+        `spawn_fleet: unknown runtime '${echoRejectedRaw(badRuntimeAgent.runtime)}'. Available: ` +
           `${knownRuntimes.join(", ")}. A runtime is available only once registered, and some ` +
           `require configuration.`,
       );
@@ -2480,7 +2481,7 @@ toolHandlers["receipt"] = async (args) => {
       return jsonError("Use ack_message to consume a message; receipt is for non-consuming actions");
     }
     const receipt = writeReceipt(agent_id, message_id, action, note);
-    if (!receipt) return jsonError(`No such message: ${message_id}`);
+    if (!receipt) return jsonError(`No such message: ${echoRejectedRaw(message_id)}`);
     return jsonResult({ receipt });
 };
 
@@ -2647,7 +2648,7 @@ toolHandlers["cast_vote"] = async (args) => {
     }
     try {
       const ok = castVote(agent_id, message_id, approve, note);
-      if (!ok) return jsonError(`No such ratification: ${message_id}`);
+      if (!ok) return jsonError(`No such ratification: ${echoRejectedRaw(message_id)}`);
       return jsonResult({ ok, status: resolveRatification(message_id), tally: tallyRatification(message_id) });
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : String(err));
@@ -2659,7 +2660,7 @@ toolHandlers["tally_ratification"] = async (args) => {
     const bad = requireString("tally_ratification", "message_id", message_id);
     if (bad) return jsonError(bad);
     const status = resolveRatification(message_id);
-    if (status === null) return jsonError(`No such ratification: ${message_id}`);
+    if (status === null) return jsonError(`No such ratification: ${echoRejectedRaw(message_id)}`);
     return jsonResult({ status, tally: tallyRatification(message_id) });
 };
 
@@ -2799,7 +2800,7 @@ toolHandlers["attach_agent"] = async (args) => {
     // a live agent attached to a dead fleet (the red-team's exact case).
     const check = withLedger((data): { error?: string; reopened?: boolean } => {
       const fleet = data.fleets[fleet_id];
-      if (!fleet) return { error: `Fleet ${fleet_id} not found` };
+      if (!fleet) return { error: `Fleet ${echoRejectedRaw(fleet_id)} not found` };
       // `abandoned` is accepted, and this is load-bearing rather than a
       // convenience. attach_agent is the ONLY in-place path into an existing
       // fleet — nothing anywhere re-runs an interrupted agent — so if
@@ -2911,7 +2912,7 @@ toolHandlers["subscribe_inbox"] = async (args) => {
     if (invalidSubscribe) return jsonError(invalidSubscribe);
     const data = readLedger();
     if (!data.agents[agent_id]) {
-      return jsonError(`Agent "${agent_id}" not found`);
+      return jsonError(`Agent "${echoRejectedRaw(agent_id)}" not found`);
     }
     // Do not hand back a stream URL this process cannot serve. startSseServer()
     // failure is caught and logged to stderr only, so when the port is already
@@ -2995,7 +2996,7 @@ toolHandlers["spawn_from_template"] = async (args) => {
     if (invalidSpawnTpl) return jsonError(invalidSpawnTpl);
     const spec = spawnFromTemplateFn(tplName);
     if (!spec) {
-      return jsonError(`Template "${tplName}" not found`);
+      return jsonError(`Template "${echoRejectedRaw(tplName)}" not found`);
     }
     return jsonResult({ spec });
 };
