@@ -1,3 +1,5 @@
+import { echoRejectedRaw } from "./tool-args.js";
+
 export interface SpawnResultInput {
   exitCode: number | null;
   stdout: string;
@@ -636,11 +638,13 @@ export function classifySpawnResult(
   if (input.requestedAgent && !banner) {
     return { ...receipt, success: false, error: "Requested agent but runtime agent banner is missing or unparsable" };
   }
+  // The requested agent and model are caller values stored in the agent error and returned by
+  // fleet_status, so they are echoed through the same 200-unit cap as caller-id refusals.
   if (input.requestedAgent && banner && banner.agent !== input.requestedAgent) {
     return {
       ...receipt,
       success: false,
-      error: `Requested agent ${input.requestedAgent} but runtime agent ${banner.agent} executed`,
+      error: `Requested agent ${echoRejectedRaw(input.requestedAgent)} but runtime agent ${banner.agent} executed`,
     };
   }
   if (
@@ -677,7 +681,7 @@ export function classifySpawnResult(
     return {
       ...receipt,
       success: false,
-      error: `Requested model ${input.requestedModel} but runtime model banner reported ${observedModel}`,
+      error: `Requested model ${echoRejectedRaw(input.requestedModel)} but runtime model banner reported ${observedModel}`,
     };
   }
   const diagnostics = plainStderr
