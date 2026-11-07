@@ -8,7 +8,7 @@ import { getBudgetAdjustment } from "./budget-awareness.js";
 import { expandKeywordsWithSynonyms } from "./synonyms.js";
 import { getSkillTaxonomy, scoreSkillsAgainstKeywords } from "./skill-taxonomy.js";
 import { resolveEnv } from "./env.js";
-import { echoRejected } from "./tool-args.js";
+import { echoRejected, echoRejectedRaw } from "./tool-args.js";
 import { withLedger, withLedgerAndStorage, readLedger } from "./db.js";
 import { mapLegacyMessage, projectLegacyMessage } from "./a2a/legacy-map.js";
 import { A2A_MESSAGE_TYPES, type A2AMessageType } from "./a2a/types.js";
@@ -663,7 +663,7 @@ export function setFleetTimeout(fleetId: string, timeoutMs: number): void {
   }
   withLedger((data) => {
     const fleet = data.fleets[fleetId];
-    if (!fleet) throw new Error(`Fleet ${fleetId} not found`);
+    if (!fleet) throw new Error(`Fleet ${echoRejectedRaw(fleetId)} not found`);
     fleet.timeout_ms = timeoutMs;
   });
 }
@@ -1445,7 +1445,7 @@ export function _sendMessage(
           .map((a) => a.id);
     if (recipients.length === 0) {
       throw new Error(
-        `Broadcast in fleet ${fleetId} has no recipients (no other agents registered)`
+        `Broadcast in fleet ${echoRejectedRaw(fleetId)} has no recipients (no other agents registered)`
       );
     }
   }
