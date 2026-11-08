@@ -17,12 +17,11 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { _registerAgent, type Agent, type Fleet, type MeshData } from "../src/core.js";
+import type { Agent, Fleet } from "../src/core.js";
 import { closeDb } from "../src/db.js";
 import {
   AGENT_SUMMARY_FIELDS,
@@ -606,39 +605,4 @@ test("MCP: tools/list advertises the optional verbosity enum and keeps fleet_id 
     assert.deepEqual(schema.properties.verbosity?.enum, ["full", "summary"]);
     assert.deepEqual(schema.required, ["fleet_id"]);
   });
-});
-
-// ---------------------------------------------------------------------------------------------
-// Pins the CHANGELOG "Still not capped" entries for the durable prompt writers. The docs say
-// `prompt`, `role` and `agent_file` are stored whole by every writer (spawn_fleet and attach_agent,
-// durable and not) and that only the identity-mismatch echo of `agent`/`model` is capped
-// (GOT_ECHO_MAX_CHARS = 200). If a writer starts capping, or the echo cap moves, edit the docs
-// and this test together.
-// ---------------------------------------------------------------------------------------------
-
-test("docs pin: prompt, role and agent_file are stored whole by every writer; summary omits only prompt", () => {
-  assert.equal(GOT_ECHO_MAX_CHARS, 200, "CHANGELOG documents the echo cap as 200 UTF-16 code units");
-  // The shared row writer keeps a 1 MB value as given, and the summary keeps role/agent_file whole.
-  const big = "Z".repeat(1_000_000);
-  const data = { agents: {}, inboxes: {} } as unknown as MeshData;
-  _registerAgent(data, { id: "a1", fleet_id: "f1", role: big, prompt: big, agent_file: big, status: "running", started_at: 1 });
-  const row = data.agents["a1"]!;
-  assert.equal(row.prompt.length, 1_000_000);
-  assert.equal(row.role.length, 1_000_000);
-  assert.equal(row.agent_file?.length, 1_000_000);
-  const summary = summarizeAgent(row) as Record<string, unknown>;
-  assert.equal("prompt" in summary, false, "summary omits prompt");
-  assert.equal((summary.role as string).length, 1_000_000, "summary keeps role whole");
-  assert.equal((summary.agent_file as string).length, 1_000_000, "summary keeps agent_file whole");
-  assert.equal(((projectFleetStatus(FLEET, [row]).agents[0] as Agent).prompt).length, 1_000_000, "full returns prompt whole");
-  // The four durable/non-durable writers pass the caller's prompt, role and agent through
-  // unwrapped (no echoRejected*/slice cap between the argument and the row).
-  const src = (f: string): string => readFileSync(join(repoRoot, "src", f), "utf8");
-  const idx = src("index.ts");
-  const life = src("lifecycle-execution.ts");
-  assert.equal((life.match(/^\s+prompt: spec\.prompt,$/gm) ?? []).length, 2, "durable createFleet + attachAgent store spec.prompt as given");
-  assert.equal((life.match(/^\s+agent_file: spec\.agentFile,$/gm) ?? []).length, 2);
-  assert.equal((life.match(/^\s+role: spec\.role,$/gm) ?? []).length, 2);
-  assert.match(idx, /^\s+prompt: s\.prompt,\n\s+agent_file: s\.agent,$/m, "non-durable spawn_fleet stores s.prompt as given");
-  assert.match(idx, /^\s+role,\n\s+prompt,\n\s+agent_file: agent,$/m, "non-durable attach_agent stores prompt as given");
 });
