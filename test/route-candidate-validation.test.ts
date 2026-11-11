@@ -149,3 +149,250 @@ test("assertRouteCandidates rejects invalid closed candidate snapshots", () => {
     );
   }
 });
+
+test("assertRouteCandidates rejects candidates with missing required fields", () => {
+  const missingCases: Array<{
+    name: string;
+    candidate: unknown;
+    expected: RegExp;
+  }> = [
+    {
+      name: "missing candidate_id key",
+      candidate: {
+        capabilities: ["code"],
+        privacy: "network_ok",
+        locality: "any",
+      },
+      expected:
+        /compile_route_candidates: 'manifest\.candidates\[0\]\.candidate_id' must be a non-empty string no longer than 128 characters/,
+    },
+    {
+      name: "empty string candidate_id",
+      candidate: {
+        candidate_id: "",
+        capabilities: ["code"],
+        privacy: "network_ok",
+        locality: "any",
+      },
+      expected:
+        /compile_route_candidates: 'manifest\.candidates\[0\]\.candidate_id' must be a non-empty string no longer than 128 characters/,
+    },
+    {
+      name: "whitespace-only candidate_id",
+      candidate: {
+        candidate_id: "   ",
+        capabilities: ["code"],
+        privacy: "network_ok",
+        locality: "any",
+      },
+      expected:
+        /compile_route_candidates: 'manifest\.candidates\[0\]\.candidate_id' must be a non-empty string no longer than 128 characters/,
+    },
+    {
+      name: "non-string candidate_id",
+      candidate: {
+        candidate_id: 123,
+        capabilities: ["code"],
+        privacy: "network_ok",
+        locality: "any",
+      },
+      expected:
+        /compile_route_candidates: 'manifest\.candidates\[0\]\.candidate_id' must be a non-empty string no longer than 128 characters/,
+    },
+    {
+      name: "missing capabilities key",
+      candidate: {
+        candidate_id: "lane-a",
+        privacy: "network_ok",
+        locality: "any",
+      },
+      expected:
+        /compile_route_candidates: 'manifest\.candidates\[0\]\.capabilities' must be an array with 1\.\.64 items/,
+    },
+    {
+      name: "empty capabilities array",
+      candidate: {
+        candidate_id: "lane-a",
+        capabilities: [],
+        privacy: "network_ok",
+        locality: "any",
+      },
+      expected:
+        /compile_route_candidates: 'manifest\.candidates\[0\]\.capabilities' must be an array with 1\.\.64 items/,
+    },
+    {
+      name: "non-array capabilities",
+      candidate: {
+        candidate_id: "lane-a",
+        capabilities: "code",
+        privacy: "network_ok",
+        locality: "any",
+      },
+      expected:
+        /compile_route_candidates: 'manifest\.candidates\[0\]\.capabilities' must be an array with 1\.\.64 items/,
+    },
+    {
+      name: "missing privacy key",
+      candidate: {
+        candidate_id: "lane-a",
+        capabilities: ["code"],
+        locality: "any",
+      },
+      expected:
+        /compile_route_candidates: 'manifest\.candidates\[0\]\.privacy' must be local_only, network_ok, or unrestricted/,
+    },
+    {
+      name: "null privacy value",
+      candidate: {
+        candidate_id: "lane-a",
+        capabilities: ["code"],
+        privacy: null,
+        locality: "any",
+      },
+      expected:
+        /compile_route_candidates: 'manifest\.candidates\[0\]\.privacy' must be local_only, network_ok, or unrestricted/,
+    },
+    {
+      name: "missing locality key",
+      candidate: {
+        candidate_id: "lane-a",
+        capabilities: ["code"],
+        privacy: "network_ok",
+      },
+      expected:
+        /compile_route_candidates: 'manifest\.candidates\[0\]\.locality' must be same_host, same_fleet, or any/,
+    },
+    {
+      name: "null locality value",
+      candidate: {
+        candidate_id: "lane-a",
+        capabilities: ["code"],
+        privacy: "network_ok",
+        locality: null,
+      },
+      expected:
+        /compile_route_candidates: 'manifest\.candidates\[0\]\.locality' must be same_host, same_fleet, or any/,
+    },
+    {
+      name: "non-object candidate (null)",
+      candidate: null,
+      expected:
+        /compile_route_candidates: 'manifest\.candidates\[0\]' must be an object/,
+    },
+    {
+      name: "non-object candidate (primitive string)",
+      candidate: "invalid-candidate",
+      expected:
+        /compile_route_candidates: 'manifest\.candidates\[0\]' must be an object/,
+    },
+  ];
+
+  for (const { name, candidate, expected } of missingCases) {
+    assert.throws(
+      () =>
+        assertRouteCandidates([candidate], {
+          errorPrefix: "compile_route_candidates",
+          path: "manifest.candidates",
+        }),
+      expected,
+      name,
+    );
+  }
+
+  // Missing fields on non-first candidate reports correct path index
+  assert.throws(
+    () =>
+      assertRouteCandidates(
+        [
+          valid,
+          {
+            candidate_id: "lane-b",
+            capabilities: ["code"],
+            privacy: "network_ok",
+          },
+        ],
+        {
+          errorPrefix: "compile_route_candidates",
+          path: "manifest.candidates",
+        },
+      ),
+    /compile_route_candidates: 'manifest\.candidates\[1\]\.locality' must be same_host, same_fleet, or any/,
+  );
+});
+
+test("assertRouteCandidates rejects empty candidate list edge cases", () => {
+  // Empty array
+  assert.throws(
+    () =>
+      assertRouteCandidates([], {
+        errorPrefix: "custom_prefix",
+        path: "candidates",
+      }),
+    /custom_prefix: 'candidates' must be an array with 1\.\.256 items/,
+  );
+
+  // Non-array empty or null inputs
+  assert.throws(
+    () =>
+      assertRouteCandidates(null, {
+        errorPrefix: "custom_prefix",
+        path: "candidates",
+      }),
+    /custom_prefix: 'candidates' must be an array with 1\.\.256 items/,
+  );
+
+  assert.throws(
+    () =>
+      assertRouteCandidates(undefined, {
+        errorPrefix: "custom_prefix",
+        path: "candidates",
+      }),
+    /custom_prefix: 'candidates' must be an array with 1\.\.256 items/,
+  );
+
+  assert.throws(
+    () =>
+      assertRouteCandidates({}, {
+        errorPrefix: "custom_prefix",
+        path: "candidates",
+      }),
+    /custom_prefix: 'candidates' must be an array with 1\.\.256 items/,
+  );
+});
+
+test("assertRouteCandidates rejects duplicate candidate ids across various positions", () => {
+  // Adjacent duplicates
+  assert.throws(
+    () =>
+      assertRouteCandidates([valid, { ...valid }], {
+        errorPrefix: "route_test",
+        path: "payload.candidates",
+      }),
+    /route_test: 'payload\.candidates\[1\]\.candidate_id' is a duplicate candidate_id 'lane-a'/,
+  );
+
+  // Non-adjacent duplicate with other valid candidates in between
+  const candidateB = { ...valid, candidate_id: "lane-b" };
+  const candidateC = { ...valid, candidate_id: "lane-c" };
+  const candidateADup = { ...valid, candidate_id: "lane-a" };
+
+  assert.throws(
+    () =>
+      assertRouteCandidates([valid, candidateB, candidateC, candidateADup], {
+        errorPrefix: "route_test",
+        path: "payload.candidates",
+      }),
+    /route_test: 'payload\.candidates\[3\]\.candidate_id' is a duplicate candidate_id 'lane-a'/,
+  );
+
+  // Multiple duplicates reports the first duplicate encountered in iteration order
+  const candidateBDup = { ...valid, candidate_id: "lane-b" };
+  assert.throws(
+    () =>
+      assertRouteCandidates([valid, candidateB, candidateBDup, candidateADup], {
+        errorPrefix: "route_test",
+        path: "payload.candidates",
+      }),
+    /route_test: 'payload\.candidates\[2\]\.candidate_id' is a duplicate candidate_id 'lane-b'/,
+  );
+});
