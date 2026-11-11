@@ -32,6 +32,7 @@ import {
   summarizeFleet,
 } from "../src/fleet-status.js";
 import { GOT_ECHO_MAX_CHARS, echoRejected, echoRejectedRaw, requireEnum, requireStringArray } from "../src/tool-args.js";
+import { classifySpawnResult } from "../src/spawn-result.js";
 import { validateWorkReceipt } from "../src/work-receipt.js";
 import { withTempDb } from "./helpers/with-temp-db.js";
 
@@ -555,6 +556,45 @@ test("MCP: ten caller-id refusals keep their exact bytes for an id of at most 20
       }
     }
   });
+});
+
+// The spawn classifier stores "Requested agent <agent> ..." and "Requested model <model> ..." as
+// the agent error, which fleet_status returns in full. The caller's agent and model are capped
+// the same way as the caller-id refusals above. The runtime half is runtime-reported (it may echo a
+// transformed caller value: trim / logfmt unescape) and is not capped; neither is agent_file in the row.
+test("spawn result: a requested agent or model in a mismatch error is capped at 200 code units plus an ellipsis", () => {
+  const banner = "> build · anthropic/claude-sonnet-4\n";
+  const agentError = (requestedAgent: string): string | undefined =>
+    classifySpawnResult({ exitCode: 0, stdout: "answer", stderr: banner, requestedAgent }).error;
+  const modelError = (requestedModel: string): string | undefined =>
+    classifySpawnResult({ exitCode: 0, stdout: "answer", stderr: banner, requestedModel }).error;
+  const agentMessage = (shown: string): string => `Requested agent ${shown} but runtime agent build executed`;
+  const modelMessage = (shown: string): string => `Requested model ${shown} but runtime model banner reported anthropic/claude-sonnet-4`;
+
+  const capped = "Q".repeat(GOT_ECHO_MAX_CHARS) + "…";
+  for (const big of ["Q".repeat(1_000_000), "Q".repeat(GOT_ECHO_MAX_CHARS + 1)]) {
+    assert.equal(agentError(big), agentMessage(capped), `agent of ${big.length}`);
+    assert.equal(modelError(big), modelMessage(capped), `model of ${big.length}`);
+  }
+  // A surrogate pair straddling the cap is dropped whole, never halved.
+  const straddle = "a".repeat(GOT_ECHO_MAX_CHARS - 1) + "\u{1F600}" + "b";
+  assert.equal(agentError(straddle), agentMessage("a".repeat(GOT_ECHO_MAX_CHARS - 1) + "…"));
+  assert.equal(modelError(straddle), modelMessage("a".repeat(GOT_ECHO_MAX_CHARS - 1) + "…"));
+  // With BOTH set, each message echoes its own caller value: the agent error names the agent,
+  // never the model, and a matching agent lets the model mismatch report the capped model.
+  const both = (requestedAgent: string, requestedModel: string): string | undefined =>
+    classifySpawnResult({ exitCode: 0, stdout: "answer", stderr: banner, requestedAgent, requestedModel }).error;
+  assert.equal(both("A".repeat(1_000_000), "openai/gpt-5"), agentMessage("A".repeat(GOT_ECHO_MAX_CHARS) + "…"));
+  assert.equal(both("oracle", "M".repeat(1_000_000)), agentMessage("oracle"));
+  assert.equal(both("build", "M".repeat(1_000_000)), modelMessage("M".repeat(GOT_ECHO_MAX_CHARS) + "…"));
+  // A value of at most the cap keeps the exact prior bytes, with no JSON rendering.
+  for (const v of ["oracle", "openai/gpt-5", "q".repeat(GOT_ECHO_MAX_CHARS), "a\\b\"cé\u{1F600}", "x".repeat(GOT_ECHO_MAX_CHARS - 2) + "\u{1F600}",
+    // Whitespace and normalization form survive byte for byte: no trim, no NFC. "e\u0301" is NFD.
+    " build", "build\n", "e\u0301"]) {
+    assert.ok(v.length <= GOT_ECHO_MAX_CHARS);
+    assert.equal(agentError(v), agentMessage(v), `agent ${JSON.stringify(v)}`);
+    assert.equal(modelError(v), modelMessage(v), `model ${JSON.stringify(v)}`);
+  }
 });
 
 test("MCP: tools/list advertises the optional verbosity enum and keeps fleet_id required", async () => {
