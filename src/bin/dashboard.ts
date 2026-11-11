@@ -47,6 +47,23 @@ export type {
 // reach one definition rather than pulling core directly.
 export type { Receipt as DashboardReceipt } from '../core.js'
 
+const USAGE = `agent-mesh dashboard — live TUI of running fleets, agents, events,
+and the receipt timeline.
+  (published as the 'meshfleet' npm package — invoke via
+   'npx -y --package=meshfleet -- agent-mesh-dashboard [flags]')
+
+Usage:
+  npx -y --package=meshfleet -- agent-mesh-dashboard               Refresh every 1s (default)
+  npx -y --package=meshfleet -- agent-mesh-dashboard --interval ms Custom interval in ms
+  npx -y --package=meshfleet -- agent-mesh-dashboard --once        One-shot render, exit immediately
+  npx -y --package=meshfleet -- agent-mesh-dashboard --poll-only   Disable SSE stream, polling only
+  npx -y --package=meshfleet -- agent-mesh-dashboard --fleet id    Filter events and receipts to fleet
+  npx -y --package=meshfleet -- agent-mesh-dashboard --events n    Recent events limit (default 50)
+  npx -y --package=meshfleet -- agent-mesh-dashboard --receipts    Show recent receipts panel
+  npx -y --package=meshfleet -- agent-mesh-dashboard --receipt-limit n Recent receipts limit (default 20)
+  npx -y --package=meshfleet -- agent-mesh-dashboard --help        Show this help
+`
+
 const REFRESH_DEFAULT_MS = 1000
 const EVENT_LIMIT_DEFAULT = 50
 const AGENT_LIMIT = 10
@@ -246,10 +263,86 @@ function render(input: DashboardRenderInput): void {
   process.stdout.write(renderDashboard(input).join('\n') + '\n')
 }
 
-function parsePositiveArg(args: readonly string[], name: string, fallback: number): number {
-  const index = args.indexOf(name)
-  const value = Number(args[index + 1])
-  return index >= 0 && Number.isInteger(value) && value > 0 ? value : fallback
+interface ParsedDashboardArgs {
+  readonly once: boolean
+  readonly pollOnly: boolean
+  readonly showReceipts: boolean
+  readonly fleetId?: string
+  readonly eventLimit: number
+  readonly receiptLimit: number
+  readonly interval: number
+}
+
+function parseCliArgs(args: readonly string[]): ParsedDashboardArgs {
+  let once = false
+  let pollOnly = false
+  let showReceipts = false
+  let fleetId: string | undefined
+  let eventLimit = EVENT_LIMIT_DEFAULT
+  let receiptLimit = RECEIPT_LIMIT_DEFAULT
+  let interval = REFRESH_DEFAULT_MS
+
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i]
+    if (arg === '--help' || arg === '-h') {
+      process.stdout.write(USAGE)
+      process.exit(0)
+    } else if (arg === '--once') {
+      once = true
+    } else if (arg === '--poll-only') {
+      pollOnly = true
+    } else if (arg === '--receipts') {
+      showReceipts = true
+    } else if (arg === '--fleet') {
+      if (i + 1 >= args.length) {
+        throw new Error('flag --fleet requires an argument')
+      }
+      fleetId = args[i + 1]
+      i += 1
+    } else if (arg === '--events') {
+      if (i + 1 >= args.length) {
+        throw new Error('flag --events requires an argument')
+      }
+      const val = Number(args[i + 1])
+      if (!Number.isInteger(val) || val <= 0) {
+        throw new Error(`invalid positive integer for --events: '${args[i + 1]}'`)
+      }
+      eventLimit = val
+      i += 1
+    } else if (arg === '--receipt-limit') {
+      if (i + 1 >= args.length) {
+        throw new Error('flag --receipt-limit requires an argument')
+      }
+      const val = Number(args[i + 1])
+      if (!Number.isInteger(val) || val <= 0) {
+        throw new Error(`invalid positive integer for --receipt-limit: '${args[i + 1]}'`)
+      }
+      receiptLimit = val
+      i += 1
+    } else if (arg === '--interval') {
+      if (i + 1 >= args.length) {
+        throw new Error('flag --interval requires an argument')
+      }
+      const val = Number(args[i + 1])
+      if (!Number.isInteger(val) || val <= 0) {
+        throw new Error(`invalid positive integer for --interval: '${args[i + 1]}'`)
+      }
+      interval = val
+      i += 1
+    } else {
+      throw new Error(`unrecognized argument: '${arg}'`)
+    }
+  }
+
+  return {
+    once,
+    pollOnly,
+    showReceipts,
+    fleetId,
+    eventLimit,
+    receiptLimit,
+    interval,
+  }
 }
 
 function filteredEvents(limit: number, fleetId: string | undefined): DashboardEvent[] {
@@ -257,18 +350,27 @@ function filteredEvents(limit: number, fleetId: string | undefined): DashboardEv
 }
 
 function main(): void {
-  const args = process.argv.slice(2)
-  const once = args.includes('--once')
-  const fleetIdIndex = args.indexOf('--fleet')
-  const fleetId = fleetIdIndex >= 0 ? args[fleetIdIndex + 1] : undefined
-  const eventLimit = parsePositiveArg(args, '--events', EVENT_LIMIT_DEFAULT)
-  const receiptLimit = parsePositiveArg(args, '--receipt-limit', RECEIPT_LIMIT_DEFAULT)
-  const showReceipts = args.includes('--receipts')
-  const pollOnly = args.includes('--poll-only')
+  const rawArgs = process.argv.slice(2)
+  let parsed: ParsedDashboardArgs
+  try {
+    parsed = parseCliArgs(rawArgs)
+  } catch (err) {
+    process.stderr.write(`${USAGE}\nError: ${err instanceof Error ? err.message : String(err)}\n`)
+    process.exit(1)
+  }
+
+  const {
+    once,
+    pollOnly,
+    showReceipts,
+    fleetId,
+    eventLimit,
+    receiptLimit,
+    interval,
+  } = parsed
+
   const events = new EventRingBuffer(eventLimit)
   events.replace(filteredEvents(eventLimit, fleetId))
-
-  const interval = parsePositiveArg(args, '--interval', REFRESH_DEFAULT_MS)
 
   const snapshot = (): DashboardRenderInput => {
     const data = loadData()
