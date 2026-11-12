@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -369,6 +369,43 @@ test("inspect text events remain byte-compatible", () => {
       assert.equal(result.stderr, "");
       assert.equal(result.stdout, "No events recorded.\n");
       assert.doesNotMatch(result.stdout, /\"schema\"|\"kind\"|\"data\"/);
+    });
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("inspect --events 0 returns no events while a positive count returns the last event", () => {
+  const home = mkdtempSync(join(tmpdir(), "meshfleet-inspect-events-zero-"));
+  try {
+    const eventLog = join(home, "events.log");
+    writeFileSync(
+      eventLog,
+      '{"timestamp":1,"event":"first-event"}\n' +
+        '{"timestamp":2,"event":"second-event"}\n',
+    );
+    withCliLedger((dbFile) => {
+      const env = { MESHFLEET_EVENT_LOG_FILE: eventLog };
+
+      const jsonResult = runInspect(dbFile, ["--events", "0", "--json"], env);
+      assert.equal(jsonResult.status, 0);
+      assert.equal(jsonResult.stderr, "");
+      assert.deepEqual(JSON.parse(jsonResult.stdout), {
+        schema: INSPECT_JSON_SCHEMA,
+        kind: "events",
+        data: [],
+      });
+
+      const textResult = runInspect(dbFile, ["--events", "0"], env);
+      assert.equal(textResult.status, 0);
+      assert.equal(textResult.stderr, "");
+      assert.equal(textResult.stdout, "No events recorded.\n");
+
+      const positiveResult = runInspect(dbFile, ["--events", "1"], env);
+      assert.equal(positiveResult.status, 0);
+      assert.equal(positiveResult.stderr, "");
+      assert.match(positiveResult.stdout, /second-event/);
+      assert.doesNotMatch(positiveResult.stdout, /first-event/);
     });
   } finally {
     rmSync(home, { recursive: true, force: true });
