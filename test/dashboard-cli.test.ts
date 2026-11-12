@@ -81,6 +81,15 @@ test("dashboard CLI: invalid arguments exit non-zero with usage message to stder
   }
 });
 
+test("dashboard CLI: --fleet refuses a flag in place of its value", async () => {
+  // The trailing -h keeps the old parser from starting the dashboard.
+  const result = await runDashboard(["--fleet", "--help", "-h"]);
+  assert.equal(result.code, 1);
+  assert.equal(result.stdout, "");
+  assert.match(result.stderr, /Usage:/);
+  assert.match(result.stderr, /Error: flag --fleet requires an argument/);
+});
+
 test("dashboard CLI: --help outputs usage message to stdout and exits 0", async () => {
   for (const flag of ["--help", "-h"]) {
     const result = await runDashboard([flag]);
