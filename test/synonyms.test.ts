@@ -70,3 +70,87 @@ test('synonyms: covers common dev categories', () => {
     assert.ok(keys.includes(e), `covers ${e}`)
   }
 })
+
+test('synonyms: empty input edge cases', () => {
+  assert.deepEqual(getSynonyms(''), [], 'empty string has no synonyms')
+  assert.deepEqual(expandKeywordsWithSynonyms([]), [], 'empty array returns empty array')
+  assert.deepEqual(expandKeywordsWithSynonyms(['']), [''], 'empty string keyword preserved with no added synonyms')
+})
+
+test('synonyms: case and whitespace variants of the same term', () => {
+  const upperSyns = getSynonyms('FRONTEND')
+  assert.ok(upperSyns.includes('ui'), 'uppercase key term resolves synonyms')
+
+  const mixedSyns = getSynonyms('Ui')
+  assert.ok(mixedSyns.includes('frontend'), 'mixed-case synonym term resolves key')
+
+  const expandedCase = expandKeywordsWithSynonyms(['Frontend', 'FRONTEND', 'frontend'])
+  assert.deepEqual(
+    expandedCase,
+    expandKeywordsWithSynonyms(['frontend']),
+    'case variants collapse to single lowercase keyword and its synonyms',
+  )
+
+  const untrimmed = getSynonyms(' frontend ')
+  assert.deepEqual(untrimmed, [], 'untrimmed whitespace term does not match table keys')
+
+  const expandedWhitespace = expandKeywordsWithSynonyms([' frontend ', 'frontend'])
+  assert.ok(expandedWhitespace.includes(' frontend '), 'whitespace keyword preserved verbatim')
+  assert.ok(expandedWhitespace.includes('frontend'), 'clean keyword preserved')
+  assert.ok(expandedWhitespace.includes('ui'), 'synonyms expanded for clean keyword')
+})
+
+test('synonyms: a term that is its own synonym', () => {
+  setSynonymOverrides({
+    selfie: ['selfie', 'camera', 'photo'],
+    echo: ['echo'],
+  })
+  try {
+    const syns = getSynonyms('selfie')
+    assert.deepEqual(syns, ['selfie', 'camera', 'photo'], 'self-referential synonym returns declared list')
+
+    const echoSyns = getSynonyms('echo')
+    assert.deepEqual(echoSyns, ['echo'], 'single self-referential synonym returns declared list')
+
+    const expanded = expandKeywordsWithSynonyms(['selfie', 'echo'])
+    const set = new Set(expanded)
+    assert.equal(expanded.length, set.size, 'expanded output deduplicates self-referential terms')
+    assert.ok(expanded.includes('selfie') && expanded.includes('camera') && expanded.includes('echo'))
+  } finally {
+    resetSynonymOverrides()
+  }
+})
+
+test('synonyms: duplicate synonym groups', () => {
+  setSynonymOverrides({
+    group_a: ['common_term', 'alpha'],
+    group_b: ['common_term', 'beta'],
+    redundant: ['item', 'item', 'item'],
+  })
+  try {
+    const commonSyns = getSynonyms('common_term')
+    assert.ok(
+      commonSyns.includes('group_a') && commonSyns.includes('alpha'),
+      'reverse lookup finds the first matching group',
+    )
+
+    const redundantSyns = getSynonyms('redundant')
+    assert.deepEqual(redundantSyns, ['item', 'item', 'item'], 'returns declared override list as-is')
+
+    const expandedRedundant = expandKeywordsWithSynonyms(['redundant'])
+    assert.deepEqual(
+      expandedRedundant,
+      ['redundant', 'item'],
+      'expandKeywordsWithSynonyms deduplicates repeated items in synonym lists',
+    )
+
+    const expandedOverlap = expandKeywordsWithSynonyms(['group_a', 'group_b'])
+    const set = new Set(expandedOverlap)
+    assert.equal(expandedOverlap.length, set.size, 'overlapping groups are deduplicated when expanded together')
+    assert.ok(expandedOverlap.includes('common_term'))
+    assert.ok(expandedOverlap.includes('alpha'))
+    assert.ok(expandedOverlap.includes('beta'))
+  } finally {
+    resetSynonymOverrides()
+  }
+})
