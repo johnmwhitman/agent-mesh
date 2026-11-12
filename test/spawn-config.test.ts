@@ -5,6 +5,10 @@ import {
   DEFAULT_AGENT_TIMEOUT_MS,
   agentTimeoutMs,
   buildRunArgs,
+  openCodeProviderNamespaceFromEnv,
+  openCodeRequireModelEvidenceFromEnv,
+  openCodeSessionEvidenceFromEnv,
+  validateOpenCodeProviderNamespace,
 } from '../src/spawn-config.js'
 
 // Regression for the fleet "not dispatching" bug: `opencode run` blocks
@@ -97,4 +101,56 @@ test('agentTimeoutMs: rejects invalid overrides', () => {
   assert.equal(agentTimeoutMs({ AGENT_MESH_AGENT_TIMEOUT_MS: 'nope' }), DEFAULT_AGENT_TIMEOUT_MS)
   assert.equal(agentTimeoutMs({ AGENT_MESH_AGENT_TIMEOUT_MS: '0' }), DEFAULT_AGENT_TIMEOUT_MS)
   assert.equal(agentTimeoutMs({ AGENT_MESH_AGENT_TIMEOUT_MS: '-5' }), DEFAULT_AGENT_TIMEOUT_MS)
+})
+
+test('spawn config prefers current env keys over legacy aliases', () => {
+  const env = {
+    MESHFLEET_AGENT_TIMEOUT_MS: '45000',
+    AGENT_MESH_AGENT_TIMEOUT_MS: '90000',
+    MESHFLEET_OPENCODE_PROVIDER_NAMESPACE: 'new-ns',
+    AGENT_MESH_OPENCODE_PROVIDER_NAMESPACE: 'old-ns',
+    MESHFLEET_OPENCODE_SESSION_DB: '/var/data/new.db',
+    AGENT_MESH_OPENCODE_SESSION_DB: '/var/data/old.db',
+    MESHFLEET_OPENCODE_REQUIRE_MODEL_EVIDENCE: 'true',
+    AGENT_MESH_OPENCODE_REQUIRE_MODEL_EVIDENCE: '0',
+  }
+
+  assert.equal(agentTimeoutMs(env), 45000)
+  assert.equal(openCodeProviderNamespaceFromEnv(env), 'new-ns')
+  assert.deepEqual(openCodeSessionEvidenceFromEnv(env), { dbPath: '/var/data/new.db' })
+  assert.equal(openCodeRequireModelEvidenceFromEnv(env), true)
+})
+
+test('spawn config falls back to legacy aliases when current env values are blank', () => {
+  const env = {
+    MESHFLEET_AGENT_TIMEOUT_MS: '',
+    AGENT_MESH_AGENT_TIMEOUT_MS: '75000',
+    MESHFLEET_OPENCODE_PROVIDER_NAMESPACE: '   ',
+    AGENT_MESH_OPENCODE_PROVIDER_NAMESPACE: 'legacy-ns',
+    MESHFLEET_OPENCODE_SESSION_DB: '',
+    AGENT_MESH_OPENCODE_SESSION_DB: '/var/data/legacy.db',
+    MESHFLEET_OPENCODE_REQUIRE_MODEL_EVIDENCE: '',
+    AGENT_MESH_OPENCODE_REQUIRE_MODEL_EVIDENCE: '1',
+  }
+
+  assert.equal(agentTimeoutMs(env), 75000)
+  assert.equal(openCodeProviderNamespaceFromEnv(env), 'legacy-ns')
+  assert.deepEqual(openCodeSessionEvidenceFromEnv(env), { dbPath: '/var/data/legacy.db' })
+  assert.equal(openCodeRequireModelEvidenceFromEnv(env), true)
+})
+
+test('provider namespace rejects backslashes and dots or underscores at either end', () => {
+  for (const namespace of [
+    'segment\\with\\backslashes',
+    '.leading-dot',
+    'trailing-dot.',
+    '_leading-underscore',
+    'trailing-underscore_',
+  ]) {
+    assert.throws(
+      () => validateOpenCodeProviderNamespace(namespace),
+      /Invalid OpenCode provider namespace/,
+      JSON.stringify(namespace),
+    )
+  }
 })
