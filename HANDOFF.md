@@ -161,8 +161,8 @@ authorize spend. Runtime execution and advisory ranking remain separate contract
   evidence, not session history.
 - Compact status output, opt-in only, current bytes preserved by default: the MCP
   slice is shipped (`fleet_status` `verbosity: "summary"`). The `agent-mesh inspect
-  --compact` CLI projection remains open; the unlanded `feat/compact-status-land-20260820`
-  branch is a starting point, not a merge candidate (it predates current main).
+  --compact` CLI projection landed in public PR #264 on main `a6be96e2` (text and
+  optional `--json` kind `fleets-compact` / schema `meshfleet.inspect/v1`).
 - Public authenticated A2A ingress, remote transport, and production multi-host
   coordination are out of scope for this project (scope ruling, 2026-08-02 —
   `docs/A2A-PROGRAM.md`). Additional vendor runtimes remain separate reviewed
