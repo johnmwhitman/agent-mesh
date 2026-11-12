@@ -4,6 +4,9 @@ import {
   expandSkillWithAncestors,
   scoreSkillsAgainstKeywords,
   parseSkillTaxonomy,
+  setSkillTaxonomy,
+  getSkillTaxonomy,
+  resetSkillTaxonomy,
 } from '../src/skill-taxonomy.js'
 
 const TREE = parseSkillTaxonomy({
@@ -64,4 +67,118 @@ test('taxonomy: parseSkillTaxonomy accepts JSON string', () => {
 test('taxonomy: parseSkillTaxonomy returns empty on invalid JSON', () => {
   const tree = parseSkillTaxonomy('not json')
   assert.deepEqual(tree, {})
+})
+
+// ---------------------------------------------------------------------------
+// Edge cases: unknown skill names
+// ---------------------------------------------------------------------------
+
+test('taxonomy: expandSkillWithAncestors handles empty string as unknown skill', () => {
+  assert.deepEqual(expandSkillWithAncestors('', TREE), [])
+  assert.deepEqual(expandSkillWithAncestors('   ', TREE), [])
+})
+
+test('taxonomy: scoreSkillsAgainstKeywords returns empty array for completely unknown keywords', () => {
+  const scores = scoreSkillsAgainstKeywords(['unknown-skill-xyz', 'cobol-legacy'], TREE)
+  assert.deepEqual(scores, [])
+})
+
+test('taxonomy: scoreSkillsAgainstKeywords ignores unknown keywords when mixed with known keywords', () => {
+  const mixedScores = scoreSkillsAgainstKeywords(['unknown-skill-xyz', 'react'], TREE)
+  const knownOnlyScores = scoreSkillsAgainstKeywords(['react'], TREE)
+  assert.deepEqual(mixedScores, knownOnlyScores)
+})
+
+test('taxonomy: expandSkillWithAncestors is case-insensitive for lookup', () => {
+  assert.deepEqual(expandSkillWithAncestors('NEXTJS', TREE), ['frontend', 'react', 'nextjs'])
+  assert.deepEqual(expandSkillWithAncestors('ReAcT', TREE), ['frontend', 'react'])
+})
+
+// ---------------------------------------------------------------------------
+// Edge cases: empty taxonomy
+// ---------------------------------------------------------------------------
+
+test('taxonomy: parseSkillTaxonomy handles empty objects and strings', () => {
+  assert.deepEqual(parseSkillTaxonomy({}), {})
+  assert.deepEqual(parseSkillTaxonomy('{}'), {})
+  assert.deepEqual(parseSkillTaxonomy('[]'), {})
+  assert.deepEqual(parseSkillTaxonomy(null as any), {})
+  assert.deepEqual(parseSkillTaxonomy([] as any), {})
+})
+
+test('taxonomy: expandSkillWithAncestors returns empty array against empty taxonomy', () => {
+  assert.deepEqual(expandSkillWithAncestors('react', {}), [])
+  assert.deepEqual(expandSkillWithAncestors('', {}), [])
+})
+
+test('taxonomy: scoreSkillsAgainstKeywords returns empty array against empty taxonomy', () => {
+  assert.deepEqual(scoreSkillsAgainstKeywords(['react', 'frontend'], {}), [])
+  assert.deepEqual(scoreSkillsAgainstKeywords([], {}), [])
+})
+
+test('taxonomy: setSkillTaxonomy and resetSkillTaxonomy handle empty taxonomy state', () => {
+  setSkillTaxonomy({})
+  assert.deepEqual(getSkillTaxonomy(), {})
+  resetSkillTaxonomy()
+  assert.deepEqual(getSkillTaxonomy(), {})
+  setSkillTaxonomy('{}')
+  assert.deepEqual(getSkillTaxonomy(), {})
+  resetSkillTaxonomy()
+})
+
+// ---------------------------------------------------------------------------
+// Edge cases: duplicate entries
+// ---------------------------------------------------------------------------
+
+test('taxonomy: scoreSkillsAgainstKeywords deduplicates identical keywords without inflating score', () => {
+  const single = scoreSkillsAgainstKeywords(['react'], TREE)
+  const duplicate = scoreSkillsAgainstKeywords(['react', 'react', 'REACT'], TREE)
+  assert.deepEqual(duplicate, single)
+})
+
+test('taxonomy: duplicate leaf entries within the same category preserve highest score and ancestor chain', () => {
+  const dupLeavesTree = parseSkillTaxonomy({
+    frontend: {
+      react: ['nextjs', 'nextjs'],
+    },
+  })
+  const ancestors = expandSkillWithAncestors('nextjs', dupLeavesTree)
+  assert.ok(ancestors.includes('frontend'))
+  assert.ok(ancestors.includes('react'))
+  assert.ok(ancestors.includes('nextjs'))
+
+  const scores = scoreSkillsAgainstKeywords(['nextjs'], dupLeavesTree)
+  const nextjsScores = scores.filter((s) => s.skill === 'nextjs')
+  assert.equal(nextjsScores.length, 1, 'leaf skill is not duplicated in results')
+  assert.equal(nextjsScores[0].score, 1.0)
+})
+
+test('taxonomy: duplicate skill names across different branches retain maximum score', () => {
+  const multiBranchTree = parseSkillTaxonomy({
+    frontend: {
+      web: ['typescript'],
+    },
+    backend: {
+      node: ['typescript'],
+    },
+  })
+
+  // scoreSkillsAgainstKeywords on 'typescript' hits both branches
+  const scores = scoreSkillsAgainstKeywords(['typescript'], multiBranchTree)
+  const tsScore = scores.find((s) => s.skill === 'typescript')
+  assert.ok(tsScore, 'typescript scored')
+  assert.equal(tsScore?.score, 1.0)
+  assert.equal(tsScore?.distance, 0)
+
+  // middle and top nodes from both branches should be present as ancestors (score 0.5, distance 1)
+  const webScore = scores.find((s) => s.skill === 'web')
+  const nodeScore = scores.find((s) => s.skill === 'node')
+  assert.equal(webScore?.score, 0.5)
+  assert.equal(nodeScore?.score, 0.5)
+
+  // Searching for an ancestor keyword 'node' reaches 'typescript' with distance 1
+  const fromNode = scoreSkillsAgainstKeywords(['node'], multiBranchTree)
+  const tsFromNode = fromNode.find((s) => s.skill === 'typescript')
+  assert.equal(tsFromNode?.score, 0.5)
+  assert.equal(tsFromNode?.distance, 1)
 })
