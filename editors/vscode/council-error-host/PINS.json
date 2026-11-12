@@ -1,0 +1,15 @@
+{
+  "pinned_parent": "ba64af08ca4cefa0009edffc8b82dd58c2680f40",
+  "proposed_ref": "codex/vscode-council-error-host-20261112",
+  "postimages": {
+    "editors/vscode/src/extension.ts": "0a492c29c42d4d7ed3f16a04e7bc3a50626f19d90ab3bd1b40b3d3acd544b369",
+    "editors/vscode/src/refresh.test.ts": "e5e671f8f2b53bb9f1ae06114c695224a812b3f71e49afd0fac011757cc68410"
+  },
+  "host_deps": {
+    "@vscode/test-electron": "2.4.1",
+    "mocha": "10.7.3"
+  },
+  "harness_dir": "editors/vscode/council-error-host",
+  "command": "bash editors/vscode/council-error-host/run-ubuntu.sh",
+  "commit": "536b38f704d19021f9ce83f633fa7a84194857fe"
+}

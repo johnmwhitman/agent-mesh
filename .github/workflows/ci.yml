@@ -38,6 +38,11 @@ name: CI
           - macos
           - windows
           - full
+      council_error_host:
+        description: 'Opt-in: run in-tree Council-error Extension Host harness (workflow_dispatch only; never push/PR).'
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   ci:
@@ -114,3 +119,47 @@ jobs:
       - name: CLI binary present (windows)
         if: matrix.os == 'windows-2022'
         run: if (Test-Path dist/bin/inspect.js) { Write-Host "OK" } else { Write-Error "missing" }
+
+  # Opt-in only on workflow_dispatch for ref codex/vscode-council-error-host-20261112.
+  # Reuses os=ubuntu. Leaves normal push/PR matrix untouched.
+  council-error-extension-host:
+    name: Council-error Extension Host (opt-in)
+    if: >-
+      ${{
+        github.event_name == 'workflow_dispatch'
+        && inputs.council_error_host
+        && inputs.os == 'ubuntu'
+        && github.ref == 'refs/heads/codex/vscode-council-error-host-20261112'
+      }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install xvfb
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+
+      - name: Verify SHA parent pins and run harness
+        env:
+          PINNED_PARENT: ba64af08ca4cefa0009edffc8b82dd58c2680f40
+          EXT_PIN: 0a492c29c42d4d7ed3f16a04e7bc3a50626f19d90ab3bd1b40b3d3acd544b369
+          TEST_PIN: e5e671f8f2b53bb9f1ae06114c695224a812b3f71e49afd0fac011757cc68410
+        run: |
+          set -euo pipefail
+          HEAD=$(git rev-parse HEAD)
+          test "$HEAD" = "$GITHUB_SHA"
+          PARENT=$(git rev-parse HEAD^)
+          test "$PARENT" = "$PINNED_PARENT"
+          EXT_HASH=$(shasum -a 256 editors/vscode/src/extension.ts | awk '{print $1}')
+          TEST_HASH=$(shasum -a 256 editors/vscode/src/refresh.test.ts | awk '{print $1}')
+          test "$EXT_HASH" = "$EXT_PIN"
+          test "$TEST_HASH" = "$TEST_PIN"
+          test -x editors/vscode/council-error-host/run-ubuntu.sh
+          export AGENT_MESH_ROOT="$GITHUB_WORKSPACE"
+          bash editors/vscode/council-error-host/run-ubuntu.sh
+

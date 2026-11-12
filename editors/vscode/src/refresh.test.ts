@@ -206,3 +206,74 @@ test("a single refresh still stages model before verification", async () => {
   await done;
   assert.deepEqual(order, ["model:only", "status:2 errors"]);
 });
+
+test("latest export failure clears fleets and councils while keeping the error; late older success ignored", async () => {
+  // Mirrors the Inspector binding: Fleets hide on setError; Councils clear on setError.
+  const refresh = new LatestStartedRefresh<RefreshModel & { tag: string }>();
+  let fleetsVisible: unknown[] = [];
+  let councilsVisible: unknown[] = [];
+  let fleetError: string | undefined;
+  let statusError: string | undefined;
+
+  const ui = {
+    setModel: (model: RefreshModel & { tag: string }) => {
+      fleetsVisible = model.fleets;
+      councilsVisible = model.councils;
+      fleetError = undefined;
+    },
+    setStatus: (_verdict: RefreshVerdict) => {
+      /* status bar verify path unused here */
+    },
+    setError: (message: string) => {
+      fleetError = message;
+      fleetsVisible = [];
+      councilsVisible = [];
+      statusError = message;
+    },
+  };
+
+  const olderModel = deferred<RefreshModel & { tag: string }>();
+  const currentFail = deferred<RefreshModel & { tag: string }>();
+
+  const older = refresh.run(
+    {
+      loadModel: () => olderModel.promise,
+      verifyLedger: async () => ({ ok: true, summary: "A-verify" }),
+    },
+    ui,
+  );
+  const mid = refresh.run(
+    {
+      loadModel: async () => ({ fleets: ["B-fleet"], councils: ["B-council"], tag: "B" }),
+      verifyLedger: async () => ({ ok: true, summary: "B-verify" }),
+    },
+    ui,
+  );
+  await mid;
+  assert.deepEqual(fleetsVisible, ["B-fleet"]);
+  assert.deepEqual(councilsVisible, ["B-council"]);
+  assert.equal(fleetError, undefined);
+
+  const failed = refresh.run(
+    {
+      loadModel: () => currentFail.promise,
+      verifyLedger: async () => ({ ok: true, summary: "unused" }),
+    },
+    ui,
+  );
+  currentFail.reject(new Error("CLI export failed"));
+  await failed;
+
+  assert.deepEqual(fleetsVisible, []);
+  assert.deepEqual(councilsVisible, []);
+  assert.equal(fleetError, "CLI export failed");
+  assert.equal(statusError, "CLI export failed");
+
+  olderModel.resolve({ fleets: ["A-fleet"], councils: ["A-council"], tag: "A" });
+  await older;
+
+  assert.deepEqual(fleetsVisible, []);
+  assert.deepEqual(councilsVisible, []);
+  assert.equal(fleetError, "CLI export failed");
+  assert.equal(statusError, "CLI export failed");
+});

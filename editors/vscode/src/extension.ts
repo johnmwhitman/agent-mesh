@@ -130,6 +130,11 @@ class CouncilsProvider implements vscode.TreeDataProvider<CouncilView> {
     this.councils = m.councils;
     this._onDidChange.fire();
   }
+  /** Clear presented councils on a current export failure (keep Fleets' visible error). */
+  setError(_message: string): void {
+    this.councils = [];
+    this._onDidChange.fire();
+  }
 
   getTreeItem(c: CouncilView): vscode.TreeItem {
     const item = new vscode.TreeItem(c.subject || c.messageId, vscode.TreeItemCollapsibleState.None);
@@ -175,6 +180,7 @@ export function activate(context: vscode.ExtensionContext): void {
         },
         setError: (msg) => {
           fleets.setError(msg);
+          councils.setError(msg);
           status.text = "$(shield) Meshfleet — CLI not found?";
           status.tooltip = `${msg}\n\nSet meshfleet.cliCommand (default: npx -y --package=meshfleet -- agent-mesh).`;
         },
