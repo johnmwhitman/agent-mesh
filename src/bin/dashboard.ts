@@ -273,6 +273,18 @@ interface ParsedDashboardArgs {
   readonly interval: number
 }
 
+const DASHBOARD_FLAGS = new Set([
+  '--once',
+  '--poll-only',
+  '--receipts',
+  '--fleet',
+  '--events',
+  '--receipt-limit',
+  '--interval',
+  '--help',
+  '-h',
+])
+
 function parseCliArgs(args: readonly string[]): ParsedDashboardArgs {
   let once = false
   let pollOnly = false
@@ -294,10 +306,11 @@ function parseCliArgs(args: readonly string[]): ParsedDashboardArgs {
     } else if (arg === '--receipts') {
       showReceipts = true
     } else if (arg === '--fleet') {
-      if (i + 1 >= args.length) {
+      const value = args[i + 1]
+      if (value === undefined || DASHBOARD_FLAGS.has(value)) {
         throw new Error('flag --fleet requires an argument')
       }
-      fleetId = args[i + 1]
+      fleetId = value
       i += 1
     } else if (arg === '--events') {
       if (i + 1 >= args.length) {
