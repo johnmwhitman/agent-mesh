@@ -1,7 +1,16 @@
 import { test, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 
-import { startSseServer, stopSseServer, enforceStreamAuth, formatHostForUrl } from "../src/sse-server.js";
+import net from "node:net";
+import {
+  startSseServer,
+  stopSseServer,
+  isSseServerRunning,
+  enforceStreamAuth,
+  formatHostForUrl,
+  subscribeInboxUrl,
+  subscribeEventsUrl,
+} from "../src/sse-server.js";
 import { getSubscriberCount } from "../src/realtime.js";
 
 // Real-server integration tests for the optional SSE auth token
@@ -183,9 +192,123 @@ test("non-loopback host refuses startup without a non-empty token", async () => 
   base = `http://${host}:${port}`;
 });
 
-test("IPv6 hosts are bracketed in advertised URLs", () => {
+test("formatHostForUrl formats IPv6, already-bracketed, and host edge cases", () => {
+  // IPv6 unbracketed addresses
   assert.equal(formatHostForUrl("::1"), "[::1]");
+  assert.equal(formatHostForUrl("2001:db8::1"), "[2001:db8::1]");
+  assert.equal(formatHostForUrl("fe80::1ff:fe23:4567:890a"), "[fe80::1ff:fe23:4567:890a]");
+
+  // Already bracketed IPv6 addresses
+  assert.equal(formatHostForUrl("[::1]"), "[::1]");
+  assert.equal(formatHostForUrl("[2001:db8::1]"), "[2001:db8::1]");
+  assert.equal(formatHostForUrl("[fe80::1ff:fe23:4567:890a]"), "[fe80::1ff:fe23:4567:890a]");
+
+  // IPv4 addresses
   assert.equal(formatHostForUrl("127.0.0.1"), "127.0.0.1");
+  assert.equal(formatHostForUrl("0.0.0.0"), "0.0.0.0");
+  assert.equal(formatHostForUrl("192.168.1.1"), "192.168.1.1");
+
+  // Hostnames and domain edge cases
+  assert.equal(formatHostForUrl("localhost"), "localhost");
+  assert.equal(formatHostForUrl("example.com"), "example.com");
+  assert.equal(formatHostForUrl("my-host"), "my-host");
+  assert.equal(formatHostForUrl(""), "");
+});
+
+test("subscribeInboxUrl constructs correct URL across hosts and ports", () => {
+  // Uses active test server PORT
+  assert.equal(subscribeInboxUrl("agent-1"), `http://127.0.0.1:${PORT}/inbox/agent-1/stream`);
+  assert.equal(subscribeInboxUrl("agent-worker_42"), `http://127.0.0.1:${PORT}/inbox/agent-worker_42/stream`);
+
+  // Custom hostname / IPv4
+  assert.equal(subscribeInboxUrl("agent-1", "localhost"), `http://localhost:${PORT}/inbox/agent-1/stream`);
+  assert.equal(subscribeInboxUrl("agent-1", "10.0.0.1"), `http://10.0.0.1:${PORT}/inbox/agent-1/stream`);
+
+  // Custom IPv6 (unbracketed and bracketed)
+  assert.equal(subscribeInboxUrl("agent-1", "::1"), `http://[::1]:${PORT}/inbox/agent-1/stream`);
+  assert.equal(subscribeInboxUrl("agent-1", "[::1]"), `http://[::1]:${PORT}/inbox/agent-1/stream`);
+  assert.equal(subscribeInboxUrl("agent-1", "2001:db8::1"), `http://[2001:db8::1]:${PORT}/inbox/agent-1/stream`);
+});
+
+test("subscribeEventsUrl constructs correct URL with or without fleetId across hosts", () => {
+  // Default host, without fleetId
+  assert.equal(subscribeEventsUrl(), `http://127.0.0.1:${PORT}/events/stream`);
+
+  // Default host, with fleetId (including URI encoding)
+  assert.equal(subscribeEventsUrl("fleet-alpha"), `http://127.0.0.1:${PORT}/events/stream?fleet_id=fleet-alpha`);
+  assert.equal(subscribeEventsUrl("fleet 1&2"), `http://127.0.0.1:${PORT}/events/stream?fleet_id=fleet%201%262`);
+
+  // Custom hosts without fleetId
+  assert.equal(subscribeEventsUrl(undefined, "localhost"), `http://localhost:${PORT}/events/stream`);
+  assert.equal(subscribeEventsUrl(undefined, "::1"), `http://[::1]:${PORT}/events/stream`);
+  assert.equal(subscribeEventsUrl(undefined, "[::1]"), `http://[::1]:${PORT}/events/stream`);
+
+  // Custom hosts with fleetId
+  assert.equal(subscribeEventsUrl("fleet-beta", "localhost"), `http://localhost:${PORT}/events/stream?fleet_id=fleet-beta`);
+  assert.equal(subscribeEventsUrl("fleet-beta", "::1"), `http://[::1]:${PORT}/events/stream?fleet_id=fleet-beta`);
+  assert.equal(subscribeEventsUrl("fleet-beta", "[::1]"), `http://[::1]:${PORT}/events/stream?fleet_id=fleet-beta`);
+});
+
+test("startSseServer, stopSseServer, and isSseServerRunning lifecycle on an ephemeral port", async () => {
+  // Verify the currently running server from the suite setup
+  assert.equal(isSseServerRunning(), true);
+
+  // Attempting to start another server while one is running must reject
+  await assert.rejects(startSseServer(), /already running/i);
+
+  // Stop the current server and verify status
+  await stopSseServer();
+  assert.equal(isSseServerRunning(), false);
+
+  // Stopping when already stopped is idempotent and does not throw
+  await stopSseServer();
+  assert.equal(isSseServerRunning(), false);
+
+  // Allocate an ephemeral port via net.createServer
+  const ephemeralPort = await new Promise<number>((resolve, reject) => {
+    const srv = net.createServer();
+    srv.listen(0, "127.0.0.1", () => {
+      const addr = srv.address();
+      if (!addr || typeof addr === "string") return reject(new Error("failed to get ephemeral address"));
+      const port = addr.port;
+      srv.close(() => resolve(port));
+    });
+  });
+
+  // Start on the ephemeral port
+  process.env.MESHFLEET_SSE_PORT = String(ephemeralPort);
+  process.env.MESHFLEET_SSE_HOST = "127.0.0.1";
+  delete process.env.MESHFLEET_AUTH_TOKEN;
+
+  const started = await startSseServer();
+  try {
+    assert.equal(started.port, ephemeralPort);
+    assert.equal(started.host, "127.0.0.1");
+    assert.equal(isSseServerRunning(), true);
+
+    // Endpoint works on the ephemeral port
+    const res = await fetch(`http://127.0.0.1:${ephemeralPort}/healthz`);
+    assert.equal(res.status, 200);
+    assert.equal(await res.text(), "ok");
+
+    // Starting again while running rejects
+    await assert.rejects(startSseServer(), /already running/i);
+  } finally {
+    await stopSseServer();
+    assert.equal(isSseServerRunning(), false);
+
+    // Restore suite server on PORT for subsequent tests / after hook
+    process.env.MESHFLEET_SSE_PORT = String(PORT);
+    process.env.MESHFLEET_SSE_HOST = "127.0.0.1";
+    const restored = await startSseServer({
+      a2a: {
+        submitTask: async () => ({ fleetId: "fleet-1", agentId: "agent-1" }),
+        getTaskStatus: () => ({ fleetId: "fleet-1", agentId: "agent-1", fleetStatus: "running", agentStatus: "running" }),
+      },
+    });
+    base = `http://${restored.host}:${restored.port}`;
+    assert.equal(isSseServerRunning(), true);
+  }
 });
 
 test("over-cap stream is refused with 429 BEFORE any SSE handshake", async () => {
