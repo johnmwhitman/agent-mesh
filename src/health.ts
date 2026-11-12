@@ -307,6 +307,9 @@ export function getHealth(opts?: GetHealthOptions): HealthReport {
   // surface exists to say so. Recording the sentinel without letting it decide
   // anything would leave `status: 'ok'` over a log nobody can read.
   const hasUnreadableEventLog = eventsBytes < 0
+  // A readable but malformed event log likewise cannot support a healthy
+  // verdict: its event count is unknown (`-1`) rather than a partial count.
+  const hasUnknownEventCount = eventCount < 0
 
   // A build-identity mismatch (missing package metadata, wrong package name,
   // byte mismatch, unsafe entrypoint path, missing required runtime
@@ -327,7 +330,7 @@ export function getHealth(opts?: GetHealthOptions): HealthReport {
 
   let status: 'ok' | 'degraded' | 'error' = 'ok'
   if (hasCorruptLedger || hasBuildIdentityMismatch || receiptCount === null) status = 'error'
-  else if (hasStuckFleet || hasUnreadableEventLog) status = 'degraded'
+  else if (hasStuckFleet || hasUnreadableEventLog || hasUnknownEventCount) status = 'degraded'
 
   return {
     status,
@@ -570,18 +573,47 @@ function readStorageStats(): StorageStats {
     if (eventsPath) {
       const stat = statSync(eventsPath)
       out.eventsBytes = stat.size
-      // Count lines and find last timestamp
+      // Parse each nonblank row once. The writer stores one JSON object per
+      // line with a string `event` and a finite numeric `timestamp`, allowing
+      // arbitrary additional properties (and empty event strings).
       const content = readFileSync(eventsPath, 'utf-8')
-      const lines = content.trim().split('\n').filter(Boolean)
-      out.eventCount = lines.length
-      if (lines.length > 0) {
-        const last = lines[lines.length - 1] as string
+      const lines = content.split('\n').filter((line) => line.trim().length > 0)
+      let malformed = false
+      let validCount = 0
+      let lastValidTimestamp: number | undefined
+      for (const line of lines) {
+        let parsed: unknown
         try {
-          const parsed = JSON.parse(last) as { timestamp?: number }
-          out.lastTimestamp = parsed.timestamp
+          parsed = JSON.parse(line) as unknown
         } catch {
-          // skip
+          malformed = true
+          break
         }
+        if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          malformed = true
+          break
+        }
+        const record = parsed as { event?: unknown; timestamp?: unknown }
+        if (
+          typeof record.event !== 'string' ||
+          typeof record.timestamp !== 'number' ||
+          !Number.isFinite(record.timestamp)
+        ) {
+          malformed = true
+          break
+        }
+        validCount += 1
+        lastValidTimestamp = record.timestamp
+      }
+      if (malformed) {
+        // No partial evidence: neither the rows before nor after a malformed
+        // row can be trusted to describe the whole log. `eventsBytes` keeps
+        // its measured value above so the file is still accounted for.
+        out.eventCount = -1
+        out.lastTimestamp = undefined
+      } else {
+        out.eventCount = validCount
+        out.lastTimestamp = lastValidTimestamp
       }
     }
   } catch {
