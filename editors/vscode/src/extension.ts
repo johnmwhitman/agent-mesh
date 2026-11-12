@@ -15,6 +15,7 @@ import {
   type FleetView,
   type LedgerModel,
 } from "./model";
+import { LatestStartedRefresh } from "./refresh";
 
 function cliParts(): { cmd: string; baseArgs: string[] } {
   const raw = vscode.workspace.getConfiguration("meshfleet").get<string>("cliCommand", "npx -y --package=meshfleet -- agent-mesh");
@@ -157,21 +158,28 @@ export function activate(context: vscode.ExtensionContext): void {
   status.tooltip = "Verify ledger integrity";
   status.show();
 
+  const latestRefresh = new LatestStartedRefresh<LedgerModel>();
+
   async function refresh(): Promise<void> {
-    try {
-      const model = await loadModel();
-      fleets.setModel(model);
-      councils.setModel(model);
-      const verdict = await verifyLedger();
-      status.text = verdict.ok ? "$(shield) Meshfleet ✓" : "$(alert) Meshfleet ✗";
-      status.tooltip = verdict.summary;
-      status.backgroundColor = verdict.ok ? undefined : new vscode.ThemeColor("statusBarItem.errorBackground");
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      fleets.setError(msg);
-      status.text = "$(shield) Meshfleet — CLI not found?";
-      status.tooltip = `${msg}\n\nSet meshfleet.cliCommand (default: npx -y --package=meshfleet -- agent-mesh).`;
-    }
+    await latestRefresh.run(
+      { loadModel, verifyLedger },
+      {
+        setModel: (model) => {
+          fleets.setModel(model);
+          councils.setModel(model);
+        },
+        setStatus: (verdict) => {
+          status.text = verdict.ok ? "$(shield) Meshfleet ✓" : "$(alert) Meshfleet ✗";
+          status.tooltip = verdict.summary;
+          status.backgroundColor = verdict.ok ? undefined : new vscode.ThemeColor("statusBarItem.errorBackground");
+        },
+        setError: (msg) => {
+          fleets.setError(msg);
+          status.text = "$(shield) Meshfleet — CLI not found?";
+          status.tooltip = `${msg}\n\nSet meshfleet.cliCommand (default: npx -y --package=meshfleet -- agent-mesh).`;
+        },
+      },
+    );
   }
 
   context.subscriptions.push(
