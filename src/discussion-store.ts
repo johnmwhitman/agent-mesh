@@ -1,11 +1,11 @@
 /**
- * Discussion reservation/wake/reply store — INTERFACE + TYPES ONLY (D2 pre-stage).
+ * Discussion reservation/wake/reply store (D2 implementation).
  *
- * This module defines the contract the D2 red-test suite
- * (test/discussion-reservation.test.ts) is written against:
- * `createDiscussionStore(deps)`. Implementation is D2 proper (post-landing);
- * `createDiscussionStore` here is a throwing stub so the red suite fails ONLY
- * on "not implemented" — never on a type error, never on an accidental pass.
+ * This module implements the store layer driving multi-turn agent discussions
+ * via `createDiscussionStore(deps)`. Every mutating operation executes its
+ * authoritative validation and state transitions inside synchronous ledger
+ * transactions, with side effects (spawn, kill, notification, rendezvous waiting)
+ * managed strictly post-commit outside the transaction boundaries.
  *
  * Sources:
  *   - SUCCESSION/a2a-discussions/lane-1-cdx-discussions-api-design.md
