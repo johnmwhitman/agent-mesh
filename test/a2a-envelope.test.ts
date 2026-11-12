@@ -84,10 +84,17 @@ test("A2A v0.1 round-trips a valid envelope and preserves extensions", () => {
 });
 
 test("A2A v0.1 accepts all approved current message types", () => {
+  assert.equal(
+    new Set(A2A_MESSAGE_TYPES).size,
+    A2A_MESSAGE_TYPES.length,
+    "A2A_MESSAGE_TYPES must contain no duplicates",
+  );
   for (const type of A2A_MESSAGE_TYPES) {
     const input = direct() as Record<string, unknown>;
     input.type = type;
-    assert.equal(validateEnvelope(input).type, type);
+    const validated = validateEnvelope(input);
+    assert.equal(validated.type, type);
+    assert.deepEqual(validateEnvelope(validated), validated);
   }
 });
 
