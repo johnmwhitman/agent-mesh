@@ -200,7 +200,7 @@ function main(): void {
 
   if (args.includes('--events')) {
     const limitArg = args[args.indexOf('--events') + 1]
-    const limit = limitArg ? parseInt(limitArg, 10) || 20 : 20
+    const limit = limitArg === '0' ? 0 : parseInt(limitArg ?? '', 10) || 20
     printEvents(limit, jsonMode)
     return
   }
@@ -715,7 +715,7 @@ function printMetrics(json = false): void {
 }
 
 function printEvents(limit: number, json = false): void {
-  const events = readEventLog(limit)
+  const events = limit === 0 ? [] : readEventLog(limit)
   if (json) {
     process.stdout.write(
       JSON.stringify({ schema: INSPECT_JSON_SCHEMA, kind: 'events', data: events }, null, 2) + '\n'
