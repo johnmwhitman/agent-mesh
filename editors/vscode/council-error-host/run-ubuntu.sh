@@ -7,22 +7,27 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 EXTENSION_DIR=$(cd "$HERE/.." && pwd)
 ROOT=${AGENT_MESH_ROOT:-$(cd "$EXTENSION_DIR/../.." && pwd)}
 WORK=${WORK_DIR:-$(mktemp -d -t council-error-host-XXXXXX)}
-PINNED_PARENT=ba64af08ca4cefa0009edffc8b82dd58c2680f40
+# Tip parent is retained package; package parent is public tip ba64af08.
+PINNED_PARENT=1fe6e01548a79540cef45db787169e122511a98d
+PINNED_ROOT=ba64af08ca4cefa0009edffc8b82dd58c2680f40
 
 git -C "$ROOT" rev-parse HEAD >/dev/null
-# When CI sets GITHUB_SHA, require exact match to checkout HEAD.
 if [[ -n "${GITHUB_SHA:-}" ]]; then
   git -C "$ROOT" rev-parse HEAD | grep -qx "$GITHUB_SHA"
 fi
-# Parent of this test commit must be the pinned tip (verified after commit; on tip itself allow equal).
+HEAD=$(git -C "$ROOT" rev-parse HEAD)
 PARENT=$(git -C "$ROOT" rev-parse HEAD^)
-# Accept either: running ON the test commit (parent==PINNED_PARENT) or ON the tip before commit packaging.
-if [[ "$PARENT" != "$PINNED_PARENT" ]]; then
-  HEAD=$(git -C "$ROOT" rev-parse HEAD)
-  if [[ "$HEAD" != "$PINNED_PARENT" ]]; then
-    echo "unexpected parent=$PARENT head=$HEAD (want parent $PINNED_PARENT or head tip)" >&2
-    exit 2
-  fi
+if [[ "$HEAD" == "$PINNED_PARENT" ]]; then
+  # Running on retained package commit itself.
+  test "$PARENT" = "$PINNED_ROOT"
+elif [[ "$PARENT" == "$PINNED_PARENT" ]]; then
+  # Running on prelaunch tip whose parent is retained 1fe6e015.
+  :
+elif [[ "$HEAD" == "$PINNED_ROOT" ]]; then
+  :
+else
+  echo "unexpected head=$HEAD parent=$PARENT (want parent $PINNED_PARENT or head $PINNED_PARENT/$PINNED_ROOT)" >&2
+  exit 2
 fi
 
 if command -v xvfb-run >/dev/null 2>&1; then

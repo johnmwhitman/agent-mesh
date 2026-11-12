@@ -135,6 +135,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+        with:
+          fetch-depth: 2
 
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
@@ -146,7 +148,8 @@ jobs:
 
       - name: Verify SHA parent pins and run harness
         env:
-          PINNED_PARENT: ba64af08ca4cefa0009edffc8b82dd58c2680f40
+          # Immediate parent of this tip (retained package). Root tip ba64af08 is parent of 1fe6e015.
+          PINNED_PARENT: 1fe6e01548a79540cef45db787169e122511a98d
           EXT_PIN: 0a492c29c42d4d7ed3f16a04e7bc3a50626f19d90ab3bd1b40b3d3acd544b369
           TEST_PIN: e5e671f8f2b53bb9f1ae06114c695224a812b3f71e49afd0fac011757cc68410
         run: |
@@ -162,4 +165,3 @@ jobs:
           test -x editors/vscode/council-error-host/run-ubuntu.sh
           export AGENT_MESH_ROOT="$GITHUB_WORKSPACE"
           bash editors/vscode/council-error-host/run-ubuntu.sh
-

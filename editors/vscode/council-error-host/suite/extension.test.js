@@ -70,7 +70,8 @@ suite('Council-error Extension Host — marker held-A race', function () {
     // Hooks BEFORE any contributed refresh / activate.
     installHooks();
 
-    // Warm activate in benign success so activation's own initial refresh is not held A.
+    // Warm B: activate, then explicitly await contributed refresh — activate's
+    // void refresh() can still be in flight when activate() resolves.
     writeMode({ mode: 'B-success', hold: false });
     const ext =
       vscode.extensions.getExtension('meshfleet.meshfleet-inspector') ||
@@ -81,6 +82,7 @@ suite('Council-error Extension Host — marker held-A race', function () {
     assert.ok(providers.has('meshfleet.fleets'), 'hooks captured fleets provider');
     assert.ok(providers.has('meshfleet.councils'), 'hooks captured councils provider');
     assert.ok(statusItems.length > 0, 'hooks captured status item');
+    await vscode.commands.executeCommand('meshfleet.refresh');
     assert.deepEqual(await fleetIds(), ['B-fleet']);
     assert.deepEqual(await councilSubjects(), ['B-council']);
 
