@@ -1,8 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { mkdtempSync, rmSync } from "node:fs";
-import { createServer } from "node:net";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -102,89 +103,119 @@ test("dashboard CLI: --help outputs usage message to stdout and exits 0", async 
   }
 });
 
-test("dashboard CLI: startup against a temporary state directory binds an ephemeral localhost port and shuts down cleanly", async () => {
+function within<T>(operation: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+  return Promise.race([operation, deadline]).finally(() => clearTimeout(timer));
+}
+
+test("dashboard CLI: startup with isolated state connects to a localhost SSE fixture and shuts down", async () => {
   const stateDir = mkdtempSync(join(tmpdir(), "meshfleet-dashboard-cli-state-"));
   const dbFile = join(stateDir, "isolated-ledger.db");
   const eventLogFile = join(stateDir, "isolated-events.log");
   const dataFile = join(stateDir, "isolated-data.json");
 
-  // Allocate an ephemeral port on 127.0.0.1 to verify binding on localhost
-  const server = createServer();
-  const ephemeralPort = await new Promise<number>((resolve, reject) => {
-    server.listen(0, "127.0.0.1", () => {
-      const address = server.address();
-      if (!address || typeof address === "string") {
-        reject(new Error("Unable to obtain ephemeral port"));
-        return;
-      }
-      resolve(address.port);
-    });
-  });
-  await new Promise<void>((resolve, reject) => {
-    server.close((err) => (err ? reject(err) : resolve()));
+  let recordRequest!: (requestLine: string) => void;
+  const firstRequest = new Promise<string>((resolve) => { recordRequest = resolve; });
+  const server = createServer((request, response) => {
+    const requestLine = `${request.method} ${request.url}`;
+    recordRequest(requestLine);
+    if (requestLine !== "GET /events/stream") {
+      response.writeHead(404).end();
+      return;
+    }
+    response.writeHead(200, { "Content-Type": "text/event-stream" });
+    response.write(": dashboard CLI fixture\n\n");
   });
 
-  const child = spawn(
-    process.execPath,
-    ["--import", "tsx", CLI_PATH, "--interval", "100"],
-    {
-      cwd: process.cwd(),
-      env: {
-        ...process.env,
-        MESHFLEET_DB_FILE: dbFile,
-        MESHFLEET_EVENT_LOG_FILE: eventLogFile,
-        MESHFLEET_DATA_FILE: dataFile,
-        MESHFLEET_DATA_DIR: stateDir,
-        MESHFLEET_SSE_PORT: String(ephemeralPort),
-        MESHFLEET_SSE_HOST: "127.0.0.1",
-        http_proxy: "",
-        https_proxy: "",
-        all_proxy: "",
-      },
-      stdio: ["ignore", "pipe", "pipe"],
-    },
-  );
-
+  let child: ReturnType<typeof spawn> | undefined;
+  let terminal: Promise<{ code: number | null; signal: NodeJS.Signals | null }> | undefined;
+  let childClosed = false;
   let stdout = "";
   let stderr = "";
-  child.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString(); });
-  child.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString(); });
 
   try {
-    // Wait for the dashboard to render its initial view to stdout
-    const deadline = Date.now() + 5000;
-    while (Date.now() < deadline && !stdout.includes("Meshfleet Dashboard")) {
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
+    const listening = once(server, "listening");
+    server.listen(0, "127.0.0.1");
+    await within(listening, 5000, "SSE fixture did not listen within timeout");
+    const address = server.address();
+    assert.ok(address && typeof address !== "string", "expected an ephemeral TCP port");
 
-    assert.ok(
-      stdout.includes("Meshfleet Dashboard"),
-      `expected dashboard banner on stdout, got: ${stdout}; stderr: ${stderr}`,
+    const dashboard = spawn(
+      process.execPath,
+      ["--import", "tsx", CLI_PATH, "--interval", "100"],
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          MESHFLEET_DB_FILE: dbFile,
+          MESHFLEET_EVENT_LOG_FILE: eventLogFile,
+          MESHFLEET_DATA_FILE: dataFile,
+          MESHFLEET_DATA_DIR: stateDir,
+          MESHFLEET_SSE_PORT: String(address.port),
+          MESHFLEET_SSE_HOST: "127.0.0.1",
+          http_proxy: "",
+          https_proxy: "",
+          all_proxy: "",
+          no_proxy: "127.0.0.1",
+          NO_PROXY: "127.0.0.1",
+        },
+        stdio: ["ignore", "pipe", "pipe"],
+      },
     );
+    child = dashboard;
+    let childError: Error | undefined;
+    dashboard.on("error", (error) => { childError = error; });
+    terminal = new Promise((resolve) => {
+      dashboard.once("close", (code, signal) => {
+        childClosed = true;
+        resolve({ code, signal });
+      });
+    });
+    dashboard.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString(); });
+    const rendered = new Promise<void>((resolve) => {
+      dashboard.stdout.on("data", (chunk: Buffer) => {
+        stdout += chunk.toString();
+        if (stdout.includes("Meshfleet Dashboard") && stdout.includes("Recent Events (last 0)")) resolve();
+      });
+    });
+    const earlyExit = terminal.then(({ code, signal }) => {
+      throw childError ?? new Error(`Dashboard closed before SSE readiness (code=${code}, signal=${signal}); stderr: ${stderr}`);
+    });
+    const [, requestLine] = await within(
+      Promise.race([Promise.all([rendered, firstRequest]), earlyExit]),
+      10000,
+      "Dashboard did not render and connect to the SSE fixture within timeout",
+    );
+    assert.equal(requestLine, "GET /events/stream");
     assert.match(stdout, /Fleets \(0\)/);
     assert.match(stdout, /Recent Agents \(last 10\)/);
     assert.match(stdout, /Recent Events \(last 0\)/);
 
-    // Shut down cleanly via SIGTERM
-    child.kill("SIGTERM");
-
-    const exitPromise = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
-      child.on("exit", (code, signal) => resolve({ code, signal }));
-    });
-
-    const exitTimeout = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((_, reject) =>
-      setTimeout(() => reject(new Error("Dashboard process did not exit within timeout")), 5000),
-    );
-
-    const { code, signal } = await Promise.race([exitPromise, exitTimeout]);
-
-    // On POSIX, dashboard installs a SIGTERM handler that calls cleanup() and process.exit(0)
-    assert.equal(code, 0, `expected clean exit 0 on SIGTERM, saw code=${code}, signal=${signal}, stderr=${stderr}`);
+    assert.ok(dashboard.kill("SIGTERM"), "expected to signal the running dashboard");
+    const { code, signal } = await within(terminal, 5000, "Dashboard did not terminate after SIGTERM");
+    if (process.platform === "win32") {
+      assert.ok(code !== null || signal !== null, "expected the dashboard to terminate on Windows");
+    } else {
+      assert.equal(code, 0, `expected a clean handler-driven exit; signal=${signal}, stderr=${stderr}`);
+    }
     assert.equal(stderr, "");
   } finally {
-    if (child.exitCode === null && child.signalCode === null) {
-      child.kill("SIGKILL");
+    try {
+      if (child && terminal && !childClosed) {
+        if (child.pid !== undefined && child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+        await within(terminal, 5000, "Dashboard did not close during cleanup");
+      }
+    } finally {
+      const wasListening = server.listening;
+      const closed = new Promise<void>((resolve, reject) => {
+        server.close((error) => error && wasListening ? reject(error) : resolve());
+        server.closeAllConnections();
+      });
+      await within(closed, 5000, "SSE fixture did not close within timeout");
+      if (!child || childClosed) rmSync(stateDir, { recursive: true, force: true });
     }
-    rmSync(stateDir, { recursive: true, force: true });
   }
 });
