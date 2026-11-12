@@ -67,6 +67,7 @@ const USAGE = `agent-mesh inspect — CLI inspector for running fleets
 
   Usage:
   npx -y --package=meshfleet -- agent-mesh inspect                    Show all fleets
+  npx -y --package=meshfleet -- agent-mesh inspect --compact [--json]  Compact fleet list (one line per fleet)
   npx -y --package=meshfleet -- agent-mesh inspect <fleet_id>         Show one fleet and its agents
   npx -y --package=meshfleet -- agent-mesh inspect --metrics          Show summary metrics
   npx -y --package=meshfleet -- agent-mesh inspect --events [n]      Show recent events (default 20)
@@ -91,10 +92,12 @@ function main(): void {
   // (every documented inspect form carries the literal token) — strip it so a
   // positional ledger-file argument can never swallow the subcommand name.
   const argv = process.argv.slice(2)
-  if (argv[0] === 'inspect') argv.shift()
+  const explicitInspect = argv[0] === 'inspect'
+  if (explicitInspect) argv.shift()
+  const compactInspect = explicitInspect && argv.includes('--compact')
 
   // Subcommand dispatch (kept as ONE block at the top so parallel lanes merge cleanly).
-  if (argv[0] === 'demo') {
+  if (!compactInspect && argv[0] === 'demo') {
     try {
       const result = runDemo()
       process.exitCode = result.report.ok ? 0 : 1
@@ -109,7 +112,7 @@ function main(): void {
   const jsonMode = args.includes('--json')
   const explain = args.includes('--explain')
 
-  if (args[0] === 'doctor') {
+  if (!compactInspect && args[0] === 'doctor') {
     // Lazy import keeps this dispatch a single merge-clean block (no top-of-file
     // import hunk to conflict with parallel lanes touching this file).
     void import('../doctor.js').then((d) => d.doctorMain(args.slice(1)))
@@ -122,6 +125,24 @@ function main(): void {
   if (args.includes('--help') || args.includes('-h')) {
     process.stdout.write(USAGE)
     process.exit(0)
+  }
+
+  const compactCount = args.filter((arg) => arg === '--compact').length
+  if (compactCount > 0) {
+    const jsonCount = args.filter((arg) => arg === '--json').length
+    if (compactCount > 1 || jsonCount > 1) {
+      process.stderr.write('inspect: --compact and --json may each be given at most once\n')
+      process.exit(2)
+    }
+    const extra = args.filter((arg) => arg !== '--compact' && arg !== '--json')
+    if (extra.length > 0) {
+      process.stderr.write(
+        `inspect: --compact cannot be combined with ${extra.join(' ')}; use it alone or with --json\n`,
+      )
+      process.exit(2)
+    }
+    printCompactFleets(jsonCount === 1)
+    return
   }
 
   if (args[0] === 'timeline') {
@@ -578,6 +599,36 @@ function printAllFleets(): void {
   process.stdout.write(
     `\nTip: run \`npx -y --package=meshfleet -- agent-mesh inspect <fleet_id>\` to see agents in a fleet.\n`
   )
+}
+
+function printCompactFleets(json: boolean): void {
+  const fleets = listFleets()
+  if (json) {
+    const data = fleets.map((fleet) => ({
+      id: fleet.id,
+      status: fleet.status,
+      agent_count: fleet.agent_count,
+      agents_complete: fleet.agents_complete,
+      agents_failed: fleet.agents_failed,
+      agents_running: fleet.agents_running,
+    }))
+    process.stdout.write(
+      JSON.stringify({ schema: INSPECT_JSON_SCHEMA, kind: 'fleets-compact', data }, null, 2) + '\n',
+    )
+    return
+  }
+  if (fleets.length === 0) {
+    process.stdout.write('No fleets found. Run spawn_fleet from your OpenCode session.\n')
+    return
+  }
+  for (const fleet of fleets) {
+    const counts: string[] = []
+    if (fleet.agents_running > 0) counts.push(`${fleet.agents_running} running`)
+    if (fleet.agents_failed > 0) counts.push(`${fleet.agents_failed} failed`)
+    if (fleet.agents_complete > 0) counts.push(`${fleet.agents_complete} done`)
+    if (counts.length === 0) counts.push(`${fleet.agent_count} agents`)
+    process.stdout.write(`${fleet.id} ${fleet.status} ${counts.join(', ')}\n`)
+  }
 }
 
 function printOneFleet(fleetId: string, json = false): void {

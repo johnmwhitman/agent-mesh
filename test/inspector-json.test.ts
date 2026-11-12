@@ -374,3 +374,139 @@ test("inspect text events remain byte-compatible", () => {
     rmSync(home, { recursive: true, force: true });
   }
 });
+
+test("inspect compact lists fleets with counts", () => {
+  withCliLedger(
+    (dbFile) => {
+      const text = runInspect(dbFile, ["--compact"]);
+      assert.equal(text.status, 0);
+      assert.equal(text.stderr, "");
+      assert.equal(
+        text.stdout,
+        "fleet-long-1234567890 running 2 running, 1 failed\nz2 complete 0 agents\n",
+      );
+      const json = runInspect(dbFile, ["--compact", "--json"]);
+      assert.equal(json.status, 0);
+      assert.equal(json.stderr, "");
+      const parsed = JSON.parse(json.stdout);
+      assert.equal(parsed.schema, INSPECT_JSON_SCHEMA);
+      assert.equal(parsed.kind, "fleets-compact");
+      assert.deepEqual(parsed.data, [
+        {
+          id: "fleet-long-1234567890",
+          status: "running",
+          agent_count: 3,
+          agents_complete: 0,
+          agents_failed: 1,
+          agents_running: 2,
+        },
+        {
+          id: "z2",
+          status: "complete",
+          agent_count: 0,
+          agents_complete: 0,
+          agents_failed: 0,
+          agents_running: 0,
+        },
+      ]);
+      assert.deepEqual(Object.keys(parsed.data[0]), [
+        "id",
+        "status",
+        "agent_count",
+        "agents_complete",
+        "agents_failed",
+        "agents_running",
+      ]);
+    },
+    {
+      fleets: {
+        "fleet-long-1234567890": {
+          id: "fleet-long-1234567890",
+          status: "running",
+          created_at: 1_000,
+        },
+        z2: { id: "z2", status: "complete", created_at: 2_000 },
+      },
+      agents: {
+        a1: { id: "a1", fleet_id: "fleet-long-1234567890", role: "worker", prompt: "p", status: "running" },
+        a2: { id: "a2", fleet_id: "fleet-long-1234567890", role: "worker", prompt: "p", status: "running" },
+        a3: { id: "a3", fleet_id: "fleet-long-1234567890", role: "worker", prompt: "p", status: "failed" },
+      },
+      inboxes: { a1: [], a2: [], a3: [] },
+    },
+  );
+});
+
+test("inspect compact handles an empty ledger", () => {
+  withCliLedger(
+    (dbFile) => {
+      const text = runInspect(dbFile, ["--compact"]);
+      assert.equal(text.status, 0);
+      assert.equal(text.stdout, "No fleets found. Run spawn_fleet from your OpenCode session.\n");
+      const json = runInspect(dbFile, ["--compact", "--json"]);
+      assert.equal(json.status, 0);
+      assert.equal(
+        json.stdout,
+        JSON.stringify({ schema: INSPECT_JSON_SCHEMA, kind: "fleets-compact", data: [] }, null, 2) + "\n",
+      );
+    },
+    { fleets: {}, agents: {}, inboxes: {} },
+  );
+});
+
+test("inspect compact rejects unsupported combinations and duplicates", () => {
+  withCliLedger((dbFile) => {
+    for (const args of [
+      ["--compact", "f1"],
+      ["--compact", "--metrics"],
+      ["--compact", "--bogus"],
+      ["--compact", "--compact"],
+      ["--compact", "--json", "--json"],
+      ["inspect", "doctor", "--compact"],
+      ["inspect", "demo", "--compact"],
+    ]) {
+      const result = runInspect(dbFile, args);
+      assert.equal(result.status, 2, args.join(" "));
+      assert.match(result.stderr, /--compact/);
+      assert.equal(result.stdout, "");
+    }
+  });
+});
+
+test("inspect compact preserves ordinary fleet list bytes", () => {
+  withCliLedger((dbFile) => {
+    const text = runInspect(dbFile, []);
+    assert.equal(text.status, 0);
+    assert.equal(text.stderr, "");
+    assert.equal(
+      text.stdout,
+      "1 fleet:\n\nf1  complete  1 agents, 1 done (1.0s)\n\n" +
+        "Tip: run `npx -y --package=meshfleet -- agent-mesh inspect <fleet_id>` to see agents in a fleet.\n",
+    );
+    const json = runInspect(dbFile, ["--json"]);
+    assert.equal(json.status, 0);
+    assert.equal(json.stderr, "");
+    assert.equal(
+      json.stdout,
+      JSON.stringify({
+        schema: INSPECT_JSON_SCHEMA,
+        kind: "fleets",
+        data: [{
+          id: "f1",
+          status: "complete",
+          created_at: 1_000,
+          completed_at: 2_000,
+          agent_count: 1,
+          agents_complete: 1,
+          agents_failed: 0,
+          agents_running: 0,
+        }],
+      }, null, 2) + "\n",
+    );
+  }, {
+    fleets: { f1: { id: "f1", status: "complete", created_at: 1_000, completed_at: 2_000 } },
+    agents: {
+      a1: { id: "a1", fleet_id: "f1", role: "worker", prompt: "p", status: "complete" },
+    },
+  });
+});
