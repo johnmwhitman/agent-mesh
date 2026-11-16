@@ -87,10 +87,20 @@ Future versions will increment `CURRENT_SCHEMA_VERSION` and add a migration step
 | 0.6.0 | + save_fleet_template, list_fleet_templates, spawn_from_template | — |
 | 0.7.0 | + subscribe_inbox (SSE) | — |
 | 0.8.0 | (no new tools; retry/recovery/schema migration are behavior changes) | — |
-| 0.8.1 – 0.13.x | (no new tools; skill taxonomy is a library module, not a tool yet) | — |
+| 0.8.1 | (no new tools; skill taxonomy is a library module, not a tool yet) | — |
+| 0.8.2 | + record_routing_outcome | — |
+| 0.8.3 – 0.8.7 | (no new tools; synonym expansion, benchmarks, fleet template versioning and sharing, and the dashboard are library or CLI changes) | — |
+| 0.9.0 | + receipt, get_receipts (witnessed messaging) | — |
+| 0.10.0 | + open_ratification, cast_vote, tally_ratification (Councils) | — |
+| 0.11.0 | + sweep_ratifications | — |
+| 0.11.1 – 0.12.0 | (no new tools; first published release, then the SQLite ledger move) | — |
+| 0.13.0 | + send_messages, verify_ledger | — |
 | 0.14.0 – 0.15.x | (no new tools; stdio handshake and host-neutral launch configuration are covered by integration tests) | — |
 | 0.16.0 | + ask_peer, wake_agent, reply_discussion, get_discussion (Discussions) | see the input-validation note below |
 | 0.20.0 | + compile_route_candidates, recommend_route, verify_ledger_v2, verify_ledger_v3, plan_speculative_backlog (all advisory, projection, or read-only; no write authority) | ⚠️ `send_message` and `send_messages` schemas tightened and `verify_ledger` findings strengthened — see the narrowing note below |
+| 0.21.0 | + subscribe_events | — |
+| 0.21.3 | + record_work_receipt, get_work_receipt (first release tag containing them is v0.21.3; CHANGELOG does not name them) | — |
+| 0.21.4 | + get_build_identity (CHANGELOG 0.21.4; the code is already present in the v0.21.3 tag) | — |
 
 The additive `meshfleet/recommend-route` library subpath exposes only the pure
 advisory evaluator and validators over caller-supplied sanitized evidence. It is
