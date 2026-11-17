@@ -3,11 +3,13 @@ import assert from 'node:assert/strict'
 import {
   AGENT_SPAWN_STDIO,
   DEFAULT_AGENT_TIMEOUT_MS,
+  RunArgsInput,
   agentTimeoutMs,
   buildRunArgs,
   openCodeProviderNamespaceFromEnv,
   openCodeRequireModelEvidenceFromEnv,
   openCodeSessionEvidenceFromEnv,
+  resolveOpenCodeCliModel,
   validateOpenCodeProviderNamespace,
 } from '../src/spawn-config.js'
 
