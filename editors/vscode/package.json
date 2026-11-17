@@ -51,7 +51,7 @@
   },
   "scripts": {
     "compile": "tsc",
-    "test": "tsx --test src/model.test.ts",
+    "test": "tsx --test src/model.test.ts src/refresh.test.ts",
     "package": "vsce package"
   },
   "devDependencies": {

@@ -269,3 +269,122 @@ test('getHealth: abandoned fleets are counted even while another fleet is genuin
     assert.equal(health.abandoned_fleets, 1, 'and the inconsistency is still reported')
   } finally { cleanup() }
 })
+
+// ---------------------------------------------------------------------------
+// getHealth event evidence
+// ---------------------------------------------------------------------------
+
+test('getHealth event evidence: valid rows report count and last timestamp', () => {
+  const { cleanup, dir } = withTempDb()
+  try {
+    const content = [
+      '{"event":"started","timestamp":0,"extra":{"nested":true}}',
+      '',
+      '   ',
+      '{"event":"","timestamp":-12.5}',
+      '{"event":"finished","timestamp":1234567890}',
+      '',
+    ].join('\n')
+    writeFileSync(join(dir, 'events.log'), content)
+    const health = getHealth()
+    assert.equal(health.status, 'ok')
+    assert.equal(health.events, 3)
+    assert.equal(health.last_event_timestamp, 1234567890)
+    assert.equal(health.events_log_bytes, Buffer.byteLength(content, 'utf-8'))
+  } finally { cleanup() }
+})
+
+test('getHealth event evidence: empty and whitespace-only logs are healthy', () => {
+  const { cleanup, dir } = withTempDb()
+  try {
+    const eventsPath = join(dir, 'events.log')
+    let health = getHealth()
+    assert.equal(health.status, 'ok')
+    assert.equal(health.events, 0)
+    assert.equal(health.last_event_timestamp, undefined)
+    assert.equal(health.events_log_bytes, 0)
+
+    writeFileSync(eventsPath, '')
+    health = getHealth()
+    assert.equal(health.status, 'ok')
+    assert.equal(health.events, 0)
+    assert.equal(health.last_event_timestamp, undefined)
+    assert.equal(health.events_log_bytes, 0)
+
+    const whitespace = ' \n\n\t\n'
+    writeFileSync(eventsPath, whitespace)
+    health = getHealth()
+    assert.equal(health.status, 'ok')
+    assert.equal(health.events, 0)
+    assert.equal(health.last_event_timestamp, undefined)
+    assert.equal(health.events_log_bytes, Buffer.byteLength(whitespace, 'utf-8'))
+  } finally { cleanup() }
+})
+
+test('getHealth event evidence: malformed middle row hides count and timestamp', () => {
+  const { cleanup, dir } = withTempDb()
+  try {
+    const content = [
+      '{"event":"before","timestamp":111}',
+      'this is not json',
+      '{"event":"after","timestamp":222}',
+    ].join('\n')
+    writeFileSync(join(dir, 'events.log'), content)
+    const health = getHealth()
+    assert.equal(health.status, 'degraded')
+    assert.equal(health.events, -1)
+    assert.equal(health.last_event_timestamp, undefined)
+    assert.equal(health.events_log_bytes, Buffer.byteLength(content, 'utf-8'))
+    assert.equal(getLedgerSize(), health.ledger_bytes + Buffer.byteLength(content, 'utf-8'))
+    assert.ok(!('last_event_timestamp' in (JSON.parse(JSON.stringify(health)) as object)))
+  } finally { cleanup() }
+})
+
+test('getHealth event evidence: malformed tail hides count and timestamp', () => {
+  const { cleanup, dir } = withTempDb()
+  try {
+    const content = [
+      '{"event":"before","timestamp":111}',
+      '{"event":"tail","timestamp":',
+    ].join('\n')
+    writeFileSync(join(dir, 'events.log'), content)
+    const health = getHealth()
+    assert.equal(health.status, 'degraded')
+    assert.equal(health.events, -1)
+    assert.equal(health.last_event_timestamp, undefined)
+    assert.equal(health.events_log_bytes, Buffer.byteLength(content, 'utf-8'))
+    assert.ok(!('last_event_timestamp' in (JSON.parse(JSON.stringify(health)) as object)))
+  } finally { cleanup() }
+})
+
+test('getHealth event evidence: structurally invalid records hide count and timestamp', () => {
+  const { cleanup, dir } = withTempDb()
+  try {
+    const eventsPath = join(dir, 'events.log')
+    const invalidRows: Array<[string, string]> = [
+      ['missing timestamp', '{"event":"x"}'],
+      ['nonnumeric timestamp', '{"event":"x","timestamp":"123"}'],
+      ['nonfinite timestamp', '{"event":"x","timestamp":1e999}'],
+      ['non-string event', '{"event":123,"timestamp":123}'],
+      ['null record', 'null'],
+      ['array record', '[{"event":"x","timestamp":123}]'],
+    ]
+    for (const [label, row] of invalidRows) {
+      const content = [
+        '{"event":"before","timestamp":111}',
+        row,
+        '{"event":"after","timestamp":222}',
+      ].join('\n')
+      writeFileSync(eventsPath, content)
+      const health = getHealth()
+      assert.equal(health.status, 'degraded', label)
+      assert.equal(health.events, -1, label)
+      assert.equal(health.last_event_timestamp, undefined, label)
+      assert.equal(health.events_log_bytes, Buffer.byteLength(content, 'utf-8'), label)
+      assert.ok(
+        !('last_event_timestamp' in (JSON.parse(JSON.stringify(health)) as object)),
+        label,
+      )
+    }
+  } finally { cleanup() }
+})

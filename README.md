@@ -306,6 +306,38 @@ watching… no messages yet  (spawn a fleet or send_message from MCP)
 2026-07-22 09:14:03  handoff  agent-a → agent-b  msg=3f9c1a2b  {"task":"review PR #42"}
 ```
 
+From a built checkout (no npm release claim), compact inspect prints one full fleet ID per line with current status and available agent counts. Optional `--json` uses schema `meshfleet.inspect/v1` and kind `fleets-compact`.
+
+```bash
+$ node dist/bin/inspect.js inspect --compact
+fleet-synthetic-alpha-20261112-fullid running 2 running, 1 failed
+fleet-synthetic-beta-20261112 complete 1 failed, 1 done
+
+$ node dist/bin/inspect.js inspect --compact --json
+{
+  "schema": "meshfleet.inspect/v1",
+  "kind": "fleets-compact",
+  "data": [
+    {
+      "id": "fleet-synthetic-alpha-20261112-fullid",
+      "status": "running",
+      "agent_count": 3,
+      "agents_complete": 0,
+      "agents_failed": 1,
+      "agents_running": 2
+    },
+    {
+      "id": "fleet-synthetic-beta-20261112",
+      "status": "complete",
+      "agent_count": 2,
+      "agents_complete": 1,
+      "agents_failed": 1,
+      "agents_running": 0
+    }
+  ]
+}
+```
+
 Timeline bounds are optional digits-only epoch milliseconds, ISO dates
 (`YYYY-MM-DD`), or timezone-bearing ISO datetimes
 (`YYYY-MM-DDTHH:mm:ss[.fraction](Z|±HH:mm)`). Fractional precision is

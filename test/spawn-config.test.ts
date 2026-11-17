@@ -3,13 +3,11 @@ import assert from 'node:assert/strict'
 import {
   AGENT_SPAWN_STDIO,
   DEFAULT_AGENT_TIMEOUT_MS,
-  RunArgsInput,
   agentTimeoutMs,
   buildRunArgs,
   openCodeProviderNamespaceFromEnv,
   openCodeRequireModelEvidenceFromEnv,
   openCodeSessionEvidenceFromEnv,
-  resolveOpenCodeCliModel,
   validateOpenCodeProviderNamespace,
 } from '../src/spawn-config.js'
 
@@ -105,6 +103,58 @@ test('agentTimeoutMs: rejects invalid overrides', () => {
   assert.equal(agentTimeoutMs({ AGENT_MESH_AGENT_TIMEOUT_MS: '-5' }), DEFAULT_AGENT_TIMEOUT_MS)
 })
 
+test('spawn config prefers current env keys over legacy aliases', () => {
+  const env = {
+    MESHFLEET_AGENT_TIMEOUT_MS: '45000',
+    AGENT_MESH_AGENT_TIMEOUT_MS: '90000',
+    MESHFLEET_OPENCODE_PROVIDER_NAMESPACE: 'new-ns',
+    AGENT_MESH_OPENCODE_PROVIDER_NAMESPACE: 'old-ns',
+    MESHFLEET_OPENCODE_SESSION_DB: '/var/data/new.db',
+    AGENT_MESH_OPENCODE_SESSION_DB: '/var/data/old.db',
+    MESHFLEET_OPENCODE_REQUIRE_MODEL_EVIDENCE: 'true',
+    AGENT_MESH_OPENCODE_REQUIRE_MODEL_EVIDENCE: '0',
+  }
+
+  assert.equal(agentTimeoutMs(env), 45000)
+  assert.equal(openCodeProviderNamespaceFromEnv(env), 'new-ns')
+  assert.deepEqual(openCodeSessionEvidenceFromEnv(env), { dbPath: '/var/data/new.db' })
+  assert.equal(openCodeRequireModelEvidenceFromEnv(env), true)
+})
+
+test('spawn config falls back to legacy aliases when current env values are blank', () => {
+  const env = {
+    MESHFLEET_AGENT_TIMEOUT_MS: '',
+    AGENT_MESH_AGENT_TIMEOUT_MS: '75000',
+    MESHFLEET_OPENCODE_PROVIDER_NAMESPACE: '   ',
+    AGENT_MESH_OPENCODE_PROVIDER_NAMESPACE: 'legacy-ns',
+    MESHFLEET_OPENCODE_SESSION_DB: '',
+    AGENT_MESH_OPENCODE_SESSION_DB: '/var/data/legacy.db',
+    MESHFLEET_OPENCODE_REQUIRE_MODEL_EVIDENCE: '',
+    AGENT_MESH_OPENCODE_REQUIRE_MODEL_EVIDENCE: '1',
+  }
+
+  assert.equal(agentTimeoutMs(env), 75000)
+  assert.equal(openCodeProviderNamespaceFromEnv(env), 'legacy-ns')
+  assert.deepEqual(openCodeSessionEvidenceFromEnv(env), { dbPath: '/var/data/legacy.db' })
+  assert.equal(openCodeRequireModelEvidenceFromEnv(env), true)
+})
+
+test('provider namespace rejects backslashes and dots or underscores at either end', () => {
+  for (const namespace of [
+    'segment\\with\\backslashes',
+    '.leading-dot',
+    'trailing-dot.',
+    '_leading-underscore',
+    'trailing-underscore_',
+  ]) {
+    assert.throws(
+      () => validateOpenCodeProviderNamespace(namespace),
+      /Invalid OpenCode provider namespace/,
+      JSON.stringify(namespace),
+    )
+  }
+})
+
 test('edge cases: empty config falls back to defaults across all spawn-config helpers', () => {
   // Empty env config falls back to DEFAULT_AGENT_TIMEOUT_MS (30 mins)
   assert.equal(agentTimeoutMs({}), DEFAULT_AGENT_TIMEOUT_MS)
@@ -144,7 +194,6 @@ test('edge cases: empty config falls back to defaults across all spawn-config he
   assert.equal(defaultArgv.includes('--model'), false)
   assert.equal(defaultArgv.includes('--agent'), false)
 })
-
 test('edge cases: partial config merging and environment precedence', () => {
   // Merging partial RunArgsInput objects: base config with partial overrides
   const baseConfig: RunArgsInput = {
@@ -274,7 +323,6 @@ test('edge cases: partial config merging and environment precedence', () => {
     true,
   )
 })
-
 test('edge cases: unknown keys are ignored or rejected per documented behaviour', () => {
   // Unknown keys on RunArgsInput are ignored and do not leak into argv
   const syntheticInputWithUnknownKeys = {
