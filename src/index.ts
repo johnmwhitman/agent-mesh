@@ -81,7 +81,6 @@ import { isSseServerRunning, startSseServer, stopSseServer, subscribeInboxUrl, s
 import type { A2ATaskStatus } from "./a2a/http.js";
 import { createHeartbeat } from "./heartbeat.js";
 import {
-  computeBackoff,
   scheduleRetry as scheduleAgentRetry,
   shouldRetry as shouldAgentRetry,
 } from "./retry.js";
@@ -666,7 +665,6 @@ function handleRuntimeFailure(
     return;
   }
   const nextAttempt = attempt + 1;
-  const delayMs = computeBackoff(nextAttempt);
   // Which runtime just refused. `input.runtime` is absent on the default path, and the hop record
   // must name the runtime that actually ran, not the caller's silence about it.
   const currentRuntimeId = (input.runtime ? requireRuntimeAdapter(input.runtime) : runtimeAdapter).id;
@@ -689,17 +687,17 @@ function handleRuntimeFailure(
       timestamp: Date.now(),
     });
   }
+  const scheduled = scheduleAgentRetry(nextAttempt, () => {
+    trySpawn(nextInput, agentId, nextAttempt);
+  });
   appendEvent("agent_retry_scheduled", {
     agent_id: agentId,
     fleet_id: input.fleetId,
     from_attempt: attempt,
     to_attempt: nextAttempt,
-    delay_ms: delayMs,
+    delay_ms: scheduled.delayMs,
     last_error: failureDetail,
     timestamp: Date.now(),
-  });
-  scheduleAgentRetry(nextAttempt, () => {
-    trySpawn(nextInput, agentId, nextAttempt);
   });
   void stdout;
 }

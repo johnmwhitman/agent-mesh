@@ -86,6 +86,8 @@ export function shouldRetry(attempt: number): boolean {
 export interface RetryHandle {
   /** The underlying timer (exposed for tests). */
   r: ReturnType<typeof setTimeout> | undefined;
+  /** The millisecond count passed to setTimeout. Receipts must record this same value. */
+  delayMs: number;
   /** Cancel the scheduled retry. No-op if already fired. */
   cancel: () => void;
 }
@@ -100,8 +102,10 @@ export function scheduleRetry(
   baseMs: number = config.baseMs,
   jitter: boolean = config.jitter
 ): RetryHandle {
+  const delay = computeBackoff(attempt, baseMs, jitter);
   const handle: RetryHandle = {
     r: undefined,
+    delayMs: delay,
     cancel: () => {
       if (handle.r !== undefined) {
         clearTimeout(handle.r);
@@ -109,7 +113,6 @@ export function scheduleRetry(
       }
     },
   };
-  const delay = computeBackoff(attempt, baseMs, jitter);
   handle.r = setTimeout(() => {
     handle.r = undefined;
     fn();
