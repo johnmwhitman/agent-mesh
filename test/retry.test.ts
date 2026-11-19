@@ -1,4 +1,4 @@
-import { test } from 'node:test'
+import { test, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   computeBackoff,
@@ -19,6 +19,113 @@ test('retry: computeBackoff doubles per attempt (no jitter)', () => {
   } finally {
     resetRetryConfig()
   }
+})
+
+test('retry: zero max attempts disables retrying immediately', () => {
+  setRetryConfig({ maxAttempts: 0 })
+  try {
+    assert.equal(shouldRetry(0), false, 'attempt 0 fails shouldRetry when maxAttempts is 0')
+    assert.equal(shouldRetry(1), false, 'attempt 1 fails shouldRetry when maxAttempts is 0')
+    assert.equal(shouldRetry(2), false, 'attempt 2 fails shouldRetry when maxAttempts is 0')
+  } finally {
+    resetRetryConfig()
+  }
+})
+
+test('retry: success on the first attempt never schedules a retry', () => {
+  mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+  try {
+    let retriesScheduled = 0
+    let runs = 0
+
+    const executeAttempt = (attempt: number, succeed: boolean): string => {
+      runs++
+      if (succeed) {
+        return 'success'
+      }
+      if (shouldRetry(attempt)) {
+        retriesScheduled++
+        scheduleRetry(attempt, () => executeAttempt(attempt + 1, true), 1000, false)
+      }
+      return 'failed'
+    }
+
+    const result = executeAttempt(1, true)
+    assert.equal(result, 'success')
+    assert.equal(runs, 1, 'executed exactly once')
+    assert.equal(retriesScheduled, 0, 'zero retries scheduled')
+
+    mock.timers.tick(100_000)
+    assert.equal(runs, 1, 'no scheduled retry timer fired after advancing mock timers')
+  } finally {
+    mock.timers.reset()
+    resetRetryConfig()
+  }
+})
+
+test('retry: callback throwing a non-Error string propagates unchanged', () => {
+  mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+  try {
+    const stringSentinel = 'rejection: fatal string'
+    scheduleRetry(1, () => {
+      throw stringSentinel
+    }, 100, false)
+
+    assert.throws(
+      () => {
+        mock.timers.tick(100)
+      },
+      (err) => {
+        assert.equal(err, stringSentinel, 'string error propagated unchanged')
+        return true
+      }
+    )
+  } finally {
+    mock.timers.reset()
+    resetRetryConfig()
+  }
+})
+
+test('retry: callback throwing a non-Error object propagates unchanged', () => {
+  mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+  try {
+    const objectSentinel = { code: 'FATAL_FAULT', status: 500, retryable: false }
+    scheduleRetry(1, () => {
+      throw objectSentinel
+    }, 100, false)
+
+    assert.throws(
+      () => {
+        mock.timers.tick(100)
+      },
+      (err) => {
+        assert.deepEqual(err, objectSentinel, 'object error propagated unchanged')
+        return true
+      }
+    )
+  } finally {
+    mock.timers.reset()
+    resetRetryConfig()
+  }
+})
+
+test('retry: delay cap behavior — unbounded exponential growth (ceiling absence noted gap)', () => {
+  // Noted gap: computeBackoff does not implement a maximum delay ceiling (cap).
+  // Exponential backoff grows unbounded as attempt number increases (baseMs * 2^(attempt - 1)).
+  const base = 1000
+
+  assert.equal(computeBackoff(1, base, false), 1000)
+  assert.equal(computeBackoff(2, base, false), 2000)
+  assert.equal(computeBackoff(5, base, false), 16000)
+  assert.equal(computeBackoff(10, base, false), 512000)
+  assert.equal(computeBackoff(20, base, false), 524288000)
+
+  // With jitter (±20%), backoff scales with attempt without being clamped to any ceiling
+  const j5 = computeBackoff(5, base, true)
+  assert.ok(j5 >= 16000 * 0.8 && j5 <= 16000 * 1.2, `jitter on attempt 5: ${j5}`)
+
+  const j10 = computeBackoff(10, base, true)
+  assert.ok(j10 >= 512000 * 0.8 && j10 <= 512000 * 1.2, `jitter on attempt 10: ${j10}`)
 })
 
 test('retry: computeBackoff with jitter stays within ±20%', () => {
