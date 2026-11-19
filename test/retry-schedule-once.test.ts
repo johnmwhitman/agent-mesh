@@ -3,6 +3,17 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resetRetryConfig, scheduleRetry, settleRetryDelay } from "../src/retry.js";
 
+function stubSetTimeout(onDelay: (delay: number) => void): typeof setTimeout {
+  const stub = Object.assign(
+    (_handler: TimerHandler, delay?: number): ReturnType<typeof setTimeout> => {
+      onDelay(Number(delay));
+      return { unref() {} } as unknown as ReturnType<typeof setTimeout>;
+    },
+    { __promisify__: setTimeout.__promisify__ },
+  );
+  return stub as unknown as typeof setTimeout;
+}
+
 test("retry: one jitter sample is both the timer delay and the recorded delay", () => {
   const originalRandom = Math.random;
   const originalSetTimeout = globalThis.setTimeout;
@@ -12,10 +23,9 @@ test("retry: one jitter sample is both the timer delay and the recorded delay", 
     draws += 1;
     return 0;
   };
-  globalThis.setTimeout = ((_: TimerHandler, delay?: number) => {
-    timerDelays.push(Number(delay));
-    return { unref() {} } as unknown as ReturnType<typeof setTimeout>;
-  }) as typeof setTimeout;
+  globalThis.setTimeout = stubSetTimeout((delay) => {
+    timerDelays.push(delay);
+  });
   try {
     const scheduled = scheduleRetry(2, () => {}, 1000, true);
     assert.equal(draws, 1);
@@ -48,10 +58,9 @@ test("runtime failure records the scheduler delay instead of a second jitter dra
 function withStubTimer(run: (delays: number[]) => void): void {
   const originalSetTimeout = globalThis.setTimeout;
   const delays: number[] = [];
-  globalThis.setTimeout = ((_: TimerHandler, delay?: number) => {
-    delays.push(Number(delay));
-    return { unref() {} } as unknown as ReturnType<typeof setTimeout>;
-  }) as typeof setTimeout;
+  globalThis.setTimeout = stubSetTimeout((delay) => {
+    delays.push(delay);
+  });
   try {
     run(delays);
   } finally {

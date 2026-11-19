@@ -11,6 +11,17 @@ import {
   shouldRetry,
 } from "../src/retry.js";
 
+function stubSetTimeout(onDelay: (delay: number) => void): typeof setTimeout {
+  const stub = Object.assign(
+    (_handler: TimerHandler, delay?: number): ReturnType<typeof setTimeout> => {
+      onDelay(Number(delay));
+      return { unref() {} } as unknown as ReturnType<typeof setTimeout>;
+    },
+    { __promisify__: setTimeout.__promisify__ },
+  );
+  return stub as unknown as typeof setTimeout;
+}
+
 test("failure handler records 1ms when a 0.1ms base would otherwise floor to 0", () => {
   const text = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");
   const start = text.indexOf("function handleRuntimeFailure(");
@@ -23,10 +34,9 @@ test("failure handler records 1ms when a 0.1ms base would otherwise floor to 0",
   const events: Array<{ name: string; delay?: number; from?: number; to?: number }> = [];
   const arms: number[] = [];
   const original = globalThis.setTimeout;
-  globalThis.setTimeout = ((_: TimerHandler, delay?: number) => {
-    arms.push(Number(delay));
-    return { unref() {} } as unknown as ReturnType<typeof setTimeout>;
-  }) as typeof setTimeout;
+  globalThis.setTimeout = stubSetTimeout((delay) => {
+    arms.push(delay);
+  });
   try {
     const handleRuntimeFailure = vm.runInNewContext(`${outputText};handleRuntimeFailure`, {
       readLedger: () => ({ agents: { agent: { status: "running" } } }),
