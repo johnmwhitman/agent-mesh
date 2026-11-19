@@ -83,13 +83,69 @@ export function shouldRetry(attempt: number): boolean {
   return attempt < config.maxAttempts;
 }
 
+/** Largest delay Node will pass to the timer unchanged. A larger value becomes 1 ms. */
+export const MAX_SETTABLE_DELAY_MS = 2_147_483_647;
+
+export function delayIsSettable(delayMs: number): boolean {
+  return Number.isInteger(delayMs) && delayMs >= 0 && delayMs <= MAX_SETTABLE_DELAY_MS;
+}
+
 export interface RetryHandle {
   /** The underlying timer (exposed for tests). */
   r: ReturnType<typeof setTimeout> | undefined;
-  /** The millisecond count passed to setTimeout. Receipts must record this same value. */
+  /** Computed delay. When accepted, this is the value passed to setTimeout. */
   delayMs: number;
-  /** Cancel the scheduled retry. No-op if already fired. */
+  /** False when the delay cannot be armed. No timer exists in that case. */
+  accepted: boolean;
+  /** Cancel the scheduled retry. No-op if already fired or never armed. */
   cancel: () => void;
+}
+
+export type SettledRetry =
+  | { action: "schedule"; nextAttempt: number; delayMs: number }
+  | { action: "refuse"; attempts: number; delayMs: number };
+
+/**
+ * One backoff sample for the attempt that just failed.
+ * The attempt number passed to the backoff formula stays `failedAttempt + 1`.
+ * A delay Node would collapse is a refusal, and `attempts` stays the failed attempt.
+ */
+export function settleRetryDelay(
+  failedAttempt: number,
+  baseMs: number = config.baseMs,
+  jitter: boolean = config.jitter
+): SettledRetry {
+  const nextAttempt = failedAttempt + 1;
+  const delayMs = computeBackoff(nextAttempt, baseMs, jitter);
+  if (!delayIsSettable(delayMs)) {
+    return { action: "refuse", attempts: failedAttempt, delayMs };
+  }
+  return { action: "schedule", nextAttempt, delayMs };
+}
+
+/** Arm a delay that was already computed. Does not draw jitter again. */
+export function armComputedDelay(delayMs: number, fn: () => void): RetryHandle {
+  const handle: RetryHandle = {
+    r: undefined,
+    delayMs,
+    accepted: false,
+    cancel: () => {
+      if (handle.r !== undefined) {
+        clearTimeout(handle.r);
+        handle.r = undefined;
+      }
+    },
+  };
+  if (!delayIsSettable(delayMs)) return handle;
+  handle.accepted = true;
+  handle.r = setTimeout(() => {
+    handle.r = undefined;
+    fn();
+  }, delayMs);
+  if (typeof (handle.r as NodeJS.Timeout).unref === "function") {
+    (handle.r as NodeJS.Timeout).unref();
+  }
+  return handle;
 }
 
 /**
@@ -102,26 +158,5 @@ export function scheduleRetry(
   baseMs: number = config.baseMs,
   jitter: boolean = config.jitter
 ): RetryHandle {
-  const delay = computeBackoff(attempt, baseMs, jitter);
-  const handle: RetryHandle = {
-    r: undefined,
-    delayMs: delay,
-    cancel: () => {
-      if (handle.r !== undefined) {
-        clearTimeout(handle.r);
-        handle.r = undefined;
-      }
-    },
-  };
-  handle.r = setTimeout(() => {
-    handle.r = undefined;
-    fn();
-  }, delay);
-  // Unref so the timer doesn't prevent process exit if the parent process
-  // is shutting down. (The spawn path's `child.on('close')` already runs the
-  // process exit path, but unref is the safe default.)
-  if (typeof (handle.r as NodeJS.Timeout).unref === "function") {
-    (handle.r as NodeJS.Timeout).unref();
-  }
-  return handle;
+  return armComputedDelay(computeBackoff(attempt, baseMs, jitter), fn);
 }
