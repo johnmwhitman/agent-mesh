@@ -83,11 +83,82 @@ export function shouldRetry(attempt: number): boolean {
   return attempt < config.maxAttempts;
 }
 
+/** Largest delay Node will pass to the timer unchanged. A larger value becomes 1 ms. */
+export const MAX_SETTABLE_DELAY_MS = 2_147_483_647;
+
+export function delayIsSettable(delayMs: number): boolean {
+  return Number.isInteger(delayMs) && delayMs >= 0 && delayMs <= MAX_SETTABLE_DELAY_MS;
+}
+
+/**
+ * One conversion onto the delay Node will actually wait.
+ * A finite value below 1 ms is waited as 1 ms. A value above the 32-bit maximum
+ * is not schedulable; Node would also collapse that one to 1 ms, and it stays a refusal.
+ */
+export function effectiveScheduledDelay(delayMs: number): number | undefined {
+  if (!Number.isFinite(delayMs) || delayMs < 0 || delayMs > MAX_SETTABLE_DELAY_MS) return undefined;
+  if (delayMs < 1) return 1;
+  return Math.floor(delayMs);
+}
+
 export interface RetryHandle {
   /** The underlying timer (exposed for tests). */
   r: ReturnType<typeof setTimeout> | undefined;
-  /** Cancel the scheduled retry. No-op if already fired. */
+  /** Computed delay. When accepted, this is the value passed to setTimeout. */
+  delayMs: number;
+  /** False when the delay cannot be armed. No timer exists in that case. */
+  accepted: boolean;
+  /** Cancel the scheduled retry. No-op if already fired or never armed. */
   cancel: () => void;
+}
+
+export type SettledRetry =
+  | { action: "schedule"; nextAttempt: number; delayMs: number }
+  | { action: "refuse"; attempts: number; delayMs: number };
+
+/**
+ * One backoff sample for the attempt that just failed.
+ * The attempt number passed to the backoff formula stays `failedAttempt + 1`.
+ * The returned delay is the single normalized value for both the timer and the receipt.
+ * A delay above the 32-bit maximum is a refusal, and `attempts` stays the failed attempt.
+ */
+export function settleRetryDelay(
+  failedAttempt: number,
+  baseMs: number = config.baseMs,
+  jitter: boolean = config.jitter
+): SettledRetry {
+  const nextAttempt = failedAttempt + 1;
+  const raw = computeBackoff(nextAttempt, baseMs, jitter);
+  const delayMs = effectiveScheduledDelay(raw);
+  if (delayMs === undefined) {
+    return { action: "refuse", attempts: failedAttempt, delayMs: raw };
+  }
+  return { action: "schedule", nextAttempt, delayMs };
+}
+
+/** Arm a delay that was already computed. Does not draw jitter again. */
+export function armComputedDelay(delayMs: number, fn: () => void): RetryHandle {
+  const handle: RetryHandle = {
+    r: undefined,
+    delayMs,
+    accepted: false,
+    cancel: () => {
+      if (handle.r !== undefined) {
+        clearTimeout(handle.r);
+        handle.r = undefined;
+      }
+    },
+  };
+  if (!delayIsSettable(delayMs)) return handle;
+  handle.accepted = true;
+  handle.r = setTimeout(() => {
+    handle.r = undefined;
+    fn();
+  }, delayMs);
+  if (typeof (handle.r as NodeJS.Timeout).unref === "function") {
+    (handle.r as NodeJS.Timeout).unref();
+  }
+  return handle;
 }
 
 /**
@@ -100,25 +171,15 @@ export function scheduleRetry(
   baseMs: number = config.baseMs,
   jitter: boolean = config.jitter
 ): RetryHandle {
-  const handle: RetryHandle = {
-    r: undefined,
-    cancel: () => {
-      if (handle.r !== undefined) {
-        clearTimeout(handle.r);
-        handle.r = undefined;
-      }
-    },
-  };
-  const delay = computeBackoff(attempt, baseMs, jitter);
-  handle.r = setTimeout(() => {
-    handle.r = undefined;
-    fn();
-  }, delay);
-  // Unref so the timer doesn't prevent process exit if the parent process
-  // is shutting down. (The spawn path's `child.on('close')` already runs the
-  // process exit path, but unref is the safe default.)
-  if (typeof (handle.r as NodeJS.Timeout).unref === "function") {
-    (handle.r as NodeJS.Timeout).unref();
+  const raw = computeBackoff(attempt, baseMs, jitter);
+  const delayMs = effectiveScheduledDelay(raw);
+  if (delayMs === undefined) {
+    return {
+      r: undefined,
+      delayMs: raw,
+      accepted: false,
+      cancel: () => {},
+    };
   }
-  return handle;
+  return armComputedDelay(delayMs, fn);
 }

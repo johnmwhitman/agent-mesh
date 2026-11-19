@@ -81,8 +81,8 @@ import { isSseServerRunning, startSseServer, stopSseServer, subscribeInboxUrl, s
 import type { A2ATaskStatus } from "./a2a/http.js";
 import { createHeartbeat } from "./heartbeat.js";
 import {
-  computeBackoff,
-  scheduleRetry as scheduleAgentRetry,
+  armComputedDelay,
+  settleRetryDelay,
   shouldRetry as shouldAgentRetry,
 } from "./retry.js";
 import { recordRoutingOutcome } from "./routing-feedback.js";
@@ -665,8 +665,29 @@ function handleRuntimeFailure(
     );
     return;
   }
-  const nextAttempt = attempt + 1;
-  const delayMs = computeBackoff(nextAttempt);
+  const settled = settleRetryDelay(attempt);
+  if (settled.action === "refuse") {
+    appendEvent("agent_failed_permanent", {
+      agent_id: agentId,
+      fleet_id: input.fleetId,
+      attempts: settled.attempts,
+      last_error: `Retry delay ${settled.delayMs}ms is outside 0..2147483647. ${failureDetail}`,
+      timestamp: Date.now(),
+    });
+    markAgentFinished(
+      agentId,
+      "failed",
+      stdout,
+      `Retry delay ${settled.delayMs}ms cannot be scheduled after attempt ${settled.attempts}. Last error: ${failureDetail}`,
+      runtimeAgent,
+      runtimeModel,
+      undefined,
+      resultContract,
+    );
+    return;
+  }
+  const nextAttempt = settled.nextAttempt;
+  const delayMs = settled.delayMs;
   // Which runtime just refused. `input.runtime` is absent on the default path, and the hop record
   // must name the runtime that actually ran, not the caller's silence about it.
   const currentRuntimeId = (input.runtime ? requireRuntimeAdapter(input.runtime) : runtimeAdapter).id;
@@ -689,17 +710,17 @@ function handleRuntimeFailure(
       timestamp: Date.now(),
     });
   }
+  const scheduled = armComputedDelay(delayMs, () => {
+    trySpawn(nextInput, agentId, nextAttempt);
+  });
   appendEvent("agent_retry_scheduled", {
     agent_id: agentId,
     fleet_id: input.fleetId,
     from_attempt: attempt,
     to_attempt: nextAttempt,
-    delay_ms: delayMs,
+    delay_ms: scheduled.delayMs,
     last_error: failureDetail,
     timestamp: Date.now(),
-  });
-  scheduleAgentRetry(nextAttempt, () => {
-    trySpawn(nextInput, agentId, nextAttempt);
   });
   void stdout;
 }
