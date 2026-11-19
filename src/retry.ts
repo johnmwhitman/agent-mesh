@@ -90,6 +90,17 @@ export function delayIsSettable(delayMs: number): boolean {
   return Number.isInteger(delayMs) && delayMs >= 0 && delayMs <= MAX_SETTABLE_DELAY_MS;
 }
 
+/**
+ * One conversion onto the delay Node will actually wait.
+ * A finite value below 1 ms is waited as 1 ms. A value above the 32-bit maximum
+ * is not schedulable; Node would also collapse that one to 1 ms, and it stays a refusal.
+ */
+export function effectiveScheduledDelay(delayMs: number): number | undefined {
+  if (!Number.isFinite(delayMs) || delayMs < 0 || delayMs > MAX_SETTABLE_DELAY_MS) return undefined;
+  if (delayMs < 1) return 1;
+  return Math.floor(delayMs);
+}
+
 export interface RetryHandle {
   /** The underlying timer (exposed for tests). */
   r: ReturnType<typeof setTimeout> | undefined;
@@ -108,7 +119,8 @@ export type SettledRetry =
 /**
  * One backoff sample for the attempt that just failed.
  * The attempt number passed to the backoff formula stays `failedAttempt + 1`.
- * A delay Node would collapse is a refusal, and `attempts` stays the failed attempt.
+ * The returned delay is the single normalized value for both the timer and the receipt.
+ * A delay above the 32-bit maximum is a refusal, and `attempts` stays the failed attempt.
  */
 export function settleRetryDelay(
   failedAttempt: number,
@@ -116,9 +128,10 @@ export function settleRetryDelay(
   jitter: boolean = config.jitter
 ): SettledRetry {
   const nextAttempt = failedAttempt + 1;
-  const delayMs = computeBackoff(nextAttempt, baseMs, jitter);
-  if (!delayIsSettable(delayMs)) {
-    return { action: "refuse", attempts: failedAttempt, delayMs };
+  const raw = computeBackoff(nextAttempt, baseMs, jitter);
+  const delayMs = effectiveScheduledDelay(raw);
+  if (delayMs === undefined) {
+    return { action: "refuse", attempts: failedAttempt, delayMs: raw };
   }
   return { action: "schedule", nextAttempt, delayMs };
 }
@@ -158,5 +171,15 @@ export function scheduleRetry(
   baseMs: number = config.baseMs,
   jitter: boolean = config.jitter
 ): RetryHandle {
-  return armComputedDelay(computeBackoff(attempt, baseMs, jitter), fn);
+  const raw = computeBackoff(attempt, baseMs, jitter);
+  const delayMs = effectiveScheduledDelay(raw);
+  if (delayMs === undefined) {
+    return {
+      r: undefined,
+      delayMs: raw,
+      accepted: false,
+      cancel: () => {},
+    };
+  }
+  return armComputedDelay(delayMs, fn);
 }
